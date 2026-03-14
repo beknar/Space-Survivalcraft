@@ -56,15 +56,14 @@ class PlayerShip(arcade.Sprite):
     def __init__(self) -> None:
         sheet = os.path.join(SHMUP_DIR, "shmup_player.png")
 
-        # Auto-detect per-frame dimensions from the sheet
-        from PIL import Image
-        with Image.open(sheet) as img:
-            fw = img.width // self._COLS
-            fh = img.height // self._ROWS
-
-        # Use the first frame (row 0, col 0) — top-left of the sheet
-        texture = arcade.load_texture(sheet, x=0, y=0, width=fw, height=fh)
-        super().__init__(texture=texture, scale=1.5)
+        # In Arcade 3.x, load_spritesheet() returns a SpriteSheet object.
+        # Use get_texture(rect) to extract individual frames.
+        ss = arcade.load_spritesheet(sheet)
+        fw = ss.image.width // self._COLS
+        fh = ss.image.height // self._ROWS
+        # Frame 0: top-left region of the sheet (row 0, col 0)
+        texture = ss.get_texture(arcade.LBWH(0, 0, fw, fh))
+        super().__init__(path_or_texture=texture, scale=1.5)
 
         # Start at world centre
         self.center_x = WORLD_WIDTH / 2
