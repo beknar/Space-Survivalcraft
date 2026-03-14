@@ -21,6 +21,51 @@ A space-themed survival crafting game. Players pilot a spaceship, gather materia
 - `.gitignore` excludes: `.vscode/`, `PROPOSAL.md`, `.markdownlint*`, `venv/`, `__pycache__/`, `*.pyc`, `assets/`
 - Python venv at `venv/` with `arcade` and dependencies installed
 
+## Implementation
+
+### main.py
+
+Entry point and all game code for the first iteration. Run with:
+
+```bash
+python main.py
+```
+
+#### Window layout
+
+- Total window: 1280×800
+- Status panel: left 213px (drawn as UI overlay)
+- World viewport: remaining 1067×800 (world camera renders full-screen, panel overlays left side)
+
+#### World
+
+- Size: 6400×6400 px (200×32-px tiles)
+- Background: tiled `Starfield_01-1024x1024.png` from SBS Seamless Space Backgrounds pack
+- Camera: `arcade.camera.Camera2D`, follows player, clamped at world edges
+
+#### PlayerShip (`arcade.Sprite`)
+
+- Sprite: first frame (row 0, col 0) of `assets/ShmupAssets_V1/shmup_player.png` (4×3 sheet, size auto-detected via PIL)
+- Scale: 1.5×
+- Physics: Newtonian — acceleration, speed cap (450 px/s), per-frame damping (0.985)
+- Starts at world centre (3200, 3200)
+
+#### Controls
+
+| Action | Keyboard | Xbox 360 Gamepad |
+|---|---|---|
+| Rotate left | Left / A | Left stick left |
+| Rotate right | Right / D | Left stick right |
+| Thrust forward | Up / W | Left stick up |
+| Brake/reverse | Down / S | Left stick down |
+| Quit | Escape | — |
+
+Rotation speed: 150 °/s. Thrust: 250 px/s². Gamepad dead zone: 0.15.
+
+#### Status panel (HUD)
+
+Placeholder implementation showing: speed readout, heading readout, full HP bar, full shield bar, controls reference, gamepad connection status.
+
 ## Architecture
 
 ### Screen Layout
