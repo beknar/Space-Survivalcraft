@@ -21,8 +21,8 @@ BG_TILE: int = 1024              # Starfield texture is 1024×1024
 
 # ── Player physics ──────────────────────────────────────────────────────────
 ROT_SPEED: float = 150.0         # deg / s
-THRUST: float = 250.0            # px / s²
-BRAKE: float = 125.0             # px / s²  (reverse thrust)
+THRUST: float = 312.5            # px / s²
+BRAKE: float = 156.25            # px / s²  (reverse thrust)
 MAX_SPD: float = 450.0           # px / s cap
 DAMPING: float = 0.985           # per-frame velocity multiplier (space drag)
 
