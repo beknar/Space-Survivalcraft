@@ -51,20 +51,27 @@ class PlayerShip(arcade.Sprite):
     Gamepad   : Left-stick X to rotate, left-stick Y to thrust/brake.
     """
 
-    _COLS = 4   # columns in shmup_player.png sprite sheet
-    _ROWS = 3   # rows
+    _COLS = 4       # animation columns per row
+    _ROWS = 3       # rows: 0 = idle glow, 1 = medium thrust, 2 = full blaze
+    _ANIM_FPS = 8   # thruster animation speed (frames/s)
 
     def __init__(self) -> None:
         sheet = os.path.join(SHMUP_DIR, "shmup_player.png")
 
-        # In Arcade 3.x, load_spritesheet() returns a SpriteSheet object.
-        # Use get_texture(rect) to extract individual frames.
         ss = arcade.load_spritesheet(sheet)
         fw = ss.image.width // self._COLS
         fh = ss.image.height // self._ROWS
-        # Frame 0: top-left region of the sheet (row 0, col 0)
-        texture = ss.get_texture(arcade.LBWH(0, 0, fw, fh))
-        super().__init__(path_or_texture=texture, scale=1.5)
+
+        # Load all 12 frames: _frames[row][col]
+        self._frames: list[list] = [
+            [
+                ss.get_texture(arcade.LBWH(col * fw, row * fh, fw, fh))
+                for col in range(self._COLS)
+            ]
+            for row in range(self._ROWS)
+        ]
+
+        super().__init__(path_or_texture=self._frames[0][0], scale=1.5)
 
         # Start at world centre
         self.center_x = WORLD_WIDTH / 2
@@ -75,6 +82,11 @@ class PlayerShip(arcade.Sprite):
         # Compass heading: 0 = north/up, increases clockwise (matches Arcade's
         # CW-positive sprite angle convention).  Direct-mapped to self.angle.
         self.heading: float = 0.0
+
+        # Thruster animation state
+        self._intensity: float = 0.15   # 0 = off, 1 = full blaze
+        self._anim_timer: float = 0.0
+        self._anim_col: int = 0
 
     def apply_input(
         self,
@@ -123,6 +135,25 @@ class PlayerShip(arcade.Sprite):
                                     self.center_x + self.vel_x * dt))
         self.center_y = max(hh, min(WORLD_HEIGHT - hh,
                                     self.center_y + self.vel_y * dt))
+
+        # ── Thruster intensity ───────────────────────────────────────────────
+        # Ramp up when thrusting forward, ramp down when braking or coasting.
+        if thrust_fwd:
+            self._intensity = min(1.0, self._intensity + 4.0 * dt)
+        elif thrust_bwd:
+            self._intensity = max(0.0, self._intensity - 6.0 * dt)
+        else:
+            # Coast back to a faint idle glow
+            self._intensity = max(0.12, self._intensity - 2.5 * dt)
+
+        # ── Thruster animation ───────────────────────────────────────────────
+        self._anim_timer += dt
+        if self._anim_timer >= 1.0 / self._ANIM_FPS:
+            self._anim_timer -= 1.0 / self._ANIM_FPS
+            self._anim_col = (self._anim_col + 1) % self._COLS
+
+        row = min(self._ROWS - 1, int(self._intensity * self._ROWS))
+        self.texture = self._frames[row][self._anim_col]
 
 
 # ── Game view ────────────────────────────────────────────────────────────────
