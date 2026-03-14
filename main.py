@@ -71,8 +71,9 @@ class PlayerShip(arcade.Sprite):
 
         self.vel_x: float = 0.0
         self.vel_y: float = 0.0
-        # heading: 90° = up, matching the sprite's natural orientation
-        self.heading: float = 90.0
+        # Compass heading: 0 = north/up, increases clockwise (matches Arcade's
+        # CW-positive sprite angle convention).  Direct-mapped to self.angle.
+        self.heading: float = 0.0
 
     def apply_input(
         self,
@@ -82,24 +83,27 @@ class PlayerShip(arcade.Sprite):
         thrust_fwd: bool,
         thrust_bwd: bool,
     ) -> None:
-        # Rotation
+        # Rotation — A/Left = CCW (heading decreases), D/Right = CW (increases)
         if rotate_left:
-            self.heading = (self.heading + ROT_SPEED * dt) % 360
-        if rotate_right:
             self.heading = (self.heading - ROT_SPEED * dt) % 360
+        if rotate_right:
+            self.heading = (self.heading + ROT_SPEED * dt) % 360
 
-        # Sprite visual rotation:
-        #   sprite faces up at angle=0; heading 90° = up → offset by -90
-        self.angle = self.heading - 90.0
+        # Sprite visual angle maps 1:1 to compass heading (Arcade is CW-positive)
+        self.angle = self.heading
 
-        # Thrust along current heading
+        # Thrust along visual nose direction.
+        # Compass heading → Cartesian: vel_x = sin(h), vel_y = cos(h)
+        #   heading=0   (up):    sin=0,  cos=1  → (0, +1)  ✓
+        #   heading=90  (right): sin=1,  cos=0  → (+1, 0)  ✓
+        #   heading=180 (down):  sin=0,  cos=-1 → (0, -1)  ✓
         rad = math.radians(self.heading)
         if thrust_fwd:
-            self.vel_x += math.cos(rad) * THRUST * dt
-            self.vel_y += math.sin(rad) * THRUST * dt
+            self.vel_x += math.sin(rad) * THRUST * dt
+            self.vel_y += math.cos(rad) * THRUST * dt
         if thrust_bwd:
-            self.vel_x -= math.cos(rad) * BRAKE * dt
-            self.vel_y -= math.sin(rad) * BRAKE * dt
+            self.vel_x -= math.sin(rad) * BRAKE * dt
+            self.vel_y -= math.cos(rad) * BRAKE * dt
 
         # Speed cap
         spd = math.hypot(self.vel_x, self.vel_y)
@@ -152,6 +156,35 @@ class GameView(arcade.View):
             self.joystick.open()
             print(f"Gamepad connected: {self.joystick.device.name}")
 
+        # Pre-built Text objects for the HUD (avoids per-frame draw_text cost)
+        cx = STATUS_WIDTH // 2
+        self._t_title   = arcade.Text("STATUS", cx, SCREEN_HEIGHT - 26,
+                                      arcade.color.LIGHT_BLUE, 14, bold=True,
+                                      anchor_x="center", anchor_y="center")
+        self._t_spd     = arcade.Text("", 10, SCREEN_HEIGHT - 60,
+                                      arcade.color.WHITE, 11)
+        self._t_hdg     = arcade.Text("", 10, SCREEN_HEIGHT - 80,
+                                      arcade.color.WHITE, 11)
+        self._t_hp      = arcade.Text("HP",     10, SCREEN_HEIGHT - 120,
+                                      arcade.color.LIME_GREEN, 10, bold=True)
+        self._t_shield  = arcade.Text("SHIELD", 10, SCREEN_HEIGHT - 156,
+                                      arcade.color.CYAN, 10, bold=True)
+        self._t_ctrl_hdr = arcade.Text("CONTROLS", cx, SCREEN_HEIGHT - 206,
+                                       arcade.color.LIGHT_GRAY, 9,
+                                       anchor_x="center")
+        self._t_ctrl_lines = [
+            arcade.Text("Left/Right  Rotate", 10, SCREEN_HEIGHT - 224,
+                        arcade.color.LIGHT_GRAY, 9),
+            arcade.Text("Up / W      Thrust", 10, SCREEN_HEIGHT - 242,
+                        arcade.color.LIGHT_GRAY, 9),
+            arcade.Text("Down / S    Brake",  10, SCREEN_HEIGHT - 260,
+                        arcade.color.LIGHT_GRAY, 9),
+        ]
+        self._t_gamepad = arcade.Text(
+            "Gamepad: connected", 10, SCREEN_HEIGHT - 286,
+            arcade.color.LIME_GREEN, 9,
+        ) if self.joystick else None
+
     # ── Drawing ──────────────────────────────────────────────────────────────
     def on_draw(self) -> None:
         self.clear()
@@ -202,50 +235,31 @@ class GameView(arcade.View):
             border_width=2,
         )
 
-        # Title
-        arcade.draw_text(
-            "STATUS", STATUS_WIDTH // 2, SCREEN_HEIGHT - 26,
-            arcade.color.LIGHT_BLUE, 14, bold=True,
-            anchor_x="center", anchor_y="center",
-        )
+        # Static labels
+        self._t_title.draw()
+        self._t_hp.draw()
+        self._t_shield.draw()
+        self._t_ctrl_hdr.draw()
+        for t in self._t_ctrl_lines:
+            t.draw()
+        if self._t_gamepad:
+            self._t_gamepad.draw()
 
-        # Speed and heading readouts
+        # Dynamic readouts (update text then draw)
         spd = math.hypot(self.player.vel_x, self.player.vel_y)
-        y = SCREEN_HEIGHT - 60
-        arcade.draw_text(f"SPD   {spd:>7.1f}", 10, y,
-                         arcade.color.WHITE, 11)
-        arcade.draw_text(f"HDG   {self.player.heading:>6.1f}\u00b0", 10, y - 20,
-                         arcade.color.WHITE, 11)
+        self._t_spd.text = f"SPD   {spd:>7.1f}"
+        self._t_spd.draw()
+        self._t_hdg.text = f"HDG   {self.player.heading:>6.1f}\u00b0"
+        self._t_hdg.draw()
 
         # HP bar (placeholder — full)
-        y -= 60
-        arcade.draw_text("HP", 10, y, arcade.color.LIME_GREEN, 10, bold=True)
-        arcade.draw_rect_filled(arcade.LBWH(10, y - 16, 190, 10), (0, 180, 0))
-
-        # Shield bar (placeholder — full)
-        y -= 36
-        arcade.draw_text("SHIELD", 10, y, arcade.color.CYAN, 10, bold=True)
-        arcade.draw_rect_filled(arcade.LBWH(10, y - 16, 190, 10), (0, 140, 210))
-
-        # Controls reference
-        y -= 50
-        arcade.draw_text(
-            "CONTROLS", STATUS_WIDTH // 2, y,
-            arcade.color.LIGHT_GRAY, 9, anchor_x="center",
+        arcade.draw_rect_filled(
+            arcade.LBWH(10, SCREEN_HEIGHT - 136, 190, 10), (0, 180, 0)
         )
-        for line in (
-            "Left/Right  Rotate",
-            "Up / W      Thrust",
-            "Down / S    Brake",
-        ):
-            y -= 18
-            arcade.draw_text(line, 10, y, arcade.color.LIGHT_GRAY, 9)
-
-        if self.joystick:
-            y -= 26
-            arcade.draw_text(
-                "Gamepad: connected", 10, y, arcade.color.LIME_GREEN, 9,
-            )
+        # Shield bar (placeholder — full)
+        arcade.draw_rect_filled(
+            arcade.LBWH(10, SCREEN_HEIGHT - 172, 190, 10), (0, 140, 210)
+        )
 
     # ── Update ───────────────────────────────────────────────────────────────
     def on_update(self, delta_time: float) -> None:
