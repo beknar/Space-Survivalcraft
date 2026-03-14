@@ -137,22 +137,25 @@ class PlayerShip(arcade.Sprite):
                                     self.center_y + self.vel_y * dt))
 
         # ── Thruster intensity ───────────────────────────────────────────────
-        # Ramp up when thrusting forward, ramp down when braking or coasting.
         if thrust_fwd:
             self._intensity = min(1.0, self._intensity + 4.0 * dt)
-        elif thrust_bwd:
-            self._intensity = max(0.0, self._intensity - 6.0 * dt)
         else:
-            # Coast back to a faint idle glow
-            self._intensity = max(0.12, self._intensity - 2.5 * dt)
+            # Ramp down immediately when not thrusting forward (braking or coasting)
+            self._intensity = max(0.0, self._intensity - 6.0 * dt)
 
         # ── Thruster animation ───────────────────────────────────────────────
-        self._anim_timer += dt
-        if self._anim_timer >= 1.0 / self._ANIM_FPS:
-            self._anim_timer -= 1.0 / self._ANIM_FPS
-            self._anim_col = (self._anim_col + 1) % self._COLS
+        if self._intensity > 0.0:
+            self._anim_timer += dt
+            if self._anim_timer >= 1.0 / self._ANIM_FPS:
+                self._anim_timer -= 1.0 / self._ANIM_FPS
+                self._anim_col = (self._anim_col + 1) % self._COLS
+            row = min(self._ROWS - 1, int(self._intensity * self._ROWS))
+        else:
+            # Thruster off — freeze on the dark base frame
+            self._anim_timer = 0.0
+            self._anim_col = 0
+            row = 0
 
-        row = min(self._ROWS - 1, int(self._intensity * self._ROWS))
         self.texture = self._frames[row][self._anim_col]
 
 
