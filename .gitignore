@@ -1,0 +1,7 @@
+.vscode/
+PROPOSAL.md
+.markdownlint*
+venv/
+__pycache__/
+*.pyc
+assets/
