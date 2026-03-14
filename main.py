@@ -6,6 +6,7 @@ import os
 
 import arcade
 import arcade.camera
+import pyglet.input
 
 # ── Window / World ──────────────────────────────────────────────────────────
 SCREEN_WIDTH: int = 1280
@@ -148,13 +149,14 @@ class GameView(arcade.View):
         # Held-key tracking
         self._keys: set[int] = set()
 
-        # Gamepad
+        # Gamepad — Xbox controllers use XInput (pyglet Controller API).
+        # arcade.get_joysticks() uses DirectInput and misses Xbox pads.
         self.joystick = None
-        joysticks = arcade.get_joysticks()
-        if joysticks:
-            self.joystick = joysticks[0]
+        controllers = pyglet.input.get_controllers()
+        if controllers:
+            self.joystick = controllers[0]
             self.joystick.open()
-            print(f"Gamepad connected: {self.joystick.device.name}")
+            print(f"Gamepad connected: {self.joystick.name}")
 
         # Pre-built Text objects for the HUD (avoids per-frame draw_text cost)
         cx = STATUS_WIDTH // 2
@@ -269,12 +271,12 @@ class GameView(arcade.View):
         tb = arcade.key.DOWN in self._keys or arcade.key.S in self._keys
 
         if self.joystick:
-            lx = self.joystick.x   # left stick X: -1 = left, +1 = right
-            ly = self.joystick.y   # left stick Y: -1 = up (forward), +1 = down
+            lx = self.joystick.leftx   # -1 = left,    +1 = right
+            ly = self.joystick.lefty   # +1 = up/fwd,  -1 = down/brake (XInput Y-up)
             rl |= lx < -DEAD_ZONE
             rr |= lx > DEAD_ZONE
-            tf |= ly < -DEAD_ZONE
-            tb |= ly > DEAD_ZONE
+            tf |= ly >  DEAD_ZONE
+            tb |= ly < -DEAD_ZONE
 
         self.player.apply_input(delta_time, rl, rr, tf, tb)
 
