@@ -144,20 +144,17 @@ class PlayerShip(arcade.Sprite):
             self._intensity = max(0.0, self._intensity - 6.0 * dt)
 
         # ── Thruster animation ───────────────────────────────────────────────
+        # Row 0 only — rows 1 and 2 show nose/wing weapon effects.
         if self._intensity > 0.0:
             self._anim_timer += dt
             if self._anim_timer >= 1.0 / self._ANIM_FPS:
                 self._anim_timer -= 1.0 / self._ANIM_FPS
-                # Only cycle columns 0–1: cols 2–3 show wing turrets firing
-                self._anim_col = (self._anim_col + 1) % 2
-            row = min(self._ROWS - 1, int(self._intensity * self._ROWS))
+                self._anim_col = (self._anim_col + 1) % self._COLS
         else:
-            # Thruster off — freeze on the dark base frame
             self._anim_timer = 0.0
             self._anim_col = 0
-            row = 0
 
-        self.texture = self._frames[row][self._anim_col]
+        self.texture = self._frames[0][self._anim_col]
 
 
 # ── Game view ────────────────────────────────────────────────────────────────
