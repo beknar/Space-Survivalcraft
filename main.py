@@ -148,7 +148,8 @@ class PlayerShip(arcade.Sprite):
             self._anim_timer += dt
             if self._anim_timer >= 1.0 / self._ANIM_FPS:
                 self._anim_timer -= 1.0 / self._ANIM_FPS
-                self._anim_col = (self._anim_col + 1) % self._COLS
+                # Only cycle columns 0–1: cols 2–3 show wing turrets firing
+                self._anim_col = (self._anim_col + 1) % 2
             row = min(self._ROWS - 1, int(self._intensity * self._ROWS))
         else:
             # Thruster off — freeze on the dark base frame

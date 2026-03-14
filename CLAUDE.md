@@ -45,7 +45,10 @@ python main.py
 
 #### PlayerShip (`arcade.Sprite`)
 
-- Sprite: first frame (row 0, col 0) of `assets/ShmupAssets_V1/shmup_player.png` (4×3 sheet, size auto-detected via PIL)
+- Sprite: `assets/ShmupAssets_V1/shmup_player.png` — 4 cols × 3 rows sheet (each frame auto-sized)
+  - Rows = thrust intensity: row 0 = idle/dark, row 1 = medium thrust, row 2 = full blaze
+  - Cols 0–1 = exhaust-only animation frames (wing turrets inactive)
+  - Cols 2–3 = turret-active frames (NOT used during thrust; reserved for future combat animation)
 - Scale: 1.5×
 - Physics: Newtonian — acceleration, speed cap (450 px/s), per-frame damping (0.985)
 - Starts at world centre (3200, 3200)
