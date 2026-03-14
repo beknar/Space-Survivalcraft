@@ -16,8 +16,9 @@ A space-themed survival crafting game. Players pilot a spaceship, gather materia
 
 ## Project Setup
 
+- Repository: https://github.com/beknar/Space-Survivalcraft
 - Git initialized
-- `.gitignore` excludes: `.vscode/`, `PROPOSAL.md`, `.markdownlint*`, `venv/`, `__pycache__/`, `*.pyc`
+- `.gitignore` excludes: `.vscode/`, `PROPOSAL.md`, `.markdownlint*`, `venv/`, `__pycache__/`, `*.pyc`, `assets/`
 - Python venv at `venv/` with `arcade` and dependencies installed
 
 ## Architecture

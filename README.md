@@ -21,7 +21,7 @@ A space-themed survival crafting game built with Python and Arcade. Pilot a spac
 1. Clone the repository:
 
    ```bash
-   git clone <repo-url>
+   git clone https://github.com/beknar/Space-Survivalcraft.git
    cd Space-Survivalcraft
    ```
 
