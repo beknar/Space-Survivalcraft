@@ -137,6 +137,13 @@ ALIEN_LASER_RANGE: float = 500.0        # alien laser max range  px
 ALIEN_LASER_SPEED: float = 650.0        # alien laser projectile speed  px/s (faster than player max)
 ALIEN_FIRE_COOLDOWN: float = 1.5        # seconds between alien shots
 ALIEN_MIN_DIST: float = 400.0           # min spawn distance from world centre  px
+# ── Alien physics / collision constants ───────────────────────────────────────
+ALIEN_BOUNCE: float = 0.65             # velocity restitution on collision bounce
+ALIEN_VEL_DAMPING: float = 0.97        # per-frame physics velocity decay (@ 60 fps)
+ALIEN_COL_COOLDOWN: float = 0.40       # seconds before another bounce can re-trigger
+ALIEN_AVOIDANCE_RADIUS: float = 65.0   # px beyond obstacle edge where steering begins
+ALIEN_AVOIDANCE_FORCE: float = 2.5     # avoidance repulsion weight relative to pursuit
+ALIEN_BUMP_FLASH: float = 0.15         # seconds of orange tint on collision bump
 
 # ── Iron pickup constants ─────────────────────────────────────────────────────
 IRON_PICKUP_DIST: float = 40.0   # px — edge distance (from ship hull) to trigger fly-to-ship
@@ -527,8 +534,15 @@ class SmallAlienShip(arcade.Sprite):
         # Stagger fire timers so ships don't all shoot simultaneously
         self._fire_cd: float = random.uniform(0.0, ALIEN_FIRE_COOLDOWN)
         self._laser_tex: arcade.Texture = laser_tex
-        # Hit-flash state: tint alien red for a short time when struck
+        # Weapon hit-flash (red)
         self._hit_timer: float = 0.0
+        # Physics velocity — set by collision bounces, decays over time
+        self.vel_x: float = 0.0
+        self.vel_y: float = 0.0
+        # Collision cooldown — prevents re-triggering bounce every frame
+        self._col_cd: float = 0.0
+        # Collision bump-flash (orange)
+        self._bump_timer: float = 0.0
 
     def _pick_patrol_target(self) -> None:
         """Choose a fresh random point within the patrol radius."""
@@ -543,10 +557,33 @@ class SmallAlienShip(arcade.Sprite):
         self.hp -= amount
         self._hit_timer = 0.15   # flash red for 0.15 s
 
+    def collision_bump(self) -> None:
+        """Trigger an orange bump-flash when a physics collision is resolved."""
+        self._bump_timer = ALIEN_BUMP_FLASH
+
     def update_alien(
-        self, dt: float, player_x: float, player_y: float
+        self,
+        dt: float,
+        player_x: float,
+        player_y: float,
+        asteroid_list: "arcade.SpriteList",
+        alien_list: "arcade.SpriteList",
     ) -> "Optional[Projectile]":
         """Advance AI + movement.  Returns a fired Projectile, or None."""
+
+        # ── Physics velocity (bounce impulses from collisions) ────────────────
+        damp = ALIEN_VEL_DAMPING ** (dt * 60.0)   # frame-rate independent
+        self.vel_x *= damp
+        self.vel_y *= damp
+        if math.hypot(self.vel_x, self.vel_y) < 0.5:
+            self.vel_x = self.vel_y = 0.0
+        self.center_x += self.vel_x * dt
+        self.center_y += self.vel_y * dt
+
+        # ── Collision cooldown ────────────────────────────────────────────────
+        if self._col_cd > 0.0:
+            self._col_cd = max(0.0, self._col_cd - dt)
+
         dx = player_x - self.center_x
         dy = player_y - self.center_y
         dist = math.hypot(dx, dy)
@@ -574,18 +611,64 @@ class SmallAlienShip(arcade.Sprite):
                 self.center_y += tdy / tdist * step
                 self._heading = math.degrees(math.atan2(tdx, tdy)) % 360.0
                 self.angle = self._heading
-        else:  # PURSUE — move toward player
-            if dist > 1.0:
-                step = min(ALIEN_SPEED * dt, dist)
-                self.center_x += dx / dist * step
-                self.center_y += dy / dist * step
-                self._heading = math.degrees(math.atan2(dx, dy)) % 360.0
-                self.angle = self._heading
 
-        # ── Hit-flash tint ────────────────────────────────────────────────────
+        else:  # PURSUE — steer toward player with obstacle avoidance
+            if dist > 1.0:
+                # Base direction: straight toward player
+                steer_x = dx / dist
+                steer_y = dy / dist
+
+                # Avoidance: push steering away from nearby asteroids
+                for asteroid in asteroid_list:
+                    adx = self.center_x - asteroid.center_x
+                    ady = self.center_y - asteroid.center_y
+                    adist = math.hypot(adx, ady)
+                    thresh = ALIEN_RADIUS + ASTEROID_RADIUS + ALIEN_AVOIDANCE_RADIUS
+                    if 0.0 < adist < thresh:
+                        w = ALIEN_AVOIDANCE_FORCE * (1.0 - adist / thresh)
+                        steer_x += adx / adist * w
+                        steer_y += ady / adist * w
+
+                # Avoidance: push steering away from other alien ships
+                for other in alien_list:
+                    if other is self:
+                        continue
+                    odx = self.center_x - other.center_x
+                    ody = self.center_y - other.center_y
+                    odist = math.hypot(odx, ody)
+                    thresh = ALIEN_RADIUS * 2.0 + ALIEN_AVOIDANCE_RADIUS
+                    if 0.0 < odist < thresh:
+                        w = ALIEN_AVOIDANCE_FORCE * (1.0 - odist / thresh)
+                        steer_x += odx / odist * w
+                        steer_y += ody / odist * w
+
+                # Normalise steering vector and advance
+                smag = math.hypot(steer_x, steer_y)
+                if smag > 0.001:
+                    steer_x /= smag
+                    steer_y /= smag
+                    step = ALIEN_SPEED * dt
+                    self.center_x += steer_x * step
+                    self.center_y += steer_y * step
+                    self._heading = math.degrees(
+                        math.atan2(steer_x, steer_y)
+                    ) % 360.0
+                    self.angle = self._heading
+
+        # ── Colour tint (weapon hit = red, collision bump = orange) ───────────
         if self._hit_timer > 0.0:
             self._hit_timer = max(0.0, self._hit_timer - dt)
-            self.color = (255, 80, 80, 255) if self._hit_timer > 0.0 else (255, 255, 255, 255)
+            self.color = (
+                (255, 80, 80, 255) if self._hit_timer > 0.0
+                else ((255, 160, 50, 255) if self._bump_timer > 0.0
+                      else (255, 255, 255, 255))
+            )
+        elif self._bump_timer > 0.0:
+            self._bump_timer = max(0.0, self._bump_timer - dt)
+            self.color = (
+                (255, 160, 50, 255) if self._bump_timer > 0.0
+                else (255, 255, 255, 255)
+            )
 
         # ── Fire ──────────────────────────────────────────────────────────────
         self._fire_cd = max(0.0, self._fire_cd - dt)
@@ -1607,8 +1690,8 @@ class GameView(arcade.View):
                         asteroid.remove_from_sprite_lists()
                         self._spawn_iron_pickup(ax, ay)
 
-            # All player projectiles (Basic Laser AND Mining Beam) hit alien ships
-            if not consumed:
+            # Only Basic Laser hits alien ships; Mining Beam passes through
+            if not consumed and not proj.mines_rock:
                 hit_aliens = arcade.check_for_collision_with_list(
                     proj, self.alien_list
                 )
@@ -1669,9 +1752,108 @@ class GameView(arcade.View):
         # ── Alien ship AI + movement ─────────────────────────────────────────
         px, py = self.player.center_x, self.player.center_y
         for alien in list(self.alien_list):
-            proj = alien.update_alien(delta_time, px, py)
+            proj = alien.update_alien(
+                delta_time, px, py,
+                self.asteroid_list, self.alien_list,
+            )
             if proj is not None:
                 self.alien_projectile_list.append(proj)
+
+        # ── Alien ↔ Player collision ──────────────────────────────────────────
+        for alien in list(self.alien_list):
+            ddx = alien.center_x - self.player.center_x
+            ddy = alien.center_y - self.player.center_y
+            ddist = math.hypot(ddx, ddy)
+            combined_r = ALIEN_RADIUS + SHIP_RADIUS
+            if ddist < combined_r and ddist > 0.0:
+                nx, ny = ddx / ddist, ddy / ddist
+                # Push apart — alien absorbs full overlap; player half
+                overlap = combined_r - ddist
+                alien.center_x += nx * overlap * 0.5
+                alien.center_y += ny * overlap * 0.5
+                self.player.center_x -= nx * overlap * 0.5
+                self.player.center_y -= ny * overlap * 0.5
+                # Velocity bounce (relative velocity along normal)
+                rel_vx = alien.vel_x - self.player.vel_x
+                rel_vy = alien.vel_y - self.player.vel_y
+                dot = rel_vx * nx + rel_vy * ny
+                if dot < 0.0:   # approaching each other
+                    j = (1.0 + ALIEN_BOUNCE) * dot
+                    alien.vel_x -= j * nx
+                    alien.vel_y -= j * ny
+                    self.player.vel_x += j * nx * 0.4   # lighter effect on player
+                    self.player.vel_y += j * ny * 0.4
+                # Flash alien orange; damage player shields/HP
+                if alien._col_cd <= 0.0:
+                    alien._col_cd = ALIEN_COL_COOLDOWN
+                    alien.collision_bump()
+                if self.player._collision_cd <= 0.0:
+                    self._apply_damage_to_player(SHIP_COLLISION_DAMAGE)
+                    self.player._collision_cd = SHIP_COLLISION_COOLDOWN
+                    arcade.play_sound(self._bump_snd, volume=0.4)
+                    self._trigger_shake()
+
+        # ── Alien ↔ Asteroid collision ────────────────────────────────────────
+        for alien in list(self.alien_list):
+            for asteroid in arcade.check_for_collision_with_list(
+                alien, self.asteroid_list
+            ):
+                adx = alien.center_x - asteroid._base_x
+                ady = alien.center_y - asteroid._base_y
+                adist = math.hypot(adx, ady)
+                if adist == 0.0:
+                    adx, ady, adist = 1.0, 0.0, 1.0
+                combined_r = ALIEN_RADIUS + ASTEROID_RADIUS
+                nx, ny = adx / adist, ady / adist
+                overlap = combined_r - adist
+                if overlap > 0.0:
+                    alien.center_x += nx * overlap
+                    alien.center_y += ny * overlap
+                # Reflect alien velocity along normal
+                dot = alien.vel_x * nx + alien.vel_y * ny
+                if dot < 0.0:
+                    alien.vel_x -= (1.0 + ALIEN_BOUNCE) * dot * nx
+                    alien.vel_y -= (1.0 + ALIEN_BOUNCE) * dot * ny
+                else:
+                    # Give alien a kick away even when sliding along asteroid
+                    alien.vel_x += nx * ALIEN_SPEED * 0.4
+                    alien.vel_y += ny * ALIEN_SPEED * 0.4
+                if alien._col_cd <= 0.0:
+                    alien._col_cd = ALIEN_COL_COOLDOWN
+                    alien.collision_bump()
+
+        # ── Alien ↔ Alien collision ───────────────────────────────────────────
+        aliens = list(self.alien_list)
+        for i in range(len(aliens)):
+            for j in range(i + 1, len(aliens)):
+                a1, a2 = aliens[i], aliens[j]
+                ddx = a1.center_x - a2.center_x
+                ddy = a1.center_y - a2.center_y
+                ddist = math.hypot(ddx, ddy)
+                combined_r = ALIEN_RADIUS * 2.0
+                if ddist < combined_r and ddist > 0.0:
+                    nx, ny = ddx / ddist, ddy / ddist
+                    overlap = combined_r - ddist
+                    a1.center_x += nx * overlap * 0.5
+                    a1.center_y += ny * overlap * 0.5
+                    a2.center_x -= nx * overlap * 0.5
+                    a2.center_y -= ny * overlap * 0.5
+                    # Exchange velocity along normal (equal masses)
+                    rel_vx = a1.vel_x - a2.vel_x
+                    rel_vy = a1.vel_y - a2.vel_y
+                    dot = rel_vx * nx + rel_vy * ny
+                    if dot < 0.0:
+                        j_imp = (1.0 + ALIEN_BOUNCE) * dot
+                        a1.vel_x -= j_imp * nx
+                        a1.vel_y -= j_imp * ny
+                        a2.vel_x += j_imp * nx
+                        a2.vel_y += j_imp * ny
+                    if a1._col_cd <= 0.0:
+                        a1._col_cd = ALIEN_COL_COOLDOWN
+                        a1.collision_bump()
+                    if a2._col_cd <= 0.0:
+                        a2._col_cd = ALIEN_COL_COOLDOWN
+                        a2.collision_bump()
 
         # ── Advance alien projectiles ─────────────────────────────────────────
         for proj in list(self.alien_projectile_list):

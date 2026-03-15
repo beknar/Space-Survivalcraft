@@ -145,12 +145,20 @@ Live HP bar (green → orange → red as HP falls); live shield bar (cyan, shrin
   - `PURSUE` — when the player enters within 500 px (centre-to-centre), locks on and chases; fires alien laser bolts while in range; returns to patrol if player moves > 1500 px away; fire cooldown reset to 0 on detection so the first shot fires immediately
 - **Alien laser**: damage 10 HP per hit, range 500 px, speed 650 px/s (faster than player max 450 px/s), cooldown 1.5 s; fire timers staggered at spawn to prevent synchronised volleys
 - **Taking damage**:
-  - Both Basic Laser (25 dmg) and Mining Beam (10 dmg) damage alien ships; death triggers explosion animation + sound
-  - Collision detection uses a **single merged loop** over `self.projectile_list`. For each projectile: if `mines_rock=True` check asteroid collision first; if not consumed, check alien collision. A `consumed` flag prevents any projectile from hitting both an asteroid and an alien in the same frame. This ensures the Mining Beam reliably reaches and damages alien ships rather than being silently discarded by a separate earlier loop.
+  - Only Basic Laser (25 dmg) damages alien ships; Mining Beam passes through without effect (`not proj.mines_rock` guard in projectile hit loop)
+  - Collision detection uses a **single merged loop** over `self.projectile_list`. For each projectile: if `mines_rock=True` check asteroid collision first; if not consumed AND not `mines_rock`, check alien collision.
   - On each hit: red tint flash (`sprite.color = (255, 80, 80, 255)`) for 0.15 s managed by `_hit_timer` in `update_alien()`
   - `HitSpark` class spawned at projectile impact point: expanding ring + fading bright core drawn with arcade primitives; lasts 0.18 s; stored in `GameView.hit_sparks` list, drawn in world-camera context
   - Hitting an alien also triggers camera shake (same `_trigger_shake()` used for hull collisions)
 - **Dealing damage to player**: alien laser hits deal 10 damage through shields first (then HP); no invincibility window needed — each bolt is removed on contact; triggers camera shake and bump sound
+- **Physics collision layer** (`vel_x`, `vel_y` on `SmallAlienShip`):
+  - All collision impulses are stored as physics velocity; decays exponentially each frame (`ALIEN_VEL_DAMPING = 0.97` per frame at 60 fps, frame-rate independent via `** (dt * 60)`)
+  - **Alien ↔ Player**: push-apart along normal (50/50 split), velocity bounce using relative velocity (restitution `ALIEN_BOUNCE = 0.65`); player takes `SHIP_COLLISION_DAMAGE` through shields (same as asteroid collision); alien gets orange bump-flash (`collision_bump()`)
+  - **Alien ↔ Asteroid**: alien pushed fully away; velocity reflected off static asteroid normal; orange bump-flash
+  - **Alien ↔ Alien**: O(n²) pair check; push-apart 50/50; equal-mass velocity exchange; both get orange bump-flash
+  - `_col_cd = 0.40 s` cooldown prevents re-triggering the flash every frame while sprites overlap
+  - Orange tint: `(255, 160, 50, 255)` via `_bump_timer`; weapon hit red (`(255, 80, 80, 255)`) takes priority when both active
+- **Obstacle-avoidance steering** (PURSUE mode only): `update_alien()` now accepts `asteroid_list` and `alien_list`. In PURSUE state, base direction (toward player) is blended with repulsion vectors from nearby asteroids (`ALIEN_AVOIDANCE_RADIUS = 65 px` beyond edge) and other aliens (65 px beyond edge); repulsion weight is `ALIEN_AVOIDANCE_FORCE = 2.5` × linear falloff; blended vector normalised before applying at `ALIEN_SPEED`. Aliens naturally route around obstacles instead of ramming through them.
 - Mini-map shows alien ships as red dots
 - `Projectile.damage` field added so every projectile carries its own damage value; asteroid-hit and alien-hit code both use `proj.damage`
 
