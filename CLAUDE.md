@@ -87,6 +87,16 @@ Two weapons implemented. Active weapon shown in HUD; cycle with Tab / RB.
 - Drawn as a centred modal overlay on top of all other UI; does not pause the game.
 - Items stored as `dict[(row, col)] → str`; empty slots show dark blue cells, occupied slots show green.
 
+#### Iron Asteroids
+
+- Sprite: `assets/Pixel Art Space/Asteroid.png` (64×64 RGBA), scale 1.0×
+- Count: 50, randomly distributed across the world with ≥ 400 px clearance from player start and ≥ 100 px from world edges
+- Animation: each asteroid spins at a random rate (8–30 °/s, random direction)
+- HP: 100; yields 10 iron when destroyed
+- **Only the Mining Beam deals damage** (10 per hit); Basic Laser does nothing
+- On destruction: plays explosion animation + `Sci-Fi Deep Explosion 1.wav`
+- Explosion sheet: `assets/gamedevmarket assets/asteroids crusher/Explosions/PNG/explosion.png` — 9 frames × 140×140 px, plays at 15 fps then removes itself
+
 #### Status panel (HUD)
 
 Placeholder implementation showing: speed readout, heading readout, full HP bar, full shield bar, active weapon name, controls reference, gamepad connection status.
@@ -160,21 +170,25 @@ Resources deplete on gathering and take time to replenish (e.g., 10 minutes for 
 
 - Mining weapon sound: `assets\Sci Fi Sound Effects Bundle\Stormwave Audio Sci-Fi Sound Effects Bundle\Weapons\Energy Weapons\Sci-Fi Arc Emitter Weapon Shot 2.wav`
 - Basic Laser sound: `assets\Sci Fi Sound Effects Bundle\Stormwave Audio Sci-Fi Sound Effects Bundle\Weapons\Energy Weapons\Small Laser Weapon Shot 1.wav`
+- Iron Asteroid explosion: C:\Users\kestanol\Documents\code\Space Survivalcraft\assets\Sci Fi Sound Effects Bundle\Stormwave Audio Sci-Fi Sound Effects Bundle\Weapons\Explosions\"Sci-Fi Deep Explosion 1.wav"
 
 ### Special Effects
 
 - Mining weapon FX: `assets\kenney space combat assets\Space Shooter Redux\PNG\Lasers\laserGreen13.png`
 - Basic Laser weapon FX: `assets\kenney space combat assets\Space Shooter Redux\PNG\Lasers\laserBlue03.png`
 
+
 ### Resources graphical representation
 
-- Iron Asteroids: C:\Users\kestanol\Documents\code\Space Survivalcraft\assets\Pixel Art Space\Asteroid.png
+- Iron Asteroid: C:\Users\kestanol\Documents\code\Space Survivalcraft\assets\Pixel Art Space\Asteroid.png
 - Iron icon: C:\Users\kestanol\Documents\code\Space Survivalcraft\assets\kenney space combat assets\Voxel Pack\PNG\Items\ore_ironAlt.png
+- Iron Asteroids explosion: C:\Users\kestanol\Documents\code\Space Survivalcraft\assets\gamedevmarket assets\asteroids crusher\Explosions\PNG\explosion.png
 
 
 ### Resources statistics
 
 - Iron Asteroids: 100 hp, yields 10 iron
+- 
 
 ## Asset Sources
 

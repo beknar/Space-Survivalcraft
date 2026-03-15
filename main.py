@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import math
 import os
+import random
 from typing import Optional
 
 import arcade
@@ -46,6 +47,15 @@ SFX_WEAPONS_DIR = os.path.join(
     _HERE, "assets", "Sci Fi Sound Effects Bundle",
     "Stormwave Audio Sci-Fi Sound Effects Bundle", "Weapons", "Energy Weapons",
 )
+SFX_EXPLOSIONS_DIR = os.path.join(
+    _HERE, "assets", "Sci Fi Sound Effects Bundle",
+    "Stormwave Audio Sci-Fi Sound Effects Bundle", "Weapons", "Explosions",
+)
+ASTEROID_PNG = os.path.join(_HERE, "assets", "Pixel Art Space", "Asteroid.png")
+EXPLOSION_PNG = os.path.join(
+    _HERE, "assets", "gamedevmarket assets", "asteroids crusher",
+    "Explosions", "PNG", "explosion.png",
+)
 
 # ── Weapon / projectile constants ─────────────────────────────────────────────
 NOSE_OFFSET: float = 44.0        # px ahead of ship centre where projectiles spawn
@@ -57,8 +67,19 @@ INV_CELL: int = 48               # cell size in px
 INV_PAD: int = 10                # padding around grid
 INV_HEADER: int = 32             # space for title text above grid
 
-INV_W: int = INV_COLS * INV_CELL + INV_PAD * 2        # 496
-INV_H: int = INV_ROWS * INV_CELL + INV_PAD * 2 + INV_HEADER  # 532
+INV_W: int = INV_COLS * INV_CELL + INV_PAD * 2
+INV_H: int = INV_ROWS * INV_CELL + INV_PAD * 2 + INV_HEADER
+
+# ── Asteroid constants ────────────────────────────────────────────────────────
+ASTEROID_COUNT: int = 50
+ASTEROID_HP: int = 100
+ASTEROID_IRON_YIELD: int = 10
+ASTEROID_MIN_DIST: float = 400.0   # min distance from world centre at spawn
+# Explosion sheet: 1260×140 px → 9 frames of 140×140 each
+EXPLOSION_FRAMES: int = 9
+EXPLOSION_FRAME_W: int = 140
+EXPLOSION_FRAME_H: int = 140
+EXPLOSION_FPS: float = 15.0        # frames per second
 
 
 # ── Projectile ───────────────────────────────────────────────────────────────
@@ -74,6 +95,7 @@ class Projectile(arcade.Sprite):
         speed: float,
         max_dist: float,
         scale: float = 1.0,
+        mines_rock: bool = False,
     ) -> None:
         super().__init__(path_or_texture=texture, scale=scale)
         self.center_x = x
@@ -84,6 +106,7 @@ class Projectile(arcade.Sprite):
         self._vy: float = math.cos(rad) * speed
         self._max_dist: float = max_dist
         self._dist_travelled: float = 0.0
+        self.mines_rock: bool = mines_rock   # True for Mining Beam only
 
     def update_projectile(self, dt: float) -> None:
         self.center_x += self._vx * dt
@@ -112,6 +135,7 @@ class Weapon:
         projectile_speed: float,
         max_range: float,
         proj_scale: float = 1.0,
+        mines_rock: bool = False,
     ) -> None:
         self.name = name
         self._texture = texture
@@ -121,6 +145,7 @@ class Weapon:
         self._proj_speed = projectile_speed
         self._max_range = max_range
         self._proj_scale = proj_scale
+        self.mines_rock = mines_rock   # whether projectiles damage asteroids
         self._timer: float = 0.0
 
     def update(self, dt: float) -> None:
@@ -140,12 +165,67 @@ class Weapon:
         return Projectile(
             self._texture, spawn_x, spawn_y, heading,
             self._proj_speed, self._max_range, self._proj_scale,
+            mines_rock=self.mines_rock,
         )
+
+
+# ── Explosion ─────────────────────────────────────────────────────────────────
+class Explosion(arcade.Sprite):
+    """One-shot explosion animation spawned when an asteroid is destroyed."""
+
+    def __init__(
+        self,
+        frames: list[arcade.Texture],
+        x: float,
+        y: float,
+        scale: float = 1.0,
+    ) -> None:
+        super().__init__(path_or_texture=frames[0], scale=scale)
+        self.center_x = x
+        self.center_y = y
+        self._frames = frames
+        self._frame_idx: int = 0
+        self._timer: float = 0.0
+        self._interval: float = 1.0 / EXPLOSION_FPS
+
+    def update_explosion(self, dt: float) -> None:
+        self._timer += dt
+        if self._timer >= self._interval:
+            self._timer -= self._interval
+            self._frame_idx += 1
+            if self._frame_idx >= len(self._frames):
+                self.remove_from_sprite_lists()
+                return
+            self.texture = self._frames[self._frame_idx]
+
+
+# ── Iron Asteroid ─────────────────────────────────────────────────────────────
+class IronAsteroid(arcade.Sprite):
+    """A minable asteroid containing iron ore.
+
+    - 100 HP; only the Mining Beam deals damage.
+    - Yields 10 iron when destroyed.
+    - Spins slowly at a randomised rate.
+    """
+
+    def __init__(self, texture: arcade.Texture, x: float, y: float) -> None:
+        super().__init__(path_or_texture=texture, scale=1.0)
+        self.center_x = x
+        self.center_y = y
+        self.hp: int = ASTEROID_HP
+        # Each asteroid spins at a unique rate for visual variety
+        self._rot_speed: float = random.uniform(8.0, 30.0) * random.choice((-1, 1))
+
+    def update_asteroid(self, dt: float) -> None:
+        self.angle = (self.angle + self._rot_speed * dt) % 360
+
+    def take_damage(self, amount: int) -> None:
+        self.hp -= amount
 
 
 # ── Inventory ─────────────────────────────────────────────────────────────────
 class Inventory:
-    """10×10 cargo hold grid drawn as a modal overlay."""
+    """5×5 cargo hold grid drawn as a modal overlay."""
 
     def __init__(self) -> None:
         # items: dict[(row, col)] → item name string; absent key = empty slot
@@ -399,6 +479,7 @@ class GameView(arcade.View):
                 cooldown=0.30, damage=25.0,
                 projectile_speed=900.0, max_range=1200.0,
                 proj_scale=1.0,
+                mines_rock=False,   # basic laser cannot mine asteroids
             ),
             Weapon(
                 "Mining Beam",
@@ -406,9 +487,42 @@ class GameView(arcade.View):
                 cooldown=0.10, damage=10.0,
                 projectile_speed=500.0, max_range=800.0,
                 proj_scale=1.0,
+                mines_rock=True,    # mining beam damages asteroids
             ),
         ]
         self._weapon_idx: int = 0
+
+        # ── Asteroids ────────────────────────────────────────────────────────
+        asteroid_tex = arcade.load_texture(ASTEROID_PNG)
+
+        # Load explosion sprite sheet: 9 frames, each 140×140
+        exp_ss = arcade.load_spritesheet(EXPLOSION_PNG)
+        self._explosion_frames: list[arcade.Texture] = [
+            exp_ss.get_texture(
+                arcade.LBWH(i * EXPLOSION_FRAME_W, 0, EXPLOSION_FRAME_W, EXPLOSION_FRAME_H)
+            )
+            for i in range(EXPLOSION_FRAMES)
+        ]
+        self._explosion_snd = arcade.load_sound(
+            os.path.join(SFX_EXPLOSIONS_DIR, "Sci-Fi Deep Explosion 1.wav")
+        )
+
+        self.asteroid_list = arcade.SpriteList()
+        self.explosion_list = arcade.SpriteList()
+
+        cx_world, cy_world = WORLD_WIDTH / 2, WORLD_HEIGHT / 2
+        margin = 100          # keep asteroids away from world edges
+        placed = 0
+        attempts = 0
+        while placed < ASTEROID_COUNT and attempts < ASTEROID_COUNT * 20:
+            attempts += 1
+            ax = random.uniform(margin, WORLD_WIDTH - margin)
+            ay = random.uniform(margin, WORLD_HEIGHT - margin)
+            # Keep clear of player start position
+            if math.hypot(ax - cx_world, ay - cy_world) < ASTEROID_MIN_DIST:
+                continue
+            self.asteroid_list.append(IronAsteroid(asteroid_tex, ax, ay))
+            placed += 1
 
         # ── Inventory ────────────────────────────────────────────────────────
         self.inventory = Inventory()
@@ -465,6 +579,11 @@ class GameView(arcade.View):
     def _cycle_weapon(self) -> None:
         self._weapon_idx = (self._weapon_idx + 1) % len(self._weapons)
 
+    def _spawn_explosion(self, x: float, y: float) -> None:
+        """Spawn a one-shot explosion animation at world position (x, y)."""
+        exp = Explosion(self._explosion_frames, x, y, scale=1.0)
+        self.explosion_list.append(exp)
+
     # ── Drawing ──────────────────────────────────────────────────────────────
     def on_draw(self) -> None:
         self.clear()
@@ -478,6 +597,8 @@ class GameView(arcade.View):
 
         with self.world_cam.activate():
             self._draw_background(cx, cy, hw, hh)
+            self.asteroid_list.draw()
+            self.explosion_list.draw()
             self.projectile_list.draw()
             self.player_list.draw()
 
@@ -597,6 +718,30 @@ class GameView(arcade.View):
         # ── Advance projectiles ──────────────────────────────────────────────
         for proj in list(self.projectile_list):
             proj.update_projectile(delta_time)
+
+        # ── Mining beam hits on asteroids ────────────────────────────────────
+        for proj in list(self.projectile_list):
+            if not proj.mines_rock:
+                continue
+            hit_asteroids = arcade.check_for_collision_with_list(
+                proj, self.asteroid_list
+            )
+            if hit_asteroids:
+                proj.remove_from_sprite_lists()
+                asteroid = hit_asteroids[0]
+                asteroid.take_damage(10)
+                if asteroid.hp <= 0:
+                    self._spawn_explosion(asteroid.center_x, asteroid.center_y)
+                    arcade.play_sound(self._explosion_snd, volume=0.7)
+                    asteroid.remove_from_sprite_lists()
+
+        # ── Animate asteroids (spin) ─────────────────────────────────────────
+        for asteroid in self.asteroid_list:
+            asteroid.update_asteroid(delta_time)
+
+        # ── Advance explosion animations ─────────────────────────────────────
+        for exp in list(self.explosion_list):
+            exp.update_explosion(delta_time)
 
     # ── Input ────────────────────────────────────────────────────────────────
     def on_key_press(self, key: int, modifiers: int) -> None:
