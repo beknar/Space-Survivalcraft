@@ -97,9 +97,17 @@ Two weapons implemented. Active weapon shown in HUD; cycle with Tab / RB.
 - On destruction: plays explosion animation + `Sci-Fi Deep Explosion 1.wav`
 - Explosion sheet: `assets/gamedevmarket assets/asteroids crusher/Explosions/PNG/explosion.png` — 9 frames × 140×140 px, plays at 15 fps then removes itself
 
+#### Ship ↔ Asteroid Collision
+
+- Collision detected each frame via `arcade.check_for_collision_with_list`
+- On overlap: ship is pushed out along the collision normal (centre-to-centre vector) so sprites never visually interpenetrate
+- Bounce: ship velocity is reflected about the collision normal with restitution 0.55 (only when moving toward the asteroid)
+- Damage: 5 HP per collision event; 0.5 s invincibility window on `PlayerShip._collision_cd` prevents per-frame damage stacking
+- Ship HP (`PlayerShip.hp`, max 100) is live — HP bar in HUD shrinks and changes colour (green → orange → red)
+
 #### Status panel (HUD)
 
-Placeholder implementation showing: speed readout, heading readout, full HP bar, full shield bar, active weapon name, controls reference, gamepad connection status.
+Live HP bar (green → orange → red as HP falls); speed readout, heading readout, full shield bar (placeholder), active weapon name, controls reference, gamepad connection status.
 
 ## Architecture
 

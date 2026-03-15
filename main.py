@@ -70,6 +70,15 @@ INV_HEADER: int = 32             # space for title text above grid
 INV_W: int = INV_COLS * INV_CELL + INV_PAD * 2
 INV_H: int = INV_ROWS * INV_CELL + INV_PAD * 2 + INV_HEADER
 
+# ── Player ship stats ────────────────────────────────────────────────────────
+PLAYER_MAX_HP: int = 100
+SHIP_COLLISION_DAMAGE: int = 5       # HP lost per asteroid collision
+SHIP_COLLISION_COOLDOWN: float = 0.5 # seconds of invincibility after a hit
+SHIP_BOUNCE: float = 0.55            # velocity restitution on bounce (0=dead stop,1=elastic)
+# Approximate circle radii used for overlap push-out (pixels)
+SHIP_RADIUS: float = 28.0
+ASTEROID_RADIUS: float = 26.0
+
 # ── Asteroid constants ────────────────────────────────────────────────────────
 ASTEROID_COUNT: int = 50
 ASTEROID_HP: int = 100
@@ -341,6 +350,12 @@ class PlayerShip(arcade.Sprite):
         # CW-positive sprite angle convention).  Direct-mapped to self.angle.
         self.heading: float = 0.0
 
+        # Ship stats
+        self.hp: int = PLAYER_MAX_HP
+        self.max_hp: int = PLAYER_MAX_HP
+        # Invincibility window after an asteroid collision (prevents per-frame damage)
+        self._collision_cd: float = 0.0
+
         # Thruster animation state
         self._intensity: float = 0.0
         self._anim_timer: float = 0.0
@@ -390,6 +405,10 @@ class PlayerShip(arcade.Sprite):
                                     self.center_x + self.vel_x * dt))
         self.center_y = max(hh, min(WORLD_HEIGHT - hh,
                                     self.center_y + self.vel_y * dt))
+
+        # ── Collision cooldown tick ──────────────────────────────────────────
+        if self._collision_cd > 0.0:
+            self._collision_cd = max(0.0, self._collision_cd - dt)
 
         # ── Thruster intensity ───────────────────────────────────────────────
         if thrust_fwd:
@@ -658,9 +677,15 @@ class GameView(arcade.View):
         self._t_wpn_name.text = self._active_weapon.name
         self._t_wpn_name.draw()
 
-        # HP bar (placeholder — full)
+        # HP bar (live — shrinks as ship takes damage)
+        hp_frac = max(0.0, self.player.hp / self.player.max_hp)
+        hp_color = (
+            (0, 180, 0) if hp_frac > 0.5
+            else (220, 140, 0) if hp_frac > 0.25
+            else (200, 30, 30)
+        )
         arcade.draw_rect_filled(
-            arcade.LBWH(10, SCREEN_HEIGHT - 136, 190, 10), (0, 180, 0)
+            arcade.LBWH(10, SCREEN_HEIGHT - 136, int(190 * hp_frac), 10), hp_color
         )
         # Shield bar (placeholder — full)
         arcade.draw_rect_filled(
@@ -738,6 +763,36 @@ class GameView(arcade.View):
         # ── Animate asteroids (spin) ─────────────────────────────────────────
         for asteroid in self.asteroid_list:
             asteroid.update_asteroid(delta_time)
+
+        # ── Ship ↔ Asteroid collision ────────────────────────────────────────
+        hit_list = arcade.check_for_collision_with_list(
+            self.player, self.asteroid_list
+        )
+        for asteroid in hit_list:
+            # --- Push-out: separate ship from asteroid along collision normal ---
+            dx = self.player.center_x - asteroid.center_x
+            dy = self.player.center_y - asteroid.center_y
+            dist = math.hypot(dx, dy)
+            if dist == 0:                  # degenerate: push straight up
+                dx, dy, dist = 0.0, 1.0, 1.0
+            nx = dx / dist                 # unit collision normal (asteroid → ship)
+            ny = dy / dist
+            combined_r = SHIP_RADIUS + ASTEROID_RADIUS
+            overlap = combined_r - dist
+            if overlap > 0:
+                self.player.center_x += nx * overlap
+                self.player.center_y += ny * overlap
+
+            # --- Bounce: reflect velocity component along normal ---------------
+            dot = self.player.vel_x * nx + self.player.vel_y * ny
+            if dot < 0:                    # only bounce when moving toward asteroid
+                self.player.vel_x -= (1 + SHIP_BOUNCE) * dot * nx
+                self.player.vel_y -= (1 + SHIP_BOUNCE) * dot * ny
+
+            # --- Damage (once per cooldown window) ----------------------------
+            if self.player._collision_cd <= 0.0:
+                self.player.hp = max(0, self.player.hp - SHIP_COLLISION_DAMAGE)
+                self.player._collision_cd = SHIP_COLLISION_COOLDOWN
 
         # ── Advance explosion animations ─────────────────────────────────────
         for exp in list(self.explosion_list):
