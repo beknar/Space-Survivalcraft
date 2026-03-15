@@ -115,10 +115,10 @@ ALIEN_RADIUS: float = 20.0              # approx collision radius in px
 ALIEN_SPEED: float = 120.0              # patrol / pursuit movement speed  px/s
 ALIEN_PATROL_RADIUS_MIN: float = 100.0  # minimum patrol-area radius  px
 ALIEN_PATROL_RADIUS_MAX: float = 150.0  # maximum patrol-area radius  px
-ALIEN_DETECT_DIST: float = 50.0         # player centre-to-centre px → triggers pursuit
+ALIEN_DETECT_DIST: float = 500.0        # player centre-to-centre px → triggers pursuit
 ALIEN_LASER_DAMAGE: float = 10.0        # HP per alien laser hit
-ALIEN_LASER_RANGE: float = 60.0         # alien laser max range  px
-ALIEN_LASER_SPEED: float = 300.0        # alien laser projectile speed  px/s
+ALIEN_LASER_RANGE: float = 500.0        # alien laser max range  px
+ALIEN_LASER_SPEED: float = 650.0        # alien laser projectile speed  px/s (faster than player max)
 ALIEN_FIRE_COOLDOWN: float = 1.5        # seconds between alien shots
 ALIEN_MIN_DIST: float = 400.0           # min spawn distance from world centre  px
 
@@ -260,6 +260,48 @@ class Explosion(arcade.Sprite):
             self.texture = self._frames[self._frame_idx]
 
 
+# ── HitSpark ──────────────────────────────────────────────────────────────────
+class HitSpark:
+    """A brief expanding-ring flash drawn at an impact point.
+
+    No texture required — drawn with arcade primitives.
+    Lasts DURATION seconds; ring expands from 0 to MAX_RADIUS and fades out.
+    """
+
+    DURATION: float = 0.18
+    MAX_RADIUS: float = 28.0
+
+    def __init__(self, x: float, y: float) -> None:
+        self.x = x
+        self.y = y
+        self._age: float = 0.0
+        self.dead: bool = False
+
+    def update(self, dt: float) -> None:
+        self._age += dt
+        if self._age >= self.DURATION:
+            self.dead = True
+
+    def draw(self) -> None:
+        if self.dead:
+            return
+        t = self._age / self.DURATION          # 0 → 1
+        radius = self.MAX_RADIUS * t
+        alpha = int(255 * (1.0 - t))           # fades out
+        # Outer ring
+        arcade.draw_circle_outline(
+            self.x, self.y, radius,
+            (255, 200, 80, alpha), border_width=3,
+        )
+        # Inner bright core (small filled circle, shrinks as t grows)
+        core_r = self.MAX_RADIUS * 0.4 * (1.0 - t)
+        if core_r > 1.0:
+            arcade.draw_circle_filled(
+                self.x, self.y, core_r,
+                (255, 255, 180, alpha),
+            )
+
+
 # ── Iron Pickup ───────────────────────────────────────────────────────────────
 class IronPickup(arcade.Sprite):
     """Iron ore icon dropped at the site of a destroyed asteroid.
@@ -388,6 +430,8 @@ class SmallAlienShip(arcade.Sprite):
         # Stagger fire timers so ships don't all shoot simultaneously
         self._fire_cd: float = random.uniform(0.0, ALIEN_FIRE_COOLDOWN)
         self._laser_tex: arcade.Texture = laser_tex
+        # Hit-flash state: tint alien red for a short time when struck
+        self._hit_timer: float = 0.0
 
     def _pick_patrol_target(self) -> None:
         """Choose a fresh random point within the patrol radius."""
@@ -400,6 +444,7 @@ class SmallAlienShip(arcade.Sprite):
 
     def take_damage(self, amount: int) -> None:
         self.hp -= amount
+        self._hit_timer = 0.15   # flash red for 0.15 s
 
     def update_alien(
         self, dt: float, player_x: float, player_y: float
@@ -413,6 +458,7 @@ class SmallAlienShip(arcade.Sprite):
         if self._state == self._STATE_PATROL:
             if dist <= ALIEN_DETECT_DIST:
                 self._state = self._STATE_PURSUE
+                self._fire_cd = 0.0   # fire immediately on first detection
         else:
             if dist > ALIEN_DETECT_DIST * 3.0:
                 self._state = self._STATE_PATROL
@@ -438,6 +484,11 @@ class SmallAlienShip(arcade.Sprite):
                 self.center_y += dy / dist * step
                 self._heading = math.degrees(math.atan2(dx, dy)) % 360.0
                 self.angle = self._heading
+
+        # ── Hit-flash tint ────────────────────────────────────────────────────
+        if self._hit_timer > 0.0:
+            self._hit_timer = max(0.0, self._hit_timer - dt)
+            self.color = (255, 80, 80, 255) if self._hit_timer > 0.0 else (255, 255, 255, 255)
 
         # ── Fire ──────────────────────────────────────────────────────────────
         self._fire_cd = max(0.0, self._fire_cd - dt)
@@ -1055,6 +1106,7 @@ class GameView(arcade.View):
 
         self.alien_list: arcade.SpriteList = arcade.SpriteList()
         self.alien_projectile_list: arcade.SpriteList = arcade.SpriteList()
+        self.hit_sparks: list[HitSpark] = []
 
         placed = 0
         attempts = 0
@@ -1235,6 +1287,8 @@ class GameView(arcade.View):
             self.alien_projectile_list.draw()
             self.projectile_list.draw()
             self.player_list.draw()
+            for spark in self.hit_sparks:
+                spark.draw()
 
         with self.ui_cam.activate():
             self._draw_status_panel()
@@ -1452,8 +1506,11 @@ class GameView(arcade.View):
         for proj in list(self.projectile_list):
             hit_aliens = arcade.check_for_collision_with_list(proj, self.alien_list)
             if hit_aliens:
-                proj.remove_from_sprite_lists()
                 alien = hit_aliens[0]
+                # Spawn hit-spark at impact point before removing projectile
+                self.hit_sparks.append(HitSpark(proj.center_x, proj.center_y))
+                self._trigger_shake()
+                proj.remove_from_sprite_lists()
                 alien.take_damage(int(proj.damage))
                 if alien.hp <= 0:
                     self._spawn_explosion(alien.center_x, alien.center_y)
@@ -1471,6 +1528,11 @@ class GameView(arcade.View):
         # ── Advance explosion animations ─────────────────────────────────────
         for exp in list(self.explosion_list):
             exp.update_explosion(delta_time)
+
+        # ── Advance hit sparks ────────────────────────────────────────────────
+        for spark in self.hit_sparks:
+            spark.update(delta_time)
+        self.hit_sparks = [s for s in self.hit_sparks if not s.dead]
 
     # ── Input ────────────────────────────────────────────────────────────────
     def on_key_press(self, key: int, modifiers: int) -> None:

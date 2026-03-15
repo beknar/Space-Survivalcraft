@@ -131,9 +131,13 @@ Live HP bar (green → orange → red as HP falls); speed readout, heading reado
 - Movement speed: 120 px/s (patrol and pursuit)
 - **AI states**:
   - `PATROL` — circles a random point within 100–150 px of its spawn position
-  - `PURSUE` — when the player enters within 50 px (centre-to-centre), locks on and chases; fires alien laser bolts while in range; returns to patrol if player moves > 150 px away
-- **Alien laser**: damage 10 HP per hit, range 60 px, speed 300 px/s, cooldown 1.5 s; fire timers staggered at spawn to prevent synchronised volleys
-- **Taking damage**: both Basic Laser (25 dmg) and Mining Beam (10 dmg) damage alien ships; death triggers explosion animation + sound
+  - `PURSUE` — when the player enters within 500 px (centre-to-centre), locks on and chases; fires alien laser bolts while in range; returns to patrol if player moves > 1500 px away; fire cooldown reset to 0 on detection so the first shot fires immediately
+- **Alien laser**: damage 10 HP per hit, range 500 px, speed 650 px/s (faster than player max 450 px/s), cooldown 1.5 s; fire timers staggered at spawn to prevent synchronised volleys
+- **Taking damage**:
+  - Both Basic Laser (25 dmg) and Mining Beam (10 dmg) damage alien ships; death triggers explosion animation + sound
+  - On each hit: red tint flash (`sprite.color = (255, 80, 80, 255)`) for 0.15 s managed by `_hit_timer` in `update_alien()`
+  - `HitSpark` class spawned at projectile impact point: expanding ring + fading bright core drawn with arcade primitives; lasts 0.18 s; stored in `GameView.hit_sparks` list, drawn in world-camera context
+  - Hitting an alien also triggers camera shake (same `_trigger_shake()` used for hull collisions)
 - **Dealing damage to player**: alien laser hits deal 10 HP directly (no invincibility window needed — each bolt is removed on contact), trigger camera shake and bump sound
 - Mini-map shows alien ships as red dots
 - `Projectile.damage` field added so every projectile carries its own damage value; asteroid-hit and alien-hit code both use `proj.damage`
