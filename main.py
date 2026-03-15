@@ -1582,26 +1582,46 @@ class GameView(arcade.View):
         for proj in list(self.projectile_list):
             proj.update_projectile(delta_time)
 
-        # ── Mining beam hits on asteroids ────────────────────────────────────
+        # ── Player projectile hits (asteroids + alien ships, single pass) ────
+        # Each projectile is checked against asteroids first (mining beam only),
+        # then against alien ships.  A consumed flag prevents double-processing
+        # if the same projectile overlaps both targets in the same frame.
         for proj in list(self.projectile_list):
-            if not proj.mines_rock:
-                continue
-            hit_asteroids = arcade.check_for_collision_with_list(
-                proj, self.asteroid_list
-            )
-            if hit_asteroids:
-                asteroid = hit_asteroids[0]
-                # Spawn green hit-spark at impact point
-                self.hit_sparks.append(HitSpark(proj.center_x, proj.center_y))
-                proj.remove_from_sprite_lists()
-                asteroid.take_damage(int(proj.damage))
-                if asteroid.hp <= 0:
-                    ax, ay = asteroid._base_x, asteroid._base_y
-                    self._spawn_explosion(ax, ay)
-                    arcade.play_sound(self._explosion_snd, volume=0.7)
-                    asteroid.remove_from_sprite_lists()
-                    # Drop one iron icon at the destruction site
-                    self._spawn_iron_pickup(ax, ay)
+            consumed = False
+
+            # Mining beam mines asteroids
+            if proj.mines_rock:
+                hit_asteroids = arcade.check_for_collision_with_list(
+                    proj, self.asteroid_list
+                )
+                if hit_asteroids:
+                    asteroid = hit_asteroids[0]
+                    self.hit_sparks.append(HitSpark(proj.center_x, proj.center_y))
+                    proj.remove_from_sprite_lists()
+                    consumed = True
+                    asteroid.take_damage(int(proj.damage))
+                    if asteroid.hp <= 0:
+                        ax, ay = asteroid._base_x, asteroid._base_y
+                        self._spawn_explosion(ax, ay)
+                        arcade.play_sound(self._explosion_snd, volume=0.7)
+                        asteroid.remove_from_sprite_lists()
+                        self._spawn_iron_pickup(ax, ay)
+
+            # All player projectiles (Basic Laser AND Mining Beam) hit alien ships
+            if not consumed:
+                hit_aliens = arcade.check_for_collision_with_list(
+                    proj, self.alien_list
+                )
+                if hit_aliens:
+                    alien = hit_aliens[0]
+                    self.hit_sparks.append(HitSpark(proj.center_x, proj.center_y))
+                    self._trigger_shake()
+                    proj.remove_from_sprite_lists()
+                    alien.take_damage(int(proj.damage))
+                    if alien.hp <= 0:
+                        self._spawn_explosion(alien.center_x, alien.center_y)
+                        arcade.play_sound(self._explosion_snd, volume=0.7)
+                        alien.remove_from_sprite_lists()
 
         # ── Animate asteroids (spin) ─────────────────────────────────────────
         for asteroid in self.asteroid_list:
@@ -1656,21 +1676,6 @@ class GameView(arcade.View):
         # ── Advance alien projectiles ─────────────────────────────────────────
         for proj in list(self.alien_projectile_list):
             proj.update_projectile(delta_time)
-
-        # ── Player laser hits on alien ships ─────────────────────────────────
-        for proj in list(self.projectile_list):
-            hit_aliens = arcade.check_for_collision_with_list(proj, self.alien_list)
-            if hit_aliens:
-                alien = hit_aliens[0]
-                # Spawn hit-spark at impact point before removing projectile
-                self.hit_sparks.append(HitSpark(proj.center_x, proj.center_y))
-                self._trigger_shake()
-                proj.remove_from_sprite_lists()
-                alien.take_damage(int(proj.damage))
-                if alien.hp <= 0:
-                    self._spawn_explosion(alien.center_x, alien.center_y)
-                    arcade.play_sound(self._explosion_snd, volume=0.7)
-                    alien.remove_from_sprite_lists()
 
         # ── Alien laser hits on player ────────────────────────────────────────
         for proj in list(self.alien_projectile_list):

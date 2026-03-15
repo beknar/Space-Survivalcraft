@@ -146,6 +146,7 @@ Live HP bar (green → orange → red as HP falls); live shield bar (cyan, shrin
 - **Alien laser**: damage 10 HP per hit, range 500 px, speed 650 px/s (faster than player max 450 px/s), cooldown 1.5 s; fire timers staggered at spawn to prevent synchronised volleys
 - **Taking damage**:
   - Both Basic Laser (25 dmg) and Mining Beam (10 dmg) damage alien ships; death triggers explosion animation + sound
+  - Collision detection uses a **single merged loop** over `self.projectile_list`. For each projectile: if `mines_rock=True` check asteroid collision first; if not consumed, check alien collision. A `consumed` flag prevents any projectile from hitting both an asteroid and an alien in the same frame. This ensures the Mining Beam reliably reaches and damages alien ships rather than being silently discarded by a separate earlier loop.
   - On each hit: red tint flash (`sprite.color = (255, 80, 80, 255)`) for 0.15 s managed by `_hit_timer` in `update_alien()`
   - `HitSpark` class spawned at projectile impact point: expanding ring + fading bright core drawn with arcade primitives; lasts 0.18 s; stored in `GameView.hit_sparks` list, drawn in world-camera context
   - Hitting an alien also triggers camera shake (same `_trigger_shake()` used for hull collisions)
