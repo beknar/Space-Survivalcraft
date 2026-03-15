@@ -395,6 +395,12 @@ class Inventory:
     def _cell_at(self, x: float, y: float) -> Optional[tuple[int, int]]:
         """Return (row, col) for screen-space coords, or None if outside grid."""
         gx, gy = self._grid_origin()
+        # Explicit bounds check first — int() truncates toward zero, so a
+        # negative offset like int(-5/48) would wrongly return 0 without this.
+        grid_w = INV_COLS * INV_CELL
+        grid_h = INV_ROWS * INV_CELL
+        if x < gx or x >= gx + grid_w or y < gy or y >= gy + grid_h:
+            return None
         col = int((x - gx) / INV_CELL)
         row_from_bottom = int((y - gy) / INV_CELL)
         row = INV_ROWS - 1 - row_from_bottom
