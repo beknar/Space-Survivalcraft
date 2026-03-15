@@ -51,10 +51,18 @@ SFX_EXPLOSIONS_DIR = os.path.join(
     _HERE, "assets", "Sci Fi Sound Effects Bundle",
     "Stormwave Audio Sci-Fi Sound Effects Bundle", "Weapons", "Explosions",
 )
+SFX_BIO_DIR = os.path.join(
+    _HERE, "assets", "Sci Fi Sound Effects Bundle",
+    "Stormwave Audio Sci-Fi Sound Effects Bundle", "Biomechanical",
+)
 ASTEROID_PNG = os.path.join(_HERE, "assets", "Pixel Art Space", "Asteroid.png")
 EXPLOSION_PNG = os.path.join(
     _HERE, "assets", "gamedevmarket assets", "asteroids crusher",
     "Explosions", "PNG", "explosion.png",
+)
+IRON_ICON_PNG = os.path.join(
+    _HERE, "assets", "kenney space combat assets",
+    "Voxel Pack", "PNG", "Items", "ore_ironAlt.png",
 )
 
 # ── Weapon / projectile constants ─────────────────────────────────────────────
@@ -89,6 +97,14 @@ EXPLOSION_FRAMES: int = 9
 EXPLOSION_FRAME_W: int = 140
 EXPLOSION_FRAME_H: int = 140
 EXPLOSION_FPS: float = 15.0        # frames per second
+
+# ── Iron pickup constants ─────────────────────────────────────────────────────
+IRON_PICKUP_DIST: float = 20.0   # px — distance to start flying toward ship
+IRON_FLY_SPEED: float = 400.0    # px/s — speed of iron token once attracted
+
+# ── Camera shake constants ────────────────────────────────────────────────────
+SHAKE_DURATION: float = 0.25     # seconds of camera shake after a hull collision
+SHAKE_AMPLITUDE: float = 8.0     # max pixel offset during shake
 
 
 # ── Projectile ───────────────────────────────────────────────────────────────
@@ -208,6 +224,42 @@ class Explosion(arcade.Sprite):
             self.texture = self._frames[self._frame_idx]
 
 
+# ── Iron Pickup ───────────────────────────────────────────────────────────────
+class IronPickup(arcade.Sprite):
+    """Iron ore icon dropped at the site of a destroyed asteroid.
+
+    - Idles at drop position until the ship comes within IRON_PICKUP_DIST px.
+    - Then flies toward the ship at IRON_FLY_SPEED px/s.
+    - Returns True from update_pickup() when it reaches the ship (collected).
+    """
+
+    def __init__(self, texture: arcade.Texture, x: float, y: float) -> None:
+        super().__init__(path_or_texture=texture, scale=0.5)
+        self.center_x = x
+        self.center_y = y
+        self._flying: bool = False
+
+    def update_pickup(self, dt: float, ship_x: float, ship_y: float) -> bool:
+        """Advance state. Returns True on collection (caller removes + adds iron)."""
+        dx = ship_x - self.center_x
+        dy = ship_y - self.center_y
+        dist = math.hypot(dx, dy)
+
+        if not self._flying and dist <= IRON_PICKUP_DIST:
+            self._flying = True
+
+        if self._flying:
+            if dist < 6.0:
+                self.remove_from_sprite_lists()
+                return True
+            step = IRON_FLY_SPEED * dt
+            ratio = min(1.0, step / dist)
+            self.center_x += dx * ratio
+            self.center_y += dy * ratio
+
+        return False
+
+
 # ── Iron Asteroid ─────────────────────────────────────────────────────────────
 class IronAsteroid(arcade.Sprite):
     """A minable asteroid containing iron ore.
@@ -234,12 +286,19 @@ class IronAsteroid(arcade.Sprite):
 
 # ── Inventory ─────────────────────────────────────────────────────────────────
 class Inventory:
-    """5×5 cargo hold grid drawn as a modal overlay."""
+    """5×5 cargo hold grid drawn as a modal overlay.
 
-    def __init__(self) -> None:
+    Tracks stackable resources (iron) separately from slot items.
+    """
+
+    def __init__(self, iron_icon: Optional[arcade.Texture] = None) -> None:
         # items: dict[(row, col)] → item name string; absent key = empty slot
         self._items: dict[tuple[int, int], str] = {}
         self.open: bool = False
+
+        # Stackable resource totals
+        self.iron: int = 0
+        self._iron_icon: Optional[arcade.Texture] = iron_icon
 
         # Pre-built Text labels (avoids per-draw allocations)
         cx = SCREEN_WIDTH // 2
@@ -262,6 +321,11 @@ class Inventory:
             9,
             anchor_x="center",
         )
+        # Iron count label drawn inside the top-left cell
+        self._t_iron = arcade.Text("", 0, 0, arcade.color.ORANGE, 9, bold=True)
+
+    def add_iron(self, amount: int) -> None:
+        self.iron += amount
 
     def toggle(self) -> None:
         self.open = not self.open
@@ -304,6 +368,30 @@ class Inventory:
                     (60, 80, 120),
                     border_width=1,
                 )
+
+        # Iron in top-left cell (row 0, col 0)
+        if self.iron > 0:
+            cell_x = grid_x
+            cell_y = grid_y + (INV_ROWS - 1) * INV_CELL
+            # Draw iron icon centred in cell
+            if self._iron_icon is not None:
+                icon_scale = (INV_CELL - 12) / max(
+                    self._iron_icon.width, self._iron_icon.height
+                )
+                arcade.draw_texture_rect(
+                    self._iron_icon,
+                    arcade.LBWH(
+                        cell_x + 6, cell_y + 6,
+                        self._iron_icon.width * icon_scale,
+                        self._iron_icon.height * icon_scale,
+                    ),
+                )
+            # Count badge (bottom-right of cell)
+            self._t_iron.text = str(self.iron)
+            self._t_iron.x = cell_x + INV_CELL - 4
+            self._t_iron.y = cell_y + 3
+            self._t_iron.anchor_x = "right"
+            self._t_iron.draw()
 
 
 # ── Player ship ──────────────────────────────────────────────────────────────
@@ -464,6 +552,10 @@ class GameView(arcade.View):
         # UI camera (static — for the status panel and modal overlays)
         self.ui_cam = arcade.camera.Camera2D()
 
+        # Camera shake state
+        self._shake_timer: float = 0.0   # seconds remaining
+        self._shake_amp: float = 0.0     # current max pixel offset
+
         # Held-key tracking
         self._keys: set[int] = set()
 
@@ -513,6 +605,7 @@ class GameView(arcade.View):
 
         # ── Asteroids ────────────────────────────────────────────────────────
         asteroid_tex = arcade.load_texture(ASTEROID_PNG)
+        self._iron_tex = arcade.load_texture(IRON_ICON_PNG)
 
         # Load explosion sprite sheet: 9 frames, each 140×140
         exp_ss = arcade.load_spritesheet(EXPLOSION_PNG)
@@ -526,8 +619,14 @@ class GameView(arcade.View):
             os.path.join(SFX_EXPLOSIONS_DIR, "Sci-Fi Deep Explosion 1.wav")
         )
 
+        # Collision bump sound
+        self._bump_snd = arcade.load_sound(
+            os.path.join(SFX_BIO_DIR, "Game Biomechanical Impact Sound 1.wav")
+        )
+
         self.asteroid_list = arcade.SpriteList()
         self.explosion_list = arcade.SpriteList()
+        self.iron_pickup_list = arcade.SpriteList()
 
         cx_world, cy_world = WORLD_WIDTH / 2, WORLD_HEIGHT / 2
         margin = 100          # keep asteroids away from world edges
@@ -544,7 +643,7 @@ class GameView(arcade.View):
             placed += 1
 
         # ── Inventory ────────────────────────────────────────────────────────
-        self.inventory = Inventory()
+        self.inventory = Inventory(iron_icon=self._iron_tex)
 
         # ── HUD text objects (pre-built to avoid per-frame draw_text cost) ───
         cx = STATUS_WIDTH // 2
@@ -555,46 +654,48 @@ class GameView(arcade.View):
                                        arcade.color.WHITE, 11)
         self._t_hdg      = arcade.Text("", 10, SCREEN_HEIGHT - 80,
                                        arcade.color.WHITE, 11)
-        self._t_hp       = arcade.Text("HP",     10, SCREEN_HEIGHT - 120,
+        self._t_iron_hud = arcade.Text("", 10, SCREEN_HEIGHT - 100,
+                                       arcade.color.ORANGE, 11)
+        self._t_hp       = arcade.Text("HP",     10, SCREEN_HEIGHT - 140,
                                        arcade.color.LIME_GREEN, 10, bold=True)
-        self._t_shield   = arcade.Text("SHIELD", 10, SCREEN_HEIGHT - 156,
+        self._t_shield   = arcade.Text("SHIELD", 10, SCREEN_HEIGHT - 176,
                                        arcade.color.CYAN, 10, bold=True)
         # Weapon readout
-        self._t_wpn_hdr  = arcade.Text("WEAPON", cx, SCREEN_HEIGHT - 190,
+        self._t_wpn_hdr  = arcade.Text("WEAPON", cx, SCREEN_HEIGHT - 210,
                                        arcade.color.LIGHT_GRAY, 9,
                                        anchor_x="center")
-        self._t_wpn_name = arcade.Text("", cx, SCREEN_HEIGHT - 206,
+        self._t_wpn_name = arcade.Text("", cx, SCREEN_HEIGHT - 226,
                                        arcade.color.YELLOW, 10, bold=True,
                                        anchor_x="center")
         # Controls reference
-        self._t_ctrl_hdr = arcade.Text("CONTROLS", cx, SCREEN_HEIGHT - 228,
+        self._t_ctrl_hdr = arcade.Text("CONTROLS", cx, SCREEN_HEIGHT - 248,
                                        arcade.color.LIGHT_GRAY, 9,
                                        anchor_x="center")
         self._t_ctrl_lines = [
-            arcade.Text("L/R  A/D    Rotate",   10, SCREEN_HEIGHT - 246,
+            arcade.Text("L/R  A/D    Rotate",   10, SCREEN_HEIGHT - 266,
                         arcade.color.LIGHT_GRAY, 9),
-            arcade.Text("Up / W      Thrust",   10, SCREEN_HEIGHT - 262,
+            arcade.Text("Up / W      Thrust",   10, SCREEN_HEIGHT - 282,
                         arcade.color.LIGHT_GRAY, 9),
-            arcade.Text("Dn / S      Brake",    10, SCREEN_HEIGHT - 278,
+            arcade.Text("Dn / S      Brake",    10, SCREEN_HEIGHT - 298,
                         arcade.color.LIGHT_GRAY, 9),
-            arcade.Text("Space       Fire",     10, SCREEN_HEIGHT - 294,
+            arcade.Text("Space       Fire",     10, SCREEN_HEIGHT - 314,
                         arcade.color.LIGHT_GRAY, 9),
-            arcade.Text("Tab         Weapon",   10, SCREEN_HEIGHT - 310,
+            arcade.Text("Tab         Weapon",   10, SCREEN_HEIGHT - 330,
                         arcade.color.LIGHT_GRAY, 9),
-            arcade.Text("I           Inventory",10, SCREEN_HEIGHT - 326,
+            arcade.Text("I           Inventory",10, SCREEN_HEIGHT - 346,
                         arcade.color.LIGHT_GRAY, 9),
-            arcade.Text("F           FPS",      10, SCREEN_HEIGHT - 342,
+            arcade.Text("F           FPS",      10, SCREEN_HEIGHT - 362,
                         arcade.color.LIGHT_GRAY, 9),
         ]
         self._t_gamepad = (
-            arcade.Text("Gamepad: connected", 10, SCREEN_HEIGHT - 350,
+            arcade.Text("Gamepad: connected", 10, SCREEN_HEIGHT - 382,
                         arcade.color.LIME_GREEN, 9)
             if self.joystick else None
         )
         # FPS overlay (toggled with F key)
         self._show_fps: bool = False
         self._fps: float = 60.0          # smoothed estimate
-        self._t_fps = arcade.Text("", 10, SCREEN_HEIGHT - 370,
+        self._t_fps = arcade.Text("", 10, SCREEN_HEIGHT - 400,
                                   arcade.color.YELLOW, 10, bold=True)
 
     # ── Helpers ──────────────────────────────────────────────────────────────
@@ -610,6 +711,16 @@ class GameView(arcade.View):
         exp = Explosion(self._explosion_frames, x, y, scale=1.0)
         self.explosion_list.append(exp)
 
+    def _spawn_iron_pickup(self, x: float, y: float) -> None:
+        """Drop an iron icon at world position (x, y)."""
+        pickup = IronPickup(self._iron_tex, x, y)
+        self.iron_pickup_list.append(pickup)
+
+    def _trigger_shake(self) -> None:
+        """Start a brief camera shake."""
+        self._shake_timer = SHAKE_DURATION
+        self._shake_amp = SHAKE_AMPLITUDE
+
     # ── Drawing ──────────────────────────────────────────────────────────────
     def on_draw(self) -> None:
         self.clear()
@@ -619,11 +730,21 @@ class GameView(arcade.View):
         hh = SCREEN_HEIGHT / 2
         cx = max(hw, min(WORLD_WIDTH - hw, self.player.center_x))
         cy = max(hh, min(WORLD_HEIGHT - hh, self.player.center_y))
-        self.world_cam.position = (cx, cy)
+
+        # Apply camera shake offset when active
+        shake_x = shake_y = 0.0
+        if self._shake_timer > 0.0:
+            frac = self._shake_timer / SHAKE_DURATION
+            amp = self._shake_amp * frac
+            shake_x = random.uniform(-amp, amp)
+            shake_y = random.uniform(-amp, amp)
+
+        self.world_cam.position = (cx + shake_x, cy + shake_y)
 
         with self.world_cam.activate():
             self._draw_background(cx, cy, hw, hh)
             self.asteroid_list.draw()
+            self.iron_pickup_list.draw()
             self.explosion_list.draw()
             self.projectile_list.draw()
             self.player_list.draw()
@@ -684,6 +805,8 @@ class GameView(arcade.View):
         self._t_spd.draw()
         self._t_hdg.text = f"HDG   {self.player.heading:>6.1f}\u00b0"
         self._t_hdg.draw()
+        self._t_iron_hud.text = f"IRON  {self.inventory.iron:>7}"
+        self._t_iron_hud.draw()
         self._t_wpn_name.text = self._active_weapon.name
         self._t_wpn_name.draw()
 
@@ -695,11 +818,11 @@ class GameView(arcade.View):
             else (200, 30, 30)
         )
         arcade.draw_rect_filled(
-            arcade.LBWH(10, SCREEN_HEIGHT - 136, int(190 * hp_frac), 10), hp_color
+            arcade.LBWH(10, SCREEN_HEIGHT - 156, int(190 * hp_frac), 10), hp_color
         )
         # Shield bar (placeholder — full)
         arcade.draw_rect_filled(
-            arcade.LBWH(10, SCREEN_HEIGHT - 172, 190, 10), (0, 140, 210)
+            arcade.LBWH(10, SCREEN_HEIGHT - 192, 190, 10), (0, 140, 210)
         )
 
     # ── Update ───────────────────────────────────────────────────────────────
@@ -707,6 +830,10 @@ class GameView(arcade.View):
         # ── Smoothed FPS (exponential moving average) ────────────────────────
         if delta_time > 0:
             self._fps = 0.9 * self._fps + 0.1 * (1.0 / delta_time)
+
+        # ── Shake timer tick ─────────────────────────────────────────────────
+        if self._shake_timer > 0.0:
+            self._shake_timer = max(0.0, self._shake_timer - delta_time)
 
         # ── Movement input ───────────────────────────────────────────────────
         rl = arcade.key.LEFT in self._keys or arcade.key.A in self._keys
@@ -770,13 +897,23 @@ class GameView(arcade.View):
                 asteroid = hit_asteroids[0]
                 asteroid.take_damage(10)
                 if asteroid.hp <= 0:
-                    self._spawn_explosion(asteroid.center_x, asteroid.center_y)
+                    ax, ay = asteroid.center_x, asteroid.center_y
+                    self._spawn_explosion(ax, ay)
                     arcade.play_sound(self._explosion_snd, volume=0.7)
                     asteroid.remove_from_sprite_lists()
+                    # Drop one iron icon at the destruction site
+                    self._spawn_iron_pickup(ax, ay)
 
         # ── Animate asteroids (spin) ─────────────────────────────────────────
         for asteroid in self.asteroid_list:
             asteroid.update_asteroid(delta_time)
+
+        # ── Iron pickup: fly toward ship + collect ───────────────────────────
+        sx, sy = self.player.center_x, self.player.center_y
+        for pickup in list(self.iron_pickup_list):
+            collected = pickup.update_pickup(delta_time, sx, sy)
+            if collected:
+                self.inventory.add_iron(ASTEROID_IRON_YIELD)
 
         # ── Ship ↔ Asteroid collision ────────────────────────────────────────
         hit_list = arcade.check_for_collision_with_list(
@@ -803,10 +940,12 @@ class GameView(arcade.View):
                 self.player.vel_x -= (1 + SHIP_BOUNCE) * dot * nx
                 self.player.vel_y -= (1 + SHIP_BOUNCE) * dot * ny
 
-            # --- Damage (once per cooldown window) ----------------------------
+            # --- Damage + bump sound + screen shake (once per cooldown) -------
             if self.player._collision_cd <= 0.0:
                 self.player.hp = max(0, self.player.hp - SHIP_COLLISION_DAMAGE)
                 self.player._collision_cd = SHIP_COLLISION_COOLDOWN
+                arcade.play_sound(self._bump_snd, volume=0.5)
+                self._trigger_shake()
 
         # ── Advance explosion animations ─────────────────────────────────────
         for exp in list(self.explosion_list):

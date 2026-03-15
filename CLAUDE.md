@@ -87,6 +87,9 @@ Two weapons implemented. Active weapon shown in HUD; cycle with Tab / RB.
 - Toggled open/closed with I (keyboard) or Y (gamepad).
 - Drawn as a centred modal overlay on top of all other UI; does not pause the game.
 - Items stored as `dict[(row, col)] → str`; empty slots show dark blue cells, occupied slots show green.
+- Stackable resource `iron` tracked as an integer count on the `Inventory` object.
+- When iron > 0, the top-left cell shows the iron icon + count badge.
+- Iron count also shown in the HUD status panel (IRON readout).
 
 #### Iron Asteroids
 
@@ -97,6 +100,10 @@ Two weapons implemented. Active weapon shown in HUD; cycle with Tab / RB.
 - **Only the Mining Beam deals damage** (10 per hit); Basic Laser does nothing
 - On destruction: plays explosion animation + `Sci-Fi Deep Explosion 1.wav`
 - Explosion sheet: `assets/gamedevmarket assets/asteroids crusher/Explosions/PNG/explosion.png` — 9 frames × 140×140 px, plays at 15 fps then removes itself
+- On destruction: drops one `IronPickup` sprite at the destruction site
+- Iron icon: `assets/kenney space combat assets/Voxel Pack/PNG/Items/ore_ironAlt.png`, scale 0.5×
+- Iron pickup idles at drop point; when ship moves within 20 px it flies toward the ship (400 px/s)
+- On contact the pickup is removed and `inventory.iron += 10`
 
 #### Ship ↔ Asteroid Collision
 
@@ -105,10 +112,11 @@ Two weapons implemented. Active weapon shown in HUD; cycle with Tab / RB.
 - Bounce: ship velocity is reflected about the collision normal with restitution 0.55 (only when moving toward the asteroid)
 - Damage: 5 HP per collision event; 0.5 s invincibility window on `PlayerShip._collision_cd` prevents per-frame damage stacking
 - Ship HP (`PlayerShip.hp`, max 100) is live — HP bar in HUD shrinks and changes colour (green → orange → red)
+- On each damage event: plays `Biomechanical/Game Biomechanical Impact Sound 1.wav` (hull bump) and triggers 0.25 s camera shake (amplitude 8 px, fades linearly)
 
 #### Status panel (HUD)
 
-Live HP bar (green → orange → red as HP falls); speed readout, heading readout, full shield bar (placeholder), active weapon name, controls reference, gamepad connection status. FPS counter (toggle with F) shown as a smoothed exponential moving average (α = 0.1).
+Live HP bar (green → orange → red as HP falls); speed readout, heading readout, iron ore count, full shield bar (placeholder), active weapon name, controls reference, gamepad connection status. FPS counter (toggle with F) shown as a smoothed exponential moving average (α = 0.1).
 
 ## Architecture
 
@@ -190,7 +198,7 @@ Resources deplete on gathering and take time to replenish (e.g., 10 minutes for 
 ### Resources graphical representation
 
 - Iron Asteroid: C:\Users\kestanol\Documents\code\Space Survivalcraft\assets\Pixel Art Space\Asteroid.png
-- Iron icon: C:\Users\kestanol\Documents\code\Space Survivalcraft\assets\kenney space combat assets\Voxel Pack\PNG\Items\ore_ironAlt.png
+- Iron icon (dropped pickup + inventory display): `assets/kenney space combat assets/Voxel Pack/PNG/Items/ore_ironAlt.png`
 - Iron Asteroids explosion: C:\Users\kestanol\Documents\code\Space Survivalcraft\assets\gamedevmarket assets\asteroids crusher\Explosions\PNG\explosion.png
 
 
