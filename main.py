@@ -102,6 +102,7 @@ EXPLOSION_FPS: float = 15.0        # frames per second
 IRON_PICKUP_DIST: float = 40.0   # px — edge distance (from ship hull) to trigger fly-to-ship
 IRON_FLY_SPEED: float = 400.0    # px/s — speed of iron token once attracted
 WORLD_ITEM_LIFETIME: float = 600.0  # seconds before a dropped item despawns (10 min)
+EJECT_DIST: float = 60.0            # px from ship EDGE where ejected items land
 
 # ── Camera shake constants ────────────────────────────────────────────────────
 SHAKE_DURATION: float = 0.25     # seconds of camera shake after a hull collision
@@ -1297,10 +1298,17 @@ class GameView(arcade.View):
             if ejected is not None:
                 item_type, amount = ejected
                 if item_type == "iron" and amount > 0:
-                    # Spawn a timed iron pickup at the ship's current position
+                    # Spawn the pickup EJECT_DIST px from the ship's hull edge so
+                    # it sits safely outside the auto-pickup zone.  Random direction
+                    # ensures it isn't immediately re-attracted.
+                    eject_angle = random.uniform(0.0, math.tau)
+                    eject_r = SHIP_RADIUS + EJECT_DIST   # 88 px from centre
+                    eject_x = max(0.0, min(WORLD_WIDTH,
+                                  self.player.center_x + math.cos(eject_angle) * eject_r))
+                    eject_y = max(0.0, min(WORLD_HEIGHT,
+                                  self.player.center_y + math.sin(eject_angle) * eject_r))
                     self._spawn_iron_pickup(
-                        self.player.center_x,
-                        self.player.center_y,
+                        eject_x, eject_y,
                         amount=amount,
                         lifetime=WORLD_ITEM_LIFETIME,
                     )
