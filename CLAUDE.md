@@ -93,6 +93,7 @@ Two weapons implemented. Active weapon shown in HUD; cycle with Tab / RB.
 - **Drag-and-drop**: left-click any occupied cell and drag to a new cell to move it; items in the destination cell are swapped back to the source. A yellow floating ghost follows the cursor during the drag; the source cell is highlighted yellow and the drop target is highlighted blue. Dropping inside the panel but outside the grid returns the item to its source cell.
 - **World ejection**: dropping an item *outside the inventory panel entirely* spawns it as a pickup in the game world at the ship's current position. It can be re-collected normally. After 600 seconds (10 minutes) the item despawns silently. Iron is ejected with its full stack count preserved so picking it back up restores the correct amount.
 - **Hover tooltip**: hovering the cursor over any occupied cell shows a small tooltip box with the item's full type name (e.g. "Iron ×30"). Tooltip appears above the cell and stays on screen.
+- **Performance**: all text rendering uses pre-built `arcade.Text` objects (`_t_title`, `_t_hint`, `_t_iron`, `_t_item_label`, `_t_drag_label`, `_t_tooltip`) rather than `arcade.draw_text()` to avoid the `PerformanceWarning`. Their `.text`, `.x`, `.y` properties are updated each frame before `.draw()` is called.
 
 #### Iron Asteroids
 

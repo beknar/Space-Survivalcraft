@@ -370,6 +370,13 @@ class Inventory:
         )
         # Iron count label (reused in cell and while dragging)
         self._t_iron = arcade.Text("", 0, 0, arcade.color.ORANGE, 9, bold=True)
+        # Generic item text labels (avoid slow draw_text calls)
+        self._t_item_label = arcade.Text("", 0, 0, arcade.color.WHITE, 8)
+        self._t_drag_label = arcade.Text("", 0, 0, arcade.color.WHITE, 8)
+        self._t_tooltip = arcade.Text(
+            "", 0, 0, arcade.color.WHITE, 9,
+            anchor_x="center", anchor_y="center",
+        )
 
     # ── Public API ────────────────────────────────────────────────────────────
     def add_iron(self, amount: int) -> None:
@@ -577,10 +584,10 @@ class Inventory:
                         self._draw_iron_in_cell(cx_, cy_)
                     elif item is not None:
                         # Generic item label (placeholder — replace with icon later)
-                        arcade.draw_text(
-                            item[:6], cx_ + 4, cy_ + INV_CELL // 2 - 5,
-                            arcade.color.WHITE, 8,
-                        )
+                        self._t_item_label.text = item[:6]
+                        self._t_item_label.x = cx_ + 4
+                        self._t_item_label.y = cy_ + INV_CELL // 2 - 5
+                        self._t_item_label.draw()
 
         # Floating icon under cursor during drag
         if self._drag_type is not None:
@@ -599,10 +606,10 @@ class Inventory:
             if self._drag_type == "iron":
                 self._draw_iron_in_cell(fx, fy, alpha=200)
             else:
-                arcade.draw_text(
-                    self._drag_type[:6], fx + 4, fy + INV_CELL // 2 - 5,
-                    arcade.color.WHITE, 8,
-                )
+                self._t_drag_label.text = self._drag_type[:6]
+                self._t_drag_label.x = fx + 4
+                self._t_drag_label.y = fy + INV_CELL // 2 - 5
+                self._t_drag_label.draw()
 
         # ── Hover tooltip ────────────────────────────────────────────────────
         tip_cell = self._cell_at(self._mouse_x, self._mouse_y)
@@ -633,11 +640,10 @@ class Inventory:
                     arcade.LBWH(tx0, cell_ty, tw, 15),
                     arcade.color.LIGHT_GRAY, border_width=1,
                 )
-                arcade.draw_text(
-                    tip_label, tx0 + tw // 2, cell_ty + 7,
-                    arcade.color.WHITE, 9,
-                    anchor_x="center", anchor_y="center",
-                )
+                self._t_tooltip.text = tip_label
+                self._t_tooltip.x = tx0 + tw // 2
+                self._t_tooltip.y = cell_ty + 7
+                self._t_tooltip.draw()
 
 
 # ── Player ship ──────────────────────────────────────────────────────────────
