@@ -87,9 +87,10 @@ Two weapons implemented. Active weapon shown in HUD; cycle with Tab / RB.
 - Toggled open/closed with I (keyboard) or Y (gamepad).
 - Drawn as a centred modal overlay on top of all other UI; does not pause the game.
 - Items stored as `dict[(row, col)] → str`; empty slots show dark blue cells, occupied slots show green.
-- Stackable resource `iron` tracked as an integer count on the `Inventory` object.
-- When iron > 0, the top-left cell shows the iron icon + count badge.
+- Stackable resource `iron` tracked as an integer count on the `Inventory` object; its display cell is tracked separately (`_iron_cell`, default (0,0)) and is draggable.
+- When iron > 0, the iron cell shows the iron icon + count badge.
 - Iron count also shown in the HUD status panel (IRON readout).
+- **Drag-and-drop**: left-click any occupied cell and drag to a new cell to move it; items in the destination cell are swapped back to the source. A yellow floating ghost follows the cursor during the drag; the source cell is highlighted yellow and the drop target is highlighted blue. Items dropped outside the grid return to their original cell.
 
 #### Iron Asteroids
 
