@@ -9,6 +9,7 @@ from typing import Optional
 import arcade
 import arcade.camera
 import pyglet.input
+from PIL import Image as PILImage
 
 # ── Window / World ──────────────────────────────────────────────────────────
 SCREEN_WIDTH: int = 1280
@@ -56,6 +57,14 @@ SFX_BIO_DIR = os.path.join(
     "Stormwave Audio Sci-Fi Sound Effects Bundle", "Biomechanical",
 )
 ASTEROID_PNG = os.path.join(_HERE, "assets", "Pixel Art Space", "Asteroid.png")
+ALIEN_SHIP_PNG = os.path.join(
+    _HERE, "assets", "gamedevmarket assets",
+    "alien spaceship creation kit", "png", "Ship.png",
+)
+ALIEN_FX_PNG = os.path.join(
+    _HERE, "assets", "gamedevmarket assets",
+    "alien spaceship creation kit", "png", "Effects.png",
+)
 EXPLOSION_PNG = os.path.join(
     _HERE, "assets", "gamedevmarket assets", "asteroids crusher",
     "Explosions", "PNG", "explosion.png",
@@ -98,6 +107,21 @@ EXPLOSION_FRAME_W: int = 140
 EXPLOSION_FRAME_H: int = 140
 EXPLOSION_FPS: float = 15.0        # frames per second
 
+# ── Small Alien Ship constants ────────────────────────────────────────────────
+ALIEN_COUNT: int = 20
+ALIEN_HP: int = 50
+ALIEN_SCALE: float = 0.10               # display scale  (461 px source → ~46 px wide)
+ALIEN_RADIUS: float = 20.0              # approx collision radius in px
+ALIEN_SPEED: float = 120.0              # patrol / pursuit movement speed  px/s
+ALIEN_PATROL_RADIUS_MIN: float = 100.0  # minimum patrol-area radius  px
+ALIEN_PATROL_RADIUS_MAX: float = 150.0  # maximum patrol-area radius  px
+ALIEN_DETECT_DIST: float = 50.0         # player centre-to-centre px → triggers pursuit
+ALIEN_LASER_DAMAGE: float = 10.0        # HP per alien laser hit
+ALIEN_LASER_RANGE: float = 60.0         # alien laser max range  px
+ALIEN_LASER_SPEED: float = 300.0        # alien laser projectile speed  px/s
+ALIEN_FIRE_COOLDOWN: float = 1.5        # seconds between alien shots
+ALIEN_MIN_DIST: float = 400.0           # min spawn distance from world centre  px
+
 # ── Iron pickup constants ─────────────────────────────────────────────────────
 IRON_PICKUP_DIST: float = 40.0   # px — edge distance (from ship hull) to trigger fly-to-ship
 IRON_FLY_SPEED: float = 400.0    # px/s — speed of iron token once attracted
@@ -130,6 +154,7 @@ class Projectile(arcade.Sprite):
         max_dist: float,
         scale: float = 1.0,
         mines_rock: bool = False,
+        damage: float = 0.0,
     ) -> None:
         super().__init__(path_or_texture=texture, scale=scale)
         self.center_x = x
@@ -141,6 +166,7 @@ class Projectile(arcade.Sprite):
         self._max_dist: float = max_dist
         self._dist_travelled: float = 0.0
         self.mines_rock: bool = mines_rock   # True for Mining Beam only
+        self.damage: float = damage          # HP damage dealt on impact
 
     def update_projectile(self, dt: float) -> None:
         self.center_x += self._vx * dt
@@ -200,6 +226,7 @@ class Weapon:
             self._texture, spawn_x, spawn_y, heading,
             self._proj_speed, self._max_range, self._proj_scale,
             mines_rock=self.mines_rock,
+            damage=self.damage,
         )
 
 
@@ -317,6 +344,118 @@ class IronAsteroid(arcade.Sprite):
 
     def take_damage(self, amount: int) -> None:
         self.hp -= amount
+
+
+# ── Small Alien Ship ──────────────────────────────────────────────────────────
+class SmallAlienShip(arcade.Sprite):
+    """Scout-class enemy.
+
+    Behaviour
+    ---------
+    PATROL : circles a randomised point within ALIEN_PATROL_RADIUS of its spawn.
+    PURSUE : when the player comes within ALIEN_DETECT_DIST px, locks on and
+             chases the player, firing ALIEN_LASER_RANGE-px laser bolts.
+    Returns to patrol when the player moves more than 3× ALIEN_DETECT_DIST away.
+    """
+
+    _STATE_PATROL = 0
+    _STATE_PURSUE = 1
+
+    def __init__(
+        self,
+        texture: arcade.Texture,
+        laser_tex: arcade.Texture,
+        x: float,
+        y: float,
+    ) -> None:
+        super().__init__(path_or_texture=texture, scale=ALIEN_SCALE)
+        self.center_x = x
+        self.center_y = y
+        self.hp: int = ALIEN_HP
+
+        self._state: int = self._STATE_PATROL
+        self._home_x: float = x
+        self._home_y: float = y
+        self._patrol_r: float = random.uniform(
+            ALIEN_PATROL_RADIUS_MIN, ALIEN_PATROL_RADIUS_MAX
+        )
+        self._tgt_x: float = x
+        self._tgt_y: float = y
+        self._pick_patrol_target()
+
+        self._heading: float = random.uniform(0.0, 360.0)
+        self.angle = self._heading
+        # Stagger fire timers so ships don't all shoot simultaneously
+        self._fire_cd: float = random.uniform(0.0, ALIEN_FIRE_COOLDOWN)
+        self._laser_tex: arcade.Texture = laser_tex
+
+    def _pick_patrol_target(self) -> None:
+        """Choose a fresh random point within the patrol radius."""
+        angle = random.uniform(0.0, math.tau)
+        r = random.uniform(0.0, self._patrol_r)
+        self._tgt_x = max(50.0, min(WORLD_WIDTH - 50.0,
+                                     self._home_x + math.cos(angle) * r))
+        self._tgt_y = max(50.0, min(WORLD_HEIGHT - 50.0,
+                                     self._home_y + math.sin(angle) * r))
+
+    def take_damage(self, amount: int) -> None:
+        self.hp -= amount
+
+    def update_alien(
+        self, dt: float, player_x: float, player_y: float
+    ) -> "Optional[Projectile]":
+        """Advance AI + movement.  Returns a fired Projectile, or None."""
+        dx = player_x - self.center_x
+        dy = player_y - self.center_y
+        dist = math.hypot(dx, dy)
+
+        # ── State transitions ─────────────────────────────────────────────────
+        if self._state == self._STATE_PATROL:
+            if dist <= ALIEN_DETECT_DIST:
+                self._state = self._STATE_PURSUE
+        else:
+            if dist > ALIEN_DETECT_DIST * 3.0:
+                self._state = self._STATE_PATROL
+                self._pick_patrol_target()
+
+        # ── Movement ──────────────────────────────────────────────────────────
+        if self._state == self._STATE_PATROL:
+            tdx = self._tgt_x - self.center_x
+            tdy = self._tgt_y - self.center_y
+            tdist = math.hypot(tdx, tdy)
+            if tdist < 8.0:
+                self._pick_patrol_target()
+            else:
+                step = min(ALIEN_SPEED * dt, tdist)
+                self.center_x += tdx / tdist * step
+                self.center_y += tdy / tdist * step
+                self._heading = math.degrees(math.atan2(tdx, tdy)) % 360.0
+                self.angle = self._heading
+        else:  # PURSUE — move toward player
+            if dist > 1.0:
+                step = min(ALIEN_SPEED * dt, dist)
+                self.center_x += dx / dist * step
+                self.center_y += dy / dist * step
+                self._heading = math.degrees(math.atan2(dx, dy)) % 360.0
+                self.angle = self._heading
+
+        # ── Fire ──────────────────────────────────────────────────────────────
+        self._fire_cd = max(0.0, self._fire_cd - dt)
+        if (
+            self._state == self._STATE_PURSUE
+            and dist <= ALIEN_LASER_RANGE
+            and self._fire_cd <= 0.0
+        ):
+            self._fire_cd = ALIEN_FIRE_COOLDOWN
+            return Projectile(
+                self._laser_tex,
+                self.center_x, self.center_y,
+                self._heading,
+                ALIEN_LASER_SPEED, ALIEN_LASER_RANGE,
+                scale=0.5,
+                damage=ALIEN_LASER_DAMAGE,
+            )
+        return None
 
 
 # ── Inventory ─────────────────────────────────────────────────────────────────
@@ -901,6 +1040,33 @@ class GameView(arcade.View):
             self.asteroid_list.append(IronAsteroid(asteroid_tex, ax, ay))
             placed += 1
 
+        # ── Alien ships ──────────────────────────────────────────────────────
+        # Ship sprite: first column, first row of Ship.png.
+        # Alpha-channel analysis gives the content bounds: x=364..824, y=305..814.
+        _pil_ship = PILImage.open(ALIEN_SHIP_PNG).convert("RGBA")
+        alien_ship_tex = arcade.Texture(_pil_ship.crop((364, 305, 825, 815)))
+
+        # Laser sprite: last column of first row in Effects.png (x=4299..4358, y=82..309).
+        # The bolt faces LEFT in the source file; rotate 90° CCW so it faces NORTH at
+        # angle=0, matching the same angle convention used by all other Projectiles.
+        _pil_fx = PILImage.open(ALIEN_FX_PNG).convert("RGBA")
+        _pil_laser = _pil_fx.crop((4299, 82, 4359, 310))          # 60×228 px, points left
+        alien_laser_tex = arcade.Texture(_pil_laser.rotate(90, expand=True))  # now 228×60, points up
+
+        self.alien_list: arcade.SpriteList = arcade.SpriteList()
+        self.alien_projectile_list: arcade.SpriteList = arcade.SpriteList()
+
+        placed = 0
+        attempts = 0
+        while placed < ALIEN_COUNT and attempts < ALIEN_COUNT * 20:
+            attempts += 1
+            ax = random.uniform(100, WORLD_WIDTH - 100)
+            ay = random.uniform(100, WORLD_HEIGHT - 100)
+            if math.hypot(ax - cx_world, ay - cy_world) < ALIEN_MIN_DIST:
+                continue
+            self.alien_list.append(SmallAlienShip(alien_ship_tex, alien_laser_tex, ax, ay))
+            placed += 1
+
         # ── Inventory ────────────────────────────────────────────────────────
         self.inventory = Inventory(iron_icon=self._iron_tex)
 
@@ -1027,6 +1193,11 @@ class GameView(arcade.View):
             px, py = to_map(pickup.center_x, pickup.center_y)
             arcade.draw_circle_filled(px, py, 2.0, (255, 165, 0))
 
+        # Alien ships — red dots
+        for alien in self.alien_list:
+            amx, amy = to_map(alien.center_x, alien.center_y)
+            arcade.draw_circle_filled(amx, amy, 2.0, (220, 50, 50))
+
         # Player ship — white dot + cyan heading line
         sx, sy = to_map(self.player.center_x, self.player.center_y)
         rad = math.radians(self.player.heading)
@@ -1060,6 +1231,8 @@ class GameView(arcade.View):
             self.asteroid_list.draw()
             self.iron_pickup_list.draw()
             self.explosion_list.draw()
+            self.alien_list.draw()
+            self.alien_projectile_list.draw()
             self.projectile_list.draw()
             self.player_list.draw()
 
@@ -1212,7 +1385,7 @@ class GameView(arcade.View):
             if hit_asteroids:
                 proj.remove_from_sprite_lists()
                 asteroid = hit_asteroids[0]
-                asteroid.take_damage(10)
+                asteroid.take_damage(int(proj.damage))
                 if asteroid.hp <= 0:
                     ax, ay = asteroid.center_x, asteroid.center_y
                     self._spawn_explosion(ax, ay)
@@ -1263,6 +1436,37 @@ class GameView(arcade.View):
                 self.player._collision_cd = SHIP_COLLISION_COOLDOWN
                 arcade.play_sound(self._bump_snd, volume=0.5)
                 self._trigger_shake()
+
+        # ── Alien ship AI + movement ─────────────────────────────────────────
+        px, py = self.player.center_x, self.player.center_y
+        for alien in list(self.alien_list):
+            proj = alien.update_alien(delta_time, px, py)
+            if proj is not None:
+                self.alien_projectile_list.append(proj)
+
+        # ── Advance alien projectiles ─────────────────────────────────────────
+        for proj in list(self.alien_projectile_list):
+            proj.update_projectile(delta_time)
+
+        # ── Player laser hits on alien ships ─────────────────────────────────
+        for proj in list(self.projectile_list):
+            hit_aliens = arcade.check_for_collision_with_list(proj, self.alien_list)
+            if hit_aliens:
+                proj.remove_from_sprite_lists()
+                alien = hit_aliens[0]
+                alien.take_damage(int(proj.damage))
+                if alien.hp <= 0:
+                    self._spawn_explosion(alien.center_x, alien.center_y)
+                    arcade.play_sound(self._explosion_snd, volume=0.7)
+                    alien.remove_from_sprite_lists()
+
+        # ── Alien laser hits on player ────────────────────────────────────────
+        for proj in list(self.alien_projectile_list):
+            if arcade.check_for_collision(proj, self.player):
+                proj.remove_from_sprite_lists()
+                self.player.hp = max(0, self.player.hp - int(proj.damage))
+                self._trigger_shake()
+                arcade.play_sound(self._bump_snd, volume=0.3)
 
         # ── Advance explosion animations ─────────────────────────────────────
         for exp in list(self.explosion_list):

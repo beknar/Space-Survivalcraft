@@ -120,7 +120,23 @@ Two weapons implemented. Active weapon shown in HUD; cycle with Tab / RB.
 
 #### Status panel (HUD)
 
-Live HP bar (green → orange → red as HP falls); speed readout, heading readout, iron ore count, full shield bar (placeholder), active weapon name, controls reference, gamepad connection status. FPS counter (toggle with F) shown as a smoothed exponential moving average (α = 0.1). **Mini-map** at the bottom of the panel shows the full 6400×6400 world scaled to ~193×193 px: gray dots = asteroids, orange dots = iron pickups, white dot + cyan heading line = player ship.
+Live HP bar (green → orange → red as HP falls); speed readout, heading readout, iron ore count, full shield bar (placeholder), active weapon name, controls reference, gamepad connection status. FPS counter (toggle with F) shown as a smoothed exponential moving average (α = 0.1). **Mini-map** at the bottom of the panel shows the full 6400×6400 world scaled to ~193×193 px: gray dots = asteroids, orange dots = iron pickups, red dots = alien ships, white dot + cyan heading line = player ship.
+
+#### Small Alien Ships (`SmallAlienShip`)
+
+- Sprite: `assets/gamedevmarket assets/alien spaceship creation kit/png/Ship.png` — first column of first row, extracted via PIL alpha-channel bounds (x=364, y=305, w=461, h=510), scale 0.10×
+- Laser sprite: `assets/gamedevmarket assets/alien spaceship creation kit/png/Effects.png` — last column of first row (x=4299, y=82, w=60, h=228). Rotated 90° CCW with PIL so the bolt faces north at `angle=0`, matching the player-projectile angle convention. Scale 0.5×.
+- Count: 20, randomly distributed with ≥ 400 px clearance from world centre and ≥ 100 px from world edges
+- HP: 50; no shields
+- Movement speed: 120 px/s (patrol and pursuit)
+- **AI states**:
+  - `PATROL` — circles a random point within 100–150 px of its spawn position
+  - `PURSUE` — when the player enters within 50 px (centre-to-centre), locks on and chases; fires alien laser bolts while in range; returns to patrol if player moves > 150 px away
+- **Alien laser**: damage 10 HP per hit, range 60 px, speed 300 px/s, cooldown 1.5 s; fire timers staggered at spawn to prevent synchronised volleys
+- **Taking damage**: both Basic Laser (25 dmg) and Mining Beam (10 dmg) damage alien ships; death triggers explosion animation + sound
+- **Dealing damage to player**: alien laser hits deal 10 HP directly (no invincibility window needed — each bolt is removed on contact), trigger camera shake and bump sound
+- Mini-map shows alien ships as red dots
+- `Projectile.damage` field added so every projectile carries its own damage value; asteroid-hit and alien-hit code both use `proj.damage`
 
 ## Architecture
 
@@ -197,6 +213,7 @@ Resources deplete on gathering and take time to replenish (e.g., 10 minutes for 
 
 - Mining weapon FX: `assets\kenney space combat assets\Space Shooter Redux\PNG\Lasers\laserGreen13.png`
 - Basic Laser weapon FX: `assets\kenney space combat assets\Space Shooter Redux\PNG\Lasers\laserBlue03.png`
+- Small Alien ship laser: C:\Users\kestanol\Documents\code\Space Survivalcraft\assets\gamedevmarket assets\alien spaceship creation kit\png\Effects.png - last column of first row
 
 
 ### Resources graphical representation
@@ -204,6 +221,11 @@ Resources deplete on gathering and take time to replenish (e.g., 10 minutes for 
 - Iron Asteroid: C:\Users\kestanol\Documents\code\Space Survivalcraft\assets\Pixel Art Space\Asteroid.png
 - Iron icon (dropped pickup + inventory display): `assets/kenney space combat assets/Voxel Pack/PNG/Items/ore_ironAlt.png`
 - Iron Asteroids explosion: C:\Users\kestanol\Documents\code\Space Survivalcraft\assets\gamedevmarket assets\asteroids crusher\Explosions\PNG\explosion.png
+
+### Alien Ships graphical representation
+
+- Small Alien ship: `assets/gamedevmarket assets/alien spaceship creation kit/png/Ship.png` — first column of first row (PIL crop x=364, y=305, w=461, h=510)
+- Small Alien ship laser: `assets/gamedevmarket assets/alien spaceship creation kit/png/Effects.png` — last column of first row (PIL crop x=4299, y=82, w=60, h=228; rotated 90° CCW to face north)
 
 
 ### Resources statistics
