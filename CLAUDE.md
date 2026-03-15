@@ -53,6 +53,13 @@ python main.py
 - Starts at world centre (3200, 3200)
 - **HP**: 100 max. HP bar in HUD (green → orange → red).
 - **Shields**: 100 max (`PlayerShip.shields`, `max_shields`). All incoming damage (asteroid collision, alien laser) is routed through `GameView._apply_damage_to_player()` which absorbs damage with shields first; overflow carries into HP. Shield bar in HUD (cyan) shrinks live. Regenerates at **1 pt per 2 s** (0.5 pt/s via `SHIELD_REGEN_RATE`); fractional accumulation handled by `PlayerShip._shield_acc` float, whole points applied each frame.
+- **Shield visual** (`ShieldSprite`): animated cyan energy bubble drawn on top of the player ship.
+  - Sprite sheet: `assets/gamedevmarket assets/asteroids crusher/Weapons/PNG/shield_frames.png` — 6 frames, 3 cols × 2 rows, each 280×280 px. Loaded with PIL crop.
+  - Scale: 0.50× (140 px diameter bubble wrapping the 96 px ship).
+  - Slow rotation at 25 °/s plus 8 fps frame animation give an organic, living look.
+  - Normal state: `color = (255, 255, 255, 200)` — slightly transparent so the ship beneath shows through.
+  - Hit flash: `ShieldSprite.hit_flash()` called from `_apply_damage_to_player()` whenever the shield absorbs damage. Alpha pulses from 255 → 200 over 0.25 s as the flash fades.
+  - Depleted state: `color = (255, 255, 255, 0)` — fully invisible when `shields == 0`; reappears automatically when regen brings shields back above 0.
 
 #### Controls
 

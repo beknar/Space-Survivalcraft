@@ -73,6 +73,20 @@ IRON_ICON_PNG = os.path.join(
     _HERE, "assets", "kenney space combat assets",
     "Voxel Pack", "PNG", "Items", "ore_ironAlt.png",
 )
+SHIELD_PNG = os.path.join(
+    _HERE, "assets", "gamedevmarket assets", "asteroids crusher",
+    "Weapons", "PNG", "shield_frames.png",
+)
+
+# ── Shield sprite-sheet constants ─────────────────────────────────────────────
+SHIELD_COLS: int = 3
+SHIELD_ROWS: int = 2
+SHIELD_FRAME_W: int = 280          # each frame is 280×280 px in the sheet
+SHIELD_FRAME_H: int = 280
+SHIELD_ANIM_FPS: float = 8.0
+SHIELD_SCALE: float = 0.50         # 280×0.5 = 140 px bubble — wraps 96 px ship
+SHIELD_ROT_SPEED: float = 25.0     # slow bubble rotation, degrees/s
+SHIELD_HIT_FLASH: float = 0.25     # seconds of bright flash when shield absorbs a hit
 
 # ── Weapon / projectile constants ─────────────────────────────────────────────
 NOSE_OFFSET: float = 44.0        # px ahead of ship centre where projectiles spawn
@@ -302,6 +316,63 @@ class HitSpark:
                 self.x, self.y, core_r,
                 (255, 255, 180, alpha),
             )
+
+
+# ── Shield Sprite ─────────────────────────────────────────────────────────────
+class ShieldSprite(arcade.Sprite):
+    """Animated energy-bubble shield drawn around the player ship.
+
+    Behaviour
+    ---------
+    - Visible and animated while shields > 0; invisible when depleted.
+    - Rotates slowly and cycles through sprite-sheet frames for a living look.
+    - Flashes bright white briefly each time it absorbs damage, then fades back
+      to a semi-transparent normal state.
+    """
+
+    def __init__(self, frames: list[arcade.Texture]) -> None:
+        super().__init__(path_or_texture=frames[0], scale=SHIELD_SCALE)
+        self._frames = frames
+        self._frame_idx: int = 0
+        self._anim_timer: float = 0.0
+        self._anim_interval: float = 1.0 / SHIELD_ANIM_FPS
+        self._hit_timer: float = 0.0
+        # Normal appearance: original cyan texture, slightly transparent
+        self.color = (255, 255, 255, 200)
+
+    def hit_flash(self) -> None:
+        """Trigger a short bright flash — call whenever the shield takes damage."""
+        self._hit_timer = SHIELD_HIT_FLASH
+
+    def update_shield(
+        self, dt: float, ship_x: float, ship_y: float, shields: int
+    ) -> None:
+        """Advance animation and position.  Call once per frame."""
+        self.center_x = ship_x
+        self.center_y = ship_y
+
+        if shields <= 0:
+            self.color = (255, 255, 255, 0)   # fully transparent — invisible
+            return
+
+        # ── Frame animation ───────────────────────────────────────────────────
+        self._anim_timer += dt
+        if self._anim_timer >= self._anim_interval:
+            self._anim_timer -= self._anim_interval
+            self._frame_idx = (self._frame_idx + 1) % len(self._frames)
+            self.texture = self._frames[self._frame_idx]
+
+        # ── Slow rotation ─────────────────────────────────────────────────────
+        self.angle = (self.angle + SHIELD_ROT_SPEED * dt) % 360.0
+
+        # ── Hit flash ─────────────────────────────────────────────────────────
+        if self._hit_timer > 0.0:
+            self._hit_timer = max(0.0, self._hit_timer - dt)
+            t = self._hit_timer / SHIELD_HIT_FLASH   # 1 at hit → 0 when done
+            a = int(200 + 55 * t)    # alpha: 255 (full) → 200 (normal) as flash fades
+            self.color = (255, 255, 255, a)
+        else:
+            self.color = (255, 255, 255, 200)
 
 
 # ── Iron Pickup ───────────────────────────────────────────────────────────────
@@ -1017,6 +1088,24 @@ class GameView(arcade.View):
         self.player_list = arcade.SpriteList()
         self.player_list.append(self.player)
 
+        # ── Shield sprite ─────────────────────────────────────────────────────
+        _pil_shield = PILImage.open(SHIELD_PNG).convert("RGBA")
+        _shield_frames: list[arcade.Texture] = []
+        for row in range(SHIELD_ROWS):
+            for col in range(SHIELD_COLS):
+                x0 = col * SHIELD_FRAME_W
+                y0 = row * SHIELD_FRAME_H
+                _shield_frames.append(
+                    arcade.Texture(
+                        _pil_shield.crop((x0, y0,
+                                          x0 + SHIELD_FRAME_W,
+                                          y0 + SHIELD_FRAME_H))
+                    )
+                )
+        self.shield_sprite = ShieldSprite(_shield_frames)
+        self.shield_sprite.center_x = self.player.center_x
+        self.shield_sprite.center_y = self.player.center_y
+
         # Active projectiles
         self.projectile_list = arcade.SpriteList()
 
@@ -1249,11 +1338,13 @@ class GameView(arcade.View):
         """Apply damage to the player's shields first, then HP.
 
         Shield absorbs damage down to 0; overflow carries into HP.
+        Triggers a shield hit-flash whenever the shield absorbs any damage.
         """
         if self.player.shields > 0:
             absorbed = min(self.player.shields, amount)
             self.player.shields -= absorbed
             amount -= absorbed
+            self.shield_sprite.hit_flash()   # visual feedback on shield hit
         if amount > 0:
             self.player.hp = max(0, self.player.hp - amount)
         self._shake_amp = SHAKE_AMPLITUDE
@@ -1328,6 +1419,7 @@ class GameView(arcade.View):
             self.alien_projectile_list.draw()
             self.projectile_list.draw()
             self.player_list.draw()
+            self.shield_sprite.draw()
             for spark in self.hit_sparks:
                 spark.draw()
 
@@ -1430,6 +1522,13 @@ class GameView(arcade.View):
                 self.player._shield_acc -= pts
                 self.player.shields = min(self.player.max_shields,
                                           self.player.shields + pts)
+
+        # ── Shield sprite position + animation ────────────────────────────────
+        self.shield_sprite.update_shield(
+            delta_time,
+            self.player.center_x, self.player.center_y,
+            self.player.shields,
+        )
 
         # ── Movement input ───────────────────────────────────────────────────
         rl = arcade.key.LEFT in self._keys or arcade.key.A in self._keys
