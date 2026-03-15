@@ -49,7 +49,7 @@ python main.py
   - Row 0 only is used for all animation (rows 1–2 show nose/wing weapon effects, reserved for combat)
   - All 4 columns cycle as animation frames when thrusting; col 0 used when idle
 - Scale: 1.5×
-- Physics: Newtonian — acceleration, speed cap (450 px/s), per-frame damping (0.985)
+- Physics: Newtonian — acceleration, speed cap (450 px/s), per-frame damping (0.98875)
 - Starts at world centre (3200, 3200)
 
 #### Controls
@@ -60,13 +60,36 @@ python main.py
 | Rotate right | Right / D | Left stick right |
 | Thrust forward | Up / W | Left stick up |
 | Brake/reverse | Down / S | Left stick down |
+| Fire active weapon | Space | A button (hold to auto-fire) |
+| Cycle weapon | Tab | Right bumper (RB) |
+| Open/close inventory | I | Y button |
 | Quit | Escape | — |
 
 Rotation speed: 150 °/s. Thrust: 250 px/s². Gamepad dead zone: 0.15.
 
+#### Weapons
+
+Two weapons implemented. Active weapon shown in HUD; cycle with Tab / RB.
+
+| Weapon | Projectile sprite | Sound | Damage | Cooldown | Speed | Range |
+|---|---|---|---|---|---|---|
+| Basic Laser | `laserBlue03.png` | `Small Laser Weapon Shot 1.wav` | 25 | 0.30 s | 900 px/s | 1200 px |
+| Mining Beam | `laserGreen13.png` | `Sci-Fi Arc Emitter Weapon Shot 2.wav` | 10 | 0.10 s | 500 px/s | 800 px |
+
+- Projectiles spawn at the ship's nose tip (44 px ahead of centre along heading).
+- Holding Space / A fires continuously at the weapon's cooldown rate.
+- Projectiles despawn when max range is reached or they leave the world boundary.
+
+#### Inventory
+
+- 10×10 cargo hold grid (`Inventory` class).
+- Toggled open/closed with I (keyboard) or Y (gamepad).
+- Drawn as a centred modal overlay on top of all other UI; does not pause the game.
+- Items stored as `dict[(row, col)] → str`; empty slots show dark blue cells, occupied slots show green.
+
 #### Status panel (HUD)
 
-Placeholder implementation showing: speed readout, heading readout, full HP bar, full shield bar, controls reference, gamepad connection status.
+Placeholder implementation showing: speed readout, heading readout, full HP bar, full shield bar, active weapon name, controls reference, gamepad connection status.
 
 ## Architecture
 
@@ -133,6 +156,26 @@ Resources deplete on gathering and take time to replenish (e.g., 10 minutes for 
 - Start from a basic model, add modules
 - Modules are attached via a graphical build interface (mouse + keyboard)
 
+### Sound Effects
+
+- Mining weapon sound: `assets\Sci Fi Sound Effects Bundle\Stormwave Audio Sci-Fi Sound Effects Bundle\Weapons\Energy Weapons\Sci-Fi Arc Emitter Weapon Shot 2.wav`
+- Basic Laser sound: `assets\Sci Fi Sound Effects Bundle\Stormwave Audio Sci-Fi Sound Effects Bundle\Weapons\Energy Weapons\Small Laser Weapon Shot 1.wav`
+
+### Special Effects
+
+- Mining weapon FX: `assets\kenney space combat assets\Space Shooter Redux\PNG\Lasers\laserGreen13.png`
+- Basic Laser weapon FX: `assets\kenney space combat assets\Space Shooter Redux\PNG\Lasers\laserBlue03.png`
+
+### Resources graphical representation
+
+- Iron Asteroids: C:\Users\kestanol\Documents\code\Space Survivalcraft\assets\Pixel Art Space\Asteroid.png
+- Iron icon: C:\Users\kestanol\Documents\code\Space Survivalcraft\assets\kenney space combat assets\Voxel Pack\PNG\Items\ore_ironAlt.png
+
+
+### Resources statistics
+
+- Iron Asteroids: 100 hp, yields 10 iron
+
 ## Asset Sources
 
 ### 32x32 Sprites
@@ -169,3 +212,17 @@ Resources deplete on gathering and take time to replenish (e.g., 10 minutes for 
 ### General Game Assets
 
 - Kenney All-in-1: https://kenney.itch.io/kenney-game-assets
+
+### Music and Sound effects Licensing
+
+- Bought from Humble Bundle
+  - <https://www.humblebundle.com/software/game-audio-collection-1800-music-tracks-65000-sound-effects-software>
+- <https://gamedevmarket.net/terms-conditions#pro-licence>
+- Sci Fi Fantasy Music
+  - <https://gamedevmarket.net/asset/sci-fi-fantasy-music-bundle>
+- Sci Fi Sound Effects Bundle
+  - <https://gamedevmarket.net/asset/sci-fi-sound-effects-bundle-2>
+- Space and Science Fiction Music Pack Vol 1
+  - <https://gamedevmarket.net/asset/space-science-fiction-music-pack>
+- Space and Science Fiction Music Pack Vol 2  
+  - <https://gamedevmarket.net/asset/space-science-fiction-music-pack-vol-2>

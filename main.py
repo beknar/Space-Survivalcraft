@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import math
 import os
+from typing import Optional
 
 import arcade
 import arcade.camera
@@ -24,7 +25,7 @@ ROT_SPEED: float = 150.0         # deg / s
 THRUST: float = 250.0            # px / s²
 BRAKE: float = 125.0             # px / s²  (reverse thrust)
 MAX_SPD: float = 450.0           # px / s cap
-DAMPING: float = 0.98875         # per-frame velocity multiplier (space drag) — 25% less drag than 0.985
+DAMPING: float = 0.98875         # per-frame velocity multiplier (space drag)
 
 DEAD_ZONE: float = 0.15          # Gamepad analogue stick dead zone
 
@@ -37,6 +38,183 @@ STARFIELD_DIR = os.path.join(
     "Large 1024x1024", "Starfields",
 )
 SHMUP_DIR = os.path.join(_HERE, "assets", "ShmupAssets_V1")
+LASER_DIR = os.path.join(
+    _HERE, "assets", "kenney space combat assets",
+    "Space Shooter Redux", "PNG", "Lasers",
+)
+SFX_WEAPONS_DIR = os.path.join(
+    _HERE, "assets", "Sci Fi Sound Effects Bundle",
+    "Stormwave Audio Sci-Fi Sound Effects Bundle", "Weapons", "Energy Weapons",
+)
+
+# ── Weapon / projectile constants ─────────────────────────────────────────────
+NOSE_OFFSET: float = 44.0        # px ahead of ship centre where projectiles spawn
+
+# ── Inventory constants ──────────────────────────────────────────────────────
+INV_COLS: int = 10
+INV_ROWS: int = 10
+INV_CELL: int = 48               # cell size in px
+INV_PAD: int = 10                # padding around grid
+INV_HEADER: int = 32             # space for title text above grid
+
+INV_W: int = INV_COLS * INV_CELL + INV_PAD * 2        # 496
+INV_H: int = INV_ROWS * INV_CELL + INV_PAD * 2 + INV_HEADER  # 532
+
+
+# ── Projectile ───────────────────────────────────────────────────────────────
+class Projectile(arcade.Sprite):
+    """A fired weapon projectile that travels in a straight line."""
+
+    def __init__(
+        self,
+        texture: arcade.Texture,
+        x: float,
+        y: float,
+        heading: float,
+        speed: float,
+        max_dist: float,
+        scale: float = 1.0,
+    ) -> None:
+        super().__init__(path_or_texture=texture, scale=scale)
+        self.center_x = x
+        self.center_y = y
+        self.angle = heading       # CW-positive compass heading — nose points forward
+        rad = math.radians(heading)
+        self._vx: float = math.sin(rad) * speed
+        self._vy: float = math.cos(rad) * speed
+        self._max_dist: float = max_dist
+        self._dist_travelled: float = 0.0
+
+    def update_projectile(self, dt: float) -> None:
+        self.center_x += self._vx * dt
+        self.center_y += self._vy * dt
+        self._dist_travelled += math.hypot(self._vx, self._vy) * dt
+        # Despawn when range exhausted or projectile leaves the world
+        if (
+            self._dist_travelled >= self._max_dist
+            or self.center_x < 0 or self.center_x > WORLD_WIDTH
+            or self.center_y < 0 or self.center_y > WORLD_HEIGHT
+        ):
+            self.remove_from_sprite_lists()
+
+
+# ── Weapon ───────────────────────────────────────────────────────────────────
+class Weapon:
+    """Defines a weapon's stats and manages its fire cooldown."""
+
+    def __init__(
+        self,
+        name: str,
+        texture: arcade.Texture,
+        sound: arcade.Sound,
+        cooldown: float,
+        damage: float,
+        projectile_speed: float,
+        max_range: float,
+        proj_scale: float = 1.0,
+    ) -> None:
+        self.name = name
+        self._texture = texture
+        self._sound = sound
+        self.cooldown = cooldown
+        self.damage = damage
+        self._proj_speed = projectile_speed
+        self._max_range = max_range
+        self._proj_scale = proj_scale
+        self._timer: float = 0.0
+
+    def update(self, dt: float) -> None:
+        self._timer = max(0.0, self._timer - dt)
+
+    def fire(
+        self,
+        spawn_x: float,
+        spawn_y: float,
+        heading: float,
+    ) -> Optional[Projectile]:
+        """Attempt to fire; returns a Projectile if off cooldown, else None."""
+        if self._timer > 0.0:
+            return None
+        self._timer = self.cooldown
+        arcade.play_sound(self._sound, volume=0.45)
+        return Projectile(
+            self._texture, spawn_x, spawn_y, heading,
+            self._proj_speed, self._max_range, self._proj_scale,
+        )
+
+
+# ── Inventory ─────────────────────────────────────────────────────────────────
+class Inventory:
+    """10×10 cargo hold grid drawn as a modal overlay."""
+
+    def __init__(self) -> None:
+        # items: dict[(row, col)] → item name string; absent key = empty slot
+        self._items: dict[tuple[int, int], str] = {}
+        self.open: bool = False
+
+        # Pre-built Text labels (avoids per-draw allocations)
+        cx = SCREEN_WIDTH // 2
+        oy = (SCREEN_HEIGHT - INV_H) // 2
+        self._t_title = arcade.Text(
+            "CARGO HOLD  (10 \u00d7 10)",
+            cx,
+            oy + INV_H - INV_HEADER // 2 - 2,
+            arcade.color.LIGHT_BLUE,
+            14,
+            bold=True,
+            anchor_x="center",
+            anchor_y="center",
+        )
+        self._t_hint = arcade.Text(
+            "I  \u2014  close",
+            cx,
+            oy + 6,
+            (160, 160, 160),
+            9,
+            anchor_x="center",
+        )
+
+    def toggle(self) -> None:
+        self.open = not self.open
+
+    def draw(self) -> None:
+        if not self.open:
+            return
+
+        ox = (SCREEN_WIDTH - INV_W) // 2
+        oy = (SCREEN_HEIGHT - INV_H) // 2
+
+        # Panel background and border
+        arcade.draw_rect_filled(
+            arcade.LBWH(ox, oy, INV_W, INV_H), (10, 10, 35, 230)
+        )
+        arcade.draw_rect_outline(
+            arcade.LBWH(ox, oy, INV_W, INV_H),
+            arcade.color.STEEL_BLUE,
+            border_width=2,
+        )
+
+        self._t_title.draw()
+        self._t_hint.draw()
+
+        # Grid cells — row 0 is the top row visually
+        grid_x = ox + INV_PAD
+        grid_y = oy + INV_PAD
+        for row in range(INV_ROWS):
+            for col in range(INV_COLS):
+                cx_ = grid_x + col * INV_CELL
+                cy_ = grid_y + (INV_ROWS - 1 - row) * INV_CELL
+                item = self._items.get((row, col))
+                fill = (30, 30, 60, 200) if item is None else (50, 80, 50, 200)
+                arcade.draw_rect_filled(
+                    arcade.LBWH(cx_ + 1, cy_ + 1, INV_CELL - 2, INV_CELL - 2),
+                    fill,
+                )
+                arcade.draw_rect_outline(
+                    arcade.LBWH(cx_, cy_, INV_CELL, INV_CELL),
+                    (60, 80, 120),
+                    border_width=1,
+                )
 
 
 # ── Player ship ──────────────────────────────────────────────────────────────
@@ -52,7 +230,7 @@ class PlayerShip(arcade.Sprite):
     """
 
     _COLS = 4       # animation columns per row
-    _ROWS = 3       # rows: 0 = idle glow, 1 = medium thrust, 2 = full blaze
+    _ROWS = 3       # rows: 0 = idle/base, 1 = nose weapon, 2 = wing weapons
     _ANIM_FPS = 8   # thruster animation speed (frames/s)
 
     def __init__(self) -> None:
@@ -84,7 +262,7 @@ class PlayerShip(arcade.Sprite):
         self.heading: float = 0.0
 
         # Thruster animation state
-        self._intensity: float = 0.15   # 0 = off, 1 = full blaze
+        self._intensity: float = 0.0
         self._anim_timer: float = 0.0
         self._anim_col: int = 0
 
@@ -107,9 +285,6 @@ class PlayerShip(arcade.Sprite):
 
         # Thrust along visual nose direction.
         # Compass heading → Cartesian: vel_x = sin(h), vel_y = cos(h)
-        #   heading=0   (up):    sin=0,  cos=1  → (0, +1)  ✓
-        #   heading=90  (right): sin=1,  cos=0  → (+1, 0)  ✓
-        #   heading=180 (down):  sin=0,  cos=-1 → (0, -1)  ✓
         rad = math.radians(self.heading)
         if thrust_fwd:
             self.vel_x += math.sin(rad) * THRUST * dt
@@ -140,7 +315,6 @@ class PlayerShip(arcade.Sprite):
         if thrust_fwd:
             self._intensity = min(1.0, self._intensity + 4.0 * dt)
         else:
-            # Ramp down immediately when not thrusting forward (braking or coasting)
             self._intensity = max(0.0, self._intensity - 6.0 * dt)
 
         # ── Thruster animation ───────────────────────────────────────────────
@@ -156,6 +330,16 @@ class PlayerShip(arcade.Sprite):
 
         self.texture = self._frames[0][self._anim_col]
 
+    @property
+    def nose_x(self) -> float:
+        """World X of the ship's nose tip (projectile spawn point)."""
+        return self.center_x + math.sin(math.radians(self.heading)) * NOSE_OFFSET
+
+    @property
+    def nose_y(self) -> float:
+        """World Y of the ship's nose tip (projectile spawn point)."""
+        return self.center_y + math.cos(math.radians(self.heading)) * NOSE_OFFSET
+
 
 # ── Game view ────────────────────────────────────────────────────────────────
 class GameView(arcade.View):
@@ -168,6 +352,9 @@ class GameView(arcade.View):
         self.player_list = arcade.SpriteList()
         self.player_list.append(self.player)
 
+        # Active projectiles
+        self.projectile_list = arcade.SpriteList()
+
         # Tiled background texture
         self.bg_texture = arcade.load_texture(
             os.path.join(STARFIELD_DIR, "Starfield_01-1024x1024.png")
@@ -175,7 +362,7 @@ class GameView(arcade.View):
 
         # World camera (follows player)
         self.world_cam = arcade.camera.Camera2D()
-        # UI camera (static — for the status panel overlay)
+        # UI camera (static — for the status panel and modal overlays)
         self.ui_cam = arcade.camera.Camera2D()
 
         # Held-key tracking
@@ -184,40 +371,99 @@ class GameView(arcade.View):
         # Gamepad — Xbox controllers use XInput (pyglet Controller API).
         # arcade.get_joysticks() uses DirectInput and misses Xbox pads.
         self.joystick = None
+        self._prev_rb: bool = False   # right bumper previous frame (weapon cycle)
+        self._prev_y: bool = False    # Y button previous frame (inventory toggle)
         controllers = pyglet.input.get_controllers()
         if controllers:
             self.joystick = controllers[0]
             self.joystick.open()
             print(f"Gamepad connected: {self.joystick.name}")
 
-        # Pre-built Text objects for the HUD (avoids per-frame draw_text cost)
+        # ── Weapons ──────────────────────────────────────────────────────────
+        laser_tex = arcade.load_texture(
+            os.path.join(LASER_DIR, "laserBlue03.png")
+        )
+        mining_tex = arcade.load_texture(
+            os.path.join(LASER_DIR, "laserGreen13.png")
+        )
+        laser_snd = arcade.load_sound(
+            os.path.join(SFX_WEAPONS_DIR, "Small Laser Weapon Shot 1.wav")
+        )
+        mining_snd = arcade.load_sound(
+            os.path.join(SFX_WEAPONS_DIR, "Sci-Fi Arc Emitter Weapon Shot 2.wav")
+        )
+        self._weapons: list[Weapon] = [
+            Weapon(
+                "Basic Laser",
+                laser_tex, laser_snd,
+                cooldown=0.30, damage=25.0,
+                projectile_speed=900.0, max_range=1200.0,
+                proj_scale=1.0,
+            ),
+            Weapon(
+                "Mining Beam",
+                mining_tex, mining_snd,
+                cooldown=0.10, damage=10.0,
+                projectile_speed=500.0, max_range=800.0,
+                proj_scale=1.0,
+            ),
+        ]
+        self._weapon_idx: int = 0
+
+        # ── Inventory ────────────────────────────────────────────────────────
+        self.inventory = Inventory()
+
+        # ── HUD text objects (pre-built to avoid per-frame draw_text cost) ───
         cx = STATUS_WIDTH // 2
-        self._t_title   = arcade.Text("STATUS", cx, SCREEN_HEIGHT - 26,
-                                      arcade.color.LIGHT_BLUE, 14, bold=True,
-                                      anchor_x="center", anchor_y="center")
-        self._t_spd     = arcade.Text("", 10, SCREEN_HEIGHT - 60,
-                                      arcade.color.WHITE, 11)
-        self._t_hdg     = arcade.Text("", 10, SCREEN_HEIGHT - 80,
-                                      arcade.color.WHITE, 11)
-        self._t_hp      = arcade.Text("HP",     10, SCREEN_HEIGHT - 120,
-                                      arcade.color.LIME_GREEN, 10, bold=True)
-        self._t_shield  = arcade.Text("SHIELD", 10, SCREEN_HEIGHT - 156,
-                                      arcade.color.CYAN, 10, bold=True)
-        self._t_ctrl_hdr = arcade.Text("CONTROLS", cx, SCREEN_HEIGHT - 206,
+        self._t_title    = arcade.Text("STATUS", cx, SCREEN_HEIGHT - 26,
+                                       arcade.color.LIGHT_BLUE, 14, bold=True,
+                                       anchor_x="center", anchor_y="center")
+        self._t_spd      = arcade.Text("", 10, SCREEN_HEIGHT - 60,
+                                       arcade.color.WHITE, 11)
+        self._t_hdg      = arcade.Text("", 10, SCREEN_HEIGHT - 80,
+                                       arcade.color.WHITE, 11)
+        self._t_hp       = arcade.Text("HP",     10, SCREEN_HEIGHT - 120,
+                                       arcade.color.LIME_GREEN, 10, bold=True)
+        self._t_shield   = arcade.Text("SHIELD", 10, SCREEN_HEIGHT - 156,
+                                       arcade.color.CYAN, 10, bold=True)
+        # Weapon readout
+        self._t_wpn_hdr  = arcade.Text("WEAPON", cx, SCREEN_HEIGHT - 190,
+                                       arcade.color.LIGHT_GRAY, 9,
+                                       anchor_x="center")
+        self._t_wpn_name = arcade.Text("", cx, SCREEN_HEIGHT - 206,
+                                       arcade.color.YELLOW, 10, bold=True,
+                                       anchor_x="center")
+        # Controls reference
+        self._t_ctrl_hdr = arcade.Text("CONTROLS", cx, SCREEN_HEIGHT - 228,
                                        arcade.color.LIGHT_GRAY, 9,
                                        anchor_x="center")
         self._t_ctrl_lines = [
-            arcade.Text("Left/Right  Rotate", 10, SCREEN_HEIGHT - 224,
+            arcade.Text("L/R  A/D    Rotate",   10, SCREEN_HEIGHT - 246,
                         arcade.color.LIGHT_GRAY, 9),
-            arcade.Text("Up / W      Thrust", 10, SCREEN_HEIGHT - 242,
+            arcade.Text("Up / W      Thrust",   10, SCREEN_HEIGHT - 262,
                         arcade.color.LIGHT_GRAY, 9),
-            arcade.Text("Down / S    Brake",  10, SCREEN_HEIGHT - 260,
+            arcade.Text("Dn / S      Brake",    10, SCREEN_HEIGHT - 278,
+                        arcade.color.LIGHT_GRAY, 9),
+            arcade.Text("Space       Fire",     10, SCREEN_HEIGHT - 294,
+                        arcade.color.LIGHT_GRAY, 9),
+            arcade.Text("Tab         Weapon",   10, SCREEN_HEIGHT - 310,
+                        arcade.color.LIGHT_GRAY, 9),
+            arcade.Text("I           Inventory",10, SCREEN_HEIGHT - 326,
                         arcade.color.LIGHT_GRAY, 9),
         ]
-        self._t_gamepad = arcade.Text(
-            "Gamepad: connected", 10, SCREEN_HEIGHT - 286,
-            arcade.color.LIME_GREEN, 9,
-        ) if self.joystick else None
+        self._t_gamepad = (
+            arcade.Text("Gamepad: connected", 10, SCREEN_HEIGHT - 350,
+                        arcade.color.LIME_GREEN, 9)
+            if self.joystick else None
+        )
+
+    # ── Helpers ──────────────────────────────────────────────────────────────
+    @property
+    def _active_weapon(self) -> Weapon:
+        return self._weapons[self._weapon_idx]
+
+    def _cycle_weapon(self) -> None:
+        self._weapon_idx = (self._weapon_idx + 1) % len(self._weapons)
 
     # ── Drawing ──────────────────────────────────────────────────────────────
     def on_draw(self) -> None:
@@ -232,10 +478,12 @@ class GameView(arcade.View):
 
         with self.world_cam.activate():
             self._draw_background(cx, cy, hw, hh)
+            self.projectile_list.draw()
             self.player_list.draw()
 
         with self.ui_cam.activate():
             self._draw_status_panel()
+            self.inventory.draw()        # drawn last → always on top
 
     def _draw_background(
         self, cx: float, cy: float, hw: float, hh: float
@@ -273,18 +521,21 @@ class GameView(arcade.View):
         self._t_title.draw()
         self._t_hp.draw()
         self._t_shield.draw()
+        self._t_wpn_hdr.draw()
         self._t_ctrl_hdr.draw()
         for t in self._t_ctrl_lines:
             t.draw()
         if self._t_gamepad:
             self._t_gamepad.draw()
 
-        # Dynamic readouts (update text then draw)
+        # Dynamic readouts
         spd = math.hypot(self.player.vel_x, self.player.vel_y)
         self._t_spd.text = f"SPD   {spd:>7.1f}"
         self._t_spd.draw()
         self._t_hdg.text = f"HDG   {self.player.heading:>6.1f}\u00b0"
         self._t_hdg.draw()
+        self._t_wpn_name.text = self._active_weapon.name
+        self._t_wpn_name.draw()
 
         # HP bar (placeholder — full)
         arcade.draw_rect_filled(
@@ -297,26 +548,65 @@ class GameView(arcade.View):
 
     # ── Update ───────────────────────────────────────────────────────────────
     def on_update(self, delta_time: float) -> None:
+        # ── Movement input ───────────────────────────────────────────────────
         rl = arcade.key.LEFT in self._keys or arcade.key.A in self._keys
         rr = arcade.key.RIGHT in self._keys or arcade.key.D in self._keys
         tf = arcade.key.UP in self._keys or arcade.key.W in self._keys
         tb = arcade.key.DOWN in self._keys or arcade.key.S in self._keys
 
+        # ── Fire input (hold to auto-fire at weapon's rate) ──────────────────
+        fire = arcade.key.SPACE in self._keys
+
         if self.joystick:
-            lx = self.joystick.leftx   # -1 = left,    +1 = right
-            ly = self.joystick.lefty   # +1 = up/fwd,  -1 = down/brake (XInput Y-up)
+            lx = self.joystick.leftx   # -1=left, +1=right
+            ly = self.joystick.lefty   # +1=up/fwd, -1=down/brake (XInput Y-up)
             rl |= lx < -DEAD_ZONE
             rr |= lx > DEAD_ZONE
             tf |= ly >  DEAD_ZONE
             tb |= ly < -DEAD_ZONE
 
+            # A button = fire
+            fire |= bool(getattr(self.joystick, "a", False))
+
+            # RB = cycle weapon (edge detect — one cycle per press)
+            rb = bool(getattr(self.joystick, "rightshoulder", False))
+            if rb and not self._prev_rb:
+                self._cycle_weapon()
+            self._prev_rb = rb
+
+            # Y button = toggle inventory (edge detect)
+            y_btn = bool(getattr(self.joystick, "y", False))
+            if y_btn and not self._prev_y:
+                self.inventory.toggle()
+            self._prev_y = y_btn
+
         self.player.apply_input(delta_time, rl, rr, tf, tb)
+
+        # ── Weapons: tick cooldowns ──────────────────────────────────────────
+        for w in self._weapons:
+            w.update(delta_time)
+
+        # ── Fire active weapon ───────────────────────────────────────────────
+        if fire:
+            proj = self._active_weapon.fire(
+                self.player.nose_x, self.player.nose_y, self.player.heading
+            )
+            if proj is not None:
+                self.projectile_list.append(proj)
+
+        # ── Advance projectiles ──────────────────────────────────────────────
+        for proj in list(self.projectile_list):
+            proj.update_projectile(delta_time)
 
     # ── Input ────────────────────────────────────────────────────────────────
     def on_key_press(self, key: int, modifiers: int) -> None:
         self._keys.add(key)
         if key == arcade.key.ESCAPE:
             arcade.exit()
+        elif key == arcade.key.TAB:
+            self._cycle_weapon()
+        elif key == arcade.key.I:
+            self.inventory.toggle()
 
     def on_key_release(self, key: int, modifiers: int) -> None:
         self._keys.discard(key)
