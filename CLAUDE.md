@@ -57,6 +57,7 @@ python main.py
   - Sprite sheet: `assets/gamedevmarket assets/asteroids crusher/Weapons/PNG/shield_frames.png` — 6 frames, 3 cols × 2 rows, each 280×280 px. Loaded with PIL crop.
   - Scale: 0.50× (140 px diameter bubble wrapping the 96 px ship).
   - Slow rotation at 25 °/s plus 8 fps frame animation give an organic, living look.
+  - Stored in `GameView.shield_list` (a one-item `arcade.SpriteList`) — Arcade 3 requires sprites to be drawn via a SpriteList, not by calling `.draw()` on the sprite directly.
   - Normal state: `color = (255, 255, 255, 200)` — slightly transparent so the ship beneath shows through.
   - Hit flash: `ShieldSprite.hit_flash()` called from `_apply_damage_to_player()` whenever the shield absorbs damage. Alpha pulses from 255 → 200 over 0.25 s as the flash fades.
   - Depleted state: `color = (255, 255, 255, 0)` — fully invisible when `shields == 0`; reappears automatically when regen brings shields back above 0.

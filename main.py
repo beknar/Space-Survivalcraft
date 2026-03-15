@@ -1105,6 +1105,8 @@ class GameView(arcade.View):
         self.shield_sprite = ShieldSprite(_shield_frames)
         self.shield_sprite.center_x = self.player.center_x
         self.shield_sprite.center_y = self.player.center_y
+        self.shield_list = arcade.SpriteList()
+        self.shield_list.append(self.shield_sprite)
 
         # Active projectiles
         self.projectile_list = arcade.SpriteList()
@@ -1419,7 +1421,7 @@ class GameView(arcade.View):
             self.alien_projectile_list.draw()
             self.projectile_list.draw()
             self.player_list.draw()
-            self.shield_sprite.draw()
+            self.shield_list.draw()
             for spark in self.hit_sparks:
                 spark.draw()
 
