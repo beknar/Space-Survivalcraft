@@ -82,7 +82,7 @@ Two weapons implemented. Active weapon shown in HUD; cycle with Tab / RB.
 
 #### Inventory
 
-- 10×10 cargo hold grid (`Inventory` class).
+- 5×5 cargo hold grid (`Inventory` class).
 - Toggled open/closed with I (keyboard) or Y (gamepad).
 - Drawn as a centred modal overlay on top of all other UI; does not pause the game.
 - Items stored as `dict[(row, col)] → str`; empty slots show dark blue cells, occupied slots show green.

@@ -51,8 +51,8 @@ SFX_WEAPONS_DIR = os.path.join(
 NOSE_OFFSET: float = 44.0        # px ahead of ship centre where projectiles spawn
 
 # ── Inventory constants ──────────────────────────────────────────────────────
-INV_COLS: int = 10
-INV_ROWS: int = 10
+INV_COLS: int = 5
+INV_ROWS: int = 5
 INV_CELL: int = 48               # cell size in px
 INV_PAD: int = 10                # padding around grid
 INV_HEADER: int = 32             # space for title text above grid
@@ -156,7 +156,7 @@ class Inventory:
         cx = SCREEN_WIDTH // 2
         oy = (SCREEN_HEIGHT - INV_H) // 2
         self._t_title = arcade.Text(
-            "CARGO HOLD  (10 \u00d7 10)",
+            "CARGO HOLD  (5 \u00d7 5)",
             cx,
             oy + INV_H - INV_HEADER // 2 - 2,
             arcade.color.LIGHT_BLUE,
