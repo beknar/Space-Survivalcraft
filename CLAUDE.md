@@ -90,7 +90,8 @@ Two weapons implemented. Active weapon shown in HUD; cycle with Tab / RB.
 - Stackable resource `iron` tracked as an integer count on the `Inventory` object; its display cell is tracked separately (`_iron_cell`, default (0,0)) and is draggable.
 - When iron > 0, the iron cell shows the iron icon + count badge.
 - Iron count also shown in the HUD status panel (IRON readout).
-- **Drag-and-drop**: left-click any occupied cell and drag to a new cell to move it; items in the destination cell are swapped back to the source. A yellow floating ghost follows the cursor during the drag; the source cell is highlighted yellow and the drop target is highlighted blue. Items dropped outside the grid return to their original cell.
+- **Drag-and-drop**: left-click any occupied cell and drag to a new cell to move it; items in the destination cell are swapped back to the source. A yellow floating ghost follows the cursor during the drag; the source cell is highlighted yellow and the drop target is highlighted blue. Dropping inside the panel but outside the grid returns the item to its source cell.
+- **World ejection**: dropping an item *outside the inventory panel entirely* spawns it as a pickup in the game world at the ship's current position. It can be re-collected normally. After 600 seconds (10 minutes) the item despawns silently. Iron is ejected with its full stack count preserved so picking it back up restores the correct amount.
 - **Hover tooltip**: hovering the cursor over any occupied cell shows a small tooltip box with the item's full type name (e.g. "Iron ×30"). Tooltip appears above the cell and stays on screen.
 
 #### Iron Asteroids

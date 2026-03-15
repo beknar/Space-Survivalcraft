@@ -101,6 +101,7 @@ EXPLOSION_FPS: float = 15.0        # frames per second
 # ── Iron pickup constants ─────────────────────────────────────────────────────
 IRON_PICKUP_DIST: float = 40.0   # px — edge distance (from ship hull) to trigger fly-to-ship
 IRON_FLY_SPEED: float = 400.0    # px/s — speed of iron token once attracted
+WORLD_ITEM_LIFETIME: float = 600.0  # seconds before a dropped item despawns (10 min)
 
 # ── Camera shake constants ────────────────────────────────────────────────────
 SHAKE_DURATION: float = 0.25     # seconds of camera shake after a hull collision
@@ -240,21 +241,38 @@ class IronPickup(arcade.Sprite):
     - Returns True from update_pickup() when it reaches the ship (collected).
     """
 
-    def __init__(self, texture: arcade.Texture, x: float, y: float) -> None:
+    def __init__(
+        self,
+        texture: arcade.Texture,
+        x: float,
+        y: float,
+        amount: int = ASTEROID_IRON_YIELD,
+        lifetime: Optional[float] = None,
+    ) -> None:
         super().__init__(path_or_texture=texture, scale=0.5)
         self.center_x = x
         self.center_y = y
+        self.amount: int = amount           # iron units this pickup is worth
+        self._lifetime: Optional[float] = lifetime  # None = never expires
+        self._age: float = 0.0
         self._flying: bool = False
 
     def update_pickup(
         self, dt: float, ship_x: float, ship_y: float, ship_radius: float = 0.0
     ) -> bool:
-        """Advance state. Returns True on collection (caller removes + adds iron).
+        """Advance state. Returns True on collection (caller reads .amount then removes).
 
         ship_radius: approximate radius of the ship sprite in px.  The pickup
         trigger fires when the *edge* of the ship (not its centre) comes within
         IRON_PICKUP_DIST px of the token.
         """
+        # Age the token; despawn silently when lifetime expires
+        if self._lifetime is not None:
+            self._age += dt
+            if self._age >= self._lifetime:
+                self.remove_from_sprite_lists()
+                return False
+
         dx = ship_x - self.center_x
         dy = ship_y - self.center_y
         dist = math.hypot(dx, dy)
@@ -377,6 +395,12 @@ class Inventory:
             return (row, col)
         return None
 
+    def _panel_contains(self, x: float, y: float) -> bool:
+        """Return True if (x, y) lies within the inventory panel rectangle."""
+        ox = (SCREEN_WIDTH - INV_W) // 2
+        oy = (SCREEN_HEIGHT - INV_H) // 2
+        return ox <= x <= ox + INV_W and oy <= y <= oy + INV_H
+
     def on_mouse_press(self, x: float, y: float) -> bool:
         """Attempt to pick up the item at (x, y).  Returns True if drag started."""
         if not self.open:
@@ -415,13 +439,36 @@ class Inventory:
         self._mouse_x = x
         self._mouse_y = y
 
-    def on_mouse_release(self, x: float, y: float) -> None:
-        """Drop the carried item into the cell under the cursor (or return it)."""
+    def on_mouse_release(
+        self, x: float, y: float
+    ) -> Optional[tuple[str, int]]:
+        """Drop the carried item.
+
+        Returns (item_type, amount) when an item is ejected into the game world
+        (dropped outside the inventory panel), or None otherwise.
+        - "iron" → amount is the full iron stack count
+        - named item → amount is 1
+        """
         if self._drag_type is None:
-            return
+            return None
+
         target = self._cell_at(x, y)
+
+        if target is None and not self._panel_contains(x, y):
+            # ── Ejected outside the inventory panel → drop into world ─────────
+            ejected_type = self._drag_type
+            if ejected_type == "iron":
+                ejected_amount = self.iron
+                self.iron = 0            # iron leaves the inventory
+            else:
+                ejected_amount = 1       # named item already removed on press
+            self._drag_type = None
+            self._drag_src = None
+            return (ejected_type, ejected_amount)
+
         if target is None:
-            target = self._drag_src   # dropped outside — return to source
+            # Dropped on panel header/border — return to source cell
+            target = self._drag_src
 
         assert target is not None
         if self._drag_type == "iron":
@@ -442,6 +489,7 @@ class Inventory:
 
         self._drag_type = None
         self._drag_src = None
+        return None
 
     # ── Drawing ───────────────────────────────────────────────────────────────
     def _draw_iron_in_cell(
@@ -918,9 +966,19 @@ class GameView(arcade.View):
         exp = Explosion(self._explosion_frames, x, y, scale=1.0)
         self.explosion_list.append(exp)
 
-    def _spawn_iron_pickup(self, x: float, y: float) -> None:
-        """Drop an iron icon at world position (x, y)."""
-        pickup = IronPickup(self._iron_tex, x, y)
+    def _spawn_iron_pickup(
+        self,
+        x: float,
+        y: float,
+        amount: int = ASTEROID_IRON_YIELD,
+        lifetime: Optional[float] = None,
+    ) -> None:
+        """Spawn an iron token at world position (x, y).
+
+        amount   : iron units the token is worth when collected.
+        lifetime : seconds until silent despawn (None = permanent until picked up).
+        """
+        pickup = IronPickup(self._iron_tex, x, y, amount=amount, lifetime=lifetime)
         self.iron_pickup_list.append(pickup)
 
     def _trigger_shake(self) -> None:
@@ -1159,7 +1217,7 @@ class GameView(arcade.View):
         for pickup in list(self.iron_pickup_list):
             collected = pickup.update_pickup(delta_time, sx, sy, SHIP_RADIUS)
             if collected:
-                self.inventory.add_iron(ASTEROID_IRON_YIELD)
+                self.inventory.add_iron(pickup.amount)
 
         # ── Ship ↔ Asteroid collision ────────────────────────────────────────
         hit_list = arcade.check_for_collision_with_list(
@@ -1223,7 +1281,18 @@ class GameView(arcade.View):
 
     def on_mouse_release(self, x: int, y: int, button: int, modifiers: int) -> None:
         if button == arcade.MOUSE_BUTTON_LEFT:
-            self.inventory.on_mouse_release(x, y)
+            ejected = self.inventory.on_mouse_release(x, y)
+            if ejected is not None:
+                item_type, amount = ejected
+                if item_type == "iron" and amount > 0:
+                    # Spawn a timed iron pickup at the ship's current position
+                    self._spawn_iron_pickup(
+                        self.player.center_x,
+                        self.player.center_y,
+                        amount=amount,
+                        lifetime=WORLD_ITEM_LIFETIME,
+                    )
+                # Named items: add handlers here as new item types are introduced
 
     def on_mouse_motion(self, x: int, y: int, dx: int, dy: int) -> None:
         self.inventory.on_mouse_move(x, y)
