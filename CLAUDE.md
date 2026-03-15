@@ -23,9 +23,31 @@ A space-themed survival crafting game. Players pilot a spaceship, gather materia
 
 ## Implementation
 
-### main.py
+### File Structure
 
-Entry point and all game code for the first iteration. Run with:
+The codebase is split into focused modules for maintainability:
+
+```
+Space Survivalcraft/
+├── main.py              # Entry point only — creates window, starts GameView
+├── constants.py         # All game constants (window, physics, assets, etc.)
+├── game_view.py         # GameView (arcade.View) — core gameplay loop, drawing, input, collisions
+├── inventory.py         # Inventory class — 5×5 cargo hold UI overlay
+├── sprites/             # Sprite and game-object classes
+│   ├── __init__.py      # Re-exports all sprite classes
+│   ├── projectile.py    # Projectile + Weapon classes
+│   ├── explosion.py     # Explosion animation + HitSpark primitive effect
+│   ├── shield.py        # ShieldSprite — animated energy bubble
+│   ├── pickup.py        # IronPickup — collectible ore token
+│   ├── asteroid.py      # IronAsteroid — minable rock with shake effect
+│   ├── alien.py         # SmallAlienShip — scout enemy AI
+│   └── player.py        # PlayerShip — Newtonian ship with thruster animation
+├── assets/              # Art, sound, music (gitignored)
+├── venv/                # Python virtual environment (gitignored)
+└── requirements.txt     # pip dependencies
+```
+
+### Running the game
 
 ```bash
 python main.py
@@ -138,8 +160,43 @@ Live HP bar (green → orange → red as HP falls); live shield bar (cyan, shrin
 - Sprite: `assets/gamedevmarket assets/alien spaceship creation kit/png/Ship.png` — first column of first row, extracted via PIL alpha-channel bounds (x=364, y=305, w=461, h=510), scale 0.10×
 - Laser sprite: `assets/gamedevmarket assets/alien spaceship creation kit/png/Effects.png` — last column of first row (x=4299, y=82, w=60, h=228). Rotated 90° CCW with PIL so the bolt faces north at `angle=0`, matching the player-projectile angle convention. Scale 0.5×.
 - Count: 20, randomly distributed with ≥ 400 px clearance from world centre and ≥ 100 px from world edges
-- HP: 50; no shields
-- Movement speed: 120 px/s (patrol and pursuit)
+
+##### Stats
+
+| Stat | Value |
+|---|---|
+| HP | 50 |
+| Shields | None |
+| Collision radius | 20 px |
+| Movement speed | 120 px/s (patrol and pursuit) |
+| Laser damage | 10 per hit (hits player shields first, then HP) |
+| Laser range | 500 px |
+| Laser speed | 650 px/s (outpaces player max 450 px/s) |
+| Fire cooldown | 1.5 s (staggered at spawn to prevent synchronised volleys) |
+| Detection range | 500 px centre-to-centre |
+| Leash range | 1500 px (3× detection) — returns to patrol beyond this |
+| Spawn distance from world centre | ≥ 400 px |
+
+##### Combat Strategy
+
+1. **Patrol** — idles in a lazy loop around a random point 100–150 px from its spawn. Picks a new waypoint each time it arrives. Takes no hostile action.
+
+2. **Detection** — the moment the player enters 500 px the alien switches to PURSUE and resets its fire cooldown to zero so the first shot fires immediately.
+
+3. **Pursue and fire** — closes on the player at 120 px/s while steering around asteroids and other alien ships (obstacle-avoidance blending). Fires a laser bolt along its current heading every 1.5 s whenever the player is within 500 px. Because the laser travels at 650 px/s (faster than the player's max 450 px/s) a retreating ship cannot simply outrun the bolts — the player must dodge laterally.
+
+4. **No predictive aim** — bolts are fired along the alien's *current heading* toward the player's last known position, not a lead-aim intercept. Fast perpendicular movement can dodge most shots.
+
+5. **Body contact** — if the alien reaches the player ship, it bounces off elastically and deals 5 HP of damage (through shields first). A cooldown of 0.4 s prevents continuous contact damage.
+
+6. **Leash** — if the player escapes beyond 1500 px the alien abandons pursuit and returns to patrolling its home area. It has no memory of the player's position once back in PATROL state.
+
+##### Known Weaknesses
+- No coordinated group behaviour — each of the 20 ships acts independently.
+- No flanking or encirclement — all pursuers converge straight toward the player from their respective positions.
+- Fires only along its own heading; a player strafing at right angles to an incoming alien will dodge most bolts.
+- No firing while closing in — the alien fires from wherever it is once detection triggers, but there is no "stand off and snipe" behaviour.
+
 - **AI states**:
   - `PATROL` — circles a random point within 100–150 px of its spawn position
   - `PURSUE` — when the player enters within 500 px (centre-to-centre), locks on and chases; fires alien laser bolts while in range; returns to patrol if player moves > 1500 px away; fire cooldown reset to 0 on detection so the first shot fires immediately

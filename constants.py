@@ -1,0 +1,155 @@
+"""Centralised game constants for Space Survivalcraft."""
+from __future__ import annotations
+
+import os
+
+# ── Window / World ──────────────────────────────────────────────────────────
+SCREEN_WIDTH: int = 1280
+SCREEN_HEIGHT: int = 800
+SCREEN_TITLE: str = "Space Survivalcraft"
+
+STATUS_WIDTH: int = 213          # Left status panel width (~1/6 of screen)
+WORLD_WIDTH: int = 6400          # 200 x 32-px tiles
+WORLD_HEIGHT: int = 6400
+
+BG_TILE: int = 1024              # Starfield texture is 1024x1024
+
+# ── Player physics ──────────────────────────────────────────────────────────
+ROT_SPEED: float = 150.0         # deg / s
+THRUST: float = 250.0            # px / s^2
+BRAKE: float = 125.0             # px / s^2  (reverse thrust)
+MAX_SPD: float = 450.0           # px / s cap
+DAMPING: float = 0.98875         # per-frame velocity multiplier (space drag)
+
+DEAD_ZONE: float = 0.15          # Gamepad analogue stick dead zone
+
+# ── Asset paths ─────────────────────────────────────────────────────────────
+_HERE = os.path.dirname(os.path.abspath(__file__))
+
+STARFIELD_DIR = os.path.join(
+    _HERE, "assets",
+    "SBS - Seamless Space Backgrounds - Large 1024x1024",
+    "Large 1024x1024", "Starfields",
+)
+SHMUP_DIR = os.path.join(_HERE, "assets", "ShmupAssets_V1")
+LASER_DIR = os.path.join(
+    _HERE, "assets", "kenney space combat assets",
+    "Space Shooter Redux", "PNG", "Lasers",
+)
+SFX_WEAPONS_DIR = os.path.join(
+    _HERE, "assets", "Sci Fi Sound Effects Bundle",
+    "Stormwave Audio Sci-Fi Sound Effects Bundle", "Weapons", "Energy Weapons",
+)
+SFX_EXPLOSIONS_DIR = os.path.join(
+    _HERE, "assets", "Sci Fi Sound Effects Bundle",
+    "Stormwave Audio Sci-Fi Sound Effects Bundle", "Weapons", "Explosions",
+)
+SFX_BIO_DIR = os.path.join(
+    _HERE, "assets", "Sci Fi Sound Effects Bundle",
+    "Stormwave Audio Sci-Fi Sound Effects Bundle", "Biomechanical",
+)
+ASTEROID_PNG = os.path.join(_HERE, "assets", "Pixel Art Space", "Asteroid.png")
+ALIEN_SHIP_PNG = os.path.join(
+    _HERE, "assets", "gamedevmarket assets",
+    "alien spaceship creation kit", "png", "Ship.png",
+)
+ALIEN_FX_PNG = os.path.join(
+    _HERE, "assets", "gamedevmarket assets",
+    "alien spaceship creation kit", "png", "Effects.png",
+)
+EXPLOSION_PNG = os.path.join(
+    _HERE, "assets", "gamedevmarket assets", "asteroids crusher",
+    "Explosions", "PNG", "explosion.png",
+)
+IRON_ICON_PNG = os.path.join(
+    _HERE, "assets", "kenney space combat assets",
+    "Voxel Pack", "PNG", "Items", "ore_ironAlt.png",
+)
+SHIELD_PNG = os.path.join(
+    _HERE, "assets", "gamedevmarket assets", "asteroids crusher",
+    "Weapons", "PNG", "shield_frames.png",
+)
+
+# ── Shield sprite-sheet constants ───────────────────────────────────────────
+SHIELD_COLS: int = 3
+SHIELD_ROWS: int = 2
+SHIELD_FRAME_W: int = 280          # each frame is 280x280 px in the sheet
+SHIELD_FRAME_H: int = 280
+SHIELD_ANIM_FPS: float = 8.0
+SHIELD_SCALE: float = 0.50         # 280x0.5 = 140 px bubble -- wraps 96 px ship
+SHIELD_ROT_SPEED: float = 25.0     # slow bubble rotation, degrees/s
+SHIELD_HIT_FLASH: float = 0.25     # seconds of bright flash when shield absorbs a hit
+
+# ── Weapon / projectile constants ───────────────────────────────────────────
+NOSE_OFFSET: float = 44.0        # px ahead of ship centre where projectiles spawn
+
+# ── Inventory constants ────────────────────────────────────────────────────
+INV_COLS: int = 5
+INV_ROWS: int = 5
+INV_CELL: int = 48               # cell size in px
+INV_PAD: int = 10                # padding around grid
+INV_HEADER: int = 32             # space for title text above grid
+
+INV_W: int = INV_COLS * INV_CELL + INV_PAD * 2
+INV_H: int = INV_ROWS * INV_CELL + INV_PAD * 2 + INV_HEADER
+
+# ── Player ship stats ──────────────────────────────────────────────────────
+PLAYER_MAX_HP: int = 100
+PLAYER_MAX_SHIELD: int = 100         # full shield capacity
+SHIELD_REGEN_RATE: float = 0.5       # shield points restored per second (1 per 2 s)
+SHIP_COLLISION_DAMAGE: int = 5       # HP/shield lost per asteroid collision
+SHIP_COLLISION_COOLDOWN: float = 0.5 # seconds of invincibility after a hit
+SHIP_BOUNCE: float = 0.55            # velocity restitution on bounce (0=dead stop,1=elastic)
+# Approximate circle radii used for overlap push-out (pixels)
+SHIP_RADIUS: float = 28.0
+ASTEROID_RADIUS: float = 26.0
+
+# ── Asteroid constants ──────────────────────────────────────────────────────
+ASTEROID_COUNT: int = 50
+ASTEROID_HP: int = 100
+ASTEROID_IRON_YIELD: int = 10
+ASTEROID_MIN_DIST: float = 400.0   # min distance from world centre at spawn
+# Explosion sheet: 1260x140 px -> 9 frames of 140x140 each
+EXPLOSION_FRAMES: int = 9
+EXPLOSION_FRAME_W: int = 140
+EXPLOSION_FRAME_H: int = 140
+EXPLOSION_FPS: float = 15.0        # frames per second
+
+# ── Small Alien Ship constants ──────────────────────────────────────────────
+ALIEN_COUNT: int = 20
+ALIEN_HP: int = 50
+ALIEN_SCALE: float = 0.10               # display scale  (461 px source -> ~46 px wide)
+ALIEN_RADIUS: float = 20.0              # approx collision radius in px
+ALIEN_SPEED: float = 120.0              # patrol / pursuit movement speed  px/s
+ALIEN_PATROL_RADIUS_MIN: float = 100.0  # minimum patrol-area radius  px
+ALIEN_PATROL_RADIUS_MAX: float = 150.0  # maximum patrol-area radius  px
+ALIEN_DETECT_DIST: float = 500.0        # player centre-to-centre px -> triggers pursuit
+ALIEN_LASER_DAMAGE: float = 10.0        # HP per alien laser hit
+ALIEN_LASER_RANGE: float = 500.0        # alien laser max range  px
+ALIEN_LASER_SPEED: float = 650.0        # alien laser projectile speed  px/s
+ALIEN_FIRE_COOLDOWN: float = 1.5        # seconds between alien shots
+ALIEN_MIN_DIST: float = 400.0           # min spawn distance from world centre  px
+# ── Alien physics / collision constants ─────────────────────────────────────
+ALIEN_BOUNCE: float = 0.65             # velocity restitution on collision bounce
+ALIEN_VEL_DAMPING: float = 0.97        # per-frame physics velocity decay (@ 60 fps)
+ALIEN_COL_COOLDOWN: float = 0.40       # seconds before another bounce can re-trigger
+ALIEN_AVOIDANCE_RADIUS: float = 65.0   # px beyond obstacle edge where steering begins
+ALIEN_AVOIDANCE_FORCE: float = 2.5     # avoidance repulsion weight relative to pursuit
+ALIEN_BUMP_FLASH: float = 0.15         # seconds of orange tint on collision bump
+
+# ── Iron pickup constants ───────────────────────────────────────────────────
+IRON_PICKUP_DIST: float = 40.0   # px -- edge distance (from ship hull) to trigger fly-to-ship
+IRON_FLY_SPEED: float = 400.0    # px/s -- speed of iron token once attracted
+WORLD_ITEM_LIFETIME: float = 600.0  # seconds before a dropped item despawns (10 min)
+EJECT_DIST: float = 60.0            # px from ship EDGE where ejected items land
+
+# ── Camera shake constants ──────────────────────────────────────────────────
+SHAKE_DURATION: float = 0.25     # seconds of camera shake after a hull collision
+SHAKE_AMPLITUDE: float = 8.0     # max pixel offset during shake
+
+# ── Mini-map constants (drawn inside the status panel) ──────────────────────
+MINIMAP_PAD: int = 10
+MINIMAP_W: int = STATUS_WIDTH - 2 * MINIMAP_PAD   # 193 px wide
+MINIMAP_H: int = MINIMAP_W                         # square
+MINIMAP_X: int = MINIMAP_PAD
+MINIMAP_Y: int = MINIMAP_PAD + 16                  # 26 px from bottom; label sits below
