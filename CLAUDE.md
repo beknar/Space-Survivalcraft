@@ -63,6 +63,7 @@ python main.py
 | Fire active weapon | Space | A button (hold to auto-fire) |
 | Cycle weapon | Tab | Right bumper (RB) |
 | Open/close inventory | I | Y button |
+| Toggle FPS display | F | — |
 | Quit | Escape | — |
 
 Rotation speed: 150 °/s. Thrust: 250 px/s². Gamepad dead zone: 0.15.
@@ -107,7 +108,7 @@ Two weapons implemented. Active weapon shown in HUD; cycle with Tab / RB.
 
 #### Status panel (HUD)
 
-Live HP bar (green → orange → red as HP falls); speed readout, heading readout, full shield bar (placeholder), active weapon name, controls reference, gamepad connection status.
+Live HP bar (green → orange → red as HP falls); speed readout, heading readout, full shield bar (placeholder), active weapon name, controls reference, gamepad connection status. FPS counter (toggle with F) shown as a smoothed exponential moving average (α = 0.1).
 
 ## Architecture
 

@@ -583,12 +583,19 @@ class GameView(arcade.View):
                         arcade.color.LIGHT_GRAY, 9),
             arcade.Text("I           Inventory",10, SCREEN_HEIGHT - 326,
                         arcade.color.LIGHT_GRAY, 9),
+            arcade.Text("F           FPS",      10, SCREEN_HEIGHT - 342,
+                        arcade.color.LIGHT_GRAY, 9),
         ]
         self._t_gamepad = (
             arcade.Text("Gamepad: connected", 10, SCREEN_HEIGHT - 350,
                         arcade.color.LIME_GREEN, 9)
             if self.joystick else None
         )
+        # FPS overlay (toggled with F key)
+        self._show_fps: bool = False
+        self._fps: float = 60.0          # smoothed estimate
+        self._t_fps = arcade.Text("", 10, SCREEN_HEIGHT - 370,
+                                  arcade.color.YELLOW, 10, bold=True)
 
     # ── Helpers ──────────────────────────────────────────────────────────────
     @property
@@ -667,6 +674,9 @@ class GameView(arcade.View):
             t.draw()
         if self._t_gamepad:
             self._t_gamepad.draw()
+        if self._show_fps:
+            self._t_fps.text = f"FPS  {self._fps:>6.1f}"
+            self._t_fps.draw()
 
         # Dynamic readouts
         spd = math.hypot(self.player.vel_x, self.player.vel_y)
@@ -694,6 +704,10 @@ class GameView(arcade.View):
 
     # ── Update ───────────────────────────────────────────────────────────────
     def on_update(self, delta_time: float) -> None:
+        # ── Smoothed FPS (exponential moving average) ────────────────────────
+        if delta_time > 0:
+            self._fps = 0.9 * self._fps + 0.1 * (1.0 / delta_time)
+
         # ── Movement input ───────────────────────────────────────────────────
         rl = arcade.key.LEFT in self._keys or arcade.key.A in self._keys
         rr = arcade.key.RIGHT in self._keys or arcade.key.D in self._keys
@@ -807,6 +821,8 @@ class GameView(arcade.View):
             self._cycle_weapon()
         elif key == arcade.key.I:
             self.inventory.toggle()
+        elif key == arcade.key.F:
+            self._show_fps = not self._show_fps
 
     def on_key_release(self, key: int, modifiers: int) -> None:
         self._keys.discard(key)
