@@ -89,7 +89,9 @@ INV_H: int = INV_ROWS * INV_CELL + INV_PAD * 2 + INV_HEADER
 
 # ── Player ship stats ────────────────────────────────────────────────────────
 PLAYER_MAX_HP: int = 100
-SHIP_COLLISION_DAMAGE: int = 5       # HP lost per asteroid collision
+PLAYER_MAX_SHIELD: int = 100         # full shield capacity
+SHIELD_REGEN_RATE: float = 0.5       # shield points restored per second (1 per 2 s)
+SHIP_COLLISION_DAMAGE: int = 5       # HP/shield lost per asteroid collision
 SHIP_COLLISION_COOLDOWN: float = 0.5 # seconds of invincibility after a hit
 SHIP_BOUNCE: float = 0.55            # velocity restitution on bounce (0=dead stop,1=elastic)
 # Approximate circle radii used for overlap push-out (pixels)
@@ -373,19 +375,43 @@ class IronAsteroid(arcade.Sprite):
     - Spins slowly at a randomised rate.
     """
 
+    # Hit-shake constants
+    _SHAKE_DURATION: float = 0.20   # seconds the asteroid shakes after a hit
+    _SHAKE_AMP: float = 4.0         # max pixel offset during shake
+
     def __init__(self, texture: arcade.Texture, x: float, y: float) -> None:
         super().__init__(path_or_texture=texture, scale=1.0)
         self.center_x = x
         self.center_y = y
+        self._base_x: float = x     # home position; shake offsets from here
+        self._base_y: float = y
         self.hp: int = ASTEROID_HP
         # Each asteroid spins at a unique rate for visual variety
         self._rot_speed: float = random.uniform(8.0, 30.0) * random.choice((-1, 1))
+        # Hit-shake state
+        self._hit_timer: float = 0.0
 
     def update_asteroid(self, dt: float) -> None:
         self.angle = (self.angle + self._rot_speed * dt) % 360
+        # Shake: while hit timer is active, jitter position around base
+        if self._hit_timer > 0.0:
+            prev = self._hit_timer
+            self._hit_timer = max(0.0, self._hit_timer - dt)
+            t = self._hit_timer / self._SHAKE_DURATION   # 1→0
+            amp = self._SHAKE_AMP * t
+            self.center_x = self._base_x + random.uniform(-amp, amp)
+            self.center_y = self._base_y + random.uniform(-amp, amp)
+            if self._hit_timer == 0.0 and prev > 0.0:
+                self.color = (255, 255, 255, 255)   # restore normal tint
+        else:
+            self.center_x = self._base_x
+            self.center_y = self._base_y
 
     def take_damage(self, amount: int) -> None:
         self.hp -= amount
+        self._hit_timer = self._SHAKE_DURATION   # start shake
+        # Flash orange-red on hit
+        self.color = (255, 140, 60, 255)
 
 
 # ── Small Alien Ship ──────────────────────────────────────────────────────────
@@ -890,6 +916,9 @@ class PlayerShip(arcade.Sprite):
         # Ship stats
         self.hp: int = PLAYER_MAX_HP
         self.max_hp: int = PLAYER_MAX_HP
+        self.shields: int = PLAYER_MAX_SHIELD
+        self.max_shields: int = PLAYER_MAX_SHIELD
+        self._shield_acc: float = 0.0   # fractional shield regen accumulator
         # Invincibility window after an asteroid collision (prevents per-frame damage)
         self._collision_cd: float = 0.0
 
@@ -1215,6 +1244,18 @@ class GameView(arcade.View):
     def _trigger_shake(self) -> None:
         """Start a brief camera shake."""
         self._shake_timer = SHAKE_DURATION
+
+    def _apply_damage_to_player(self, amount: int) -> None:
+        """Apply damage to the player's shields first, then HP.
+
+        Shield absorbs damage down to 0; overflow carries into HP.
+        """
+        if self.player.shields > 0:
+            absorbed = min(self.player.shields, amount)
+            self.player.shields -= absorbed
+            amount -= absorbed
+        if amount > 0:
+            self.player.hp = max(0, self.player.hp - amount)
         self._shake_amp = SHAKE_AMPLITUDE
 
     def _draw_minimap(self) -> None:
@@ -1361,9 +1402,11 @@ class GameView(arcade.View):
         arcade.draw_rect_filled(
             arcade.LBWH(10, SCREEN_HEIGHT - 156, int(190 * hp_frac), 10), hp_color
         )
-        # Shield bar (placeholder — full)
+        # Shield bar — live; fades from bright cyan to dark blue as shields fall
+        shield_frac = max(0.0, self.player.shields / self.player.max_shields)
         arcade.draw_rect_filled(
-            arcade.LBWH(10, SCREEN_HEIGHT - 192, 190, 10), (0, 140, 210)
+            arcade.LBWH(10, SCREEN_HEIGHT - 192, int(190 * shield_frac), 10),
+            (0, 140, 210),
         )
 
         # Mini-map
@@ -1378,6 +1421,15 @@ class GameView(arcade.View):
         # ── Shake timer tick ─────────────────────────────────────────────────
         if self._shake_timer > 0.0:
             self._shake_timer = max(0.0, self._shake_timer - delta_time)
+
+        # ── Shield regeneration (1 pt / 2 s = 0.5 pt/s) ─────────────────────
+        if self.player.shields < self.player.max_shields:
+            self.player._shield_acc += SHIELD_REGEN_RATE * delta_time
+            pts = int(self.player._shield_acc)
+            if pts > 0:
+                self.player._shield_acc -= pts
+                self.player.shields = min(self.player.max_shields,
+                                          self.player.shields + pts)
 
         # ── Movement input ───────────────────────────────────────────────────
         rl = arcade.key.LEFT in self._keys or arcade.key.A in self._keys
@@ -1437,11 +1489,13 @@ class GameView(arcade.View):
                 proj, self.asteroid_list
             )
             if hit_asteroids:
-                proj.remove_from_sprite_lists()
                 asteroid = hit_asteroids[0]
+                # Spawn green hit-spark at impact point
+                self.hit_sparks.append(HitSpark(proj.center_x, proj.center_y))
+                proj.remove_from_sprite_lists()
                 asteroid.take_damage(int(proj.damage))
                 if asteroid.hp <= 0:
-                    ax, ay = asteroid.center_x, asteroid.center_y
+                    ax, ay = asteroid._base_x, asteroid._base_y
                     self._spawn_explosion(ax, ay)
                     arcade.play_sound(self._explosion_snd, volume=0.7)
                     asteroid.remove_from_sprite_lists()
@@ -1486,7 +1540,7 @@ class GameView(arcade.View):
 
             # --- Damage + bump sound + screen shake (once per cooldown) -------
             if self.player._collision_cd <= 0.0:
-                self.player.hp = max(0, self.player.hp - SHIP_COLLISION_DAMAGE)
+                self._apply_damage_to_player(SHIP_COLLISION_DAMAGE)
                 self.player._collision_cd = SHIP_COLLISION_COOLDOWN
                 arcade.play_sound(self._bump_snd, volume=0.5)
                 self._trigger_shake()
@@ -1521,7 +1575,7 @@ class GameView(arcade.View):
         for proj in list(self.alien_projectile_list):
             if arcade.check_for_collision(proj, self.player):
                 proj.remove_from_sprite_lists()
-                self.player.hp = max(0, self.player.hp - int(proj.damage))
+                self._apply_damage_to_player(int(proj.damage))
                 self._trigger_shake()
                 arcade.play_sound(self._bump_snd, volume=0.3)
 

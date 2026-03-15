@@ -51,6 +51,8 @@ python main.py
 - Scale: 1.5×
 - Physics: Newtonian — acceleration, speed cap (450 px/s), per-frame damping (0.98875)
 - Starts at world centre (3200, 3200)
+- **HP**: 100 max. HP bar in HUD (green → orange → red).
+- **Shields**: 100 max (`PlayerShip.shields`, `max_shields`). All incoming damage (asteroid collision, alien laser) is routed through `GameView._apply_damage_to_player()` which absorbs damage with shields first; overflow carries into HP. Shield bar in HUD (cyan) shrinks live. Regenerates at **1 pt per 2 s** (0.5 pt/s via `SHIELD_REGEN_RATE`); fractional accumulation handled by `PlayerShip._shield_acc` float, whole points applied each frame.
 
 #### Controls
 
@@ -102,6 +104,7 @@ Two weapons implemented. Active weapon shown in HUD; cycle with Tab / RB.
 - Animation: each asteroid spins at a random rate (8–30 °/s, random direction)
 - HP: 100; yields 10 iron when destroyed
 - **Only the Mining Beam deals damage** (10 per hit); Basic Laser does nothing
+- **Mining Beam hit feedback**: each hit spawns a `HitSpark` (expanding ring + core, 0.18 s) at the impact point and triggers a shake + orange-red tint flash on the asteroid sprite for 0.20 s; tint and shake amplitude decay linearly to zero over the flash duration, then color is restored to white
 - On destruction: plays explosion animation + `Sci-Fi Deep Explosion 1.wav`
 - Explosion sheet: `assets/gamedevmarket assets/asteroids crusher/Explosions/PNG/explosion.png` — 9 frames × 140×140 px, plays at 15 fps then removes itself
 - On destruction: drops one `IronPickup` sprite at the destruction site
@@ -114,13 +117,13 @@ Two weapons implemented. Active weapon shown in HUD; cycle with Tab / RB.
 - Collision detected each frame via `arcade.check_for_collision_with_list`
 - On overlap: ship is pushed out along the collision normal (centre-to-centre vector) so sprites never visually interpenetrate
 - Bounce: ship velocity is reflected about the collision normal with restitution 0.55 (only when moving toward the asteroid)
-- Damage: 5 HP per collision event; 0.5 s invincibility window on `PlayerShip._collision_cd` prevents per-frame damage stacking
+- Damage: 5 per collision event hits shields first, then HP; 0.5 s invincibility window on `PlayerShip._collision_cd` prevents per-frame damage stacking
 - Ship HP (`PlayerShip.hp`, max 100) is live — HP bar in HUD shrinks and changes colour (green → orange → red)
 - On each damage event: plays `Biomechanical/Game Biomechanical Impact Sound 1.wav` (hull bump) and triggers 0.25 s camera shake (amplitude 8 px, fades linearly)
 
 #### Status panel (HUD)
 
-Live HP bar (green → orange → red as HP falls); speed readout, heading readout, iron ore count, full shield bar (placeholder), active weapon name, controls reference, gamepad connection status. FPS counter (toggle with F) shown as a smoothed exponential moving average (α = 0.1). **Mini-map** at the bottom of the panel shows the full 6400×6400 world scaled to ~193×193 px: gray dots = asteroids, orange dots = iron pickups, red dots = alien ships, white dot + cyan heading line = player ship.
+Live HP bar (green → orange → red as HP falls); live shield bar (cyan, shrinks as shields deplete); speed readout, heading readout, iron ore count, active weapon name, controls reference, gamepad connection status. FPS counter (toggle with F) shown as a smoothed exponential moving average (α = 0.1). **Mini-map** at the bottom of the panel shows the full 6400×6400 world scaled to ~193×193 px: gray dots = asteroids, orange dots = iron pickups, red dots = alien ships, white dot + cyan heading line = player ship.
 
 #### Small Alien Ships (`SmallAlienShip`)
 
@@ -138,7 +141,7 @@ Live HP bar (green → orange → red as HP falls); speed readout, heading reado
   - On each hit: red tint flash (`sprite.color = (255, 80, 80, 255)`) for 0.15 s managed by `_hit_timer` in `update_alien()`
   - `HitSpark` class spawned at projectile impact point: expanding ring + fading bright core drawn with arcade primitives; lasts 0.18 s; stored in `GameView.hit_sparks` list, drawn in world-camera context
   - Hitting an alien also triggers camera shake (same `_trigger_shake()` used for hull collisions)
-- **Dealing damage to player**: alien laser hits deal 10 HP directly (no invincibility window needed — each bolt is removed on contact), trigger camera shake and bump sound
+- **Dealing damage to player**: alien laser hits deal 10 damage through shields first (then HP); no invincibility window needed — each bolt is removed on contact; triggers camera shake and bump sound
 - Mini-map shows alien ships as red dots
 - `Projectile.damage` field added so every projectile carries its own damage value; asteroid-hit and alien-hit code both use `proj.damage`
 
