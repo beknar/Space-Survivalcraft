@@ -91,6 +91,7 @@ Two weapons implemented. Active weapon shown in HUD; cycle with Tab / RB.
 - When iron > 0, the iron cell shows the iron icon + count badge.
 - Iron count also shown in the HUD status panel (IRON readout).
 - **Drag-and-drop**: left-click any occupied cell and drag to a new cell to move it; items in the destination cell are swapped back to the source. A yellow floating ghost follows the cursor during the drag; the source cell is highlighted yellow and the drop target is highlighted blue. Items dropped outside the grid return to their original cell.
+- **Hover tooltip**: hovering the cursor over any occupied cell shows a small tooltip box with the item's full type name (e.g. "Iron ×30"). Tooltip appears above the cell and stays on screen.
 
 #### Iron Asteroids
 
@@ -103,7 +104,7 @@ Two weapons implemented. Active weapon shown in HUD; cycle with Tab / RB.
 - Explosion sheet: `assets/gamedevmarket assets/asteroids crusher/Explosions/PNG/explosion.png` — 9 frames × 140×140 px, plays at 15 fps then removes itself
 - On destruction: drops one `IronPickup` sprite at the destruction site
 - Iron icon: `assets/kenney space combat assets/Voxel Pack/PNG/Items/ore_ironAlt.png`, scale 0.5×
-- Iron pickup idles at drop point; when the nearest edge of the ship (not its centre) is within 20 px of the token it flies toward the ship (400 px/s). Trigger distance from ship centre = 20 + SHIP_RADIUS (28 px) = 48 px.
+- Iron pickup idles at drop point; when the nearest edge of the ship (not its centre) is within 40 px of the token it flies toward the ship (400 px/s). Trigger distance from ship centre = 40 + SHIP_RADIUS (28 px) = 68 px.
 - On contact the pickup is removed and `inventory.iron += 10`
 
 #### Ship ↔ Asteroid Collision
@@ -117,7 +118,7 @@ Two weapons implemented. Active weapon shown in HUD; cycle with Tab / RB.
 
 #### Status panel (HUD)
 
-Live HP bar (green → orange → red as HP falls); speed readout, heading readout, iron ore count, full shield bar (placeholder), active weapon name, controls reference, gamepad connection status. FPS counter (toggle with F) shown as a smoothed exponential moving average (α = 0.1).
+Live HP bar (green → orange → red as HP falls); speed readout, heading readout, iron ore count, full shield bar (placeholder), active weapon name, controls reference, gamepad connection status. FPS counter (toggle with F) shown as a smoothed exponential moving average (α = 0.1). **Mini-map** at the bottom of the panel shows the full 6400×6400 world scaled to ~193×193 px: gray dots = asteroids, orange dots = iron pickups, white dot + cyan heading line = player ship.
 
 ## Architecture
 

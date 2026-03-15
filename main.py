@@ -99,12 +99,19 @@ EXPLOSION_FRAME_H: int = 140
 EXPLOSION_FPS: float = 15.0        # frames per second
 
 # ── Iron pickup constants ─────────────────────────────────────────────────────
-IRON_PICKUP_DIST: float = 20.0   # px — distance to start flying toward ship
+IRON_PICKUP_DIST: float = 40.0   # px — edge distance (from ship hull) to trigger fly-to-ship
 IRON_FLY_SPEED: float = 400.0    # px/s — speed of iron token once attracted
 
 # ── Camera shake constants ────────────────────────────────────────────────────
 SHAKE_DURATION: float = 0.25     # seconds of camera shake after a hull collision
 SHAKE_AMPLITUDE: float = 8.0     # max pixel offset during shake
+
+# ── Mini-map constants (drawn inside the status panel) ────────────────────────
+MINIMAP_PAD: int = 10
+MINIMAP_W: int = STATUS_WIDTH - 2 * MINIMAP_PAD   # 193 px wide
+MINIMAP_H: int = MINIMAP_W                         # square
+MINIMAP_X: int = MINIMAP_PAD
+MINIMAP_Y: int = MINIMAP_PAD + 16                  # 26 px from bottom; label sits below
 
 
 # ── Projectile ───────────────────────────────────────────────────────────────
@@ -318,6 +325,10 @@ class Inventory:
         self._drag_x: float = 0.0
         self._drag_y: float = 0.0
 
+        # Mouse position (for hover tooltip)
+        self._mouse_x: float = 0.0
+        self._mouse_y: float = 0.0
+
         # Pre-built Text labels (avoids per-draw allocations)
         cx = SCREEN_WIDTH // 2
         oy = (SCREEN_HEIGHT - INV_H) // 2
@@ -396,6 +407,13 @@ class Inventory:
         if self._drag_type is not None:
             self._drag_x = x
             self._drag_y = y
+        self._mouse_x = x
+        self._mouse_y = y
+
+    def on_mouse_move(self, x: float, y: float) -> None:
+        """Track cursor position for hover tooltip."""
+        self._mouse_x = x
+        self._mouse_y = y
 
     def on_mouse_release(self, x: float, y: float) -> None:
         """Drop the carried item into the cell under the cursor (or return it)."""
@@ -536,6 +554,41 @@ class Inventory:
                 arcade.draw_text(
                     self._drag_type[:6], fx + 4, fy + INV_CELL // 2 - 5,
                     arcade.color.WHITE, 8,
+                )
+
+        # ── Hover tooltip ────────────────────────────────────────────────────
+        tip_cell = self._cell_at(self._mouse_x, self._mouse_y)
+        if tip_cell is not None and self._drag_type is None:
+            row, col = tip_cell
+            is_iron = (self.iron > 0 and tip_cell == self._iron_cell)
+            item = self._items.get(tip_cell)
+            if is_iron:
+                tip_label = f"Iron  \u00d7{self.iron}"
+            elif item is not None:
+                tip_label = item
+            else:
+                tip_label = None
+
+            if tip_label:
+                gx2, gy2 = self._grid_origin()
+                cell_cx = gx2 + col * INV_CELL + INV_CELL // 2
+                cell_ty = gy2 + (INV_ROWS - 1 - row) * INV_CELL + INV_CELL + 2
+                # Keep tooltip inside screen
+                if cell_ty + 16 > SCREEN_HEIGHT:
+                    cell_ty = gy2 + (INV_ROWS - 1 - row) * INV_CELL - 18
+                tw = len(tip_label) * 6 + 12
+                tx0 = max(2, min(SCREEN_WIDTH - tw - 2, cell_cx - tw // 2))
+                arcade.draw_rect_filled(
+                    arcade.LBWH(tx0, cell_ty, tw, 15), (20, 20, 50, 230)
+                )
+                arcade.draw_rect_outline(
+                    arcade.LBWH(tx0, cell_ty, tw, 15),
+                    arcade.color.LIGHT_GRAY, border_width=1,
+                )
+                arcade.draw_text(
+                    tip_label, tx0 + tw // 2, cell_ty + 7,
+                    arcade.color.WHITE, 9,
+                    anchor_x="center", anchor_y="center",
                 )
 
 
@@ -843,6 +896,15 @@ class GameView(arcade.View):
         self._t_fps = arcade.Text("", 10, SCREEN_HEIGHT - 400,
                                   arcade.color.YELLOW, 10, bold=True)
 
+        # Mini-map label (sits just above the map rectangle)
+        self._t_minimap = arcade.Text(
+            "MINI-MAP",
+            STATUS_WIDTH // 2,
+            MINIMAP_Y + MINIMAP_H + 3,
+            arcade.color.LIGHT_GRAY, 9,
+            anchor_x="center",
+        )
+
     # ── Helpers ──────────────────────────────────────────────────────────────
     @property
     def _active_weapon(self) -> Weapon:
@@ -865,6 +927,42 @@ class GameView(arcade.View):
         """Start a brief camera shake."""
         self._shake_timer = SHAKE_DURATION
         self._shake_amp = SHAKE_AMPLITUDE
+
+    def _draw_minimap(self) -> None:
+        """Draw a scaled overview of the world inside the status panel."""
+        mx, my = MINIMAP_X, MINIMAP_Y
+        mw, mh = MINIMAP_W, MINIMAP_H
+
+        # Background + border
+        arcade.draw_rect_filled(arcade.LBWH(mx, my, mw, mh), (5, 5, 20, 245))
+        arcade.draw_rect_outline(
+            arcade.LBWH(mx, my, mw, mh), arcade.color.STEEL_BLUE, border_width=1
+        )
+        self._t_minimap.draw()
+
+        def to_map(wx: float, wy: float) -> tuple[float, float]:
+            return (
+                mx + (wx / WORLD_WIDTH) * mw,
+                my + (wy / WORLD_HEIGHT) * mh,
+            )
+
+        # Asteroids — small gray circles
+        for asteroid in self.asteroid_list:
+            ax, ay = to_map(asteroid.center_x, asteroid.center_y)
+            arcade.draw_circle_filled(ax, ay, 2.0, (150, 150, 150))
+
+        # Iron pickups — tiny orange dots
+        for pickup in self.iron_pickup_list:
+            px, py = to_map(pickup.center_x, pickup.center_y)
+            arcade.draw_circle_filled(px, py, 2.0, (255, 165, 0))
+
+        # Player ship — white dot + cyan heading line
+        sx, sy = to_map(self.player.center_x, self.player.center_y)
+        rad = math.radians(self.player.heading)
+        lx = sx + math.sin(rad) * 5
+        ly = sy + math.cos(rad) * 5
+        arcade.draw_line(sx, sy, lx, ly, arcade.color.CYAN, 1)
+        arcade.draw_circle_filled(sx, sy, 3.0, arcade.color.WHITE)
 
     # ── Drawing ──────────────────────────────────────────────────────────────
     def on_draw(self) -> None:
@@ -969,6 +1067,9 @@ class GameView(arcade.View):
         arcade.draw_rect_filled(
             arcade.LBWH(10, SCREEN_HEIGHT - 192, 190, 10), (0, 140, 210)
         )
+
+        # Mini-map
+        self._draw_minimap()
 
     # ── Update ───────────────────────────────────────────────────────────────
     def on_update(self, delta_time: float) -> None:
@@ -1123,6 +1224,9 @@ class GameView(arcade.View):
     def on_mouse_release(self, x: int, y: int, button: int, modifiers: int) -> None:
         if button == arcade.MOUSE_BUTTON_LEFT:
             self.inventory.on_mouse_release(x, y)
+
+    def on_mouse_motion(self, x: int, y: int, dx: int, dy: int) -> None:
+        self.inventory.on_mouse_move(x, y)
 
 
 # ── Entry point ──────────────────────────────────────────────────────────────
