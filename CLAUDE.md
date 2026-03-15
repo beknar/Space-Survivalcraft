@@ -102,7 +102,7 @@ Two weapons implemented. Active weapon shown in HUD; cycle with Tab / RB.
 - Explosion sheet: `assets/gamedevmarket assets/asteroids crusher/Explosions/PNG/explosion.png` — 9 frames × 140×140 px, plays at 15 fps then removes itself
 - On destruction: drops one `IronPickup` sprite at the destruction site
 - Iron icon: `assets/kenney space combat assets/Voxel Pack/PNG/Items/ore_ironAlt.png`, scale 0.5×
-- Iron pickup idles at drop point; when ship moves within 20 px it flies toward the ship (400 px/s)
+- Iron pickup idles at drop point; when the nearest edge of the ship (not its centre) is within 20 px of the token it flies toward the ship (400 px/s). Trigger distance from ship centre = 20 + SHIP_RADIUS (28 px) = 48 px.
 - On contact the pickup is removed and `inventory.iron += 10`
 
 #### Ship ↔ Asteroid Collision

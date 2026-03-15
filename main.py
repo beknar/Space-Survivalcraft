@@ -239,13 +239,22 @@ class IronPickup(arcade.Sprite):
         self.center_y = y
         self._flying: bool = False
 
-    def update_pickup(self, dt: float, ship_x: float, ship_y: float) -> bool:
-        """Advance state. Returns True on collection (caller removes + adds iron)."""
+    def update_pickup(
+        self, dt: float, ship_x: float, ship_y: float, ship_radius: float = 0.0
+    ) -> bool:
+        """Advance state. Returns True on collection (caller removes + adds iron).
+
+        ship_radius: approximate radius of the ship sprite in px.  The pickup
+        trigger fires when the *edge* of the ship (not its centre) comes within
+        IRON_PICKUP_DIST px of the token.
+        """
         dx = ship_x - self.center_x
         dy = ship_y - self.center_y
         dist = math.hypot(dx, dy)
+        # Edge distance = centre-to-centre minus the ship's radius
+        edge_dist = max(0.0, dist - ship_radius)
 
-        if not self._flying and dist <= IRON_PICKUP_DIST:
+        if not self._flying and edge_dist <= IRON_PICKUP_DIST:
             self._flying = True
 
         if self._flying:
@@ -911,7 +920,7 @@ class GameView(arcade.View):
         # ── Iron pickup: fly toward ship + collect ───────────────────────────
         sx, sy = self.player.center_x, self.player.center_y
         for pickup in list(self.iron_pickup_list):
-            collected = pickup.update_pickup(delta_time, sx, sy)
+            collected = pickup.update_pickup(delta_time, sx, sy, SHIP_RADIUS)
             if collected:
                 self.inventory.add_iron(ASTEROID_IRON_YIELD)
 
