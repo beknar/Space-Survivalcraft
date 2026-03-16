@@ -84,6 +84,7 @@ Each faction's sprite sheet is 512×512 (8 cols × 8 rows of 64×64 frames). The
 - The Thunderbolt has 2 guns, so it starts with 2× Basic Laser and 2× Mining Beam.
 - Ship stats (HP, shields, regen, physics) are driven by the `SHIP_TYPES` dict in `constants.py` and applied at `PlayerShip.__init__()`.
 - Controls: LEFT/RIGHT (or A/D) to browse, ENTER/SPACE to confirm, ESC to go back.
+- **UI sounds**: switching between factions/ships plays `Sci-Fi Spaceship Interface Digital Button 1.wav` (volume 0.5); confirming a selection plays `Sci-Fi Spaceship Interface Mechanical Switch 1.wav` (volume 0.6). Both loaded from `SFX_VEHICLES_DIR`.
 - After confirming faction + ship type, `SelectionView` transitions to `GameView(faction, ship_type)`.
 
 #### Window layout
@@ -136,6 +137,14 @@ Each faction's sprite sheet is 512×512 (8 cols × 8 rows of 64×64 frames). The
   - Normal state: `color = (255, 255, 255, 200)` — slightly transparent so the ship beneath shows through.
   - Hit flash: `ShieldSprite.hit_flash()` called from `_apply_damage_to_player()` whenever the shield absorbs damage. Alpha pulses from 255 → 200 over 0.25 s as the flash fades.
   - Depleted state: `color = (255, 255, 255, 0)` — fully invisible when `shields == 0`; reappears automatically when regen brings shields back above 0.
+- **Thruster sound**: `Sci-Fi Spaceship Thrusters 1.wav` from `SFX_VEHICLES_DIR`. Plays in a loop (volume 0.25) while the player is thrusting forward or braking; stops when input ceases. Managed by `_thruster_player` and `_thrusting_last` state in `GameView`.
+- **Engine contrail**: per-ship-type coloured particle trail emitted from the ship's exhaust point (30 px behind centre along heading). Particles spawn at `CONTRAIL_SPAWN_RATE` (30/s, max 20 particles) scaled by `thrust_intensity` (0..1). Each particle fades from start colour to end colour and shrinks from `CONTRAIL_START_SIZE × intensity` to `CONTRAIL_END_SIZE` over `CONTRAIL_LIFETIME` (0.5 s). Contrail colours per ship type defined in `CONTRAIL_COLOURS` dict in `constants.py`:
+  - Cruiser: blue `(100, 180, 255)` → `(20, 40, 120)`
+  - Bastion: orange `(255, 200, 80)` → `(120, 60, 10)`
+  - Aegis: green `(80, 255, 180)` → `(10, 80, 50)`
+  - Striker: red `(255, 100, 100)` → `(120, 20, 20)`
+  - Thunderbolt: purple `(200, 120, 255)` → `(60, 20, 100)`
+- **Dual-gun firing**: ships with `guns > 1` (Thunderbolt) fire from two laterally-offset hardpoints simultaneously. Weapons are grouped: indices 0..guns-1 = Basic Laser group, guns..2×guns-1 = Mining Beam group. `gun_spawn_points()` returns one (x,y) per gun. Weapon cycling (`Tab` / `RB`) advances by `gun_count` to switch weapon groups. The active weapon HUD label shows the group's weapon name.
 
 #### Controls
 
@@ -206,7 +215,7 @@ Two weapons implemented. Active weapon shown in HUD; cycle with Tab / RB.
 
 #### Status panel (HUD)
 
-Live HP bar (green → orange → red as HP falls); live shield bar (cyan, shrinks as shields deplete); speed readout, heading readout, iron ore count, active weapon name, controls reference, gamepad connection status. FPS counter (toggle with F) shown as a smoothed exponential moving average (α = 0.1). **Mini-map** at the bottom of the panel shows the full 6400×6400 world scaled to ~193×193 px: gray dots = asteroids, orange dots = iron pickups, red dots = alien ships, white dot + cyan heading line = player ship.
+Live HP bar (green → orange → red as HP falls); live shield bar (cyan, shrinks as shields deplete); speed readout, heading readout, iron ore count, active weapon name, controls reference, gamepad connection status. **Faction** and **ship type** indicators displayed below the controls section. FPS counter (toggle with F) shown as a smoothed exponential moving average (α = 0.1). **Mini-map** at the bottom of the panel shows the full 6400×6400 world scaled to ~193×193 px: gray dots = asteroids, orange dots = iron pickups, red dots = alien ships, white dot + cyan heading line = player ship.
 
 #### Small Alien Ships (`SmallAlienShip`)
 

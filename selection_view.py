@@ -10,6 +10,7 @@ from constants import (
     SCREEN_WIDTH, SCREEN_HEIGHT,
     FACTION_SHIPS_DIR, FACTIONS, SHIP_TYPES,
     SHIP_FRAME_SIZE, SHIP_SHEET_COLS,
+    SFX_VEHICLES_DIR,
 )
 
 
@@ -44,6 +45,16 @@ class SelectionView(arcade.View):
 
         # Ship previews will be loaded once a faction is chosen
         self._ship_previews: list[arcade.Texture] = []
+
+        # UI sounds
+        self._switch_snd = arcade.load_sound(
+            os.path.join(SFX_VEHICLES_DIR,
+                         "Sci-Fi Spaceship Interface Digital Button 1.wav")
+        )
+        self._confirm_snd = arcade.load_sound(
+            os.path.join(SFX_VEHICLES_DIR,
+                         "Sci-Fi Spaceship Interface Mechanical Switch 1.wav")
+        )
 
         # Pre-built text objects
         self._t_title = arcade.Text(
@@ -209,9 +220,12 @@ class SelectionView(arcade.View):
         if self._phase == self._PHASE_FACTION:
             if key in (arcade.key.LEFT, arcade.key.A):
                 self._selected_faction = (self._selected_faction - 1) % len(self._faction_names)
+                arcade.play_sound(self._switch_snd, volume=0.5)
             elif key in (arcade.key.RIGHT, arcade.key.D):
                 self._selected_faction = (self._selected_faction + 1) % len(self._faction_names)
+                arcade.play_sound(self._switch_snd, volume=0.5)
             elif key in (arcade.key.RETURN, arcade.key.ENTER, arcade.key.SPACE):
+                arcade.play_sound(self._confirm_snd, volume=0.6)
                 self._chosen_faction = self._faction_names[self._selected_faction]
                 self._load_ship_previews(self._chosen_faction)
                 self._selected_ship = 0
@@ -222,11 +236,15 @@ class SelectionView(arcade.View):
         elif self._phase == self._PHASE_SHIP:
             if key in (arcade.key.LEFT, arcade.key.A):
                 self._selected_ship = (self._selected_ship - 1) % len(self._ship_names)
+                arcade.play_sound(self._switch_snd, volume=0.5)
             elif key in (arcade.key.RIGHT, arcade.key.D):
                 self._selected_ship = (self._selected_ship + 1) % len(self._ship_names)
+                arcade.play_sound(self._switch_snd, volume=0.5)
             elif key in (arcade.key.RETURN, arcade.key.ENTER, arcade.key.SPACE):
+                arcade.play_sound(self._confirm_snd, volume=0.6)
                 self._confirm_selection()
             elif key == arcade.key.ESCAPE:
+                arcade.play_sound(self._switch_snd, volume=0.4)
                 self._phase = self._PHASE_FACTION
 
     def _confirm_selection(self) -> None:

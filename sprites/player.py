@@ -11,7 +11,8 @@ from PIL import Image as PILImage
 from constants import (
     SHMUP_DIR, WORLD_WIDTH, WORLD_HEIGHT,
     ROT_SPEED, THRUST, BRAKE, MAX_SPD, DAMPING,
-    NOSE_OFFSET, PLAYER_MAX_HP, PLAYER_MAX_SHIELD,
+    NOSE_OFFSET, GUN_LATERAL_OFFSET,
+    PLAYER_MAX_HP, PLAYER_MAX_SHIELD,
     FACTION_SHIPS_DIR, FACTIONS, SHIP_TYPES,
     SHIP_FRAME_SIZE, SHIP_SHEET_COLS,
 )
@@ -76,6 +77,10 @@ class PlayerShip(arcade.Sprite):
             x0 = 0
             y0 = row * SHIP_FRAME_SIZE
             frame = pil_img.crop((x0, y0, x0 + SHIP_FRAME_SIZE, y0 + SHIP_FRAME_SIZE))
+            # Faction ships face RIGHT in the sheet; rotate 90° CCW so nose
+            # points UP at angle=0, matching Arcade's CW-positive convention
+            # and our sin(heading)/cos(heading) physics.
+            frame = frame.rotate(90, expand=True)
             tex = arcade.Texture(frame)
             super().__init__(path_or_texture=tex, scale=1.5)
 
@@ -176,6 +181,11 @@ class PlayerShip(arcade.Sprite):
             self.texture = self._frames[0][self._anim_col]
 
     @property
+    def thrust_intensity(self) -> float:
+        """Current thrust intensity (0..1) for contrail effects."""
+        return self._intensity
+
+    @property
     def nose_x(self) -> float:
         """World X of the ship's nose tip (projectile spawn point)."""
         return self.center_x + math.sin(math.radians(self.heading)) * NOSE_OFFSET
@@ -184,3 +194,23 @@ class PlayerShip(arcade.Sprite):
     def nose_y(self) -> float:
         """World Y of the ship's nose tip (projectile spawn point)."""
         return self.center_y + math.cos(math.radians(self.heading)) * NOSE_OFFSET
+
+    def gun_spawn_points(self) -> list[tuple[float, float]]:
+        """Return projectile spawn positions for all gun hardpoints.
+
+        Single-gun ships: one point at the nose.
+        Dual-gun ships: two points offset laterally from the nose axis.
+        """
+        rad = math.radians(self.heading)
+        fwd_x = math.sin(rad) * NOSE_OFFSET
+        fwd_y = math.cos(rad) * NOSE_OFFSET
+        if self.guns <= 1:
+            return [(self.center_x + fwd_x, self.center_y + fwd_y)]
+        # Lateral offset: perpendicular to heading (heading+90 = right)
+        perp_x = math.cos(rad)   # perpendicular X (right of heading)
+        perp_y = -math.sin(rad)  # perpendicular Y
+        cx, cy = self.center_x + fwd_x, self.center_y + fwd_y
+        return [
+            (cx - perp_x * GUN_LATERAL_OFFSET, cy - perp_y * GUN_LATERAL_OFFSET),
+            (cx + perp_x * GUN_LATERAL_OFFSET, cy + perp_y * GUN_LATERAL_OFFSET),
+        ]

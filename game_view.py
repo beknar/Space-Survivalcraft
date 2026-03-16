@@ -26,7 +26,10 @@ from constants import (
     MINIMAP_PAD, MINIMAP_W, MINIMAP_H, MINIMAP_X, MINIMAP_Y,
     SHIELD_PNG, SHIELD_COLS, SHIELD_ROWS, SHIELD_FRAME_W, SHIELD_FRAME_H,
     STARFIELD_DIR, LASER_DIR, SFX_WEAPONS_DIR, SFX_EXPLOSIONS_DIR, SFX_BIO_DIR,
+    SFX_VEHICLES_DIR,
     ASTEROID_PNG, ALIEN_SHIP_PNG, ALIEN_FX_PNG, EXPLOSION_PNG, IRON_ICON_PNG,
+    CONTRAIL_MAX_PARTICLES, CONTRAIL_SPAWN_RATE, CONTRAIL_LIFETIME,
+    CONTRAIL_START_SIZE, CONTRAIL_END_SIZE, CONTRAIL_OFFSET, CONTRAIL_COLOURS,
 )
 from sprites.projectile import Projectile, Weapon
 from sprites.explosion import Explosion, HitSpark
@@ -36,6 +39,45 @@ from sprites.asteroid import IronAsteroid
 from sprites.alien import SmallAlienShip
 from sprites.player import PlayerShip
 from inventory import Inventory
+
+
+class ContrailParticle:
+    """A single fading, shrinking particle in a ship's engine contrail."""
+
+    def __init__(
+        self, x: float, y: float,
+        start_colour: tuple[int, int, int],
+        end_colour: tuple[int, int, int],
+        lifetime: float,
+        start_size: float,
+        end_size: float,
+    ) -> None:
+        self.x = x
+        self.y = y
+        self._start_r, self._start_g, self._start_b = start_colour
+        self._end_r, self._end_g, self._end_b = end_colour
+        self._lifetime = lifetime
+        self._start_size = start_size
+        self._end_size = end_size
+        self._age: float = 0.0
+        self.dead: bool = False
+
+    def update(self, dt: float) -> None:
+        self._age += dt
+        if self._age >= self._lifetime:
+            self.dead = True
+
+    def draw(self) -> None:
+        if self.dead:
+            return
+        t = self._age / self._lifetime  # 0 -> 1
+        radius = self._start_size + (self._end_size - self._start_size) * t
+        alpha = int(255 * (1.0 - t))
+        r = int(self._start_r + (self._end_r - self._start_r) * t)
+        g = int(self._start_g + (self._end_g - self._start_g) * t)
+        b = int(self._start_b + (self._end_b - self._start_b) * t)
+        if radius > 0.5:
+            arcade.draw_circle_filled(self.x, self.y, radius, (r, g, b, alpha))
 
 
 class GameView(arcade.View):
@@ -262,13 +304,47 @@ class GameView(arcade.View):
             anchor_x="center",
         )
 
+        # ── Faction / ship type HUD labels ─────────────────────────────────
+        faction_label = faction if faction else "Legacy"
+        ship_label = ship_type if ship_type else "Classic"
+        self._t_faction = arcade.Text(
+            f"FACTION: {faction_label}",
+            10, SCREEN_HEIGHT - 420,
+            arcade.color.LIGHT_BLUE, 9, bold=True,
+        )
+        self._t_ship_type = arcade.Text(
+            f"SHIP: {ship_label}",
+            10, SCREEN_HEIGHT - 436,
+            arcade.color.LIGHT_GREEN, 9, bold=True,
+        )
+
+        # ── Thruster sound ──────────────────────────────────────────────────
+        self._thruster_snd = arcade.load_sound(
+            os.path.join(SFX_VEHICLES_DIR, "Sci-Fi Spaceship Thrusters 1.wav")
+        )
+        self._thruster_player: Optional[arcade.sound.media.Player] = None
+        self._thrusting_last: bool = False
+
+        # ── Contrail state ──────────────────────────────────────────────────
+        self._contrail: list[ContrailParticle] = []
+        self._contrail_timer: float = 0.0
+        st = ship_type or "Cruiser"
+        colours = CONTRAIL_COLOURS.get(st, CONTRAIL_COLOURS["Cruiser"])
+        self._contrail_start_colour: tuple[int, int, int] = colours[0]
+        self._contrail_end_colour: tuple[int, int, int] = colours[1]
+
     # ── Helpers ──────────────────────────────────────────────────────────────
     @property
     def _active_weapon(self) -> Weapon:
-        return self._weapons[self._weapon_idx]
+        """Return the first weapon of the currently active weapon group."""
+        gun_count = self.player.guns
+        base_idx = (self._weapon_idx // gun_count) * gun_count
+        return self._weapons[base_idx]
 
     def _cycle_weapon(self) -> None:
-        self._weapon_idx = (self._weapon_idx + 1) % len(self._weapons)
+        gun_count = self.player.guns
+        # Jump by gun_count so we cycle weapon *groups*, not individual guns
+        self._weapon_idx = (self._weapon_idx + gun_count) % len(self._weapons)
 
     def _spawn_explosion(self, x: float, y: float) -> None:
         """Spawn a one-shot explosion animation at world position (x, y)."""
@@ -363,6 +439,9 @@ class GameView(arcade.View):
             self.alien_list.draw()
             self.alien_projectile_list.draw()
             self.projectile_list.draw()
+            # Contrail drawn behind the player ship
+            for cp in self._contrail:
+                cp.draw()
             self.player_list.draw()
             self.shield_list.draw()
             for spark in self.hit_sparks:
@@ -440,6 +519,9 @@ class GameView(arcade.View):
             (0, 140, 210),
         )
 
+        self._t_faction.draw()
+        self._t_ship_type.draw()
+
         self._draw_minimap()
 
     # ── Update ───────────────────────────────────────────────────────────────
@@ -498,17 +580,64 @@ class GameView(arcade.View):
 
         self.player.apply_input(delta_time, rl, rr, tf, tb)
 
+        # ── Thruster sound management ─────────────────────────────────────
+        thrusting_now = tf or tb
+        if thrusting_now and not self._thrusting_last:
+            self._thruster_player = arcade.play_sound(
+                self._thruster_snd, volume=0.25, looping=True
+            )
+        elif not thrusting_now and self._thrusting_last:
+            if self._thruster_player is not None:
+                arcade.stop_sound(self._thruster_player)
+                self._thruster_player = None
+        self._thrusting_last = thrusting_now
+
+        # ── Contrail particles ─────────────────────────────────────────────
+        intensity = self.player.thrust_intensity
+        if intensity > 0.01:
+            self._contrail_timer += delta_time
+            interval = 1.0 / CONTRAIL_SPAWN_RATE
+            while self._contrail_timer >= interval:
+                self._contrail_timer -= interval
+                if len(self._contrail) < CONTRAIL_MAX_PARTICLES:
+                    rad = math.radians(self.player.heading)
+                    ex = self.player.center_x - math.sin(rad) * abs(CONTRAIL_OFFSET)
+                    ey = self.player.center_y - math.cos(rad) * abs(CONTRAIL_OFFSET)
+                    # Add slight random spread
+                    ex += random.uniform(-3, 3)
+                    ey += random.uniform(-3, 3)
+                    start_sz = CONTRAIL_START_SIZE * intensity
+                    self._contrail.append(ContrailParticle(
+                        ex, ey,
+                        self._contrail_start_colour,
+                        self._contrail_end_colour,
+                        CONTRAIL_LIFETIME,
+                        start_sz, CONTRAIL_END_SIZE,
+                    ))
+        else:
+            self._contrail_timer = 0.0
+
+        for cp in self._contrail:
+            cp.update(delta_time)
+        self._contrail = [p for p in self._contrail if not p.dead]
+
         # ── Weapons: tick cooldowns ─────────────────────────────────────────
         for w in self._weapons:
             w.update(delta_time)
 
         # ── Fire active weapon ──────────────────────────────────────────────
         if fire:
-            proj = self._active_weapon.fire(
-                self.player.nose_x, self.player.nose_y, self.player.heading
-            )
-            if proj is not None:
-                self.projectile_list.append(proj)
+            spawn_pts = self.player.gun_spawn_points()
+            # Active weapon group: for dual-gun ships, fire from matching
+            # weapon indices (0 & 1 for lasers, 2 & 3 for mining beams)
+            gun_count = self.player.guns
+            base_idx = (self._weapon_idx // gun_count) * gun_count
+            for gi in range(gun_count):
+                wpn = self._weapons[base_idx + gi]
+                pt = spawn_pts[gi] if gi < len(spawn_pts) else spawn_pts[0]
+                proj = wpn.fire(pt[0], pt[1], self.player.heading)
+                if proj is not None:
+                    self.projectile_list.append(proj)
 
         # ── Advance projectiles ─────────────────────────────────────────────
         for proj in list(self.projectile_list):

@@ -49,6 +49,10 @@ SFX_BIO_DIR = os.path.join(
     _HERE, "assets", "Sci Fi Sound Effects Bundle",
     "Stormwave Audio Sci-Fi Sound Effects Bundle", "Biomechanical",
 )
+SFX_VEHICLES_DIR = os.path.join(
+    _HERE, "assets", "Sci Fi Sound Effects Bundle",
+    "Stormwave Audio Sci-Fi Sound Effects Bundle", "Vehicles",
+)
 ASTEROID_PNG = os.path.join(_HERE, "assets", "Pixel Art Space", "Asteroid.png")
 ALIEN_SHIP_PNG = os.path.join(
     _HERE, "assets", "gamedevmarket assets",
@@ -83,6 +87,23 @@ SHIELD_HIT_FLASH: float = 0.25     # seconds of bright flash when shield absorbs
 
 # ── Weapon / projectile constants ───────────────────────────────────────────
 NOSE_OFFSET: float = 44.0        # px ahead of ship centre where projectiles spawn
+GUN_LATERAL_OFFSET: float = 10.0 # px left/right of centre axis for dual-gun ships
+
+# ── Contrail constants ─────────────────────────────────────────────────────
+CONTRAIL_MAX_PARTICLES: int = 20       # max trail particles when thrusting
+CONTRAIL_SPAWN_RATE: float = 30.0      # particles per second when thrusting
+CONTRAIL_LIFETIME: float = 0.5         # seconds each particle lives
+CONTRAIL_START_SIZE: float = 6.0       # initial particle radius
+CONTRAIL_END_SIZE: float = 1.0         # final particle radius at end of life
+CONTRAIL_OFFSET: float = -30.0        # px behind ship centre (negative = behind)
+# Per-ship contrail colour palettes (start colour, end colour)
+CONTRAIL_COLOURS = {
+    "Cruiser":     ((100, 180, 255), (20, 40, 120)),     # blue
+    "Bastion":     ((255, 200, 80),  (120, 60, 10)),     # orange
+    "Aegis":       ((80, 255, 180),  (10, 80, 50)),      # green
+    "Striker":     ((255, 100, 100), (120, 20, 20)),      # red
+    "Thunderbolt": ((200, 120, 255), (60, 20, 100)),      # purple
+}
 
 # ── Inventory constants ────────────────────────────────────────────────────
 INV_COLS: int = 5
