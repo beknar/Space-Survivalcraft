@@ -82,7 +82,7 @@ class PlayerShip(arcade.Sprite):
             # and our sin(heading)/cos(heading) physics.
             frame = frame.rotate(90, expand=True)
             tex = arcade.Texture(frame)
-            super().__init__(path_or_texture=tex, scale=1.5)
+            super().__init__(path_or_texture=tex, scale=0.75)
 
             self._rot_speed = stats["rot_speed"]
             self._thrust = stats["thrust"]

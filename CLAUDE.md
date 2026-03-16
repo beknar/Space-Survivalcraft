@@ -68,14 +68,15 @@ Before gameplay begins, the player chooses a faction and ship type on a two-phas
 
 | Faction | Asset File |
 |---|---|
-| Earth | `assets/256Spaceships/faction_1_ships_64x64.png` |
-| Colonial | `assets/256Spaceships/faction_2_ships_64x64.png` |
-| Heavy World | `assets/256Spaceships/faction_5_ships_64x64.png` |
-| Ascended | `assets/256Spaceships/faction_7_ships_64x64.png` |
+| Earth | `assets/256Spaceships/faction_1_ships_128x128.png` |
+| Colonial | `assets/256Spaceships/faction_2_ships_128x128.png` |
+| Heavy World | `assets/256Spaceships/faction_5_ships_128x128.png` |
+| Ascended | `assets/256Spaceships/faction_7_ships_128x128.png` |
 
-Each faction's sprite sheet is 512×512 (8 cols × 8 rows of 64×64 frames). The 8 columns represent upgrade tiers; column 0 is the starting ship.
+Each faction's sprite sheet is 1024×1024 (8 cols × 8 rows of 128×128 frames). The 8 columns represent upgrade tiers; column 0 is the starting ship.
 
-- **Sharp pixel-art previews**: faction and ship preview images are 64×64 pixel art upscaled 3× to 192×192 using PIL nearest-neighbor resampling (`PILImage.NEAREST`) before creating `arcade.Texture` objects. This produces crisp, blocky pixel art instead of the blurry result from GPU linear filtering. The textures are drawn at 1:1 scale since they are already at display size.
+- **Sharp pixel-art previews**: faction and ship preview images are 128×128 pixel art upscaled 1.5× to 192×192 using PIL nearest-neighbor resampling (`PILImage.NEAREST`) before creating `arcade.Texture` objects. The higher-resolution 128px source frames provide 4× more detail than the previous 64px frames at the same display size. The textures are drawn at 1:1 scale since they are already at display size.
+- **In-game sprite**: faction ships are rendered at 0.75× scale (128 × 0.75 = 96 px), maintaining the same gameplay sprite size as before.
 
 ##### Ship Types
 
@@ -131,7 +132,7 @@ Each faction's sprite sheet is 512×512 (8 cols × 8 rows of 64×64 frames). The
 - Sprite: `assets/ShmupAssets_V1/shmup_player.png` — 4 cols × 3 rows sheet (each frame auto-sized)
   - Row 0 only is used for all animation (rows 1–2 show nose/wing weapon effects, reserved for combat)
   - All 4 columns cycle as animation frames when thrusting; col 0 used when idle
-- Scale: 1.5×
+- Scale: 0.75× (for 128×128 faction ships; 1.5× for legacy shmup_player sprite)
 - Physics: Newtonian — acceleration, speed cap (450 px/s), per-frame damping (0.98875)
 - Starts at world centre (3200, 3200)
 - **HP**: 100 max. HP bar in HUD (green → orange → red).

@@ -143,16 +143,16 @@ ASTEROID_RADIUS: float = 26.0
 
 # ── Faction definitions ────────────────────────────────────────────────────
 FACTIONS = {
-    "Earth": "faction_1_ships_64x64.png",
-    "Colonial": "faction_2_ships_64x64.png",
-    "Heavy World": "faction_5_ships_64x64.png",
-    "Ascended": "faction_7_ships_64x64.png",
+    "Earth": "faction_1_ships_128x128.png",
+    "Colonial": "faction_2_ships_128x128.png",
+    "Heavy World": "faction_5_ships_128x128.png",
+    "Ascended": "faction_7_ships_128x128.png",
 }
 
-# Ship type → sprite-sheet row (0-indexed) within each faction sheet (8x8, 64x64 frames)
+# Ship type → sprite-sheet row (0-indexed) within each faction sheet (8x8, 128x128 frames)
 # Row 4 (0-idx 3) = Thunderbolt, Row 5 (0-idx 4) = Striker, Row 6 (0-idx 5) = Aegis,
 # Row 7 (0-idx 6) = Bastion, Row 8 (0-idx 7) = Cruiser
-SHIP_FRAME_SIZE: int = 64
+SHIP_FRAME_SIZE: int = 128
 SHIP_SHEET_COLS: int = 8   # 8 upgrade levels per ship type
 
 SHIP_TYPES = {

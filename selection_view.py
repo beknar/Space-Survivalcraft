@@ -33,7 +33,7 @@ class SelectionView(arcade.View):
         # Pre-load one preview frame per faction (first ship, first col)
         # We'll use the Cruiser row (row 7) col 0 as the faction preview
         # Upscale with nearest-neighbor so pixel art stays crisp at display size
-        self._preview_scale: int = 3   # integer scale for sharp pixels (64 -> 192 px)
+        self._preview_scale: float = 1.5  # scale for sharp pixels (128 -> 192 px)
         self._faction_previews: list[arcade.Texture] = []
         for faction_name, filename in FACTIONS.items():
             path = os.path.join(FACTION_SHIPS_DIR, filename)
@@ -43,7 +43,7 @@ class SelectionView(arcade.View):
             x0 = 0
             y0 = row * SHIP_FRAME_SIZE
             frame = pil_img.crop((x0, y0, x0 + SHIP_FRAME_SIZE, y0 + SHIP_FRAME_SIZE))
-            preview_px = SHIP_FRAME_SIZE * self._preview_scale
+            preview_px = int(SHIP_FRAME_SIZE * self._preview_scale)
             frame = frame.resize((preview_px, preview_px), PILImage.NEAREST)
             self._faction_previews.append(arcade.Texture(frame))
 
@@ -91,7 +91,7 @@ class SelectionView(arcade.View):
         path = os.path.join(FACTION_SHIPS_DIR, filename)
         pil_img = PILImage.open(path).convert("RGBA")
         self._ship_previews = []
-        preview_px = SHIP_FRAME_SIZE * self._preview_scale
+        preview_px = int(SHIP_FRAME_SIZE * self._preview_scale)
         for ship_name in self._ship_names:
             row = SHIP_TYPES[ship_name]["row"]
             x0 = 0
