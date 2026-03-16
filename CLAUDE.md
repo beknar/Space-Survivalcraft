@@ -271,7 +271,7 @@ Two weapons implemented. Active weapon shown in HUD; cycle with Tab / RB.
 
 #### Status panel (HUD)
 
-Live HP bar (green → orange → red as HP falls) with numerical `current / max` value displayed underneath; live shield bar (cyan, shrinks as shields deplete) with numerical `current / max` value displayed underneath; speed readout, heading readout, iron ore count, active weapon name, controls reference, gamepad connection status. **Faction** and **ship type** indicators displayed below the controls section. FPS counter (toggle with F) shown as a smoothed exponential moving average (α = 0.1). **Mini-map** at the bottom of the panel shows the full 6400×6400 world scaled to ~193×193 px: gray dots = asteroids, orange dots = iron pickups, red dots = alien ships, white dot + cyan heading line = player ship.
+Live HP bar (green → orange → red as HP falls) with numerical `current / max` value displayed underneath; live shield bar (cyan, shrinks as shields deplete) with numerical `current / max` value displayed underneath; speed readout, heading readout, iron ore count, active weapon name, controls reference, gamepad connection status. **Faction** and **ship type** indicators displayed below the controls section. **Now Playing** label with current music track name displayed below the faction/ship info. FPS counter (toggle with F) shown as a smoothed exponential moving average (α = 0.1). **Mini-map** at the bottom of the panel shows the full 6400×6400 world scaled to ~193×193 px: gray dots = asteroids, orange dots = iron pickups, red dots = alien ships, white dot + cyan heading line = player ship.
 
 #### Small Alien Ships (`SmallAlienShip`)
 

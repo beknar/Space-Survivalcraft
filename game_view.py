@@ -156,9 +156,10 @@ class GameView(arcade.View):
         )
 
         # Background music — shuffled playlist of loop tracks
-        self._music_tracks: list[arcade.Sound] = collect_music_tracks()
+        self._music_tracks: list[tuple[arcade.Sound, str]] = collect_music_tracks()
         self._music_idx: int = 0
         self._music_player: Optional[arcade.sound.media.Player] = None
+        self._current_track_name: str = ""
         if self._music_tracks:
             self._play_next_track()
 
@@ -167,7 +168,8 @@ class GameView(arcade.View):
         """Start the next track in the shuffled playlist, wrapping around."""
         if not self._music_tracks:
             return
-        track = self._music_tracks[self._music_idx]
+        track, name = self._music_tracks[self._music_idx]
+        self._current_track_name = name
         self._music_player = arcade.play_sound(track, volume=MUSIC_VOLUME)
         self._music_idx = (self._music_idx + 1) % len(self._music_tracks)
 
@@ -417,6 +419,7 @@ class GameView(arcade.View):
                 player_x=self.player.center_x,
                 player_y=self.player.center_y,
                 player_heading=self.player.heading,
+                track_name=self._current_track_name,
             )
             self.inventory.draw()
             self._escape_menu.draw()

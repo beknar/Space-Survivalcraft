@@ -93,6 +93,14 @@ class HUD:
             10, SCREEN_HEIGHT - 456,
             arcade.color.LIGHT_GREEN, 9, bold=True,
         )
+        self._t_music_hdr = arcade.Text(
+            "NOW PLAYING", STATUS_WIDTH // 2, SCREEN_HEIGHT - 476,
+            arcade.color.LIGHT_GRAY, 9, anchor_x="center",
+        )
+        self._t_track_name = arcade.Text(
+            "", STATUS_WIDTH // 2, SCREEN_HEIGHT - 492,
+            arcade.color.KHAKI, 9, bold=True, anchor_x="center",
+        )
 
     def toggle_fps(self) -> None:
         self._show_fps = not self._show_fps
@@ -121,6 +129,7 @@ class HUD:
         player_x: float,
         player_y: float,
         player_heading: float,
+        track_name: str = "",
     ) -> None:
         """Draw the full HUD status panel."""
         # Panel background
@@ -182,6 +191,12 @@ class HUD:
 
         self._t_faction.draw()
         self._t_ship_type.draw()
+
+        # Now-playing track name
+        if track_name:
+            self._t_music_hdr.draw()
+            self._t_track_name.text = track_name
+            self._t_track_name.draw()
 
         self._draw_minimap(
             asteroid_list, iron_pickup_list, alien_list,

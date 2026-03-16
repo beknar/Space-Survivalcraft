@@ -119,8 +119,26 @@ def load_iron_texture() -> arcade.Texture:
     return arcade.load_texture(IRON_ICON_PNG)
 
 
-def collect_music_tracks() -> list[arcade.Sound]:
-    """Scan both music packs for loop files, shuffle, and return as arcade.Sound list."""
+def _track_name_from_path(path: str) -> str:
+    """Extract a human-readable track name from a music file path.
+
+    Vol 1 files: 'Antimatter Fountain [Action Loop].wav' → 'Antimatter Fountain [Action]'
+    Vol 2 files: 'Comet Tail_loop.wav' → 'Comet Tail'
+    """
+    name = os.path.splitext(os.path.basename(path))[0]  # strip .wav
+    # Vol 2: strip '_loop' or '_short_loop' suffix
+    if name.endswith("_loop"):
+        name = name[:-5]
+    if name.endswith("_short"):
+        name = name[:-6]
+    # Vol 1: strip ' Loop]' suffix but keep the category tag
+    if name.endswith(" Loop]"):
+        name = name[:-6] + "]"  # 'Foo [Action Loop]' → 'Foo [Action]'
+    return name.strip()
+
+
+def collect_music_tracks() -> list[tuple[arcade.Sound, str]]:
+    """Scan both music packs for loop files, shuffle, and return as (Sound, name) pairs."""
     paths: list[str] = []
     # Vol 1: flat directory — files ending with "Loop].wav"
     for f in _glob.glob(os.path.join(MUSIC_VOL1_DIR, "*Loop].wav")):
@@ -129,7 +147,7 @@ def collect_music_tracks() -> list[arcade.Sound]:
     for f in _glob.glob(os.path.join(MUSIC_VOL2_DIR, "*", "*_loop.wav")):
         paths.append(f)
     random.shuffle(paths)
-    return [arcade.load_sound(p) for p in paths]
+    return [(arcade.load_sound(p), _track_name_from_path(p)) for p in paths]
 
 
 def populate_asteroids() -> arcade.SpriteList:
