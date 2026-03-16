@@ -89,7 +89,7 @@ Each faction's sprite sheet is 512×512 (8 cols × 8 rows of 64×64 frames). The
 - The Thunderbolt has 2 guns, so it starts with 2× Basic Laser and 2× Mining Beam.
 - Ship stats (HP, shields, regen, physics) are driven by the `SHIP_TYPES` dict in `constants.py` and applied at `PlayerShip.__init__()`.
 - Controls: LEFT/RIGHT (or A/D) to browse, ENTER/SPACE to confirm, ESC to go back.
-- **UI sounds**: switching between factions/ships plays `Sci-Fi Hi-Tech Interface Button Sound 1.wav` (volume 0.5, short beep); confirming a selection plays `Sci-Fi Hi-Tech Interface Button Sound 3.wav` (volume 0.6, distinct beep). Both loaded from `SFX_INTERFACE_DIR`.
+- **UI sounds**: switching between factions/ships plays `Sci-Fi Interface Simple Notification 1.wav` (volume 0.5, clean ping); confirming a selection plays `Sci-Fi Interface Simple Notification 2.wav` (volume 0.6, different ping). Both loaded from `SFX_INTERFACE_DIR` (points to `Interface/Other Interface/`).
 - After confirming faction + ship type, `SelectionView` transitions to `GameView(faction, ship_type)`.
 
 #### Window layout
@@ -172,18 +172,30 @@ Rotation speed: 150 °/s. Thrust: 250 px/s². Gamepad dead zone: 0.15.
 - Toggled with ESC key. If inventory is open, ESC closes inventory first; second ESC opens the menu.
 - Semi-transparent dark overlay + centred panel (320×340 px) with 5 clickable buttons:
   1. **Resume** — closes the menu and returns to gameplay
-  2. **Save Game** — serializes full game state to `savegame.json` in the project root
-  3. **Load Game** — reads `savegame.json` and reconstructs the GameView with saved state
+  2. **Save Game** — opens 10-slot save sub-menu
+  3. **Load Game** — opens 10-slot load sub-menu
   4. **Main Menu** — returns to the faction/ship selection screen (`SelectionView`)
   5. **Exit Game** — quits the application
 - **Pauses gameplay** while open (`on_update` returns early); all physics, AI, and combat frozen.
 - Button hover highlighting (cyan outline + brighter background on mouseover).
 - Click sound: `Sci-Fi Spaceship Interface Mechanical Switch 1.wav`.
-- Status feedback messages ("Game saved!", "Game loaded!", "No save file found!") displayed at the bottom of the menu panel for 2 seconds.
+- Status feedback messages ("Saved: <name>", "Loaded: <name>", "No save file found!") displayed at the bottom of the menu panel for 2 seconds.
+- **4 internal modes**: `MODE_MAIN` (5 buttons), `MODE_SAVE` (10 slots + Back), `MODE_LOAD` (10 slots + Back), `MODE_NAMING` (text input overlay for naming saves).
+- ESC in sub-menus returns to main menu; ESC in main menu closes the overlay.
+- Key events (`on_key_press`, `on_text`) forwarded from `GameView` when menu is open, enabling text input for save naming.
+
+##### Save Slots
+
+- **10 save slots**, stored as `saves/save_slot_01.json` through `saves/save_slot_10.json` in a `saves/` subdirectory (gitignored).
+- Each slot displays: `"Slot N: <name>"` or `"Slot N: — Empty —"`.
+- **Saving**: clicking a slot in save mode opens a naming overlay. Player types a name (max 24 chars), presses Enter to confirm. Existing slot names are pre-filled for overwriting. Blinking cursor at 0.5 s interval.
+- **Loading**: clicking an occupied slot in load mode immediately loads the game state. Empty slots are visually dimmed and non-clickable.
+- Slot metadata is refreshed from disk each time the save/load sub-menu is opened (`_refresh_slots()`).
 
 ##### Save File Format
 
-Single-slot save as `savegame.json` (JSON). Contains:
+Named-slot saves as JSON in `saves/` directory. Each file contains:
+- Save name (player-chosen label)
 - Faction and ship type selection
 - Player state: position, heading, velocity, HP, shields, shield accumulator
 - Active weapon index

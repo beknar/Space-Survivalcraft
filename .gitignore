@@ -8,3 +8,5 @@ assets/
 build/
 dist/
 *.spec
+saves/
+savegame.json

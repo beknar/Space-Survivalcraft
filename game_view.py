@@ -43,8 +43,7 @@ from collisions import (
     handle_alien_laser_hits,
 )
 
-_SAVE_DIR = os.path.dirname(os.path.abspath(__file__))
-_SAVE_PATH = os.path.join(_SAVE_DIR, "savegame.json")
+_SAVE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "saves")
 
 
 class GameView(arcade.View):
@@ -148,6 +147,7 @@ class GameView(arcade.View):
             save_fn=self._save_game,
             load_fn=self._load_game,
             main_menu_fn=self._return_to_menu,
+            save_dir=_SAVE_DIR,
         )
 
     # ── Helpers ──────────────────────────────────────────────────────────────
@@ -195,9 +195,12 @@ class GameView(arcade.View):
         self._shake_amp = SHAKE_AMPLITUDE
 
     # ── Save / Load / Menu ─────────────────────────────────────────────────
-    def _save_game(self) -> None:
-        """Serialize current game state to savegame.json."""
+    def _save_game(self, slot: int, name: str) -> None:
+        """Serialize current game state to a numbered save slot."""
+        os.makedirs(_SAVE_DIR, exist_ok=True)
+        path = os.path.join(_SAVE_DIR, f"save_slot_{slot + 1:02d}.json")
         data: dict = {
+            "save_name": name,
             "faction": self._faction,
             "ship_type": self._ship_type,
             "player": {
@@ -243,15 +246,16 @@ class GameView(arcade.View):
                 for p in self.iron_pickup_list
             ],
         }
-        with open(_SAVE_PATH, "w") as f:
+        with open(path, "w") as f:
             json.dump(data, f, indent=2)
 
-    def _load_game(self) -> None:
-        """Load game state from savegame.json and rebuild the view."""
-        if not os.path.exists(_SAVE_PATH):
+    def _load_game(self, slot: int) -> None:
+        """Load game state from a numbered save slot and rebuild the view."""
+        path = os.path.join(_SAVE_DIR, f"save_slot_{slot + 1:02d}.json")
+        if not os.path.exists(path):
             self._escape_menu._flash_status("No save file found!")
             return
-        with open(_SAVE_PATH, "r") as f:
+        with open(path, "r") as f:
             data = json.load(f)
 
         # Stop thruster sound before rebuilding
@@ -576,14 +580,17 @@ class GameView(arcade.View):
     # ── Input ────────────────────────────────────────────────────────────────
     def on_key_press(self, key: int, modifiers: int) -> None:
         if key == arcade.key.ESCAPE:
-            # Close inventory first if open; otherwise toggle escape menu
-            if self.inventory.open:
+            if self._escape_menu.open:
+                # Let menu handle ESC (go back from sub-mode, or close)
+                self._escape_menu.on_key_press(key, modifiers)
+            elif self.inventory.open:
                 self.inventory.toggle()
             else:
                 self._escape_menu.toggle()
             return
         if self._escape_menu.open:
-            return  # Block all other keys while menu is up
+            self._escape_menu.on_key_press(key, modifiers)
+            return
         self._keys.add(key)
         if key == arcade.key.TAB:
             self._cycle_weapon()
@@ -633,3 +640,7 @@ class GameView(arcade.View):
             self._escape_menu.on_mouse_motion(x, y)
         else:
             self.inventory.on_mouse_move(x, y)
+
+    def on_text(self, text: str) -> None:
+        if self._escape_menu.open:
+            self._escape_menu.on_text(text)

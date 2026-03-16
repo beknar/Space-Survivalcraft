@@ -55,7 +55,7 @@ SFX_VEHICLES_DIR = os.path.join(
 )
 SFX_INTERFACE_DIR = os.path.join(
     _HERE, "assets", "Sci Fi Sound Effects Bundle",
-    "Stormwave Audio Sci-Fi Sound Effects Bundle", "Interface", "Hi-Tech Interface",
+    "Stormwave Audio Sci-Fi Sound Effects Bundle", "Interface", "Other Interface",
 )
 ASTEROID_PNG = os.path.join(_HERE, "assets", "Pixel Art Space", "Asteroid.png")
 ALIEN_SHIP_PNG = os.path.join(
@@ -218,3 +218,11 @@ MENU_H: int = 340
 MENU_BTN_W: int = 240
 MENU_BTN_H: int = 40
 MENU_BTN_GAP: int = 16
+
+# ── Save/Load slot sub-menu constants ─────────────────────────────────────
+SAVE_SLOT_COUNT: int = 10
+SAVE_MENU_W: int = 380
+SAVE_MENU_H: int = 490
+SAVE_SLOT_W: int = 340
+SAVE_SLOT_H: int = 30
+SAVE_SLOT_GAP: int = 6
