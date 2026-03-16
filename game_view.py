@@ -584,7 +584,7 @@ class GameView(arcade.View):
         thrusting_now = tf or tb
         if thrusting_now and not self._thrusting_last:
             self._thruster_player = arcade.play_sound(
-                self._thruster_snd, volume=0.25, looping=True
+                self._thruster_snd, volume=0.25, loop=True
             )
         elif not thrusting_now and self._thrusting_last:
             if self._thruster_player is not None:
