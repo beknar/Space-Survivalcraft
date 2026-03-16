@@ -49,7 +49,7 @@ class SelectionView(arcade.View):
         # UI sounds
         self._switch_snd = arcade.load_sound(
             os.path.join(SFX_VEHICLES_DIR,
-                         "Sci-Fi Spaceship Interface Digital Button 1.wav")
+                         "Sci-Fi Spaceship Interface Digital Notification 1.wav")
         )
         self._confirm_snd = arcade.load_sound(
             os.path.join(SFX_VEHICLES_DIR,

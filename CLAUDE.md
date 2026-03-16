@@ -32,7 +32,10 @@ Space Survivalcraft/
 ├── main.py              # Entry point only — creates window, starts SelectionView
 ├── constants.py         # All game constants (window, physics, assets, factions, ship types)
 ├── selection_view.py    # SelectionView — faction + ship type choice screen
-├── game_view.py         # GameView (arcade.View) — core gameplay loop, drawing, input, collisions
+├── game_view.py         # GameView (arcade.View) — core gameplay loop, drawing, input
+├── hud.py               # HUD class — status panel, mini-map, faction/ship labels
+├── collisions.py        # Collision handling — ship/asteroid/alien/projectile interactions
+├── world_setup.py       # World population — asset loading, asteroid/alien spawning
 ├── inventory.py         # Inventory class — 5×5 cargo hold UI overlay
 ├── sprites/             # Sprite and game-object classes
 │   ├── __init__.py      # Re-exports all sprite classes
@@ -42,7 +45,8 @@ Space Survivalcraft/
 │   ├── pickup.py        # IronPickup — collectible ore token
 │   ├── asteroid.py      # IronAsteroid — minable rock with shake effect
 │   ├── alien.py         # SmallAlienShip — scout enemy AI
-│   └── player.py        # PlayerShip — Newtonian ship with faction/ship config
+│   ├── player.py        # PlayerShip — Newtonian ship with faction/ship config
+│   └── contrail.py      # ContrailParticle — engine exhaust particle effect
 ├── assets/              # Art, sound, music (gitignored)
 ├── dist/                # PyInstaller build output
 ├── venv/                # Python virtual environment (gitignored)
@@ -77,14 +81,14 @@ Each faction's sprite sheet is 512×512 (8 cols × 8 rows of 64×64 frames). The
 | Cruiser | 8 | 100 | 100 | 0.5 pt/s | 150 °/s | 250 px/s² | 125 px/s² | 450 px/s | 0.98875× | 1 |
 | Bastion | 7 | 150 | 50 | 0.5 pt/s | 150 °/s | 200 px/s² | 125 px/s² | 450 px/s | 0.98875× | 1 |
 | Aegis | 6 | 50 | 150 | 1.0 pt/s | 100 °/s | 250 px/s² | 125 px/s² | 450 px/s | 0.98875× | 1 |
-| Striker | 5 | 100 | 50 | 0.5 pt/s | 150 °/s | 300 px/s² | 100 px/s² | 450 px/s | 0.49437× | 1 |
+| Striker | 5 | 100 | 50 | 0.5 pt/s | 150 °/s | 300 px/s² | 100 px/s² | 450 px/s | 0.98875× | 1 |
 | Thunderbolt | 4 | 100 | 100 | 0.5 pt/s | 150 °/s | 200 px/s² | 125 px/s² | 400 px/s | 0.98875× | 2 |
 
 - All ships start with the same weapons: Basic Laser + Mining Beam.
 - The Thunderbolt has 2 guns, so it starts with 2× Basic Laser and 2× Mining Beam.
 - Ship stats (HP, shields, regen, physics) are driven by the `SHIP_TYPES` dict in `constants.py` and applied at `PlayerShip.__init__()`.
 - Controls: LEFT/RIGHT (or A/D) to browse, ENTER/SPACE to confirm, ESC to go back.
-- **UI sounds**: switching between factions/ships plays `Sci-Fi Spaceship Interface Digital Button 1.wav` (volume 0.5); confirming a selection plays `Sci-Fi Spaceship Interface Mechanical Switch 1.wav` (volume 0.6). Both loaded from `SFX_VEHICLES_DIR`.
+- **UI sounds**: switching between factions/ships plays `Sci-Fi Spaceship Interface Digital Notification 1.wav` (volume 0.5, higher pitched); confirming a selection plays `Sci-Fi Spaceship Interface Mechanical Switch 1.wav` (volume 0.6). Both loaded from `SFX_VEHICLES_DIR`.
 - After confirming faction + ship type, `SelectionView` transitions to `GameView(faction, ship_type)`.
 
 #### Window layout
@@ -137,7 +141,7 @@ Each faction's sprite sheet is 512×512 (8 cols × 8 rows of 64×64 frames). The
   - Normal state: `color = (255, 255, 255, 200)` — slightly transparent so the ship beneath shows through.
   - Hit flash: `ShieldSprite.hit_flash()` called from `_apply_damage_to_player()` whenever the shield absorbs damage. Alpha pulses from 255 → 200 over 0.25 s as the flash fades.
   - Depleted state: `color = (255, 255, 255, 0)` — fully invisible when `shields == 0`; reappears automatically when regen brings shields back above 0.
-- **Thruster sound**: `Sci-Fi Spaceship Thrusters 1.wav` from `SFX_VEHICLES_DIR`. Plays in a loop (volume 0.25) while the player is thrusting forward or braking; stops when input ceases. Managed by `_thruster_player` and `_thrusting_last` state in `GameView`.
+- **Thruster sound**: `Sci-Fi Spaceship Engine Loop 1.wav` from `SFX_VEHICLES_DIR`. Plays in a seamless loop (volume 0.25) while the player is thrusting forward or braking; stops when input ceases. Uses a pre-designed looping asset to avoid audible gaps. Managed by `_thruster_player` and `_thrusting_last` state in `GameView`.
 - **Engine contrail**: per-ship-type coloured particle trail emitted from the ship's exhaust point (30 px behind centre along heading). Particles spawn at `CONTRAIL_SPAWN_RATE` (30/s, max 20 particles) scaled by `thrust_intensity` (0..1). Each particle fades from start colour to end colour and shrinks from `CONTRAIL_START_SIZE × intensity` to `CONTRAIL_END_SIZE` over `CONTRAIL_LIFETIME` (0.5 s). Contrail colours per ship type defined in `CONTRAIL_COLOURS` dict in `constants.py`:
   - Cruiser: blue `(100, 180, 255)` → `(20, 40, 120)`
   - Bastion: orange `(255, 200, 80)` → `(120, 60, 10)`

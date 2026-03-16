@@ -152,7 +152,7 @@ SHIP_TYPES = {
                     "max_speed": 450.0, "damping": 0.98875, "guns": 1},
     "Striker":     {"row": 4, "hp": 100, "shields":  50, "shield_regen": 0.5,
                     "rot_speed": 150.0, "thrust": 300.0, "brake": 100.0,
-                    "max_speed": 450.0, "damping": 0.49437, "guns": 1},
+                    "max_speed": 450.0, "damping": 0.98875, "guns": 1},
     "Thunderbolt": {"row": 3, "hp": 100, "shields": 100, "shield_regen": 0.5,
                     "rot_speed": 150.0, "thrust": 200.0, "brake": 125.0,
                     "max_speed": 400.0, "damping": 0.98875, "guns": 2},
