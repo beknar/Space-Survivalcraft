@@ -167,6 +167,8 @@ Each faction's sprite sheet is 512×512 (8 cols × 8 rows of 64×64 frames). The
 
 Rotation speed: 150 °/s. Thrust: 250 px/s². Gamepad dead zone: 0.15.
 
+- **Gamepad lifecycle**: `pyglet.input.get_controllers()` returns the same controller object across View transitions. `joystick.open()` is wrapped in a `try/except DeviceOpenException` to handle the case where the device is already open from a previous `GameView` instance (e.g. after loading a save or returning from the selection screen).
+
 #### Escape Menu
 
 - Toggled with ESC key. If inventory is open, ESC closes inventory first; second ESC opens the menu.
@@ -230,6 +232,7 @@ Two weapons implemented. Active weapon shown in HUD; cycle with Tab / RB.
 - **World ejection**: dropping an item *outside the inventory panel entirely* spawns it as a pickup in the game world `EJECT_DIST` (60 px) from the ship's hull edge (= `SHIP_RADIUS + EJECT_DIST` = 88 px from ship centre), in a random direction. This places it safely outside the 40 px edge auto-pickup zone so the ship does not immediately re-collect it. After 600 seconds (10 minutes) the item despawns silently. Iron is ejected with its full stack count preserved. `_cell_at()` performs explicit pixel-bounds checking before the division to guard against Python's `int()` truncating negative offsets toward zero, which would otherwise misidentify out-of-bounds drops as valid grid cells and prevent ejection.
 - **Hover tooltip**: hovering the cursor over any occupied cell shows a small tooltip box with the item's full type name (e.g. "Iron ×30"). Tooltip appears above the cell and stays on screen.
 - **Performance**: all text rendering uses pre-built `arcade.Text` objects (`_t_title`, `_t_hint`, `_t_iron`, `_t_item_label`, `_t_drag_label`, `_t_tooltip`) rather than `arcade.draw_text()` to avoid the `PerformanceWarning`. Their `.text`, `.x`, `.y` properties are updated each frame before `.draw()` is called.
+- **Draw order**: hint text (`_t_hint`) is drawn *after* the grid cell loop so cells do not occlude the instruction text below them. The floating drag icon is drawn last so it appears on top of everything.
 
 #### Iron Asteroids
 

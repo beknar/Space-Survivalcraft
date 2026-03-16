@@ -234,7 +234,6 @@ class Inventory:
         )
 
         self._t_title.draw()
-        self._t_hint.draw()
 
         # Determine which cell the cursor is hovering over (for highlight)
         hover_cell = self._cell_at(self._drag_x, self._drag_y) if self._drag_type else None
@@ -280,6 +279,9 @@ class Inventory:
                         self._t_item_label.x = cx_ + 4
                         self._t_item_label.y = cy_ + INV_CELL // 2 - 5
                         self._t_item_label.draw()
+
+        # Hint text (drawn after grid so cells don't occlude it)
+        self._t_hint.draw()
 
         # Floating icon under cursor during drag
         if self._drag_type is not None:

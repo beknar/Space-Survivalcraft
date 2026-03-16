@@ -93,7 +93,10 @@ class GameView(arcade.View):
         controllers = pyglet.input.get_controllers()
         if controllers:
             self.joystick = controllers[0]
-            self.joystick.open()
+            try:
+                self.joystick.open()
+            except pyglet.input.DeviceOpenException:
+                pass  # already open from a previous View
             print(f"Gamepad connected: {self.joystick.name}")
 
         # Weapons
