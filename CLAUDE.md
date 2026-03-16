@@ -36,6 +36,7 @@ Space Survivalcraft/
 ├── hud.py               # HUD class — status panel, mini-map, faction/ship labels
 ├── collisions.py        # Collision handling — ship/asteroid/alien/projectile interactions
 ├── world_setup.py       # World population — asset loading, asteroid/alien spawning
+├── escape_menu.py       # EscapeMenu class — pause menu overlay (save/load/quit)
 ├── inventory.py         # Inventory class — 5×5 cargo hold UI overlay
 ├── sprites/             # Sprite and game-object classes
 │   ├── __init__.py      # Re-exports all sprite classes
@@ -162,9 +163,34 @@ Each faction's sprite sheet is 512×512 (8 cols × 8 rows of 64×64 frames). The
 | Cycle weapon | Tab | Right bumper (RB) |
 | Open/close inventory | I | Y button |
 | Toggle FPS display | F | — |
-| Quit | Escape | — |
+| Escape menu | Escape | — |
 
 Rotation speed: 150 °/s. Thrust: 250 px/s². Gamepad dead zone: 0.15.
+
+#### Escape Menu
+
+- Toggled with ESC key. If inventory is open, ESC closes inventory first; second ESC opens the menu.
+- Semi-transparent dark overlay + centred panel (320×340 px) with 5 clickable buttons:
+  1. **Resume** — closes the menu and returns to gameplay
+  2. **Save Game** — serializes full game state to `savegame.json` in the project root
+  3. **Load Game** — reads `savegame.json` and reconstructs the GameView with saved state
+  4. **Main Menu** — returns to the faction/ship selection screen (`SelectionView`)
+  5. **Exit Game** — quits the application
+- **Pauses gameplay** while open (`on_update` returns early); all physics, AI, and combat frozen.
+- Button hover highlighting (cyan outline + brighter background on mouseover).
+- Click sound: `Sci-Fi Spaceship Interface Mechanical Switch 1.wav`.
+- Status feedback messages ("Game saved!", "Game loaded!", "No save file found!") displayed at the bottom of the menu panel for 2 seconds.
+
+##### Save File Format
+
+Single-slot save as `savegame.json` (JSON). Contains:
+- Faction and ship type selection
+- Player state: position, heading, velocity, HP, shields, shield accumulator
+- Active weapon index
+- Inventory iron count
+- All surviving asteroids: position, HP
+- All surviving aliens: position, HP, velocity, heading, AI state, home position
+- All iron pickups on the ground: position, amount
 
 #### Weapons
 

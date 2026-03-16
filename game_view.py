@@ -1,6 +1,7 @@
 """GameView -- core gameplay view for Space Survivalcraft."""
 from __future__ import annotations
 
+import json
 import math
 import os
 import random
@@ -27,6 +28,7 @@ from sprites.player import PlayerShip
 from sprites.contrail import ContrailParticle
 from inventory import Inventory
 from hud import HUD
+from escape_menu import EscapeMenu
 from world_setup import (
     load_bg_texture, load_shield, load_weapons,
     load_explosion_assets, load_bump_sound, load_thruster_sound,
@@ -40,6 +42,9 @@ from collisions import (
     handle_alien_alien_collision,
     handle_alien_laser_hits,
 )
+
+_SAVE_DIR = os.path.dirname(os.path.abspath(__file__))
+_SAVE_PATH = os.path.join(_SAVE_DIR, "savegame.json")
 
 
 class GameView(arcade.View):
@@ -138,6 +143,13 @@ class GameView(arcade.View):
         self._contrail_start_colour: tuple[int, int, int] = colours[0]
         self._contrail_end_colour: tuple[int, int, int] = colours[1]
 
+        # Escape menu
+        self._escape_menu = EscapeMenu(
+            save_fn=self._save_game,
+            load_fn=self._load_game,
+            main_menu_fn=self._return_to_menu,
+        )
+
     # ── Helpers ──────────────────────────────────────────────────────────────
     @property
     def _active_weapon(self) -> Weapon:
@@ -181,6 +193,145 @@ class GameView(arcade.View):
         if amount > 0:
             self.player.hp = max(0, self.player.hp - amount)
         self._shake_amp = SHAKE_AMPLITUDE
+
+    # ── Save / Load / Menu ─────────────────────────────────────────────────
+    def _save_game(self) -> None:
+        """Serialize current game state to savegame.json."""
+        data: dict = {
+            "faction": self._faction,
+            "ship_type": self._ship_type,
+            "player": {
+                "x": self.player.center_x,
+                "y": self.player.center_y,
+                "heading": self.player.heading,
+                "vel_x": self.player.vel_x,
+                "vel_y": self.player.vel_y,
+                "hp": self.player.hp,
+                "shields": self.player.shields,
+                "shield_acc": self.player._shield_acc,
+            },
+            "weapon_idx": self._weapon_idx,
+            "iron": self.inventory.iron,
+            "asteroids": [
+                {
+                    "x": a.center_x,
+                    "y": a.center_y,
+                    "hp": a.hp,
+                }
+                for a in self.asteroid_list
+            ],
+            "aliens": [
+                {
+                    "x": al.center_x,
+                    "y": al.center_y,
+                    "hp": al.hp,
+                    "vel_x": al.vel_x,
+                    "vel_y": al.vel_y,
+                    "heading": al._heading,
+                    "state": al._state,
+                    "home_x": al._home_x,
+                    "home_y": al._home_y,
+                }
+                for al in self.alien_list
+            ],
+            "pickups": [
+                {
+                    "x": p.center_x,
+                    "y": p.center_y,
+                    "amount": p.amount,
+                }
+                for p in self.iron_pickup_list
+            ],
+        }
+        with open(_SAVE_PATH, "w") as f:
+            json.dump(data, f, indent=2)
+
+    def _load_game(self) -> None:
+        """Load game state from savegame.json and rebuild the view."""
+        if not os.path.exists(_SAVE_PATH):
+            self._escape_menu._flash_status("No save file found!")
+            return
+        with open(_SAVE_PATH, "r") as f:
+            data = json.load(f)
+
+        # Stop thruster sound before rebuilding
+        if self._thruster_player is not None:
+            arcade.stop_sound(self._thruster_player)
+            self._thruster_player = None
+
+        # Build a new GameView from saved faction/ship
+        view = GameView(
+            faction=data.get("faction"),
+            ship_type=data.get("ship_type"),
+        )
+
+        # Restore player state
+        p = data["player"]
+        view.player.center_x = p["x"]
+        view.player.center_y = p["y"]
+        view.player.heading = p["heading"]
+        view.player.angle = p["heading"]
+        view.player.vel_x = p["vel_x"]
+        view.player.vel_y = p["vel_y"]
+        view.player.hp = p["hp"]
+        view.player.shields = p["shields"]
+        view.player._shield_acc = p.get("shield_acc", 0.0)
+
+        # Restore weapon index
+        view._weapon_idx = data.get("weapon_idx", 0)
+
+        # Restore inventory
+        view.inventory.iron = data.get("iron", 0)
+
+        # Restore asteroids — clear default spawn, rebuild from save
+        view.asteroid_list.clear()
+        from sprites.asteroid import IronAsteroid
+        asteroid_tex = arcade.load_texture(
+            os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                         "assets", "Pixel Art Space", "Asteroid.png")
+        )
+        for ad in data.get("asteroids", []):
+            a = IronAsteroid(asteroid_tex, ad["x"], ad["y"])
+            a.hp = ad["hp"]
+            view.asteroid_list.append(a)
+
+        # Restore aliens — clear default spawn, rebuild from save
+        view.alien_list.clear()
+        from PIL import Image as PILImage
+        from constants import ALIEN_SHIP_PNG, ALIEN_FX_PNG
+        _pil_ship = PILImage.open(ALIEN_SHIP_PNG).convert("RGBA")
+        alien_ship_tex = arcade.Texture(_pil_ship.crop((364, 305, 825, 815)))
+        _pil_fx = PILImage.open(ALIEN_FX_PNG).convert("RGBA")
+        _pil_laser = _pil_fx.crop((4299, 82, 4359, 310))
+        alien_laser_tex = arcade.Texture(_pil_laser.rotate(90, expand=True))
+        from sprites.alien import SmallAlienShip
+        for ald in data.get("aliens", []):
+            al = SmallAlienShip(alien_ship_tex, alien_laser_tex, ald["x"], ald["y"])
+            al.hp = ald["hp"]
+            al.vel_x = ald.get("vel_x", 0.0)
+            al.vel_y = ald.get("vel_y", 0.0)
+            al._heading = ald.get("heading", 0.0)
+            al.angle = al._heading
+            al._state = ald.get("state", 0)
+            al._home_x = ald.get("home_x", ald["x"])
+            al._home_y = ald.get("home_y", ald["y"])
+            view.alien_list.append(al)
+
+        # Restore iron pickups
+        view.iron_pickup_list.clear()
+        for pd in data.get("pickups", []):
+            view._spawn_iron_pickup(pd["x"], pd["y"], amount=pd.get("amount", 10))
+
+        self.window.show_view(view)
+
+    def _return_to_menu(self) -> None:
+        """Return to the faction/ship selection screen."""
+        # Stop thruster sound
+        if self._thruster_player is not None:
+            arcade.stop_sound(self._thruster_player)
+            self._thruster_player = None
+        from selection_view import SelectionView
+        self.window.show_view(SelectionView())
 
     # ── Drawing ──────────────────────────────────────────────────────────────
     def on_draw(self) -> None:
@@ -235,6 +386,7 @@ class GameView(arcade.View):
                 player_heading=self.player.heading,
             )
             self.inventory.draw()
+            self._escape_menu.draw()
 
     def _draw_background(
         self, cx: float, cy: float, hw: float, hh: float
@@ -258,6 +410,11 @@ class GameView(arcade.View):
     def on_update(self, delta_time: float) -> None:
         # ── Smoothed FPS ────────────────────────────────────────────────────
         self._hud.update_fps(delta_time)
+
+        # ── Escape menu tick ──────────────────────────────────────────────
+        self._escape_menu.update(delta_time)
+        if self._escape_menu.open:
+            return  # Pause all gameplay while menu is open
 
         # ── Shake timer tick ────────────────────────────────────────────────
         if self._shake_timer > 0.0:
@@ -418,10 +575,17 @@ class GameView(arcade.View):
 
     # ── Input ────────────────────────────────────────────────────────────────
     def on_key_press(self, key: int, modifiers: int) -> None:
-        self._keys.add(key)
         if key == arcade.key.ESCAPE:
-            arcade.exit()
-        elif key == arcade.key.TAB:
+            # Close inventory first if open; otherwise toggle escape menu
+            if self.inventory.open:
+                self.inventory.toggle()
+            else:
+                self._escape_menu.toggle()
+            return
+        if self._escape_menu.open:
+            return  # Block all other keys while menu is up
+        self._keys.add(key)
+        if key == arcade.key.TAB:
             self._cycle_weapon()
         elif key == arcade.key.I:
             self.inventory.toggle()
@@ -433,14 +597,20 @@ class GameView(arcade.View):
 
     def on_mouse_press(self, x: int, y: int, button: int, modifiers: int) -> None:
         if button == arcade.MOUSE_BUTTON_LEFT:
-            self.inventory.on_mouse_press(x, y)
+            if self._escape_menu.open:
+                self._escape_menu.on_mouse_press(x, y)
+            else:
+                self.inventory.on_mouse_press(x, y)
 
     def on_mouse_drag(
         self, x: int, y: int, dx: int, dy: int, buttons: int, modifiers: int
     ) -> None:
-        self.inventory.on_mouse_drag(x, y)
+        if not self._escape_menu.open:
+            self.inventory.on_mouse_drag(x, y)
 
     def on_mouse_release(self, x: int, y: int, button: int, modifiers: int) -> None:
+        if self._escape_menu.open:
+            return
         if button == arcade.MOUSE_BUTTON_LEFT:
             ejected = self.inventory.on_mouse_release(x, y)
             if ejected is not None:
@@ -459,4 +629,7 @@ class GameView(arcade.View):
                     )
 
     def on_mouse_motion(self, x: int, y: int, dx: int, dy: int) -> None:
-        self.inventory.on_mouse_move(x, y)
+        if self._escape_menu.open:
+            self._escape_menu.on_mouse_motion(x, y)
+        else:
+            self.inventory.on_mouse_move(x, y)

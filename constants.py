@@ -207,3 +207,10 @@ MINIMAP_W: int = STATUS_WIDTH - 2 * MINIMAP_PAD   # 193 px wide
 MINIMAP_H: int = MINIMAP_W                         # square
 MINIMAP_X: int = MINIMAP_PAD
 MINIMAP_Y: int = MINIMAP_PAD + 16                  # 26 px from bottom; label sits below
+
+# ── Escape menu constants ─────────────────────────────────────────────────
+MENU_W: int = 320
+MENU_H: int = 340
+MENU_BTN_W: int = 240
+MENU_BTN_H: int = 40
+MENU_BTN_GAP: int = 16
