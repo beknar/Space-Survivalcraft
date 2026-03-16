@@ -89,7 +89,7 @@ Each faction's sprite sheet is 512×512 (8 cols × 8 rows of 64×64 frames). The
 - The Thunderbolt has 2 guns, so it starts with 2× Basic Laser and 2× Mining Beam.
 - Ship stats (HP, shields, regen, physics) are driven by the `SHIP_TYPES` dict in `constants.py` and applied at `PlayerShip.__init__()`.
 - Controls: LEFT/RIGHT (or A/D) to browse, ENTER/SPACE to confirm, ESC to go back.
-- **UI sounds**: switching between factions/ships plays `Sci-Fi Spaceship Interface Digital Notification 1.wav` (volume 0.5, higher pitched); confirming a selection plays `Sci-Fi Spaceship Interface Mechanical Switch 1.wav` (volume 0.6). Both loaded from `SFX_VEHICLES_DIR`.
+- **UI sounds**: switching between factions/ships plays `Sci-Fi Hi-Tech Interface Button Sound 1.wav` (volume 0.5, short beep); confirming a selection plays `Sci-Fi Hi-Tech Interface Button Sound 3.wav` (volume 0.6, distinct beep). Both loaded from `SFX_INTERFACE_DIR`.
 - After confirming faction + ship type, `SelectionView` transitions to `GameView(faction, ship_type)`.
 
 #### Window layout

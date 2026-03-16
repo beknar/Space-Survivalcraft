@@ -10,7 +10,7 @@ from constants import (
     SCREEN_WIDTH, SCREEN_HEIGHT,
     FACTION_SHIPS_DIR, FACTIONS, SHIP_TYPES,
     SHIP_FRAME_SIZE, SHIP_SHEET_COLS,
-    SFX_VEHICLES_DIR,
+    SFX_INTERFACE_DIR, SFX_VEHICLES_DIR,
 )
 
 
@@ -46,14 +46,14 @@ class SelectionView(arcade.View):
         # Ship previews will be loaded once a faction is chosen
         self._ship_previews: list[arcade.Texture] = []
 
-        # UI sounds
+        # UI sounds — short beep for navigation, slightly different beep for confirm
         self._switch_snd = arcade.load_sound(
-            os.path.join(SFX_VEHICLES_DIR,
-                         "Sci-Fi Spaceship Interface Digital Notification 1.wav")
+            os.path.join(SFX_INTERFACE_DIR,
+                         "Sci-Fi Hi-Tech Interface Button Sound 1.wav")
         )
         self._confirm_snd = arcade.load_sound(
-            os.path.join(SFX_VEHICLES_DIR,
-                         "Sci-Fi Spaceship Interface Mechanical Switch 1.wav")
+            os.path.join(SFX_INTERFACE_DIR,
+                         "Sci-Fi Hi-Tech Interface Button Sound 3.wav")
         )
 
         # Pre-built text objects
