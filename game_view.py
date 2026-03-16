@@ -18,7 +18,6 @@ from constants import (
     SHIP_RADIUS, ASTEROID_RADIUS, ALIEN_RADIUS,
     SHIP_COLLISION_DAMAGE, SHIP_COLLISION_COOLDOWN, SHIP_BOUNCE,
     SHAKE_DURATION, SHAKE_AMPLITUDE,
-    SHIELD_REGEN_RATE,
     ASTEROID_COUNT, ASTEROID_MIN_DIST, ASTEROID_IRON_YIELD,
     EXPLOSION_FRAMES, EXPLOSION_FRAME_W, EXPLOSION_FRAME_H,
     ALIEN_COUNT, ALIEN_MIN_DIST, ALIEN_BOUNCE, ALIEN_SPEED,
@@ -41,11 +40,18 @@ from inventory import Inventory
 
 class GameView(arcade.View):
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        faction: Optional[str] = None,
+        ship_type: Optional[str] = None,
+    ) -> None:
         super().__init__()
 
+        self._faction = faction
+        self._ship_type = ship_type
+
         # Player
-        self.player = PlayerShip()
+        self.player = PlayerShip(faction=faction, ship_type=ship_type)
         self.player_list = arcade.SpriteList()
         self.player_list.append(self.player)
 
@@ -112,24 +118,27 @@ class GameView(arcade.View):
         mining_snd = arcade.load_sound(
             os.path.join(SFX_WEAPONS_DIR, "Sci-Fi Arc Emitter Weapon Shot 2.wav")
         )
-        self._weapons: list[Weapon] = [
-            Weapon(
+        # Build weapon list — Thunderbolt (guns=2) gets doubled weapons
+        gun_count = self.player.guns
+        self._weapons: list[Weapon] = []
+        for _g in range(gun_count):
+            self._weapons.append(Weapon(
                 "Basic Laser",
                 laser_tex, laser_snd,
                 cooldown=0.30, damage=25.0,
                 projectile_speed=900.0, max_range=1200.0,
                 proj_scale=1.0,
                 mines_rock=False,
-            ),
-            Weapon(
+            ))
+        for _g in range(gun_count):
+            self._weapons.append(Weapon(
                 "Mining Beam",
                 mining_tex, mining_snd,
                 cooldown=0.10, damage=10.0,
                 projectile_speed=500.0, max_range=800.0,
                 proj_scale=1.0,
                 mines_rock=True,
-            ),
-        ]
+            ))
         self._weapon_idx: int = 0
 
         # ── Asteroids ──────────────────────────────────────────────────────
@@ -445,7 +454,7 @@ class GameView(arcade.View):
 
         # ── Shield regeneration ─────────────────────────────────────────────
         if self.player.shields < self.player.max_shields:
-            self.player._shield_acc += SHIELD_REGEN_RATE * delta_time
+            self.player._shield_acc += self.player._shield_regen * delta_time
             pts = int(self.player._shield_acc)
             if pts > 0:
                 self.player._shield_acc -= pts

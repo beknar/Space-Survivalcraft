@@ -4,12 +4,12 @@ from __future__ import annotations
 import arcade
 
 from constants import SCREEN_WIDTH, SCREEN_HEIGHT, SCREEN_TITLE
-from game_view import GameView
+from selection_view import SelectionView
 
 
 def main() -> None:
     window = arcade.Window(SCREEN_WIDTH, SCREEN_HEIGHT, SCREEN_TITLE)
-    window.show_view(GameView())
+    window.show_view(SelectionView())
     arcade.run()
 
 

@@ -29,8 +29,9 @@ The codebase is split into focused modules for maintainability:
 
 ```
 Space Survivalcraft/
-├── main.py              # Entry point only — creates window, starts GameView
-├── constants.py         # All game constants (window, physics, assets, etc.)
+├── main.py              # Entry point only — creates window, starts SelectionView
+├── constants.py         # All game constants (window, physics, assets, factions, ship types)
+├── selection_view.py    # SelectionView — faction + ship type choice screen
 ├── game_view.py         # GameView (arcade.View) — core gameplay loop, drawing, input, collisions
 ├── inventory.py         # Inventory class — 5×5 cargo hold UI overlay
 ├── sprites/             # Sprite and game-object classes
@@ -41,8 +42,9 @@ Space Survivalcraft/
 │   ├── pickup.py        # IronPickup — collectible ore token
 │   ├── asteroid.py      # IronAsteroid — minable rock with shake effect
 │   ├── alien.py         # SmallAlienShip — scout enemy AI
-│   └── player.py        # PlayerShip — Newtonian ship with thruster animation
+│   └── player.py        # PlayerShip — Newtonian ship with faction/ship config
 ├── assets/              # Art, sound, music (gitignored)
+├── dist/                # PyInstaller build output
 ├── venv/                # Python virtual environment (gitignored)
 └── requirements.txt     # pip dependencies
 ```
@@ -52,6 +54,37 @@ Space Survivalcraft/
 ```bash
 python main.py
 ```
+
+#### Faction & Ship Selection Screen (`SelectionView`)
+
+Before gameplay begins, the player chooses a faction and ship type on a two-phase selection screen.
+
+##### Factions
+
+| Faction | Asset File |
+|---|---|
+| Earth | `assets/256Spaceships/faction_1_ships_64x64.png` |
+| Colonial | `assets/256Spaceships/faction_2_ships_64x64.png` |
+| Heavy World | `assets/256Spaceships/faction_5_ships_64x64.png` |
+| Ascended | `assets/256Spaceships/faction_7_ships_64x64.png` |
+
+Each faction's sprite sheet is 512×512 (8 cols × 8 rows of 64×64 frames). The 8 columns represent upgrade tiers; column 0 is the starting ship.
+
+##### Ship Types
+
+| Ship Type | Sheet Row (1-indexed) | HP | Shields | Shield Regen | Rotation | Thrust | Brake | Max Speed | Damping | Guns |
+|---|---|---|---|---|---|---|---|---|---|---|
+| Cruiser | 8 | 100 | 100 | 0.5 pt/s | 150 °/s | 250 px/s² | 125 px/s² | 450 px/s | 0.98875× | 1 |
+| Bastion | 7 | 150 | 50 | 0.5 pt/s | 150 °/s | 200 px/s² | 125 px/s² | 450 px/s | 0.98875× | 1 |
+| Aegis | 6 | 50 | 150 | 1.0 pt/s | 100 °/s | 250 px/s² | 125 px/s² | 450 px/s | 0.98875× | 1 |
+| Striker | 5 | 100 | 50 | 0.5 pt/s | 150 °/s | 300 px/s² | 100 px/s² | 450 px/s | 0.49437× | 1 |
+| Thunderbolt | 4 | 100 | 100 | 0.5 pt/s | 150 °/s | 200 px/s² | 125 px/s² | 400 px/s | 0.98875× | 2 |
+
+- All ships start with the same weapons: Basic Laser + Mining Beam.
+- The Thunderbolt has 2 guns, so it starts with 2× Basic Laser and 2× Mining Beam.
+- Ship stats (HP, shields, regen, physics) are driven by the `SHIP_TYPES` dict in `constants.py` and applied at `PlayerShip.__init__()`.
+- Controls: LEFT/RIGHT (or A/D) to browse, ENTER/SPACE to confirm, ESC to go back.
+- After confirming faction + ship type, `SelectionView` transitions to `GameView(faction, ship_type)`.
 
 #### Window layout
 

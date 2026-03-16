@@ -32,6 +32,7 @@ STARFIELD_DIR = os.path.join(
     "Large 1024x1024", "Starfields",
 )
 SHMUP_DIR = os.path.join(_HERE, "assets", "ShmupAssets_V1")
+FACTION_SHIPS_DIR = os.path.join(_HERE, "assets", "256Spaceships")
 LASER_DIR = os.path.join(
     _HERE, "assets", "kenney space combat assets",
     "Space Shooter Redux", "PNG", "Lasers",
@@ -93,7 +94,7 @@ INV_HEADER: int = 32             # space for title text above grid
 INV_W: int = INV_COLS * INV_CELL + INV_PAD * 2
 INV_H: int = INV_ROWS * INV_CELL + INV_PAD * 2 + INV_HEADER
 
-# ── Player ship stats ──────────────────────────────────────────────────────
+# ── Player ship stats (defaults; overridden by ship type selection) ─────────
 PLAYER_MAX_HP: int = 100
 PLAYER_MAX_SHIELD: int = 100         # full shield capacity
 SHIELD_REGEN_RATE: float = 0.5       # shield points restored per second (1 per 2 s)
@@ -103,6 +104,38 @@ SHIP_BOUNCE: float = 0.55            # velocity restitution on bounce (0=dead st
 # Approximate circle radii used for overlap push-out (pixels)
 SHIP_RADIUS: float = 28.0
 ASTEROID_RADIUS: float = 26.0
+
+# ── Faction definitions ────────────────────────────────────────────────────
+FACTIONS = {
+    "Earth": "faction_1_ships_64x64.png",
+    "Colonial": "faction_2_ships_64x64.png",
+    "Heavy World": "faction_5_ships_64x64.png",
+    "Ascended": "faction_7_ships_64x64.png",
+}
+
+# Ship type → sprite-sheet row (0-indexed) within each faction sheet (8x8, 64x64 frames)
+# Row 4 (0-idx 3) = Thunderbolt, Row 5 (0-idx 4) = Striker, Row 6 (0-idx 5) = Aegis,
+# Row 7 (0-idx 6) = Bastion, Row 8 (0-idx 7) = Cruiser
+SHIP_FRAME_SIZE: int = 64
+SHIP_SHEET_COLS: int = 8   # 8 upgrade levels per ship type
+
+SHIP_TYPES = {
+    "Cruiser":     {"row": 7, "hp": 100, "shields": 100, "shield_regen": 0.5,
+                    "rot_speed": 150.0, "thrust": 250.0, "brake": 125.0,
+                    "max_speed": 450.0, "damping": 0.98875, "guns": 1},
+    "Bastion":     {"row": 6, "hp": 150, "shields":  50, "shield_regen": 0.5,
+                    "rot_speed": 150.0, "thrust": 200.0, "brake": 125.0,
+                    "max_speed": 450.0, "damping": 0.98875, "guns": 1},
+    "Aegis":       {"row": 5, "hp":  50, "shields": 150, "shield_regen": 1.0,
+                    "rot_speed": 100.0, "thrust": 250.0, "brake": 125.0,
+                    "max_speed": 450.0, "damping": 0.98875, "guns": 1},
+    "Striker":     {"row": 4, "hp": 100, "shields":  50, "shield_regen": 0.5,
+                    "rot_speed": 150.0, "thrust": 300.0, "brake": 100.0,
+                    "max_speed": 450.0, "damping": 0.49437, "guns": 1},
+    "Thunderbolt": {"row": 3, "hp": 100, "shields": 100, "shield_regen": 0.5,
+                    "rot_speed": 150.0, "thrust": 200.0, "brake": 125.0,
+                    "max_speed": 400.0, "damping": 0.98875, "guns": 2},
+}
 
 # ── Asteroid constants ──────────────────────────────────────────────────────
 ASTEROID_COUNT: int = 50
