@@ -119,7 +119,7 @@ def load_iron_texture() -> arcade.Texture:
 def populate_asteroids() -> arcade.SpriteList:
     """Spawn asteroids randomly across the world."""
     asteroid_tex = arcade.load_texture(ASTEROID_PNG)
-    slist = arcade.SpriteList()
+    slist = arcade.SpriteList(use_spatial_hash=True)
     cx_world, cy_world = WORLD_WIDTH / 2, WORLD_HEIGHT / 2
     margin = 100
     placed = 0
@@ -144,7 +144,7 @@ def populate_aliens() -> tuple[arcade.SpriteList, arcade.Texture]:
     _pil_laser = _pil_fx.crop((4299, 82, 4359, 310))
     alien_laser_tex = arcade.Texture(_pil_laser.rotate(90, expand=True))
 
-    slist = arcade.SpriteList()
+    slist = arcade.SpriteList(use_spatial_hash=True)
     cx_world, cy_world = WORLD_WIDTH / 2, WORLD_HEIGHT / 2
     placed = 0
     attempts = 0

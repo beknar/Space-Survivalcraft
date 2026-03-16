@@ -116,8 +116,9 @@ INV_CELL: int = 48               # cell size in px
 INV_PAD: int = 10                # padding around grid
 INV_HEADER: int = 32             # space for title text above grid
 
+INV_FOOTER: int = 20             # space for hint text below grid
 INV_W: int = INV_COLS * INV_CELL + INV_PAD * 2
-INV_H: int = INV_ROWS * INV_CELL + INV_PAD * 2 + INV_HEADER
+INV_H: int = INV_ROWS * INV_CELL + INV_PAD * 2 + INV_HEADER + INV_FOOTER
 
 # ── Player ship stats (defaults; overridden by ship type selection) ─────────
 PLAYER_MAX_HP: int = 100
@@ -156,7 +157,7 @@ SHIP_TYPES = {
                     "max_speed": 450.0, "damping": 0.98875, "guns": 1},
     "Striker":     {"row": 4, "hp": 100, "shields":  50, "shield_regen": 0.5,
                     "rot_speed": 150.0, "thrust": 300.0, "brake": 100.0,
-                    "max_speed": 450.0, "damping": 0.98875, "guns": 1},
+                    "max_speed": 450.0, "damping": 0.983125, "guns": 1},
     "Thunderbolt": {"row": 3, "hp": 100, "shields": 100, "shield_regen": 0.5,
                     "rot_speed": 150.0, "thrust": 200.0, "brake": 125.0,
                     "max_speed": 400.0, "damping": 0.98875, "guns": 2},

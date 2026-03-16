@@ -82,7 +82,7 @@ Each faction's sprite sheet is 512×512 (8 cols × 8 rows of 64×64 frames). The
 | Cruiser | 8 | 100 | 100 | 0.5 pt/s | 150 °/s | 250 px/s² | 125 px/s² | 450 px/s | 0.98875× | 1 |
 | Bastion | 7 | 150 | 50 | 0.5 pt/s | 150 °/s | 200 px/s² | 125 px/s² | 450 px/s | 0.98875× | 1 |
 | Aegis | 6 | 50 | 150 | 1.0 pt/s | 100 °/s | 250 px/s² | 125 px/s² | 450 px/s | 0.98875× | 1 |
-| Striker | 5 | 100 | 50 | 0.5 pt/s | 150 °/s | 300 px/s² | 100 px/s² | 450 px/s | 0.98875× | 1 |
+| Striker | 5 | 100 | 50 | 0.5 pt/s | 150 °/s | 300 px/s² | 100 px/s² | 450 px/s | 0.983125× | 1 |
 | Thunderbolt | 4 | 100 | 100 | 0.5 pt/s | 150 °/s | 200 px/s² | 125 px/s² | 400 px/s | 0.98875× | 2 |
 
 - All ships start with the same weapons: Basic Laser + Mining Beam.
@@ -218,6 +218,8 @@ Two weapons implemented. Active weapon shown in HUD; cycle with Tab / RB.
 - Projectiles spawn at the ship's nose tip (44 px ahead of centre along heading).
 - Holding Space / A fires continuously at the weapon's cooldown rate.
 - Projectiles despawn when max range is reached or they leave the world boundary.
+- **Sound throttling**: each `Weapon` instance tracks a separate sound cooldown (`_snd_cd`) with a minimum interval of 0.15 s. Rapid-fire weapons (Mining Beam at 0.10 s fire rate) still spawn projectiles at full rate but only create a new pyglet media player at the throttled rate, preventing audio stutter from excessive concurrent sound player creation.
+- **Projectile speed precompute**: `Projectile._speed` is computed once at creation via `math.hypot(vx, vy)` and reused every frame in `update_projectile()` instead of recalculating per tick.
 
 #### Inventory
 
@@ -233,6 +235,7 @@ Two weapons implemented. Active weapon shown in HUD; cycle with Tab / RB.
 - **Hover tooltip**: hovering the cursor over any occupied cell shows a small tooltip box with the item's full type name (e.g. "Iron ×30"). Tooltip appears above the cell and stays on screen.
 - **Performance**: all text rendering uses pre-built `arcade.Text` objects (`_t_title`, `_t_hint`, `_t_iron`, `_t_item_label`, `_t_drag_label`, `_t_tooltip`) rather than `arcade.draw_text()` to avoid the `PerformanceWarning`. Their `.text`, `.x`, `.y` properties are updated each frame before `.draw()` is called.
 - **Draw order**: hint text (`_t_hint`) is drawn *after* the grid cell loop so cells do not occlude the instruction text below them. The floating drag icon is drawn last so it appears on top of everything.
+- **Panel layout**: the panel has a dedicated `INV_FOOTER` (20 px) area below the grid for the hint text, keeping it visually inside the panel. Grid origin is offset upward by `INV_FOOTER` to make room.
 
 #### Iron Asteroids
 
@@ -251,7 +254,7 @@ Two weapons implemented. Active weapon shown in HUD; cycle with Tab / RB.
 
 #### Ship ↔ Asteroid Collision
 
-- Collision detected each frame via `arcade.check_for_collision_with_list`
+- Collision detected each frame via `arcade.check_for_collision_with_list` with **spatial hashing** enabled on `asteroid_list` and `alien_list` (`use_spatial_hash=True`) for O(1) collision lookups instead of O(n) linear scans
 - On overlap: ship is pushed out along the collision normal (centre-to-centre vector) so sprites never visually interpenetrate
 - Bounce: ship velocity is reflected about the collision normal with restitution 0.55 (only when moving toward the asteroid)
 - Damage: 5 per collision event hits shields first, then HP; 0.5 s invincibility window on `PlayerShip._collision_cd` prevents per-frame damage stacking

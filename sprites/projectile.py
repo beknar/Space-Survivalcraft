@@ -35,11 +35,12 @@ class Projectile(arcade.Sprite):
         self._dist_travelled: float = 0.0
         self.mines_rock: bool = mines_rock   # True for Mining Beam only
         self.damage: float = damage          # HP damage dealt on impact
+        self._speed: float = math.hypot(self._vx, self._vy)  # precomputed
 
     def update_projectile(self, dt: float) -> None:
         self.center_x += self._vx * dt
         self.center_y += self._vy * dt
-        self._dist_travelled += math.hypot(self._vx, self._vy) * dt
+        self._dist_travelled += self._speed * dt
         # Despawn when range exhausted or projectile leaves the world
         if (
             self._dist_travelled >= self._max_dist
@@ -74,9 +75,13 @@ class Weapon:
         self._proj_scale = proj_scale
         self.mines_rock = mines_rock
         self._timer: float = 0.0
+        # Sound throttle: cap sound creation rate to reduce media-player stutter
+        self._snd_min_interval: float = max(0.15, cooldown)
+        self._snd_cd: float = 0.0
 
     def update(self, dt: float) -> None:
         self._timer = max(0.0, self._timer - dt)
+        self._snd_cd = max(0.0, self._snd_cd - dt)
 
     def fire(
         self,
@@ -88,7 +93,9 @@ class Weapon:
         if self._timer > 0.0:
             return None
         self._timer = self.cooldown
-        arcade.play_sound(self._sound, volume=0.45)
+        if self._snd_cd <= 0.0:
+            arcade.play_sound(self._sound, volume=0.45)
+            self._snd_cd = self._snd_min_interval
         return Projectile(
             self._texture, spawn_x, spawn_y, heading,
             self._proj_speed, self._max_range, self._proj_scale,

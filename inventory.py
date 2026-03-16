@@ -7,7 +7,7 @@ import arcade
 
 from constants import (
     SCREEN_WIDTH, SCREEN_HEIGHT,
-    INV_COLS, INV_ROWS, INV_CELL, INV_PAD, INV_HEADER, INV_W, INV_H,
+    INV_COLS, INV_ROWS, INV_CELL, INV_PAD, INV_HEADER, INV_FOOTER, INV_W, INV_H,
 )
 
 
@@ -55,10 +55,11 @@ class Inventory:
         self._t_hint = arcade.Text(
             "I \u2014 close   drag to move items",
             cx,
-            oy + 6,
+            oy + INV_FOOTER // 2,
             (160, 160, 160),
             9,
             anchor_x="center",
+            anchor_y="center",
         )
         # Iron count label (reused in cell and while dragging)
         self._t_iron = arcade.Text("", 0, 0, arcade.color.ORANGE, 9, bold=True)
@@ -82,7 +83,7 @@ class Inventory:
         """Return (grid_x, grid_y) -- pixel coords of the bottom-left of the grid."""
         ox = (SCREEN_WIDTH - INV_W) // 2
         oy = (SCREEN_HEIGHT - INV_H) // 2
-        return ox + INV_PAD, oy + INV_PAD
+        return ox + INV_PAD, oy + INV_PAD + INV_FOOTER
 
     def _cell_at(self, x: float, y: float) -> Optional[tuple[int, int]]:
         """Return (row, col) for screen-space coords, or None if outside grid."""
