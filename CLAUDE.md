@@ -75,6 +75,8 @@ Before gameplay begins, the player chooses a faction and ship type on a two-phas
 
 Each faction's sprite sheet is 512×512 (8 cols × 8 rows of 64×64 frames). The 8 columns represent upgrade tiers; column 0 is the starting ship.
 
+- **Sharp pixel-art previews**: faction and ship preview images are 64×64 pixel art upscaled 3× to 192×192 using PIL nearest-neighbor resampling (`PILImage.NEAREST`) before creating `arcade.Texture` objects. This produces crisp, blocky pixel art instead of the blurry result from GPU linear filtering. The textures are drawn at 1:1 scale since they are already at display size.
+
 ##### Ship Types
 
 | Ship Type | Sheet Row (1-indexed) | HP | Shields | Shield Regen | Rotation | Thrust | Brake | Max Speed | Damping | Guns |

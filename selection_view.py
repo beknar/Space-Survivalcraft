@@ -32,6 +32,8 @@ class SelectionView(arcade.View):
 
         # Pre-load one preview frame per faction (first ship, first col)
         # We'll use the Cruiser row (row 7) col 0 as the faction preview
+        # Upscale with nearest-neighbor so pixel art stays crisp at display size
+        self._preview_scale: int = 3   # integer scale for sharp pixels (64 -> 192 px)
         self._faction_previews: list[arcade.Texture] = []
         for faction_name, filename in FACTIONS.items():
             path = os.path.join(FACTION_SHIPS_DIR, filename)
@@ -41,6 +43,8 @@ class SelectionView(arcade.View):
             x0 = 0
             y0 = row * SHIP_FRAME_SIZE
             frame = pil_img.crop((x0, y0, x0 + SHIP_FRAME_SIZE, y0 + SHIP_FRAME_SIZE))
+            preview_px = SHIP_FRAME_SIZE * self._preview_scale
+            frame = frame.resize((preview_px, preview_px), PILImage.NEAREST)
             self._faction_previews.append(arcade.Texture(frame))
 
         # Ship previews will be loaded once a faction is chosen
@@ -87,11 +91,13 @@ class SelectionView(arcade.View):
         path = os.path.join(FACTION_SHIPS_DIR, filename)
         pil_img = PILImage.open(path).convert("RGBA")
         self._ship_previews = []
+        preview_px = SHIP_FRAME_SIZE * self._preview_scale
         for ship_name in self._ship_names:
             row = SHIP_TYPES[ship_name]["row"]
             x0 = 0
             y0 = row * SHIP_FRAME_SIZE
             frame = pil_img.crop((x0, y0, x0 + SHIP_FRAME_SIZE, y0 + SHIP_FRAME_SIZE))
+            frame = frame.resize((preview_px, preview_px), PILImage.NEAREST)
             self._ship_previews.append(arcade.Texture(frame))
 
     # ── Drawing ─────────────────────────────────────────────────────────────
@@ -116,7 +122,7 @@ class SelectionView(arcade.View):
         self._t_title.draw()
 
         count = len(self._faction_names)
-        spacing = 220
+        spacing = 240
         total_w = (count - 1) * spacing
         start_x = SCREEN_WIDTH // 2 - total_w // 2
 
@@ -128,19 +134,18 @@ class SelectionView(arcade.View):
             # Selection highlight
             if selected:
                 arcade.draw_rect_filled(
-                    arcade.LBWH(cx - 60, cy - 70, 120, 140),
+                    arcade.LBWH(cx - 70, cy - 80, 140, 160),
                     (40, 60, 100, 180),
                 )
                 arcade.draw_rect_outline(
-                    arcade.LBWH(cx - 60, cy - 70, 120, 140),
+                    arcade.LBWH(cx - 70, cy - 80, 140, 160),
                     arcade.color.CYAN, border_width=2,
                 )
 
-            # Ship preview (scaled up for visibility)
-            scale = 2.5
+            # Ship preview (pre-upscaled with nearest-neighbor for crisp pixels)
             tex = self._faction_previews[i]
-            w = tex.width * scale
-            h = tex.height * scale
+            w = tex.width
+            h = tex.height
             arcade.draw_texture_rect(
                 tex,
                 arcade.LBWH(cx - w / 2, cy - h / 2 + 10, w, h),
@@ -149,7 +154,7 @@ class SelectionView(arcade.View):
             # Faction name
             self._t_label.text = name
             self._t_label.x = cx
-            self._t_label.y = cy - 60
+            self._t_label.y = cy - 70
             color = arcade.color.CYAN if selected else arcade.color.WHITE
             self._t_label.color = color
             self._t_label.draw()
@@ -159,7 +164,7 @@ class SelectionView(arcade.View):
         self._t_title.draw()
 
         count = len(self._ship_names)
-        spacing = 200
+        spacing = 220
         total_w = (count - 1) * spacing
         start_x = SCREEN_WIDTH // 2 - total_w // 2
 
@@ -170,20 +175,19 @@ class SelectionView(arcade.View):
 
             if selected:
                 arcade.draw_rect_filled(
-                    arcade.LBWH(cx - 60, cy - 70, 120, 140),
+                    arcade.LBWH(cx - 70, cy - 80, 140, 160),
                     (40, 60, 100, 180),
                 )
                 arcade.draw_rect_outline(
-                    arcade.LBWH(cx - 60, cy - 70, 120, 140),
+                    arcade.LBWH(cx - 70, cy - 80, 140, 160),
                     arcade.color.CYAN, border_width=2,
                 )
 
-            # Ship preview
+            # Ship preview (pre-upscaled with nearest-neighbor for crisp pixels)
             if i < len(self._ship_previews):
-                scale = 2.5
                 tex = self._ship_previews[i]
-                w = tex.width * scale
-                h = tex.height * scale
+                w = tex.width
+                h = tex.height
                 arcade.draw_texture_rect(
                     tex,
                     arcade.LBWH(cx - w / 2, cy - h / 2 + 10, w, h),
@@ -192,7 +196,7 @@ class SelectionView(arcade.View):
             # Ship name
             self._t_label.text = name
             self._t_label.x = cx
-            self._t_label.y = cy - 60
+            self._t_label.y = cy - 70
             color = arcade.color.CYAN if selected else arcade.color.WHITE
             self._t_label.color = color
             self._t_label.draw()
