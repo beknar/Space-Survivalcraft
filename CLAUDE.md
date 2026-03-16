@@ -67,6 +67,26 @@ python main.py
 
 #### PlayerShip (`arcade.Sprite`)
 
+##### Stats
+
+| Stat | Value |
+|---|---|
+| HP | 100 |
+| Shields | 100 |
+| Shield regen | 1 pt / 2 s (0.5 pt/s) |
+| Rotation speed | 150 °/s |
+| Thrust | 250 px/s² |
+| Brake (reverse thrust) | 125 px/s² |
+| Max speed | 450 px/s |
+| Space drag (damping) | 0.98875× per frame |
+| Collision damage | 5 (shields first) |
+| Collision invincibility | 0.5 s |
+| Collision bounce | 0.55 restitution |
+| Sprite size (rendered) | 96×96 px |
+| Collision radius | 28 px |
+| Nose offset (projectile spawn) | 44 px from centre |
+| Start position | World centre (3200, 3200) |
+
 - Sprite: `assets/ShmupAssets_V1/shmup_player.png` — 4 cols × 3 rows sheet (each frame auto-sized)
   - Row 0 only is used for all animation (rows 1–2 show nose/wing weapon effects, reserved for combat)
   - All 4 columns cycle as animation frames when thrusting; col 0 used when idle
