@@ -57,6 +57,16 @@ SFX_INTERFACE_DIR = os.path.join(
     _HERE, "assets", "Sci Fi Sound Effects Bundle",
     "Stormwave Audio Sci-Fi Sound Effects Bundle", "Interface", "Other Interface",
 )
+MUSIC_VOL1_DIR = os.path.join(
+    _HERE, "assets", "Space and Science Fiction Music Pack Vol 1",
+    "Space Science Fiction Music Pack", "audio",
+)
+MUSIC_VOL2_DIR = os.path.join(
+    _HERE, "assets", "Space and Science Fiction Music Pack Vol 2",
+    "Space_Science_Fiction_MusicPackVol.2", "Music",
+)
+MUSIC_VOLUME: float = 0.35          # background music volume (0.0 – 1.0)
+
 ASTEROID_PNG = os.path.join(_HERE, "assets", "Pixel Art Space", "Asteroid.png")
 ALIEN_SHIP_PNG = os.path.join(
     _HERE, "assets", "gamedevmarket assets",

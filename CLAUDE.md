@@ -152,6 +152,11 @@ Each faction's sprite sheet is 512×512 (8 cols × 8 rows of 64×64 frames). The
   - Striker: red `(255, 100, 100)` → `(120, 20, 20)`
   - Thunderbolt: purple `(200, 120, 255)` → `(60, 20, 100)`
 - **Dual-gun firing**: ships with `guns > 1` (Thunderbolt) fire from two laterally-offset hardpoints simultaneously. Weapons are grouped: indices 0..guns-1 = Basic Laser group, guns..2×guns-1 = Mining Beam group. `gun_spawn_points()` returns one (x,y) per gun. Weapon cycling (`Tab` / `RB`) advances by `gun_count` to switch weapon groups. The active weapon HUD label shows the group's weapon name.
+- **Background music**: shuffled playlist of loop tracks from two music packs, played continuously during gameplay at `MUSIC_VOLUME` (0.35). When a track finishes, the next one starts automatically. Music is stopped when leaving `GameView` (loading a save or returning to the selection screen). The new `GameView` starts its own fresh shuffled playlist.
+  - **Vol 1**: `MUSIC_VOL1_DIR` — `*[Action Loop].wav` and `*[Ambient Loop].wav` files (flat directory, ~30 loop tracks)
+  - **Vol 2**: `MUSIC_VOL2_DIR` — `*_loop.wav` files inside subdirectories (10 loop tracks)
+  - Track collection: `collect_music_tracks()` in `world_setup.py` scans both directories with glob, shuffles, and pre-loads all tracks as `arcade.Sound` objects.
+  - Playback: `_play_next_track()` plays the current index and advances; `on_update()` checks `_music_player.playing` each frame and auto-advances when a track ends.
 
 #### Controls
 

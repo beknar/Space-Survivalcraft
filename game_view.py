@@ -20,6 +20,7 @@ from constants import (
     EJECT_DIST, WORLD_ITEM_LIFETIME,
     CONTRAIL_MAX_PARTICLES, CONTRAIL_SPAWN_RATE, CONTRAIL_LIFETIME,
     CONTRAIL_START_SIZE, CONTRAIL_END_SIZE, CONTRAIL_OFFSET, CONTRAIL_COLOURS,
+    MUSIC_VOLUME,
 )
 from sprites.projectile import Weapon
 from sprites.explosion import Explosion, HitSpark
@@ -33,6 +34,7 @@ from world_setup import (
     load_bg_texture, load_shield, load_weapons,
     load_explosion_assets, load_bump_sound, load_thruster_sound,
     load_iron_texture, populate_asteroids, populate_aliens,
+    collect_music_tracks,
 )
 from collisions import (
     handle_projectile_hits,
@@ -153,6 +155,28 @@ class GameView(arcade.View):
             save_dir=_SAVE_DIR,
         )
 
+        # Background music — shuffled playlist of loop tracks
+        self._music_tracks: list[arcade.Sound] = collect_music_tracks()
+        self._music_idx: int = 0
+        self._music_player: Optional[arcade.sound.media.Player] = None
+        if self._music_tracks:
+            self._play_next_track()
+
+    # ── Music ──────────────────────────────────────────────────────────────
+    def _play_next_track(self) -> None:
+        """Start the next track in the shuffled playlist, wrapping around."""
+        if not self._music_tracks:
+            return
+        track = self._music_tracks[self._music_idx]
+        self._music_player = arcade.play_sound(track, volume=MUSIC_VOLUME)
+        self._music_idx = (self._music_idx + 1) % len(self._music_tracks)
+
+    def _stop_music(self) -> None:
+        """Stop the currently playing music track."""
+        if self._music_player is not None:
+            arcade.stop_sound(self._music_player)
+            self._music_player = None
+
     # ── Helpers ──────────────────────────────────────────────────────────────
     @property
     def _active_weapon(self) -> Weapon:
@@ -261,10 +285,11 @@ class GameView(arcade.View):
         with open(path, "r") as f:
             data = json.load(f)
 
-        # Stop thruster sound before rebuilding
+        # Stop sounds before rebuilding
         if self._thruster_player is not None:
             arcade.stop_sound(self._thruster_player)
             self._thruster_player = None
+        self._stop_music()
 
         # Build a new GameView from saved faction/ship
         view = GameView(
@@ -333,10 +358,11 @@ class GameView(arcade.View):
 
     def _return_to_menu(self) -> None:
         """Return to the faction/ship selection screen."""
-        # Stop thruster sound
+        # Stop sounds
         if self._thruster_player is not None:
             arcade.stop_sound(self._thruster_player)
             self._thruster_player = None
+        self._stop_music()
         from selection_view import SelectionView
         self.window.show_view(SelectionView())
 
@@ -417,6 +443,11 @@ class GameView(arcade.View):
     def on_update(self, delta_time: float) -> None:
         # ── Smoothed FPS ────────────────────────────────────────────────────
         self._hud.update_fps(delta_time)
+
+        # ── Background music: advance to next track when current ends ─────
+        if (self._music_player is not None
+                and not self._music_player.playing):
+            self._play_next_track()
 
         # ── Escape menu tick ──────────────────────────────────────────────
         self._escape_menu.update(delta_time)

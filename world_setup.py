@@ -8,6 +8,8 @@ import random
 import arcade
 from PIL import Image as PILImage
 
+import glob as _glob
+
 from constants import (
     WORLD_WIDTH, WORLD_HEIGHT,
     ASTEROID_COUNT, ASTEROID_MIN_DIST,
@@ -17,6 +19,7 @@ from constants import (
     SFX_VEHICLES_DIR,
     ASTEROID_PNG, ALIEN_SHIP_PNG, ALIEN_FX_PNG, EXPLOSION_PNG, IRON_ICON_PNG,
     SHIELD_PNG, SHIELD_COLS, SHIELD_ROWS, SHIELD_FRAME_W, SHIELD_FRAME_H,
+    MUSIC_VOL1_DIR, MUSIC_VOL2_DIR,
 )
 from sprites.asteroid import IronAsteroid
 from sprites.alien import SmallAlienShip
@@ -114,6 +117,19 @@ def load_thruster_sound() -> arcade.Sound:
 def load_iron_texture() -> arcade.Texture:
     """Load the iron ore icon texture."""
     return arcade.load_texture(IRON_ICON_PNG)
+
+
+def collect_music_tracks() -> list[arcade.Sound]:
+    """Scan both music packs for loop files, shuffle, and return as arcade.Sound list."""
+    paths: list[str] = []
+    # Vol 1: flat directory — files ending with "Loop].wav"
+    for f in _glob.glob(os.path.join(MUSIC_VOL1_DIR, "*Loop].wav")):
+        paths.append(f)
+    # Vol 2: subdirectories — each contains a "*_loop.wav"
+    for f in _glob.glob(os.path.join(MUSIC_VOL2_DIR, "*", "*_loop.wav")):
+        paths.append(f)
+    random.shuffle(paths)
+    return [arcade.load_sound(p) for p in paths]
 
 
 def populate_asteroids() -> arcade.SpriteList:
