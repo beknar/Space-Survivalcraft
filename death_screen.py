@@ -1,77 +1,66 @@
-"""Splash / title screen for Call of Orion."""
+"""Death screen overlay shown when the player's HP reaches zero."""
 from __future__ import annotations
 
 import os
-import random
-from typing import Optional
 
 import arcade
 
 from constants import (
     SCREEN_WIDTH, SCREEN_HEIGHT,
-    SFX_INTERFACE_DIR,
-    SAVE_SLOT_COUNT,
+    SFX_INTERFACE_DIR, SAVE_SLOT_COUNT,
 )
 from settings import audio
-from world_setup import collect_music_tracks
 
 
-# ── Button layout constants ───────────────────────────────────────────────
-_BTN_W = 260
-_BTN_H = 48
-_BTN_GAP = 20
-_BTN_LABELS = ["Play Now", "Load Game", "Options"]
+_BTN_W = 240
+_BTN_H = 45
+_BTN_GAP = 16
+_BTN_LABELS = ["Load Game", "Main Menu", "Exit Game"]
 
 _SAVE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "saves")
 
 
-class SplashView(arcade.View):
-    """Title screen shown when the game first launches.
+class DeathScreen:
+    """Modal overlay displayed when the player ship is destroyed.
 
-    Displays the game title, three navigation buttons, background music,
-    and a track-name indicator at the bottom of the screen.
+    Shows a quote, and three buttons: Load Game, Main Menu, Exit Game.
     """
 
     def __init__(self) -> None:
-        super().__init__()
-
-        # ── Music ──────────────────────────────────────────────────────
-        self._music_tracks = collect_music_tracks()
-        self._music_idx: int = 0
-        self._music_player: Optional[arcade.sound.media.Player] = None
-        self._current_track_name: str = ""
-        if self._music_tracks:
-            self._play_next_track()
-
-        # ── UI sounds ──────────────────────────────────────────────────
-        self._click_snd = arcade.load_sound(
-            os.path.join(SFX_INTERFACE_DIR,
-                         "Sci-Fi Interface Simple Notification 2.wav")
-        )
-
-        # ── Hover state ────────────────────────────────────────────────
+        self.active: bool = False
         self._hover_idx: int = -1
 
-        # ── Pre-compute button rectangles (centred on screen) ──────────
+        # ── Load sub-screen state ──────────────────────────────────────
+        self._show_load: bool = False
+        self._load_hover: int = -1
+        self._load_slots: list[dict] = []
+
+        # ── Button rects (centred on screen) ───────────────────────────
         total_h = len(_BTN_LABELS) * _BTN_H + (len(_BTN_LABELS) - 1) * _BTN_GAP
-        top_y = SCREEN_HEIGHT // 2 - 20  # below the title
+        top_y = SCREEN_HEIGHT // 2 - 60
         self._btn_rects: list[tuple[int, int, int, int]] = []
         for i in range(len(_BTN_LABELS)):
             bx = (SCREEN_WIDTH - _BTN_W) // 2
             by = top_y - i * (_BTN_H + _BTN_GAP)
             self._btn_rects.append((bx, by, _BTN_W, _BTN_H))
 
-        # ── Pre-built text objects ─────────────────────────────────────
+        # ── Sound ──────────────────────────────────────────────────────
+        self._click_snd = arcade.load_sound(
+            os.path.join(SFX_INTERFACE_DIR,
+                         "Sci-Fi Interface Simple Notification 2.wav")
+        )
+
+        # ── Text objects ───────────────────────────────────────────────
         self._t_title = arcade.Text(
-            "CALL OF ORION",
-            SCREEN_WIDTH // 2, SCREEN_HEIGHT - 160,
-            arcade.color.LIGHT_BLUE, 52, bold=True,
+            "SHIP DESTROYED",
+            SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 100,
+            (255, 80, 60), 36, bold=True,
             anchor_x="center", anchor_y="center",
         )
-        self._t_subtitle = arcade.Text(
-            "A Space Survival Saga",
-            SCREEN_WIDTH // 2, SCREEN_HEIGHT - 210,
-            (160, 180, 220), 16,
+        self._t_quote = arcade.Text(
+            'As the Elder Gamer says "git gud"',
+            SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 40,
+            (200, 180, 140), 14, italic=True,
             anchor_x="center", anchor_y="center",
         )
         self._t_btn_labels: list[arcade.Text] = []
@@ -80,25 +69,11 @@ class SplashView(arcade.View):
             self._t_btn_labels.append(arcade.Text(
                 label,
                 bx + bw // 2, by + bh // 2,
-                arcade.color.WHITE, 15, bold=True,
+                arcade.color.WHITE, 14, bold=True,
                 anchor_x="center", anchor_y="center",
             ))
 
-        self._t_track = arcade.Text(
-            "", SCREEN_WIDTH // 2, 30,
-            arcade.color.KHAKI, 10,
-            anchor_x="center", anchor_y="center",
-        )
-        self._t_music_hdr = arcade.Text(
-            "NOW PLAYING", SCREEN_WIDTH // 2, 48,
-            (120, 120, 130), 8,
-            anchor_x="center", anchor_y="center",
-        )
-
-        # ── Load-game sub-screen state ─────────────────────────────────
-        self._show_load: bool = False
-        self._load_hover: int = -1
-        self._load_slots: list[dict] = []
+        # ── Load sub-screen text objects ───────────────────────────────
         self._t_load_title = arcade.Text(
             "LOAD GAME", SCREEN_WIDTH // 2, 0,
             arcade.color.LIGHT_BLUE, 20, bold=True,
@@ -120,22 +95,14 @@ class SplashView(arcade.View):
             anchor_x="center", anchor_y="center",
         )
 
-    # ── Music helpers ──────────────────────────────────────────────────
+    # ── Public API ─────────────────────────────────────────────────────
 
-    def _play_next_track(self) -> None:
-        if not self._music_tracks:
-            return
-        track, name = self._music_tracks[self._music_idx]
-        self._current_track_name = name
-        self._music_player = arcade.play_sound(track, volume=audio.music_volume)
-        self._music_idx = (self._music_idx + 1) % len(self._music_tracks)
+    def show(self) -> None:
+        self.active = True
+        self._hover_idx = -1
+        self._show_load = False
 
-    def _stop_music(self) -> None:
-        if self._music_player is not None:
-            arcade.stop_sound(self._music_player)
-            self._music_player = None
-
-    # ── Load-game helpers ──────────────────────────────────────────────
+    # ── Load slot helpers ──────────────────────────────────────────────
 
     def _refresh_load_slots(self) -> None:
         import json
@@ -150,8 +117,7 @@ class SplashView(arcade.View):
                     name = data.get("save_name", f"Save {i + 1}")
                     player = data.get("player", {})
                     self._load_slots.append({
-                        "name": name,
-                        "exists": True,
+                        "name": name, "exists": True,
                         "faction": data.get("faction", "?"),
                         "ship_type": data.get("ship_type", "?"),
                         "hp": player.get("hp", 0),
@@ -163,7 +129,6 @@ class SplashView(arcade.View):
                 self._load_slots.append({"name": "", "exists": False})
 
     def _load_slot_rects(self) -> list[tuple[int, int, int, int]]:
-        """Compute slot button rectangles for the load sub-screen."""
         from constants import SAVE_SLOT_W, SAVE_SLOT_H, SAVE_SLOT_GAP, SAVE_MENU_H
         top_y = SCREEN_HEIGHT // 2 + SAVE_MENU_H // 2 - 60
         rects = []
@@ -180,42 +145,28 @@ class SplashView(arcade.View):
 
     # ── Drawing ────────────────────────────────────────────────────────
 
-    def on_draw(self) -> None:
-        self.clear()
+    def draw(self) -> None:
+        if not self.active:
+            return
 
-        # Dark space background
+        # Dark overlay
         arcade.draw_rect_filled(
             arcade.LBWH(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT),
-            (6, 6, 18),
+            (0, 0, 0, 200),
         )
 
-        # Decorative star dots
-        rng = random.Random(42)
-        for _ in range(120):
-            sx = rng.randint(0, SCREEN_WIDTH)
-            sy = rng.randint(0, SCREEN_HEIGHT)
-            br = rng.randint(60, 220)
-            arcade.draw_point(sx, sy, (br, br, br + 30, 200), 1.5)
-
         if self._show_load:
-            self._draw_load_screen()
+            self._draw_load()
         else:
             self._draw_main()
 
-        # Track name
-        if self._current_track_name:
-            self._t_music_hdr.draw()
-            self._t_track.text = self._current_track_name
-            self._t_track.draw()
-
     def _draw_main(self) -> None:
         self._t_title.draw()
-        self._t_subtitle.draw()
+        self._t_quote.draw()
 
         for i, label in enumerate(_BTN_LABELS):
             bx, by, bw, bh = self._btn_rects[i]
             hovered = (i == self._hover_idx)
-
             bg = (50, 80, 140, 255) if hovered else (25, 35, 70, 230)
             arcade.draw_rect_filled(arcade.LBWH(bx, by, bw, bh), bg)
             outline = arcade.color.CYAN if hovered else arcade.color.STEEL_BLUE
@@ -227,9 +178,8 @@ class SplashView(arcade.View):
             )
             self._t_btn_labels[i].draw()
 
-    def _draw_load_screen(self) -> None:
+    def _draw_load(self) -> None:
         from constants import SAVE_MENU_W, SAVE_MENU_H
-        # Panel background
         slot_rects = self._load_slot_rects()
         panel_w, panel_h = SAVE_MENU_W, SAVE_MENU_H
         px = (SCREEN_WIDTH - panel_w) // 2
@@ -242,7 +192,6 @@ class SplashView(arcade.View):
             arcade.LBWH(px, py, panel_w, panel_h),
             arcade.color.STEEL_BLUE, border_width=2,
         )
-
         self._t_load_title.y = py + panel_h - 30
         self._t_load_title.draw()
 
@@ -269,17 +218,13 @@ class SplashView(arcade.View):
                 arcade.LBWH(sx, sy, sw, sh), outline_c, border_width=1,
             )
 
-            if info["exists"]:
-                label = f"Slot {i + 1}: {info['name']}"
-            else:
-                label = f"Slot {i + 1}: \u2014 Empty \u2014"
+            label = f"Slot {i + 1}: {info['name']}" if info["exists"] else f"Slot {i + 1}: \u2014 Empty \u2014"
             self._t_load_labels[i].text = label
             self._t_load_labels[i].x = sx + 10
             self._t_load_labels[i].y = sy + sh - 10
             self._t_load_labels[i].color = text_c
             self._t_load_labels[i].draw()
 
-            # Detail line (faction/ship/HP/shields)
             if info["exists"]:
                 detail = (f"{info.get('faction', '?')} \u00b7 {info.get('ship_type', '?')}"
                           f"  |  HP {info.get('hp', 0)}  Shields {info.get('shields', 0)}")
@@ -305,17 +250,11 @@ class SplashView(arcade.View):
         )
         self._t_load_back.draw()
 
-    # ── Update ─────────────────────────────────────────────────────────
-
-    def on_update(self, delta_time: float) -> None:
-        # Advance music when track finishes
-        if (self._music_player is not None
-                and not self._music_player.playing):
-            self._play_next_track()
-
     # ── Input ──────────────────────────────────────────────────────────
 
-    def on_mouse_motion(self, x: int, y: int, dx: int, dy: int) -> None:
+    def on_mouse_motion(self, x: int, y: int) -> None:
+        if not self.active:
+            return
         if self._show_load:
             slot_rects = self._load_slot_rects()
             self._load_hover = -1
@@ -333,123 +272,51 @@ class SplashView(arcade.View):
                     self._hover_idx = i
                     return
 
-    def on_mouse_press(self, x: int, y: int, button: int, modifiers: int) -> None:
+    def on_mouse_press(self, x: int, y: int) -> str | None:
+        """Handle click. Returns action string or None.
+
+        Possible return values:
+        - "load:<slot>" — load from the given slot number
+        - "main_menu" — go to splash screen
+        - "exit" — quit the game
+        - None — no action taken
+        """
+        if not self.active:
+            return None
+
         if self._show_load:
-            self._handle_load_click(x, y)
-            return
+            return self._handle_load_click(x, y)
 
         if self._hover_idx < 0:
-            return
+            return None
         arcade.play_sound(self._click_snd, volume=audio.sfx_volume)
         label = _BTN_LABELS[self._hover_idx]
-        if label == "Play Now":
-            self._stop_music()
-            from selection_view import SelectionView
-            self.window.show_view(SelectionView())
-        elif label == "Load Game":
+        if label == "Load Game":
             self._refresh_load_slots()
             self._show_load = True
             self._load_hover = -1
-        elif label == "Options":
-            self._stop_music()
-            from options_view import OptionsView
-            self.window.show_view(OptionsView())
+            return None
+        elif label == "Main Menu":
+            return "main_menu"
+        elif label == "Exit Game":
+            return "exit"
+        return None
 
-    def _handle_load_click(self, x: int, y: int) -> None:
+    def _handle_load_click(self, x: int, y: int) -> str | None:
         arcade.play_sound(self._click_snd, volume=audio.sfx_volume)
-
-        # Back button
         bbx, bby, bbw, bbh = self._load_back_rect()
         if bbx <= x <= bbx + bbw and bby <= y <= bby + bbh:
             self._show_load = False
             self._load_hover = -1
-            return
-
-        # Slot clicks
+            return None
         slot_rects = self._load_slot_rects()
         for i, (sx, sy, sw, sh) in enumerate(slot_rects):
             if sx <= x <= sx + sw and sy <= y <= sy + sh:
                 if i < len(self._load_slots) and self._load_slots[i]["exists"]:
-                    self._stop_music()
-                    self._do_load(i)
-                return
+                    return f"load:{i}"
+        return None
 
-    def _do_load(self, slot: int) -> None:
-        """Load a saved game and transition to GameView."""
-        import json
-        path = os.path.join(_SAVE_DIR, f"save_slot_{slot + 1:02d}.json")
-        if not os.path.exists(path):
-            return
-        with open(path, "r") as f:
-            data = json.load(f)
-
-        from game_view import GameView
-        view = GameView(
-            faction=data.get("faction"),
-            ship_type=data.get("ship_type"),
-        )
-
-        # Restore player state
-        p = data["player"]
-        view.player.center_x = p["x"]
-        view.player.center_y = p["y"]
-        view.player.heading = p["heading"]
-        view.player.angle = p["heading"]
-        view.player.vel_x = p["vel_x"]
-        view.player.vel_y = p["vel_y"]
-        view.player.hp = p["hp"]
-        view.player.shields = p["shields"]
-        view.player._shield_acc = p.get("shield_acc", 0.0)
-
-        view._weapon_idx = data.get("weapon_idx", 0)
-        view.inventory.iron = data.get("iron", 0)
-
-        # Restore asteroids
-        view.asteroid_list.clear()
-        from sprites.asteroid import IronAsteroid
-        asteroid_tex = arcade.load_texture(
-            os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                         "assets", "Pixel Art Space", "Asteroid.png")
-        )
-        for ad in data.get("asteroids", []):
-            a = IronAsteroid(asteroid_tex, ad["x"], ad["y"])
-            a.hp = ad["hp"]
-            view.asteroid_list.append(a)
-
-        # Restore aliens
-        view.alien_list.clear()
-        from PIL import Image as PILImage
-        from constants import ALIEN_SHIP_PNG, ALIEN_FX_PNG
-        _pil_ship = PILImage.open(ALIEN_SHIP_PNG).convert("RGBA")
-        alien_ship_tex = arcade.Texture(_pil_ship.crop((364, 305, 825, 815)))
-        _pil_fx = PILImage.open(ALIEN_FX_PNG).convert("RGBA")
-        _pil_laser = _pil_fx.crop((4299, 82, 4359, 310))
-        alien_laser_tex = arcade.Texture(_pil_laser.rotate(90, expand=True))
-        from sprites.alien import SmallAlienShip
-        for ald in data.get("aliens", []):
-            al = SmallAlienShip(alien_ship_tex, alien_laser_tex, ald["x"], ald["y"])
-            al.hp = ald["hp"]
-            al.vel_x = ald.get("vel_x", 0.0)
-            al.vel_y = ald.get("vel_y", 0.0)
-            al._heading = ald.get("heading", 0.0)
-            al.angle = al._heading
-            al._state = ald.get("state", 0)
-            al._home_x = ald.get("home_x", ald["x"])
-            al._home_y = ald.get("home_y", ald["y"])
-            view.alien_list.append(al)
-
-        # Restore iron pickups
-        view.iron_pickup_list.clear()
-        for pd in data.get("pickups", []):
-            view._spawn_iron_pickup(pd["x"], pd["y"], amount=pd.get("amount", 10))
-
-        self.window.show_view(view)
-
-    def on_key_press(self, key: int, modifiers: int) -> None:
-        if self._show_load:
-            if key == arcade.key.ESCAPE:
-                self._show_load = False
-                self._load_hover = -1
-            return
-        if key == arcade.key.ESCAPE:
-            arcade.exit()
+    def on_key_press(self, key: int) -> None:
+        if self._show_load and key == arcade.key.ESCAPE:
+            self._show_load = False
+            self._load_hover = -1

@@ -137,17 +137,29 @@ def _track_name_from_path(path: str) -> str:
     return name.strip()
 
 
+_music_cache: list[tuple[arcade.Sound, str]] | None = None
+
+
 def collect_music_tracks() -> list[tuple[arcade.Sound, str]]:
-    """Scan both music packs for loop files, shuffle, and return as (Sound, name) pairs."""
-    paths: list[str] = []
-    # Vol 1: flat directory — files ending with "Loop].wav"
-    for f in _glob.glob(os.path.join(MUSIC_VOL1_DIR, "*Loop].wav")):
-        paths.append(f)
-    # Vol 2: subdirectories — each contains a "*_loop.wav"
-    for f in _glob.glob(os.path.join(MUSIC_VOL2_DIR, "*", "*_loop.wav")):
-        paths.append(f)
-    random.shuffle(paths)
-    return [(arcade.load_sound(p), _track_name_from_path(p)) for p in paths]
+    """Scan both music packs for loop files, shuffle, and return as (Sound, name) pairs.
+
+    Loaded sounds are cached at module level so subsequent calls (e.g. returning
+    to the splash screen) are instant — only the shuffle order changes.
+    """
+    global _music_cache
+    if _music_cache is None:
+        paths: list[str] = []
+        # Vol 1: flat directory — files ending with "Loop].wav"
+        for f in _glob.glob(os.path.join(MUSIC_VOL1_DIR, "*Loop].wav")):
+            paths.append(f)
+        # Vol 2: subdirectories — each contains a "*_loop.wav"
+        for f in _glob.glob(os.path.join(MUSIC_VOL2_DIR, "*", "*_loop.wav")):
+            paths.append(f)
+        _music_cache = [(arcade.load_sound(p), _track_name_from_path(p)) for p in paths]
+    # Return a fresh shuffled copy each time
+    tracks = list(_music_cache)
+    random.shuffle(tracks)
+    return tracks
 
 
 def populate_asteroids() -> arcade.SpriteList:

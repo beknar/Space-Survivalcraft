@@ -23,13 +23,14 @@ from constants import (
 )
 from settings import audio
 from sprites.projectile import Weapon
-from sprites.explosion import Explosion, HitSpark
+from sprites.explosion import Explosion, HitSpark, FireSpark
 from sprites.pickup import IronPickup
 from sprites.player import PlayerShip
 from sprites.contrail import ContrailParticle
 from inventory import Inventory
 from hud import HUD
 from escape_menu import EscapeMenu
+from death_screen import DeathScreen
 from world_setup import (
     load_bg_texture, load_shield, load_weapons,
     load_explosion_assets, load_bump_sound, load_thruster_sound,
@@ -123,6 +124,7 @@ class GameView(arcade.View):
         self.alien_list, _alien_laser_tex = populate_aliens()
         self.alien_projectile_list: arcade.SpriteList = arcade.SpriteList()
         self.hit_sparks: list[HitSpark] = []
+        self.fire_sparks: list[FireSpark] = []
 
         # Inventory
         self.inventory = Inventory(iron_icon=self._iron_tex)
@@ -154,6 +156,10 @@ class GameView(arcade.View):
             main_menu_fn=self._return_to_menu,
             save_dir=_SAVE_DIR,
         )
+
+        # Death screen
+        self._death_screen = DeathScreen()
+        self._player_dead: bool = False
 
         # Background music — shuffled playlist of loop tracks
         self._music_tracks: list[tuple[arcade.Sound, str]] = collect_music_tracks()
@@ -214,6 +220,8 @@ class GameView(arcade.View):
 
     def _apply_damage_to_player(self, amount: int) -> None:
         """Apply damage to the player's shields first, then HP."""
+        if self._player_dead:
+            return
         if self.player.shields > 0:
             absorbed = min(self.player.shields, amount)
             self.player.shields -= absorbed
@@ -221,7 +229,49 @@ class GameView(arcade.View):
             self.shield_sprite.hit_flash()
         if amount > 0:
             self.player.hp = max(0, self.player.hp - amount)
+            # Fire sparks when hull takes damage
+            self.fire_sparks.append(
+                FireSpark(self.player.center_x, self.player.center_y)
+            )
+            # Check for death
+            if self.player.hp <= 0:
+                self._trigger_player_death()
         self._shake_amp = SHAKE_AMPLITUDE
+
+    def _trigger_player_death(self) -> None:
+        """Handle player ship destruction."""
+        self._player_dead = True
+
+        # Spawn a large explosion at the player's position
+        exp = Explosion(
+            self._explosion_frames,
+            self.player.center_x,
+            self.player.center_y,
+            scale=2.5,  # bigger than asteroid explosions
+        )
+        exp.color = (255, 180, 100, 255)  # orange-ish tint
+        self.explosion_list.append(exp)
+
+        # Spawn extra fire sparks for dramatic effect
+        for _ in range(5):
+            self.fire_sparks.append(
+                FireSpark(self.player.center_x, self.player.center_y)
+            )
+
+        # Play explosion sound
+        arcade.play_sound(self._explosion_snd, volume=audio.sfx_volume)
+
+        # Hide player and shield
+        self.player.visible = False
+        self.shield_sprite.visible = False
+
+        # Stop thruster
+        if self._thruster_player is not None:
+            arcade.stop_sound(self._thruster_player)
+            self._thruster_player = None
+
+        # Show death screen after a brief delay (handled via _death_delay)
+        self._death_delay: float = 1.5  # seconds before showing death screen
 
     # ── Save / Load / Menu ─────────────────────────────────────────────────
     def _save_game(self, slot: int, name: str) -> None:
@@ -401,6 +451,8 @@ class GameView(arcade.View):
             self.shield_list.draw()
             for spark in self.hit_sparks:
                 spark.draw()
+            for fs in self.fire_sparks:
+                fs.draw()
 
         with self.ui_cam.activate():
             spd = math.hypot(self.player.vel_x, self.player.vel_y)
@@ -423,6 +475,7 @@ class GameView(arcade.View):
             )
             self.inventory.draw()
             self._escape_menu.draw()
+            self._death_screen.draw()
 
     def _draw_background(
         self, cx: float, cy: float, hw: float, hh: float
@@ -456,6 +509,21 @@ class GameView(arcade.View):
         self._escape_menu.update(delta_time)
         if self._escape_menu.open:
             return  # Pause all gameplay while menu is open
+
+        # ── Death screen ──────────────────────────────────────────────────
+        if self._player_dead:
+            # Still update explosions/fire sparks during death delay
+            for exp in list(self.explosion_list):
+                exp.update_explosion(delta_time)
+            for fs in self.fire_sparks:
+                fs.update(delta_time)
+            self.fire_sparks = [fs for fs in self.fire_sparks if not fs.dead]
+
+            if hasattr(self, '_death_delay') and self._death_delay > 0:
+                self._death_delay -= delta_time
+                if self._death_delay <= 0:
+                    self._death_screen.show()
+            return  # No more gameplay updates
 
         # ── Shake timer tick ────────────────────────────────────────────────
         if self._shake_timer > 0.0:
@@ -614,8 +682,16 @@ class GameView(arcade.View):
             spark.update(delta_time)
         self.hit_sparks = [s for s in self.hit_sparks if not s.dead]
 
+        # ── Advance fire sparks ────────────────────────────────────────────
+        for fs in self.fire_sparks:
+            fs.update(delta_time)
+        self.fire_sparks = [fs for fs in self.fire_sparks if not fs.dead]
+
     # ── Input ────────────────────────────────────────────────────────────────
     def on_key_press(self, key: int, modifiers: int) -> None:
+        if self._death_screen.active:
+            self._death_screen.on_key_press(key)
+            return
         if key == arcade.key.ESCAPE:
             if self._escape_menu.open:
                 # Let menu handle ESC (go back from sub-mode, or close)
@@ -641,10 +717,25 @@ class GameView(arcade.View):
 
     def on_mouse_press(self, x: int, y: int, button: int, modifiers: int) -> None:
         if button == arcade.MOUSE_BUTTON_LEFT:
+            if self._death_screen.active:
+                action = self._death_screen.on_mouse_press(x, y)
+                if action:
+                    self._handle_death_action(action)
+                return
             if self._escape_menu.open:
                 self._escape_menu.on_mouse_press(x, y)
             else:
                 self.inventory.on_mouse_press(x, y)
+
+    def _handle_death_action(self, action: str) -> None:
+        """Process an action string from the death screen."""
+        if action == "main_menu":
+            self._return_to_menu()
+        elif action == "exit":
+            arcade.exit()
+        elif action.startswith("load:"):
+            slot = int(action.split(":")[1])
+            self._load_game(slot)
 
     def on_mouse_drag(
         self, x: int, y: int, dx: int, dy: int, buttons: int, modifiers: int
@@ -673,6 +764,9 @@ class GameView(arcade.View):
                     )
 
     def on_mouse_motion(self, x: int, y: int, dx: int, dy: int) -> None:
+        if self._death_screen.active:
+            self._death_screen.on_mouse_motion(x, y)
+            return
         if self._escape_menu.open:
             self._escape_menu.on_mouse_motion(x, y)
         else:

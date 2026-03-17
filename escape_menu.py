@@ -121,12 +121,19 @@ class EscapeMenu:
             anchor_x="center", anchor_y="center",
         )
         self._t_slot_labels: list[arcade.Text] = []
+        self._t_slot_details: list[arcade.Text] = []
         for i in range(SAVE_SLOT_COUNT):
             sx, sy, sw, sh = self._slot_rects[i]
             self._t_slot_labels.append(arcade.Text(
                 "",
-                sx + 10, sy + sh // 2,
+                sx + 10, sy + sh - 10,
                 arcade.color.WHITE, 11,
+                anchor_x="left", anchor_y="center",
+            ))
+            self._t_slot_details.append(arcade.Text(
+                "",
+                sx + 10, sy + 10,
+                (160, 180, 200), 9,
                 anchor_x="left", anchor_y="center",
             ))
         bbx, bby, bbw, bbh = self._back_rect
@@ -178,7 +185,15 @@ class EscapeMenu:
                     with open(path, "r") as f:
                         data = json.load(f)
                     name = data.get("save_name", f"Save {i + 1}")
-                    self._slots.append({"name": name, "exists": True})
+                    player = data.get("player", {})
+                    self._slots.append({
+                        "name": name,
+                        "exists": True,
+                        "faction": data.get("faction", "?"),
+                        "ship_type": data.get("ship_type", "?"),
+                        "hp": player.get("hp", 0),
+                        "shields": player.get("shields", 0),
+                    })
                 except (json.JSONDecodeError, OSError):
                     self._slots.append({"name": "", "exists": False})
             else:
@@ -190,6 +205,14 @@ class EscapeMenu:
         if info["exists"]:
             return f"Slot {i + 1}: {info['name']}"
         return f"Slot {i + 1}: \u2014 Empty \u2014"
+
+    def _slot_detail(self, i: int) -> str:
+        """Build a detail line (faction / ship / HP / shields) for slot i."""
+        info = self._slots[i]
+        if not info.get("exists"):
+            return ""
+        return (f"{info.get('faction', '?')} \u00b7 {info.get('ship_type', '?')}"
+                f"  |  HP {info.get('hp', 0)}  Shields {info.get('shields', 0)}")
 
     # ── Public API ────────────────────────────────────────────────────
 
@@ -416,6 +439,15 @@ class EscapeMenu:
             self._t_slot_labels[i].text = self._slot_label(i)
             self._t_slot_labels[i].color = text_c
             self._t_slot_labels[i].draw()
+
+            detail = self._slot_detail(i)
+            if detail:
+                det_c = (120, 150, 180) if not (hovered and info["exists"]) else (140, 200, 240)
+                if self._mode == self.MODE_LOAD and not info["exists"]:
+                    det_c = (60, 60, 80)
+                self._t_slot_details[i].text = detail
+                self._t_slot_details[i].color = det_c
+                self._t_slot_details[i].draw()
 
         # Back button
         bbx, bby, bbw, bbh = self._back_rect

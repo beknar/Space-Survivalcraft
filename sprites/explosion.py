@@ -1,5 +1,8 @@
-"""Explosion animation and HitSpark visual effect."""
+"""Explosion animation, HitSpark, and FireSpark visual effects."""
 from __future__ import annotations
+
+import math
+import random
 
 import arcade
 
@@ -74,3 +77,69 @@ class HitSpark:
                 self.x, self.y, core_r,
                 (255, 255, 180, alpha),
             )
+
+
+class _FireParticle:
+    """A single fire particle that flies outward and fades."""
+
+    __slots__ = ("x", "y", "vx", "vy", "age", "lifetime", "size")
+
+    def __init__(self, x: float, y: float, angle: float, speed: float,
+                 lifetime: float, size: float) -> None:
+        self.x = x
+        self.y = y
+        self.vx = math.cos(angle) * speed
+        self.vy = math.sin(angle) * speed
+        self.age: float = 0.0
+        self.lifetime = lifetime
+        self.size = size
+
+
+class FireSpark:
+    """Spray of fire particles emitted when the player takes damage.
+
+    Creates PARTICLE_COUNT small particles that fly outward from the
+    impact point, transitioning from bright yellow to dark red over their
+    lifespan.
+    """
+
+    PARTICLE_COUNT: int = 12
+    DURATION: float = 0.35
+    MIN_SPEED: float = 60.0
+    MAX_SPEED: float = 180.0
+    MIN_SIZE: float = 2.0
+    MAX_SIZE: float = 5.0
+
+    def __init__(self, x: float, y: float) -> None:
+        self.dead: bool = False
+        self._particles: list[_FireParticle] = []
+        for _ in range(self.PARTICLE_COUNT):
+            angle = random.uniform(0, math.tau)
+            speed = random.uniform(self.MIN_SPEED, self.MAX_SPEED)
+            lifetime = random.uniform(self.DURATION * 0.5, self.DURATION)
+            size = random.uniform(self.MIN_SIZE, self.MAX_SIZE)
+            self._particles.append(_FireParticle(x, y, angle, speed, lifetime, size))
+
+    def update(self, dt: float) -> None:
+        alive = False
+        for p in self._particles:
+            p.age += dt
+            if p.age < p.lifetime:
+                p.x += p.vx * dt
+                p.y += p.vy * dt
+                alive = True
+        if not alive:
+            self.dead = True
+
+    def draw(self) -> None:
+        for p in self._particles:
+            if p.age >= p.lifetime:
+                continue
+            t = p.age / p.lifetime  # 0→1
+            alpha = int(255 * (1.0 - t))
+            # Yellow → Orange → Red transition
+            r = 255
+            g = int(255 * (1.0 - t * 0.85))  # 255→38
+            b = int(80 * (1.0 - t))           # 80→0
+            size = p.size * (1.0 - t * 0.5)
+            arcade.draw_circle_filled(p.x, p.y, size, (r, g, b, alpha))

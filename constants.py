@@ -232,8 +232,8 @@ MENU_BTN_GAP: int = 16
 
 # ── Save/Load slot sub-menu constants ─────────────────────────────────────
 SAVE_SLOT_COUNT: int = 10
-SAVE_MENU_W: int = 380
-SAVE_MENU_H: int = 490
-SAVE_SLOT_W: int = 340
-SAVE_SLOT_H: int = 30
+SAVE_MENU_W: int = 420
+SAVE_MENU_H: int = 590
+SAVE_SLOT_W: int = 380
+SAVE_SLOT_H: int = 42
 SAVE_SLOT_GAP: int = 6

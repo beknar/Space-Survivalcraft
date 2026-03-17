@@ -40,11 +40,12 @@ Space Survivalcraft/
 ├── collisions.py        # Collision handling — ship/asteroid/alien/projectile interactions
 ├── world_setup.py       # World population — asset loading, asteroid/alien spawning
 ├── escape_menu.py       # EscapeMenu class — pause menu overlay (save/load/quit)
+├── death_screen.py      # DeathScreen class — game over overlay (load/menu/exit)
 ├── inventory.py         # Inventory class — 5×5 cargo hold UI overlay
 ├── sprites/             # Sprite and game-object classes
 │   ├── __init__.py      # Re-exports all sprite classes
 │   ├── projectile.py    # Projectile + Weapon classes
-│   ├── explosion.py     # Explosion animation + HitSpark primitive effect
+│   ├── explosion.py     # Explosion, HitSpark, FireSpark visual effects
 │   ├── shield.py        # ShieldSprite — animated energy bubble
 │   ├── pickup.py        # IronPickup — collectible ore token
 │   ├── asteroid.py      # IronAsteroid — minable rock with shake effect
@@ -184,8 +185,21 @@ Each faction's sprite sheet is 1024×1024 (8 cols × 8 rows of 128×128 frames).
 - **Background music**: shuffled playlist of loop tracks from two music packs, played continuously during gameplay at `MUSIC_VOLUME` (0.35). When a track finishes, the next one starts automatically. Music is stopped when leaving `GameView` (loading a save or returning to the selection screen). The new `GameView` starts its own fresh shuffled playlist.
   - **Vol 1**: `MUSIC_VOL1_DIR` — `*[Action Loop].wav` and `*[Ambient Loop].wav` files (flat directory, ~30 loop tracks)
   - **Vol 2**: `MUSIC_VOL2_DIR` — `*_loop.wav` files inside subdirectories (10 loop tracks)
-  - Track collection: `collect_music_tracks()` in `world_setup.py` scans both directories with glob, shuffles, and pre-loads all tracks as `arcade.Sound` objects.
+  - Track collection: `collect_music_tracks()` in `world_setup.py` scans both directories with glob, shuffles, and pre-loads all tracks as `arcade.Sound` objects. Loaded sounds are cached at module level so returning to the splash screen is instant (only shuffle order changes).
   - Playback: `_play_next_track()` plays the current index and advances; `on_update()` checks `_music_player.playing` each frame and auto-advances when a track ends.
+- **Hull damage fire sparks** (`FireSpark`): when the player's hull (HP) takes damage (shields fully depleted or overflow), a spray of 12 fire particles is emitted from the ship position. Particles fly outward in random directions at 60–180 px/s, transitioning from bright yellow to dark red over 0.35 s. Drawn with `arcade.draw_circle_filled` primitives. Stored in `GameView.fire_sparks` list.
+- **Player death**: when HP reaches 0, `_trigger_player_death()` is called:
+  - A large explosion (2.5× scale, orange-tinted) spawns at the ship's position
+  - 5 additional `FireSpark` bursts spawn for dramatic effect
+  - Explosion sound plays
+  - Player ship and shield are hidden (`visible = False`)
+  - Thruster sound stops
+  - After a 1.5 s delay, the `DeathScreen` overlay appears
+- **Death screen** (`DeathScreen` in `death_screen.py`): modal overlay with "SHIP DESTROYED" title and the quote 'As the Elder Gamer says "git gud"'. Three buttons:
+  1. **Load Game** — opens a 10-slot load sub-screen (same layout as other load screens, with faction/ship/HP/shields details)
+  2. **Main Menu** — returns to the splash screen
+  3. **Exit Game** — quits the application
+  - All gameplay is frozen while the death screen is active; explosions and fire sparks still animate during the 1.5 s delay.
 
 #### Controls
 
@@ -225,7 +239,7 @@ Rotation speed: 150 °/s. Thrust: 250 px/s². Gamepad dead zone: 0.15.
 ##### Save Slots
 
 - **10 save slots**, stored as `saves/save_slot_01.json` through `saves/save_slot_10.json` in a `saves/` subdirectory (gitignored).
-- Each slot displays: `"Slot N: <name>"` or `"Slot N: — Empty —"`.
+- Each slot displays: `"Slot N: <name>"` or `"Slot N: — Empty —"`, with a detail line below showing the saved faction, ship type, HP, and shield values.
 - **Saving**: clicking a slot in save mode opens a naming overlay. Player types a name (max 24 chars), presses Enter to confirm. Existing slot names are pre-filled for overwriting. Blinking cursor at 0.5 s interval.
 - **Loading**: clicking an occupied slot in load mode immediately loads the game state. Empty slots are visually dimmed and non-clickable.
 - Slot metadata is refreshed from disk each time the save/load sub-menu is opened (`_refresh_slots()`).
