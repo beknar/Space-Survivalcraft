@@ -59,11 +59,48 @@ Space Survivalcraft/
 │   ├── explosion.py     # Explosion, HitSpark, FireSpark visual effects
 │   └── contrail.py      # ContrailParticle — engine exhaust particle effect
 │
+│  ── Unit tests ──
+├── unit tests/
+│   ├── conftest.py        # Shared fixtures (dummy_texture, dummy_texture_list)
+│   ├── test_constants.py  # FACTIONS, SHIP_TYPES, physics constants validation
+│   ├── test_settings.py   # AudioSettings defaults and mutation
+│   ├── test_world_setup.py # _track_name_from_path string parsing
+│   ├── test_player.py     # PlayerShip physics (rotation, thrust, damping, clamping)
+│   ├── test_projectile.py # Projectile movement + Weapon cooldown
+│   ├── test_asteroid.py   # IronAsteroid damage, shake, tint flash
+│   ├── test_alien.py      # SmallAlienShip AI states, damage, collision bump
+│   ├── test_pickup.py     # IronPickup fly-to-ship, collection, lifetime
+│   ├── test_shield.py     # ShieldSprite visibility, hit flash, animation
+│   ├── test_explosion.py  # Explosion, HitSpark, FireSpark lifecycle
+│   ├── test_contrail.py   # ContrailParticle lifecycle and colour interpolation
+│   ├── test_inventory.py  # Grid math, iron management, drag-and-drop, ejection
+│   └── test_damage.py     # Damage routing (shields → HP), death triggering
+│
 ├── assets/              # Art, sound, music (gitignored — not in repo)
 ├── saves/               # Save slot JSON files (gitignored)
 ├── dist/                # PyInstaller build output (gitignored)
 └── venv/                # Python virtual environment (gitignored)
 ```
+
+## Running Tests
+
+```bash
+# Activate virtual environment first
+venv\Scripts\activate.bat          # CMD
+# or
+source venv/Scripts/activate       # Git Bash / WSL
+
+# Run all tests with verbose output
+python -m pytest "unit tests/" -v
+
+# Run a specific test file
+python -m pytest "unit tests/test_player.py" -v
+
+# Run a specific test class or method
+python -m pytest "unit tests/test_player.py::TestThrust" -v
+```
+
+Tests use PIL-generated dummy textures to instantiate `arcade.Sprite` subclasses without requiring an `arcade.Window` or display. No game assets are needed. The only test dependency beyond the game's own requirements is `pytest`.
 
 ## Architectural Dependencies
 
