@@ -6,7 +6,7 @@ import os
 # ── Window / World ──────────────────────────────────────────────────────────
 SCREEN_WIDTH: int = 1280
 SCREEN_HEIGHT: int = 800
-SCREEN_TITLE: str = "Space Survivalcraft"
+SCREEN_TITLE: str = "Call of Orion"
 
 STATUS_WIDTH: int = 213          # Left status panel width (~1/6 of screen)
 WORLD_WIDTH: int = 6400          # 200 x 32-px tiles

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import random
 
 import arcade
 
@@ -18,6 +19,59 @@ _BTN_GAP = 16
 _BTN_LABELS = ["Load Game", "Main Menu", "Exit Game"]
 
 _SAVE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "saves")
+
+_DEATH_QUOTES = [
+    "The void doesn't judge. It just... collects.",
+    "Your ship called. It wants a better pilot.",
+    "That wasn't flying — that was falling with extra steps.",
+    "Space debris now. How the mighty have fallen.",
+    "At least you died doing what you loved: exploding.",
+    "Your insurance premiums just went through the hull.",
+    "Plot twist: the asteroids were the main characters all along.",
+    "Maybe try diplomacy next time? Oh wait, they're rocks.",
+    "You zigged when you should have zagged. And also when you should have zigged.",
+    "Your ship has been promoted to scrap metal.",
+    "Fun fact: shields work better when they're not at zero.",
+    "The aliens wanted to say thanks for the target practice.",
+    "That explosion was almost pretty. Almost.",
+    "Somewhere, a shipyard accountant just had a panic attack.",
+    "You fought bravely. Briefly, but bravely.",
+    "Have you considered a career in something less... explode-y?",
+    "Your contribution to the asteroid belt has been noted.",
+    "The cosmos giveth, and the cosmos bloweth up.",
+    "Captain's log, final entry: 'What does this button d—'",
+    "That's one small step for debris, one giant cloud for mankind.",
+    "Breaking news: local pilot discovers asteroids are, in fact, solid.",
+    "Error 404: Ship not found.",
+    "Achievement unlocked: Rapid Unplanned Disassembly.",
+    "The stars will remember you. Briefly.",
+    "You've successfully converted a spaceship into modern art.",
+    "Don't worry, space is big. There's room for another attempt.",
+    "Your fuel efficiency is now infinite. Silver linings!",
+    "Narrator: It was, in fact, not a shortcut.",
+    "The alien scouts have updated their kill count. You're welcome.",
+    "In space, no one can hear you ragequit.",
+    "Remember: the brake pedal is the other one.",
+    "Your autopilot filed for divorce.",
+    "Today's forecast: scattered ship parts with a chance of regret.",
+    "The good news? You found every asteroid in the sector.",
+    "Tip: the red bar going down is generally considered bad.",
+    "Your ship disassembled itself in protest.",
+    "Looks like the aliens won this round of rock-paper-laser.",
+    "That was either very brave or very foolish. Spoiler: it was the second one.",
+    "You've been voted 'Most Likely to Respawn' by the alien council.",
+    "Your shield generator is filing a complaint with HR.",
+    "You turned a perfectly good spaceship into a fireworks show.",
+    "Evasive manoeuvres are only effective when you actually... manoeuvre.",
+    "The wreckage will make a lovely reef. In space. A space reef.",
+    "Your cargo of iron has been donated to the void. How generous.",
+    "Mission report: ship status — crunchy.",
+    "The aliens send their regards. And also lasers.",
+    "On the bright side, you'll never have to refuel again.",
+    "They say space is cold, but that explosion looked pretty warm.",
+    "Consider this a learning experience. An expensive one.",
+    "Your ship has achieved room temperature. In space. Impressive.",
+]
 
 
 class DeathScreen:
@@ -58,7 +112,7 @@ class DeathScreen:
             anchor_x="center", anchor_y="center",
         )
         self._t_quote = arcade.Text(
-            'As the Elder Gamer says "git gud"',
+            random.choice(_DEATH_QUOTES),
             SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 40,
             (200, 180, 140), 14, italic=True,
             anchor_x="center", anchor_y="center",
@@ -101,6 +155,7 @@ class DeathScreen:
         self.active = True
         self._hover_idx = -1
         self._show_load = False
+        self._t_quote.text = random.choice(_DEATH_QUOTES)
 
     # ── Load slot helpers ──────────────────────────────────────────────
 
