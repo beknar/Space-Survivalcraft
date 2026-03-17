@@ -20,8 +20,8 @@ from constants import (
     EJECT_DIST, WORLD_ITEM_LIFETIME,
     CONTRAIL_MAX_PARTICLES, CONTRAIL_SPAWN_RATE, CONTRAIL_LIFETIME,
     CONTRAIL_START_SIZE, CONTRAIL_END_SIZE, CONTRAIL_OFFSET, CONTRAIL_COLOURS,
-    MUSIC_VOLUME,
 )
+from settings import audio
 from sprites.projectile import Weapon
 from sprites.explosion import Explosion, HitSpark
 from sprites.pickup import IronPickup
@@ -170,7 +170,7 @@ class GameView(arcade.View):
             return
         track, name = self._music_tracks[self._music_idx]
         self._current_track_name = name
-        self._music_player = arcade.play_sound(track, volume=MUSIC_VOLUME)
+        self._music_player = arcade.play_sound(track, volume=audio.music_volume)
         self._music_idx = (self._music_idx + 1) % len(self._music_tracks)
 
     def _stop_music(self) -> None:
@@ -359,14 +359,14 @@ class GameView(arcade.View):
         self.window.show_view(view)
 
     def _return_to_menu(self) -> None:
-        """Return to the faction/ship selection screen."""
+        """Return to the splash / title screen."""
         # Stop sounds
         if self._thruster_player is not None:
             arcade.stop_sound(self._thruster_player)
             self._thruster_player = None
         self._stop_music()
-        from selection_view import SelectionView
-        self.window.show_view(SelectionView())
+        from splash_view import SplashView
+        self.window.show_view(SplashView())
 
     # ── Drawing ──────────────────────────────────────────────────────────────
     def on_draw(self) -> None:
