@@ -29,11 +29,18 @@ class OptionsView(arcade.View):
 
         self._dragging: str = ""  # "music", "sfx", or ""
         self._hover_back: bool = False
+        self._hover_exit: bool = False
 
-        # ── Button rect (Main Menu) ────────────────────────────────────
+        # ── Button rects ─────────────────────────────────────────────
         self._back_rect = (
             (SCREEN_WIDTH - _BTN_W) // 2,
             SCREEN_HEIGHT // 2 - 140,
+            _BTN_W,
+            _BTN_H,
+        )
+        self._exit_rect = (
+            (SCREEN_WIDTH - _BTN_W) // 2,
+            SCREEN_HEIGHT // 2 - 140 - _BTN_H - 16,
             _BTN_W,
             _BTN_H,
         )
@@ -78,6 +85,13 @@ class OptionsView(arcade.View):
             arcade.color.WHITE, 15, bold=True,
             anchor_x="center", anchor_y="center",
         )
+        ex, ey, ew, eh = self._exit_rect
+        self._t_exit = arcade.Text(
+            "Exit Game",
+            ex + ew // 2, ey + eh // 2,
+            arcade.color.WHITE, 15, bold=True,
+            anchor_x="center", anchor_y="center",
+        )
 
     # ── Drawing ────────────────────────────────────────────────────────
 
@@ -117,6 +131,19 @@ class OptionsView(arcade.View):
         )
         self._t_back.draw()
 
+        # Exit Game button
+        ex, ey, ew, eh = self._exit_rect
+        bg_e = (50, 80, 140, 255) if self._hover_exit else (25, 35, 70, 230)
+        arcade.draw_rect_filled(arcade.LBWH(ex, ey, ew, eh), bg_e)
+        outline_e = arcade.color.CYAN if self._hover_exit else arcade.color.STEEL_BLUE
+        arcade.draw_rect_outline(
+            arcade.LBWH(ex, ey, ew, eh), outline_e, border_width=2,
+        )
+        self._t_exit.color = (
+            arcade.color.CYAN if self._hover_exit else arcade.color.WHITE
+        )
+        self._t_exit.draw()
+
     def _draw_slider(self, y: int, value: float) -> None:
         """Draw a horizontal slider track + knob at the given y position."""
         # Track background
@@ -144,6 +171,8 @@ class OptionsView(arcade.View):
             return
         bx, by, bw, bh = self._back_rect
         self._hover_back = (bx <= x <= bx + bw and by <= y <= by + bh)
+        ex, ey, ew, eh = self._exit_rect
+        self._hover_exit = (ex <= x <= ex + ew and ey <= y <= ey + eh)
 
     def on_mouse_press(self, x: int, y: int, button: int, modifiers: int) -> None:
         # Check if clicking on a slider knob or track
@@ -162,6 +191,12 @@ class OptionsView(arcade.View):
             arcade.play_sound(self._click_snd, volume=audio.sfx_volume)
             from splash_view import SplashView
             self.window.show_view(SplashView())
+            return
+
+        # Exit Game button
+        ex, ey, ew, eh = self._exit_rect
+        if ex <= x <= ex + ew and ey <= y <= ey + eh:
+            arcade.exit()
 
     def on_mouse_release(self, x: int, y: int, button: int, modifiers: int) -> None:
         self._dragging = ""

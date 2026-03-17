@@ -20,7 +20,7 @@ from world_setup import collect_music_tracks
 _BTN_W = 260
 _BTN_H = 48
 _BTN_GAP = 20
-_BTN_LABELS = ["Play Now", "Load Game", "Options"]
+_BTN_LABELS = ["Play Now", "Load Game", "Options", "Exit Game"]
 
 _SAVE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "saves")
 
@@ -354,6 +354,8 @@ class SplashView(arcade.View):
             self._stop_music()
             from options_view import OptionsView
             self.window.show_view(OptionsView())
+        elif label == "Exit Game":
+            arcade.exit()
 
     def _handle_load_click(self, x: int, y: int) -> None:
         arcade.play_sound(self._click_snd, volume=audio.sfx_volume)

@@ -32,8 +32,8 @@ Space Survivalcraft/
 ├── main.py              # Entry point only — creates window, starts SplashView
 ├── constants.py         # All game constants (window, physics, assets, factions, ship types)
 ├── settings.py          # Global runtime audio settings (AudioSettings singleton)
-├── splash_view.py       # SplashView — title screen with Play/Load/Options buttons
-├── options_view.py      # OptionsView — music + SFX volume sliders
+├── splash_view.py       # SplashView — title screen with Play/Load/Options/Exit buttons
+├── options_view.py      # OptionsView — music + SFX volume sliders + Exit Game
 ├── selection_view.py    # SelectionView — faction + ship type choice screen
 ├── game_view.py         # GameView (arcade.View) — core gameplay loop, drawing, input
 ├── hud.py               # HUD class — status panel, mini-map, faction/ship labels
@@ -68,7 +68,7 @@ python main.py
 
 The game opens to a title screen displaying "CALL OF ORION" with a subtitle. Background music plays from the same shuffled loop-track playlist used during gameplay, with the current track name shown at the bottom of the screen.
 
-- **Buttons**: "Play Now" (→ `SelectionView`), "Load Game" (opens 10-slot load sub-screen), "Options" (→ `OptionsView`).
+- **Buttons**: "Play Now" (→ `SelectionView`), "Load Game" (opens 10-slot load sub-screen), "Options" (→ `OptionsView`), "Exit Game" (quits the application).
 - **Load Game sub-screen**: identical slot layout to the in-game escape menu load screen. Clicking an occupied slot loads the saved game directly into `GameView`. Empty slots are dimmed and non-clickable. Back button returns to the main splash buttons.
 - **Starfield background**: procedural decorative star dots seeded with a fixed RNG for consistency.
 - **Music**: uses `collect_music_tracks()` from `world_setup.py`; auto-advances when a track finishes.
@@ -82,6 +82,7 @@ Accessible from the splash screen "Options" button. Contains two horizontal slid
 - **Music Volume** slider (0–100%) — adjusts `audio.music_volume` in the global `AudioSettings` singleton (`settings.py`). Affects all music playback across views.
 - **Sound Effects Volume** slider (0–100%) — adjusts `audio.sfx_volume`. Available for SFX playback to reference.
 - **Main Menu** button returns to the splash screen.
+- **Exit Game** button quits the application.
 - Sliders are draggable: click and drag the knob or click anywhere on the track to set the value.
 - Volume settings are stored in memory for the current session (not persisted to disk).
 
