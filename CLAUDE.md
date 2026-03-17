@@ -29,6 +29,7 @@ The codebase is split into focused modules for maintainability:
 
 ```
 Space Survivalcraft/
+├── game-rules.md        # Comprehensive game rules, features, stats, and asset reference
 ├── main.py              # Entry point only — creates window, starts SplashView
 ├── constants.py         # All game constants (window, physics, assets, factions, ship types)
 ├── settings.py          # Global runtime audio settings (AudioSettings singleton)

@@ -1,0 +1,525 @@
+# Call of Orion — Game Rules & Reference
+
+## Overview
+
+**Call of Orion** (working title: *Space Survivalcraft*) is a top-down space survival game built with Python and the Arcade framework. Players pilot a customisable spaceship through a vast star field, mine asteroids for resources, fight alien enemies, and manage a cargo inventory. The game features Newtonian physics, multiple ship classes, a weapon system, and a full save/load system.
+
+---
+
+## Game Features
+
+- **Faction & ship selection** — choose from 4 factions and 5 ship types, each with unique stats
+- **Newtonian flight model** — thrust, braking, velocity damping, and speed caps
+- **Energy shields** — absorb damage before hull HP; regenerate over time
+- **Two weapon types** — Basic Laser (combat) and Mining Beam (resource gathering)
+- **Asteroid mining** — destroy iron asteroids to collect ore
+- **5 x 5 cargo inventory** — drag-and-drop grid with item ejection into the game world
+- **Enemy AI** — alien scout ships that patrol, detect, pursue, and fire
+- **Collision physics** — elastic bounces with push-out resolution for all object pairs
+- **Full HUD** — HP/shield bars, speed, heading, weapon indicator, mini-map, music track
+- **Save/load system** — 10 named save slots preserving full game state
+- **Background music** — shuffled playlist of loop tracks from two music packs
+- **Gamepad support** — Xbox 360 controller with analogue stick and button mapping
+- **Visual effects** — explosions, hit sparks, fire sparks, shield flashes, engine contrails
+- **Death & respawn** — dramatic destruction sequence with death screen and load options
+
+---
+
+## The Battlefield
+
+| Property | Value |
+|---|---|
+| World size | 6,400 x 6,400 px (200 x 200 tiles of 32 px) |
+| Window resolution | 1,280 x 800 px |
+| Status panel width | 213 px (left side) |
+| Gameplay viewport | 1,067 x 800 px |
+| Background | Tiled seamless starfield (1,024 x 1,024 px tiles) |
+| Camera | Follows player, clamped at world edges |
+| Player start position | World centre (3,200, 3,200) |
+
+---
+
+## Factions
+
+Players choose one of four factions. Each faction provides a unique visual style through its sprite sheet; all factions share the same ship-type stats.
+
+| Faction | Description |
+|---|---|
+| **Earth** | Terran standard-issue fleet |
+| **Colonial** | Frontier colony ships |
+| **Heavy World** | High-gravity adapted vessels |
+| **Ascended** | Advanced civilisation technology |
+
+Each faction sprite sheet is a 1,024 x 1,024 px grid (8 columns x 8 rows of 128 x 128 px frames). Column 0 is the starting (un-upgraded) ship.
+
+---
+
+## Player Ships
+
+All ships start at world centre (3,200, 3,200). Ships are rendered at 0.75x scale (128 x 0.75 = 96 px in-game). Collision radius is 28 px. Projectiles spawn 44 px ahead of the ship centre (nose offset).
+
+### Ship Type Statistics
+
+| Ship Type | Sheet Row | HP | Shields | Shield Regen | Rotation | Thrust | Brake | Max Speed | Damping | Guns |
+|---|---|---|---|---|---|---|---|---|---|---|
+| **Cruiser** | 8 | 100 | 100 | 0.5 pt/s | 150 deg/s | 250 px/s^2 | 125 px/s^2 | 450 px/s | 0.98875x | 1 |
+| **Bastion** | 7 | 150 | 50 | 0.5 pt/s | 150 deg/s | 200 px/s^2 | 125 px/s^2 | 450 px/s | 0.98875x | 1 |
+| **Aegis** | 6 | 50 | 150 | 1.0 pt/s | 100 deg/s | 250 px/s^2 | 125 px/s^2 | 450 px/s | 0.98875x | 1 |
+| **Striker** | 5 | 100 | 50 | 0.5 pt/s | 150 deg/s | 300 px/s^2 | 100 px/s^2 | 450 px/s | 0.983125x | 1 |
+| **Thunderbolt** | 4 | 100 | 100 | 0.5 pt/s | 150 deg/s | 200 px/s^2 | 125 px/s^2 | 400 px/s | 0.98875x | 2 |
+
+### Ship Type Profiles
+
+- **Cruiser** — balanced all-rounder with equal HP and shields
+- **Bastion** — tanky hull (150 HP) at the cost of weaker shields (50)
+- **Aegis** — shield specialist (150 shields, 1.0 pt/s regen) with fragile hull (50 HP) and slower turning (100 deg/s)
+- **Striker** — speed-focused (300 thrust, lower damping) with reduced shields (50) and weaker brakes (100)
+- **Thunderbolt** — dual-gun ship firing two projectiles simultaneously; lower top speed (400) and thrust (200) as trade-off
+
+### Engine Contrail Colours
+
+Each ship type has a unique engine exhaust colour:
+
+| Ship Type | Start Colour | End Colour |
+|---|---|---|
+| Cruiser | Blue (100, 180, 255) | Dark Blue (20, 40, 120) |
+| Bastion | Orange (255, 200, 80) | Dark Orange (120, 60, 10) |
+| Aegis | Green (80, 255, 180) | Dark Green (10, 80, 50) |
+| Striker | Red (255, 100, 100) | Dark Red (120, 20, 20) |
+| Thunderbolt | Purple (200, 120, 255) | Dark Purple (60, 20, 100) |
+
+Contrail particles spawn at 30/s (max 20 particles), 30 px behind ship centre. Each particle lives 0.5 s, shrinking from 6 px to 1 px radius while fading and transitioning between the two colours.
+
+---
+
+## Shields
+
+| Property | Value |
+|---|---|
+| Visual | Animated cyan energy bubble (6 frames, 280 x 280 px each, displayed at 0.5x scale = 140 px) |
+| Animation | 8 fps frame cycling + 25 deg/s rotation |
+| Normal alpha | 200/255 (slightly transparent) |
+| Hit flash | Alpha pulses to 255 for 0.25 s on damage absorption |
+| Depleted | Fully invisible (alpha 0); reappears when regen brings shields above 0 |
+| Regeneration | Fractional accumulation; whole points applied per frame |
+
+All incoming damage is routed through shields first. Overflow damage carries into HP.
+
+---
+
+## Weapons
+
+All ships start with both weapons. The Thunderbolt has 2 guns, so it gets 2x Basic Laser and 2x Mining Beam. Weapons are cycled with Tab (keyboard) or RB (gamepad).
+
+### Weapon Statistics
+
+| Weapon | Damage | Cooldown | Speed | Range | Targets | Auto-fire |
+|---|---|---|---|---|---|---|
+| **Basic Laser** | 25 | 0.30 s | 900 px/s | 1,200 px | Alien ships only | Yes (hold Space/A) |
+| **Mining Beam** | 10 | 0.10 s | 500 px/s | 800 px | Asteroids only | Yes (hold Space/A) |
+
+### Weapon Behaviour
+
+- **Basic Laser** deals damage only to alien ships; passes through asteroids with no effect
+- **Mining Beam** deals damage only to asteroids; passes through aliens with no effect
+- Projectiles despawn when they exceed their max range or leave the world boundary
+- Sound is throttled to a minimum 0.15 s interval to prevent audio stutter from rapid fire
+- Dual-gun ships fire from two laterally-offset hardpoints (10 px left/right of nose axis)
+
+---
+
+## Game Objects
+
+### Iron Asteroids
+
+| Property | Value |
+|---|---|
+| Count | 50 (randomly distributed) |
+| HP | 100 |
+| Iron yield | 10 per asteroid |
+| Sprite size | 64 x 64 px at 1.0x scale |
+| Collision radius | 26 px |
+| Spin rate | 8-30 deg/s (random direction) |
+| Min spawn distance | 400 px from world centre |
+| Edge margin | 100 px from world edges |
+
+**Mining mechanics:**
+- Only the Mining Beam deals damage (10 per hit)
+- Each hit triggers a shake effect (4 px amplitude, 0.20 s) and orange-red tint flash
+- On destruction: explosion animation + sound, drops one Iron Pickup at the destruction site
+
+### Iron Pickups
+
+| Property | Value |
+|---|---|
+| Icon scale | 0.5x |
+| Amount per pickup | 10 iron |
+| Pickup trigger distance | 40 px from ship hull edge (68 px from ship centre) |
+| Fly-to-ship speed | 400 px/s |
+| Ejected item lifetime | 600 s (10 minutes) before silent despawn |
+| Ejection distance | 60 px from ship hull edge (88 px from ship centre) |
+
+Pickups idle at their drop position until the ship's hull edge comes within 40 px, then fly toward the ship. On contact, the pickup is collected and added to inventory.
+
+### Small Alien Ships
+
+| Property | Value |
+|---|---|
+| Count | 20 (randomly distributed) |
+| HP | 50 |
+| Collision radius | 20 px |
+| Movement speed | 120 px/s (patrol and pursuit) |
+| Display scale | 0.10x |
+| Min spawn distance | 400 px from world centre |
+| Edge margin | 100 px from world edges |
+
+#### Alien Weapon
+
+| Property | Value |
+|---|---|
+| Laser damage | 10 per hit |
+| Laser range | 500 px |
+| Laser speed | 650 px/s |
+| Fire cooldown | 1.5 s |
+| Laser scale | 0.5x |
+
+#### AI Behaviour
+
+**PATROL state:**
+- Circles a random point within 100-150 px of its spawn position
+- Picks a new waypoint each time it arrives within 8 px
+- Takes no hostile action
+
+**PURSUE state (triggered when player enters 500 px):**
+- Chases the player at 120 px/s
+- Fires laser bolts along its current heading every 1.5 s when player is within 500 px
+- Fire cooldown resets to 0 on first detection (immediate first shot)
+- Steers around obstacles (asteroids and other aliens) using avoidance blending
+- Avoidance radius: 65 px beyond obstacle edge; avoidance force weight: 2.5x
+
+**Leash:** Returns to PATROL if the player moves beyond 1,500 px (3x detection range)
+
+#### Known AI Weaknesses
+- No coordinated group behaviour — each ship acts independently
+- No flanking or encirclement
+- Fires only along its heading; strafing perpendicular to an incoming alien dodges most shots
+- No stand-off sniping behaviour
+
+#### Alien Collision Physics
+
+| Property | Value |
+|---|---|
+| Bounce restitution | 0.65 |
+| Velocity damping | 0.97x per frame (at 60 fps, frame-rate independent) |
+| Collision cooldown | 0.40 s |
+| Bump flash colour | Orange (255, 160, 50) for 0.15 s |
+| Weapon hit flash | Red (255, 80, 80) for 0.15 s (takes priority over bump flash) |
+
+---
+
+## Collision Rules
+
+### Player vs Asteroid
+- Push-out along collision normal (no interpenetration)
+- Velocity bounce with 0.55 restitution (only when moving toward asteroid)
+- 5 damage per collision (shields first, then HP)
+- 0.5 s invincibility cooldown prevents per-frame damage stacking
+- Triggers camera shake (8 px amplitude, 0.25 s) and bump sound
+
+### Player vs Alien Ship
+- 50/50 push-apart along collision normal
+- Velocity bounce using relative velocity (0.65 restitution)
+- 5 damage to player (shields first, then HP)
+- Alien gets orange bump flash
+- Player collision cooldown: 0.5 s; alien collision cooldown: 0.40 s
+
+### Alien vs Asteroid
+- Alien pushed fully away from static asteroid
+- Velocity reflected off asteroid normal
+- Orange bump flash on alien
+
+### Alien vs Alien
+- O(n^2) pair check
+- 50/50 push-apart
+- Equal-mass velocity exchange
+- Both get orange bump flash
+
+### Player Projectile vs Asteroid (Mining Beam only)
+- HitSpark effect at impact point
+- 10 damage per hit
+- Asteroid shake + orange-red tint flash
+- On asteroid destruction: explosion + iron pickup spawn
+
+### Player Projectile vs Alien (Basic Laser only)
+- HitSpark effect at impact point
+- 25 damage per hit
+- Camera shake
+- Red tint flash on alien (0.15 s)
+- On alien destruction: explosion + sound
+
+### Alien Laser vs Player
+- 10 damage per hit (shields first, then HP)
+- Camera shake + bump sound
+- Bolt removed on contact
+
+---
+
+## Damage & Death
+
+### Damage Flow
+1. All damage routes through shields first
+2. Shields absorb up to their remaining value; overflow carries into HP
+3. Shield visual flashes bright on absorption
+4. When hull (HP) takes direct damage, fire sparks emit from the ship
+
+### Fire Sparks
+- 12 particles per burst
+- Fly outward in random directions at 60-180 px/s
+- Transition from bright yellow to dark red over 0.35 s
+- Particle size: 2-5 px radius, shrinking over lifetime
+
+### Player Death
+When HP reaches 0:
+1. Large explosion (2.5x scale, orange-tinted) at ship position
+2. 5 additional fire spark bursts
+3. Explosion sound plays
+4. Ship and shield become invisible
+5. Thruster sound stops
+6. After 1.5 s delay, death screen appears
+
+### Death Screen
+- Title: "SHIP DESTROYED"
+- Quote: 'As the Elder Gamer says "git gud"'
+- Three buttons: **Load Game**, **Main Menu**, **Exit Game**
+- Gameplay is frozen; explosions and fire sparks still animate during the 1.5 s delay
+
+---
+
+## Visual Effects
+
+### Explosions
+- 9 frames, 140 x 140 px each, played at 15 fps
+- Used for asteroid destruction (1.0x scale) and player death (2.5x scale, orange-tinted)
+
+### Hit Sparks
+- Expanding ring + fading bright core
+- Duration: 0.18 s, max radius: 28 px
+- Ring colour: (255, 200, 80) with fading alpha
+- Core colour: (255, 255, 180) shrinking with time
+
+### Camera Shake
+- Duration: 0.25 s, amplitude: 8 px
+- Fades linearly to zero
+- Triggered by: hull collisions, alien hits on player, player hits on aliens
+
+---
+
+## Controls
+
+### Keyboard
+
+| Action | Keys |
+|---|---|
+| Rotate left | Left Arrow / A |
+| Rotate right | Right Arrow / D |
+| Thrust forward | Up Arrow / W |
+| Brake / reverse | Down Arrow / S |
+| Fire active weapon | Space (hold for auto-fire) |
+| Cycle weapon | Tab |
+| Open/close inventory | I |
+| Toggle FPS display | F |
+| Escape menu | Escape |
+
+### Xbox 360 Gamepad
+
+| Action | Input |
+|---|---|
+| Rotate | Left stick horizontal |
+| Thrust / Brake | Left stick vertical |
+| Fire | A button (hold for auto-fire) |
+| Cycle weapon | Right bumper (RB) |
+| Open/close inventory | Y button |
+
+Gamepad dead zone: 0.15
+
+---
+
+## Inventory
+
+- 5 x 5 grid (25 slots)
+- Toggled with I (keyboard) or Y (gamepad)
+- Modal overlay; does **not** pause gameplay
+- Iron is tracked as a stackable count in a single cell (default position: 0,0)
+
+### Drag & Drop
+- Left-click an occupied cell to pick up; drag to a new cell to move
+- Source cell highlighted yellow; drop target highlighted blue
+- Dropping inside the panel but outside the grid returns item to source
+- Dropping **outside** the panel ejects the item into the game world
+
+### Ejection
+- Items spawn 60 px from the ship's hull edge in a random direction
+- Placed safely outside the 40 px auto-pickup zone to prevent immediate re-collection
+- Ejected items despawn after 600 seconds (10 minutes)
+
+---
+
+## HUD Status Panel
+
+The left-side panel (213 px wide) displays:
+
+| Element | Description |
+|---|---|
+| HP bar | Green > orange > red as HP falls; numerical value below |
+| Shield bar | Cyan bar; numerical value below |
+| Speed readout | Current velocity in px/s |
+| Heading readout | Current heading in degrees |
+| Iron count | Current iron ore in inventory |
+| Active weapon | Name of the selected weapon group |
+| Controls reference | Keyboard shortcut reminders |
+| Gamepad status | "Gamepad: connected" when detected |
+| Faction / Ship type | Current faction and ship labels |
+| Now Playing | Current music track name |
+| FPS counter | Smoothed exponential moving average (toggle with F) |
+| Mini-map | Full world overview (193 x 193 px) |
+
+### Mini-map Legend
+- **Grey dots** — asteroids
+- **Orange dots** — iron pickups
+- **Red dots** — alien ships
+- **White dot + cyan heading line** — player ship
+
+---
+
+## Screens & Navigation
+
+### Splash Screen (Title)
+- Displays "CALL OF ORION" with subtitle "A Space Survival Saga"
+- Background music with track name at bottom
+- Decorative starfield (procedural, fixed seed)
+- **Buttons:** Play Now, Load Game, Options, Exit Game
+- ESC exits the application
+
+### Options Screen
+- Music Volume slider (0-100%)
+- Sound Effects Volume slider (0-100%)
+- **Buttons:** Main Menu, Exit Game
+- Volume stored in memory for current session (not persisted to disk)
+
+### Selection Screen
+- Phase 1: Choose faction (Left/Right or A/D to browse, Enter/Space to confirm)
+- Phase 2: Choose ship type (same controls)
+- ESC goes back
+- UI sounds on navigation and confirmation
+- Preview images: 128 px source upscaled 1.5x to 192 px using nearest-neighbour resampling
+
+### Escape Menu (In-Game)
+- Toggled with ESC (if inventory is open, first ESC closes inventory)
+- Semi-transparent dark overlay with centred panel (320 x 340 px)
+- **Pauses all gameplay** while open
+- **Buttons:** Resume, Save Game, Load Game, Main Menu, Exit Game
+- 10 save slots with naming overlay (max 24 characters, blinking cursor)
+- Status feedback messages displayed for 2 seconds
+- ESC in sub-menus returns to main menu; ESC in main menu closes overlay
+
+---
+
+## Save System
+
+- 10 save slots stored as JSON files in `saves/` directory
+- File naming: `save_slot_01.json` through `save_slot_10.json`
+
+### Saved Data
+- Save name (player-chosen label)
+- Faction and ship type
+- Player state: position, heading, velocity, HP, shields, shield accumulator
+- Active weapon index
+- Inventory iron count
+- All surviving asteroids: position, HP
+- All surviving aliens: position, HP, velocity, heading, AI state, home position
+- All iron pickups: position, amount
+
+### Save Slot Display
+Each slot shows:
+- Slot number and save name (or "Empty")
+- Detail line: faction, ship type, HP, shields
+
+---
+
+## Music System
+
+Background music plays continuously across all screens.
+
+### Track Sources
+- **Vol 1:** Action Loop and Ambient Loop WAV files (~30 tracks)
+- **Vol 2:** Loop WAV files in subdirectories (10 tracks)
+
+### Playback
+- Tracks are shuffled on each playlist creation
+- Auto-advances when a track finishes
+- Loaded sounds cached at module level for instant screen transitions
+- Volume controlled by global AudioSettings singleton (default: 0.35)
+
+---
+
+## Audio Settings
+
+| Setting | Default | Range |
+|---|---|---|
+| Music volume | 0.35 (35%) | 0.0 - 1.0 |
+| SFX volume | 0.60 (60%) | 0.0 - 1.0 |
+
+Stored in memory via the `AudioSettings` singleton in `settings.py`. Not persisted to disk.
+
+---
+
+## Asset Paths
+
+### Graphical Assets
+
+| Asset | Path |
+|---|---|
+| Starfield background | `assets/SBS - Seamless Space Backgrounds - Large 1024x1024/Large 1024x1024/Starfields/Starfield_01-1024x1024.png` |
+| Faction 1 (Earth) ships | `assets/256Spaceships/faction_1_ships_128x128.png` |
+| Faction 2 (Colonial) ships | `assets/256Spaceships/faction_2_ships_128x128.png` |
+| Faction 5 (Heavy World) ships | `assets/256Spaceships/faction_5_ships_128x128.png` |
+| Faction 7 (Ascended) ships | `assets/256Spaceships/faction_7_ships_128x128.png` |
+| Legacy player sprite | `assets/ShmupAssets_V1/shmup_player.png` |
+| Basic Laser projectile | `assets/kenney space combat assets/Space Shooter Redux/PNG/Lasers/laserBlue03.png` |
+| Mining Beam projectile | `assets/kenney space combat assets/Space Shooter Redux/PNG/Lasers/laserGreen13.png` |
+| Iron Asteroid | `assets/Pixel Art Space/Asteroid.png` (64 x 64 px) |
+| Iron ore pickup icon | `assets/kenney space combat assets/Voxel Pack/PNG/Items/ore_ironAlt.png` |
+| Explosion sprite sheet | `assets/gamedevmarket assets/asteroids crusher/Explosions/PNG/explosion.png` (9 frames, 140 x 140 px each) |
+| Shield sprite sheet | `assets/gamedevmarket assets/asteroids crusher/Weapons/PNG/shield_frames.png` (6 frames, 3 cols x 2 rows, 280 x 280 px each) |
+| Small Alien ship | `assets/gamedevmarket assets/alien spaceship creation kit/png/Ship.png` (PIL crop: x=364, y=305, w=461, h=510) |
+| Alien laser bolt | `assets/gamedevmarket assets/alien spaceship creation kit/png/Effects.png` (PIL crop: x=4299, y=82, w=60, h=228; rotated 90 deg CCW) |
+
+### Sound Effects
+
+| Sound | Path |
+|---|---|
+| Basic Laser fire | `assets/Sci Fi Sound Effects Bundle/Stormwave Audio Sci-Fi Sound Effects Bundle/Weapons/Energy Weapons/Small Laser Weapon Shot 1.wav` |
+| Mining Beam fire | `assets/Sci Fi Sound Effects Bundle/Stormwave Audio Sci-Fi Sound Effects Bundle/Weapons/Energy Weapons/Sci-Fi Arc Emitter Weapon Shot 2.wav` |
+| Explosion | `assets/Sci Fi Sound Effects Bundle/Stormwave Audio Sci-Fi Sound Effects Bundle/Weapons/Explosions/Sci-Fi Deep Explosion 1.wav` |
+| Hull collision bump | `assets/Sci Fi Sound Effects Bundle/Stormwave Audio Sci-Fi Sound Effects Bundle/Biomechanical/Game Biomechanical Impact Sound 1.wav` |
+| Thruster engine loop | `assets/Sci Fi Sound Effects Bundle/Stormwave Audio Sci-Fi Sound Effects Bundle/Vehicles/Sci-Fi Spaceship Engine Loop 1.wav` |
+| UI click / confirm | `assets/Sci Fi Sound Effects Bundle/Stormwave Audio Sci-Fi Sound Effects Bundle/Interface/Other Interface/Sci-Fi Interface Simple Notification 2.wav` |
+| UI navigation ping | `assets/Sci Fi Sound Effects Bundle/Stormwave Audio Sci-Fi Sound Effects Bundle/Interface/Other Interface/Sci-Fi Interface Simple Notification 1.wav` |
+| Escape menu click | `assets/Sci Fi Sound Effects Bundle/Stormwave Audio Sci-Fi Sound Effects Bundle/Interface/Other Interface/Sci-Fi Spaceship Interface Mechanical Switch 1.wav` |
+
+### Music
+
+| Pack | Directory | Pattern |
+|---|---|---|
+| Vol 1 | `assets/Space and Science Fiction Music Pack Vol 1/Space Science Fiction Music Pack/audio/` | `*[Action Loop].wav`, `*[Ambient Loop].wav` |
+| Vol 2 | `assets/Space and Science Fiction Music Pack Vol 2/Space_Science_Fiction_MusicPackVol.2/Music/` | `*/*_loop.wav` (in subdirectories) |
+
+### Primitive-Drawn Effects (No Asset Files)
+
+| Effect | Description |
+|---|---|
+| Hit Spark | Expanding ring (gold) + shrinking core (bright yellow); drawn with `arcade.draw_circle_filled` and `arcade.draw_circle_outline` |
+| Fire Spark | 12 particles flying outward, yellow-to-red colour transition; drawn with `arcade.draw_circle_filled` |
+| Engine Contrail | Fading, shrinking coloured particles behind ship; drawn with `arcade.draw_circle_filled` |
+| Mini-map | Coloured dots for objects + heading line; drawn with arcade primitives |
+| HUD bars | HP and shield bars; drawn with `arcade.draw_rect_filled` |
