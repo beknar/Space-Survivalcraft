@@ -235,7 +235,8 @@ class SelectionView(arcade.View):
                 self._selected_ship = 0
                 self._phase = self._PHASE_SHIP
             elif key == arcade.key.ESCAPE:
-                arcade.exit()
+                from splash_view import SplashView
+                self.window.show_view(SplashView())
 
         elif self._phase == self._PHASE_SHIP:
             if key in (arcade.key.LEFT, arcade.key.A):
