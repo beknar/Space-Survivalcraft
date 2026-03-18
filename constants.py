@@ -237,3 +237,56 @@ SAVE_MENU_H: int = 590
 SAVE_SLOT_W: int = 380
 SAVE_SLOT_H: int = 42
 SAVE_SLOT_GAP: int = 6
+
+# ── Building system constants ────────────────────────────────────────────────
+BUILDING_DIR = os.path.join(
+    _HERE, "assets", "kenney space combat assets",
+    "Space Shooter Extension", "PNG", "Sprites X2", "Building",
+)
+
+BUILDING_TYPES = {
+    "Home Station":    {"png": "spaceBuilding_006.png", "hp": 100, "cost": 100,
+                        "max": 1,    "module_slots": 0, "connectable": True,
+                        "free_place": False, "slots_used": 1},
+    "Service Module":  {"png": "spaceBuilding_004.png", "hp":  50, "cost":  25,
+                        "max": 4,    "module_slots": 0, "connectable": True,
+                        "free_place": False, "slots_used": 1},
+    "Power Receiver":  {"png": "spaceBuilding_003.png", "hp":  75, "cost":  50,
+                        "max": None, "module_slots": 0, "connectable": True,
+                        "free_place": False, "slots_used": 1},
+    "Solar Array 1":   {"png": "spaceBuilding_015.png", "hp":  50, "cost":  75,
+                        "max": 2,    "module_slots": 6, "connectable": True,
+                        "free_place": False, "slots_used": 1},
+    "Solar Array 2":   {"png": "spaceBuilding_024.png", "hp":  50, "cost": 100,
+                        "max": 2,    "module_slots": 10, "connectable": True,
+                        "free_place": False, "slots_used": 1},
+    "Turret 1":        {"png": "spaceBuilding_011.png", "hp": 100, "cost":  50,
+                        "max": None, "module_slots": 0, "connectable": False,
+                        "free_place": True,  "slots_used": 1},
+    "Turret 2":        {"png": "spaceBuilding_012.png", "hp": 100, "cost":  75,
+                        "max": None, "module_slots": 0, "connectable": False,
+                        "free_place": True,  "slots_used": 2},
+}
+
+# Turret combat constants
+TURRET_RANGE: float = 400.0         # px — alien detection range for auto-fire
+TURRET_DAMAGE: float = 10.0         # HP per turret shot
+TURRET_COOLDOWN: float = 1.5        # seconds between turret shots
+TURRET_LASER_SPEED: float = 700.0   # turret projectile speed  px/s
+TURRET_LASER_RANGE: float = 500.0   # turret projectile max range  px
+TURRET_FREE_PLACE_RADIUS: float = 300.0  # max distance from Home Station for turrets
+
+# Docking port snap distance
+DOCK_SNAP_DIST: float = 40.0        # px — max distance to snap to a port
+
+# Base module capacity (before Solar Arrays)
+BASE_MODULE_CAPACITY: int = 4
+
+# Building collision radius (approximate)
+BUILDING_RADIUS: float = 30.0
+
+# Build menu UI constants
+BUILD_MENU_W: int = 280
+BUILD_MENU_H: int = 420
+BUILD_MENU_ITEM_H: int = 48
+BUILD_MENU_PAD: int = 10

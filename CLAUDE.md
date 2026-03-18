@@ -42,10 +42,11 @@ Space Survivalcraft/
 ├── escape_menu.py       # EscapeMenu — pause overlay with save/load/quit (4 internal modes)
 ├── death_screen.py      # DeathScreen — "SHIP DESTROYED" overlay with Load/Menu/Exit
 ├── inventory.py         # Inventory — 5×5 cargo grid with drag-and-drop and world ejection
+├── build_menu.py        # BuildMenu — right-side overlay for constructing station modules
 │
 │  ── Game logic ──
-├── collisions.py        # All collision handlers (projectile/asteroid/alien/player pairs)
-├── world_setup.py       # Asset loading helpers + asteroid/alien spawning + music collection
+├── collisions.py        # All collision handlers (projectile/asteroid/alien/player/building pairs)
+├── world_setup.py       # Asset loading helpers + asteroid/alien/building spawning + music collection
 │
 │  ── Sprite classes ──
 ├── sprites/
@@ -57,7 +58,8 @@ Space Survivalcraft/
 │   ├── pickup.py        # IronPickup — collectible ore token with fly-to-ship behaviour
 │   ├── shield.py        # ShieldSprite — animated energy bubble with hit flash
 │   ├── explosion.py     # Explosion, HitSpark, FireSpark visual effects
-│   └── contrail.py      # ContrailParticle — engine exhaust particle effect
+│   ├── contrail.py      # ContrailParticle — engine exhaust particle effect
+│   └── building.py      # StationModule, HomeStation, ServiceModule, Turret, DockingPort, etc.
 │
 │  ── Unit tests ──
 ├── unit tests/
@@ -74,7 +76,8 @@ Space Survivalcraft/
 │   ├── test_explosion.py  # Explosion, HitSpark, FireSpark lifecycle
 │   ├── test_contrail.py   # ContrailParticle lifecycle and colour interpolation
 │   ├── test_inventory.py  # Grid math, iron management, drag-and-drop, ejection
-│   └── test_damage.py     # Damage routing (shields → HP), death triggering
+│   ├── test_damage.py     # Damage routing (shields → HP), death triggering
+│   └── test_building.py   # StationModule, Turret, DockingPort, capacity helpers
 │
 ├── assets/              # Art, sound, music (gitignored — not in repo)
 ├── saves/               # Save slot JSON files (gitignored)
@@ -119,7 +122,8 @@ GameView overlays:
   │     └── Main Menu ─▶ SplashView
   ├── DeathScreen (death_screen.py) — shown when HP = 0
   │     └── Load/Menu/Exit
-  └── Inventory (inventory.py) — does NOT pause gameplay
+  ├── Inventory (inventory.py) — does NOT pause gameplay
+  └── BuildMenu (build_menu.py) — does NOT pause gameplay
 ```
 
 ### Module Dependency Graph
@@ -129,15 +133,16 @@ constants.py ◀── nearly everything (central config)
 settings.py  ◀── splash_view, options_view, game_view, death_screen (audio singleton)
 
 game_view.py
-  ├── sprites/* (PlayerShip, Weapon, Explosion, HitSpark, FireSpark, IronPickup, ContrailParticle)
+  ├── sprites/* (PlayerShip, Weapon, Explosion, HitSpark, FireSpark, IronPickup, ContrailParticle, Building*)
   ├── collisions.py (all collision handlers called from on_update)
-  ├── world_setup.py (asset loading, asteroid/alien population, music tracks)
-  ├── hud.py, escape_menu.py, death_screen.py, inventory.py (UI overlays)
+  ├── world_setup.py (asset loading, asteroid/alien/building population, music tracks)
+  ├── hud.py, escape_menu.py, death_screen.py, inventory.py, build_menu.py (UI overlays)
   └── settings.py (audio volume)
 
 collisions.py
   ├── constants.py (radii, damage values, bounce factors)
-  └── sprites/explosion.py (HitSpark)
+  ├── sprites/explosion.py (HitSpark)
+  └── sprites/building.py (HomeStation type check for disable cascade)
 
 world_setup.py
   ├── constants.py (asset paths, counts, frame dimensions)

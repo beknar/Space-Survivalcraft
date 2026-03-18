@@ -20,6 +20,7 @@ from constants import (
     EJECT_DIST, WORLD_ITEM_LIFETIME,
     CONTRAIL_MAX_PARTICLES, CONTRAIL_SPAWN_RATE, CONTRAIL_LIFETIME,
     CONTRAIL_START_SIZE, CONTRAIL_END_SIZE, CONTRAIL_OFFSET, CONTRAIL_COLOURS,
+    BUILDING_TYPES, DOCK_SNAP_DIST, TURRET_FREE_PLACE_RADIUS,
 )
 from settings import audio
 from sprites.projectile import Weapon
@@ -27,15 +28,22 @@ from sprites.explosion import Explosion, HitSpark, FireSpark
 from sprites.pickup import IronPickup
 from sprites.player import PlayerShip
 from sprites.contrail import ContrailParticle
+from sprites.building import (
+    StationModule, HomeStation, Turret,
+    create_building, compute_module_capacity, compute_modules_used,
+    DockingPort,
+)
 from inventory import Inventory
 from hud import HUD
 from escape_menu import EscapeMenu
 from death_screen import DeathScreen
+from build_menu import BuildMenu
 from world_setup import (
     load_bg_texture, load_shield, load_weapons,
     load_explosion_assets, load_bump_sound, load_thruster_sound,
     load_iron_texture, populate_asteroids, populate_aliens,
     collect_music_tracks,
+    load_building_textures, load_turret_laser,
 )
 from collisions import (
     handle_projectile_hits,
@@ -44,6 +52,9 @@ from collisions import (
     handle_alien_asteroid_collision,
     handle_alien_alien_collision,
     handle_alien_laser_hits,
+    handle_alien_laser_building_hits,
+    handle_alien_building_collision,
+    handle_turret_projectile_hits,
 )
 
 _SAVE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "saves")
@@ -128,6 +139,18 @@ class GameView(arcade.View):
 
         # Inventory
         self.inventory = Inventory(iron_icon=self._iron_tex)
+
+        # Building system
+        self.building_list = arcade.SpriteList(use_spatial_hash=True)
+        self.turret_projectile_list = arcade.SpriteList()
+        self._building_textures = load_building_textures()
+        self._turret_laser_tex, self._turret_laser_snd = load_turret_laser()
+        self._build_menu = BuildMenu()
+        self._build_menu.set_textures(self._building_textures)
+        # Placement mode state
+        self._placing_building: Optional[str] = None
+        self._ghost_sprite: Optional[arcade.Sprite] = None
+        self._ghost_rotation: float = 0.0
 
         # HUD
         self._hud = HUD(
@@ -273,6 +296,88 @@ class GameView(arcade.View):
         # Show death screen after a brief delay (handled via _death_delay)
         self._death_delay: float = 1.5  # seconds before showing death screen
 
+    # ── Building helpers ───────────────────────────────────────────────────
+    def _building_counts(self) -> dict[str, int]:
+        """Return a dict of building_type → count for the current station."""
+        counts: dict[str, int] = {}
+        for b in self.building_list:
+            counts[b.building_type] = counts.get(b.building_type, 0) + 1
+        return counts
+
+    def _has_home_station(self) -> bool:
+        return any(isinstance(b, HomeStation) for b in self.building_list)
+
+    def _find_nearest_snap_port(
+        self, wx: float, wy: float
+    ) -> Optional[tuple[StationModule, DockingPort, float, float]]:
+        """Find the nearest unoccupied docking port within DOCK_SNAP_DIST.
+
+        Returns (building, port, snap_x, snap_y) or None.
+        """
+        best = None
+        best_dist = DOCK_SNAP_DIST + 1.0
+        for b in self.building_list:
+            for port in b.get_unoccupied_ports():
+                px, py = b.get_port_world_pos(port)
+                d = math.hypot(wx - px, wy - py)
+                if d < best_dist:
+                    best_dist = d
+                    best = (b, port, px, py)
+        return best
+
+    def _enter_placement_mode(self, building_type: str) -> None:
+        """Start building placement — create ghost sprite following cursor."""
+        self._placing_building = building_type
+        tex = self._building_textures[building_type]
+        self._ghost_sprite = arcade.Sprite(path_or_texture=tex, scale=0.5)
+        self._ghost_sprite.alpha = 140
+        self._ghost_rotation = 0.0
+        self._build_menu.open = False
+
+    def _cancel_placement(self) -> None:
+        """Cancel building placement mode."""
+        self._placing_building = None
+        self._ghost_sprite = None
+
+    def _place_building(self, wx: float, wy: float) -> None:
+        """Attempt to place the building at world position (wx, wy)."""
+        bt = self._placing_building
+        if bt is None:
+            return
+        stats = BUILDING_TYPES[bt]
+        cost = stats["cost"]
+
+        # Deduct iron
+        if self.inventory.iron < cost:
+            self._cancel_placement()
+            return
+        self.inventory.iron -= cost
+
+        tex = self._building_textures[bt]
+        laser_tex = self._turret_laser_tex if "Turret" in bt else None
+        building = create_building(bt, tex, wx, wy, laser_tex=laser_tex, scale=0.5)
+        building.angle = self._ghost_rotation
+
+        # Snap to port if connectable
+        if stats["connectable"]:
+            snap = self._find_nearest_snap_port(wx, wy)
+            if snap is not None:
+                parent, port, sx, sy = snap
+                building.center_x = sx
+                building.center_y = sy
+                port.occupied = True
+                port.connected_to = building
+                # Mark the opposite port on the new building
+                opp_dir = DockingPort.opposite(port.direction)
+                for np in building.ports:
+                    if np.direction == opp_dir:
+                        np.occupied = True
+                        np.connected_to = parent
+                        break
+
+        self.building_list.append(building)
+        self._cancel_placement()
+
     # ── Save / Load / Menu ─────────────────────────────────────────────────
     def _save_game(self, slot: int, name: str) -> None:
         """Serialize current game state to a numbered save slot."""
@@ -323,6 +428,17 @@ class GameView(arcade.View):
                     "amount": p.amount,
                 }
                 for p in self.iron_pickup_list
+            ],
+            "buildings": [
+                {
+                    "type": b.building_type,
+                    "x": b.center_x,
+                    "y": b.center_y,
+                    "hp": b.hp,
+                    "angle": b.angle,
+                    "disabled": b.disabled,
+                }
+                for b in self.building_list
             ],
         }
         with open(path, "w") as f:
@@ -406,6 +522,21 @@ class GameView(arcade.View):
         for pd in data.get("pickups", []):
             view._spawn_iron_pickup(pd["x"], pd["y"], amount=pd.get("amount", 10))
 
+        # Restore buildings
+        view.building_list.clear()
+        for bd in data.get("buildings", []):
+            bt = bd["type"]
+            tex = view._building_textures[bt]
+            laser_tex = view._turret_laser_tex if "Turret" in bt else None
+            b = create_building(bt, tex, bd["x"], bd["y"],
+                                laser_tex=laser_tex, scale=0.5)
+            b.hp = bd.get("hp", b.max_hp)
+            b.angle = bd.get("angle", 0.0)
+            b.disabled = bd.get("disabled", False)
+            if b.disabled:
+                b.color = (128, 128, 128, 255)
+            view.building_list.append(b)
+
         self.window.show_view(view)
 
     def _return_to_menu(self) -> None:
@@ -441,6 +572,8 @@ class GameView(arcade.View):
             self.asteroid_list.draw()
             self.iron_pickup_list.draw()
             self.explosion_list.draw()
+            self.building_list.draw()
+            self.turret_projectile_list.draw()
             self.alien_list.draw()
             self.alien_projectile_list.draw()
             self.projectile_list.draw()
@@ -453,6 +586,9 @@ class GameView(arcade.View):
                 spark.draw()
             for fs in self.fire_sparks:
                 fs.draw()
+            # Ghost sprite for placement mode
+            if self._ghost_sprite is not None:
+                self._ghost_sprite.draw()
 
         with self.ui_cam.activate():
             spd = math.hypot(self.player.vel_x, self.player.vel_y)
@@ -472,8 +608,16 @@ class GameView(arcade.View):
                 player_y=self.player.center_y,
                 player_heading=self.player.heading,
                 track_name=self._current_track_name,
+                building_list=self.building_list,
             )
             self.inventory.draw()
+            self._build_menu.draw(
+                iron=self.inventory.iron,
+                building_counts=self._building_counts(),
+                modules_used=compute_modules_used(self.building_list),
+                module_capacity=compute_module_capacity(self.building_list),
+                has_home=self._has_home_station(),
+            )
             self._escape_menu.draw()
             self._death_screen.draw()
 
@@ -673,6 +817,26 @@ class GameView(arcade.View):
         # ── Alien laser hits on player ──────────────────────────────────────
         handle_alien_laser_hits(self)
 
+        # ── Building updates ────────────────────────────────────────────────
+        for b in list(self.building_list):
+            b.update_building(delta_time)
+            if isinstance(b, Turret):
+                b.update_turret(delta_time, self.alien_list,
+                                self.turret_projectile_list)
+
+        # ── Advance turret projectiles ──────────────────────────────────────
+        for proj in list(self.turret_projectile_list):
+            proj.update_projectile(delta_time)
+
+        # ── Turret projectile hits on aliens ────────────────────────────────
+        handle_turret_projectile_hits(self)
+
+        # ── Alien laser hits on buildings ───────────────────────────────────
+        handle_alien_laser_building_hits(self)
+
+        # ── Alien vs building collisions ────────────────────────────────────
+        handle_alien_building_collision(self)
+
         # ── Advance explosion animations ────────────────────────────────────
         for exp in list(self.explosion_list):
             exp.update_explosion(delta_time)
@@ -693,7 +857,11 @@ class GameView(arcade.View):
             self._death_screen.on_key_press(key)
             return
         if key == arcade.key.ESCAPE:
-            if self._escape_menu.open:
+            if self._placing_building is not None:
+                self._cancel_placement()
+            elif self._build_menu.open:
+                self._build_menu.toggle()
+            elif self._escape_menu.open:
                 # Let menu handle ESC (go back from sub-mode, or close)
                 self._escape_menu.on_key_press(key, modifiers)
             elif self.inventory.open:
@@ -711,6 +879,11 @@ class GameView(arcade.View):
             self.inventory.toggle()
         elif key == arcade.key.F:
             self._hud.toggle_fps()
+        elif key == arcade.key.B:
+            if not self._escape_menu.open and not self._player_dead:
+                if self._placing_building is not None:
+                    self._cancel_placement()
+                self._build_menu.toggle()
 
     def on_key_release(self, key: int, modifiers: int) -> None:
         self._keys.discard(key)
@@ -724,8 +897,29 @@ class GameView(arcade.View):
                 return
             if self._escape_menu.open:
                 self._escape_menu.on_mouse_press(x, y)
-            else:
-                self.inventory.on_mouse_press(x, y)
+                return
+            # Placement mode — click to place
+            if self._placing_building is not None:
+                if self._ghost_sprite is not None:
+                    self._place_building(
+                        self._ghost_sprite.center_x,
+                        self._ghost_sprite.center_y,
+                    )
+                return
+            # Build menu click
+            if self._build_menu.open:
+                selected = self._build_menu.on_mouse_press(
+                    x, y,
+                    iron=self.inventory.iron,
+                    building_counts=self._building_counts(),
+                    modules_used=compute_modules_used(self.building_list),
+                    module_capacity=compute_module_capacity(self.building_list),
+                    has_home=self._has_home_station(),
+                )
+                if selected is not None:
+                    self._enter_placement_mode(selected)
+                return
+            self.inventory.on_mouse_press(x, y)
 
     def _handle_death_action(self, action: str) -> None:
         """Process an action string from the death screen."""
@@ -763,12 +957,51 @@ class GameView(arcade.View):
                         lifetime=WORLD_ITEM_LIFETIME,
                     )
 
+    def on_mouse_scroll(
+        self, x: int, y: int, scroll_x: int, scroll_y: int
+    ) -> None:
+        """Mouse wheel rotates ghost sprite during placement."""
+        if self._ghost_sprite is not None and self._placing_building is not None:
+            self._ghost_rotation = (self._ghost_rotation + scroll_y * 15.0) % 360.0
+            self._ghost_sprite.angle = self._ghost_rotation
+
     def on_mouse_motion(self, x: int, y: int, dx: int, dy: int) -> None:
         if self._death_screen.active:
             self._death_screen.on_mouse_motion(x, y)
             return
         if self._escape_menu.open:
             self._escape_menu.on_mouse_motion(x, y)
+            return
+        if self._build_menu.open:
+            self._build_menu.on_mouse_motion(x, y)
+        # Ghost sprite follows cursor in world coordinates
+        if self._ghost_sprite is not None and self._placing_building is not None:
+            # Convert screen pos to world pos
+            wx = self.world_cam.position[0] - SCREEN_WIDTH / 2 + x
+            wy = self.world_cam.position[1] - SCREEN_HEIGHT / 2 + y
+            bt = self._placing_building
+            stats = BUILDING_TYPES[bt]
+            # Snap to port for connectable modules
+            if stats["connectable"]:
+                snap = self._find_nearest_snap_port(wx, wy)
+                if snap is not None:
+                    _, _, wx, wy = snap
+            # Turrets must be within radius of Home Station
+            if stats["free_place"]:
+                home = None
+                for b in self.building_list:
+                    if isinstance(b, HomeStation):
+                        home = b
+                        break
+                if home is not None:
+                    d = math.hypot(wx - home.center_x, wy - home.center_y)
+                    if d > TURRET_FREE_PLACE_RADIUS:
+                        # Clamp to radius
+                        angle = math.atan2(wy - home.center_y, wx - home.center_x)
+                        wx = home.center_x + math.cos(angle) * TURRET_FREE_PLACE_RADIUS
+                        wy = home.center_y + math.sin(angle) * TURRET_FREE_PLACE_RADIUS
+            self._ghost_sprite.center_x = wx
+            self._ghost_sprite.center_y = wy
         else:
             self.inventory.on_mouse_move(x, y)
 

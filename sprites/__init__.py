@@ -7,6 +7,11 @@ from sprites.asteroid import IronAsteroid
 from sprites.alien import SmallAlienShip
 from sprites.player import PlayerShip
 from sprites.contrail import ContrailParticle
+from sprites.building import (
+    StationModule, HomeStation, ServiceModule, PowerReceiver,
+    SolarArray, Turret, DockingPort, create_building,
+    compute_module_capacity, compute_modules_used,
+)
 
 __all__ = [
     "Projectile",
@@ -19,4 +24,14 @@ __all__ = [
     "SmallAlienShip",
     "PlayerShip",
     "ContrailParticle",
+    "StationModule",
+    "HomeStation",
+    "ServiceModule",
+    "PowerReceiver",
+    "SolarArray",
+    "Turret",
+    "DockingPort",
+    "create_building",
+    "compute_module_capacity",
+    "compute_modules_used",
 ]

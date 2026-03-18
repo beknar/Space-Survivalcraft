@@ -10,6 +10,7 @@ from constants import (
     SHIP_RADIUS, ASTEROID_RADIUS, ALIEN_RADIUS,
     SHIP_COLLISION_DAMAGE, SHIP_COLLISION_COOLDOWN, SHIP_BOUNCE,
     ALIEN_BOUNCE, ALIEN_SPEED, ALIEN_COL_COOLDOWN,
+    BUILDING_RADIUS,
 )
 from sprites.explosion import HitSpark
 
@@ -190,3 +191,69 @@ def handle_alien_laser_hits(gv: GameView) -> None:
             gv._apply_damage_to_player(int(proj.damage))
             gv._trigger_shake()
             arcade.play_sound(gv._bump_snd, volume=0.3)
+
+
+def handle_alien_laser_building_hits(gv: GameView) -> None:
+    """Alien laser projectiles hitting station buildings."""
+    from sprites.building import HomeStation
+
+    for proj in list(gv.alien_projectile_list):
+        hits = arcade.check_for_collision_with_list(proj, gv.building_list)
+        if hits:
+            building = hits[0]
+            gv.hit_sparks.append(HitSpark(proj.center_x, proj.center_y))
+            proj.remove_from_sprite_lists()
+            building.take_damage(int(proj.damage))
+            if building.hp <= 0:
+                # Home Station destroyed — disable every module
+                if isinstance(building, HomeStation):
+                    for b in gv.building_list:
+                        b.disabled = True
+                        b.color = (128, 128, 128, 255)
+                gv._spawn_explosion(building.center_x, building.center_y)
+                arcade.play_sound(gv._explosion_snd, volume=0.7)
+                building.remove_from_sprite_lists()
+
+
+def handle_alien_building_collision(gv: GameView) -> None:
+    """Alien ship vs station building: push-apart, bounce."""
+    for alien in list(gv.alien_list):
+        for building in arcade.check_for_collision_with_list(
+            alien, gv.building_list
+        ):
+            adx = alien.center_x - building.center_x
+            ady = alien.center_y - building.center_y
+            adist = math.hypot(adx, ady)
+            if adist == 0.0:
+                adx, ady, adist = 1.0, 0.0, 1.0
+            combined_r = ALIEN_RADIUS + BUILDING_RADIUS
+            nx, ny = adx / adist, ady / adist
+            overlap = combined_r - adist
+            if overlap > 0.0:
+                alien.center_x += nx * overlap
+                alien.center_y += ny * overlap
+            dot = alien.vel_x * nx + alien.vel_y * ny
+            if dot < 0.0:
+                alien.vel_x -= (1.0 + ALIEN_BOUNCE) * dot * nx
+                alien.vel_y -= (1.0 + ALIEN_BOUNCE) * dot * ny
+            else:
+                alien.vel_x += nx * ALIEN_SPEED * 0.4
+                alien.vel_y += ny * ALIEN_SPEED * 0.4
+            if alien._col_cd <= 0.0:
+                alien._col_cd = ALIEN_COL_COOLDOWN
+                alien.collision_bump()
+
+
+def handle_turret_projectile_hits(gv: GameView) -> None:
+    """Turret laser projectiles hitting aliens — spawn HitSpark on impact."""
+    for proj in list(gv.turret_projectile_list):
+        hits = arcade.check_for_collision_with_list(proj, gv.alien_list)
+        if hits:
+            alien = hits[0]
+            gv.hit_sparks.append(HitSpark(proj.center_x, proj.center_y))
+            proj.remove_from_sprite_lists()
+            alien.take_damage(int(proj.damage))
+            if alien.hp <= 0:
+                gv._spawn_explosion(alien.center_x, alien.center_y)
+                arcade.play_sound(gv._explosion_snd, volume=0.7)
+                alien.remove_from_sprite_lists()

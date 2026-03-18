@@ -130,6 +130,7 @@ class HUD:
         player_y: float,
         player_heading: float,
         track_name: str = "",
+        building_list: arcade.SpriteList | None = None,
     ) -> None:
         """Draw the full HUD status panel."""
         # Panel background
@@ -201,6 +202,7 @@ class HUD:
         self._draw_minimap(
             asteroid_list, iron_pickup_list, alien_list,
             player_x, player_y, player_heading,
+            building_list=building_list,
         )
 
     def _draw_minimap(
@@ -211,6 +213,7 @@ class HUD:
         player_x: float,
         player_y: float,
         player_heading: float,
+        building_list: arcade.SpriteList | None = None,
     ) -> None:
         """Draw a scaled overview of the world inside the status panel."""
         mx, my = MINIMAP_X, MINIMAP_Y
@@ -239,6 +242,11 @@ class HUD:
         for alien in alien_list:
             amx, amy = to_map(alien.center_x, alien.center_y)
             arcade.draw_circle_filled(amx, amy, 2.0, (220, 50, 50))
+
+        if building_list is not None:
+            for building in building_list:
+                bx, by = to_map(building.center_x, building.center_y)
+                arcade.draw_circle_filled(bx, by, 2.5, (100, 220, 255))
 
         sx, sy = to_map(player_x, player_y)
         rad = math.radians(player_heading)

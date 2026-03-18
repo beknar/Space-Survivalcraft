@@ -523,3 +523,68 @@ Stored in memory via the `AudioSettings` singleton in `settings.py`. Not persist
 | Engine Contrail | Fading, shrinking coloured particles behind ship; drawn with `arcade.draw_circle_filled` |
 | Mini-map | Coloured dots for objects + heading line; drawn with arcade primitives |
 | HUD bars | HP and shield bars; drawn with `arcade.draw_rect_filled` |
+
+---
+
+## 12. Building System — Space Station
+
+Players can spend mined iron to construct a modular space station. Press **B** to open the Build Menu (non-pausing overlay on the right side of the screen). Select a module, then click in the world to place it.
+
+### Building Types
+
+| Type | HP | Iron Cost | Max Count | Module Slots | Notes |
+|---|---|---|---|---|---|
+| Home Station | 100 | 100 | 1 | — | Root module; destroying it disables all modules |
+| Service Module | 50 | 25 | 4 | — | General connector between other modules |
+| Power Receiver | 75 | 50 | unlimited | — | Links Service Modules to Solar Arrays |
+| Solar Array 1 | 50 | 75 | 2 | +6 capacity | Provides additional module capacity |
+| Solar Array 2 | 50 | 100 | 2 | +10 capacity | Provides additional module capacity |
+| Turret 1 | 100 | 50 | unlimited | 1 slot | Single-barrel auto-fire turret |
+| Turret 2 | 100 | 75 | unlimited | 2 slots | Dual-barrel auto-fire turret |
+
+### Placement Rules
+
+- **Home Station** must be built first; all other modules require it.
+- **Connectable modules** (Home Station, Service Module, Power Receiver, Solar Arrays) snap to unoccupied docking ports (N/S/E/W) on existing modules within 40 px snap distance.
+- **Turrets** are freely placed within 300 px of the Home Station; they do not dock to ports.
+- Mouse wheel rotates the ghost building before placement.
+- ESC cancels placement mode.
+
+### Module Capacity
+
+- Base capacity: **4** (from Home Station).
+- Each Solar Array 1 adds **+6** capacity (max 2).
+- Each Solar Array 2 adds **+10** capacity (max 2).
+- Turret 2 counts as **2** module slots; all other non-Home modules count as **1**.
+
+### Turret Behaviour
+
+| Constant | Value |
+|---|---|
+| Detection range | 400 px |
+| Damage per shot | 10 HP |
+| Fire cooldown | 1.5 s |
+| Projectile speed | 700 px/s |
+| Projectile max range | 500 px |
+
+- Turrets auto-target the nearest alien within range.
+- Turret 2 fires two parallel projectiles with lateral barrel offset.
+- Disabled turrets (Home Station destroyed) do not fire.
+
+### Building Assets
+
+All building PNGs are located in `assets/kenney space combat assets/Space Shooter Extension/PNG/Sprites X2/Building/`:
+
+| Type | File |
+|---|---|
+| Home Station | `spaceBuilding_006.png` |
+| Service Module | `spaceBuilding_004.png` |
+| Power Receiver | `spaceBuilding_003.png` |
+| Solar Array 1 | `spaceBuilding_015.png` |
+| Solar Array 2 | `spaceBuilding_024.png` |
+| Turret 1 | `spaceBuilding_011.png` |
+| Turret 2 | `spaceBuilding_012.png` |
+
+### Mini-map
+
+Buildings appear as **cyan dots** (2.5 px radius) on the mini-map.

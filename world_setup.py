@@ -20,6 +20,7 @@ from constants import (
     ASTEROID_PNG, ALIEN_SHIP_PNG, ALIEN_FX_PNG, EXPLOSION_PNG, IRON_ICON_PNG,
     SHIELD_PNG, SHIELD_COLS, SHIELD_ROWS, SHIELD_FRAME_W, SHIELD_FRAME_H,
     MUSIC_VOL1_DIR, MUSIC_VOL2_DIR,
+    BUILDING_DIR, BUILDING_TYPES,
 )
 from sprites.asteroid import IronAsteroid
 from sprites.alien import SmallAlienShip
@@ -179,6 +180,24 @@ def populate_asteroids() -> arcade.SpriteList:
         slist.append(IronAsteroid(asteroid_tex, ax, ay))
         placed += 1
     return slist
+
+
+def load_building_textures() -> dict[str, arcade.Texture]:
+    """Load one texture per building type from the BUILDING_DIR asset folder."""
+    textures: dict[str, arcade.Texture] = {}
+    for name, stats in BUILDING_TYPES.items():
+        path = os.path.join(BUILDING_DIR, stats["png"])
+        textures[name] = arcade.load_texture(path)
+    return textures
+
+
+def load_turret_laser() -> tuple[arcade.Texture, arcade.Sound]:
+    """Load a laser texture and sound for station turrets (reuses blue laser assets)."""
+    tex = arcade.load_texture(os.path.join(LASER_DIR, "laserBlue03.png"))
+    snd = arcade.load_sound(
+        os.path.join(SFX_WEAPONS_DIR, "Small Laser Weapon Shot 1.wav")
+    )
+    return tex, snd
 
 
 def populate_aliens() -> tuple[arcade.SpriteList, arcade.Texture]:
