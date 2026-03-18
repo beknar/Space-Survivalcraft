@@ -16,6 +16,9 @@ from constants import (
     WORLD_WIDTH, WORLD_HEIGHT, BG_TILE,
     DEAD_ZONE,
     SHIP_RADIUS, ASTEROID_IRON_YIELD,
+    ASTEROID_COUNT, ASTEROID_MIN_DIST,
+    ALIEN_COUNT, ALIEN_MIN_DIST,
+    RESPAWN_INTERVAL, RESPAWN_EXCLUSION_RADIUS,
     SHAKE_DURATION, SHAKE_AMPLITUDE,
     EJECT_DIST, WORLD_ITEM_LIFETIME,
     CONTRAIL_MAX_PARTICLES, CONTRAIL_SPAWN_RATE, CONTRAIL_LIFETIME,
@@ -159,6 +162,10 @@ class GameView(arcade.View):
         # Station info overlay
         self._station_info = StationInfo()
 
+        # Respawn timers (count up toward RESPAWN_INTERVAL)
+        self._asteroid_respawn_timer: float = 0.0
+        self._alien_respawn_timer: float = 0.0
+
         # HUD
         self._hud = HUD(
             has_gamepad=self.joystick is not None,
@@ -243,6 +250,64 @@ class GameView(arcade.View):
         """Spawn an iron token at world position (x, y)."""
         pickup = IronPickup(self._iron_tex, x, y, amount=amount, lifetime=lifetime)
         self.iron_pickup_list.append(pickup)
+
+    def _try_respawn_asteroids(self) -> None:
+        """Respawn one asteroid if count < ASTEROID_COUNT, avoiding buildings."""
+        if len(self.asteroid_list) >= ASTEROID_COUNT:
+            return
+        from sprites.asteroid import IronAsteroid
+        margin = 100
+        for _ in range(200):
+            ax = random.uniform(margin, WORLD_WIDTH - margin)
+            ay = random.uniform(margin, WORLD_HEIGHT - margin)
+            cx_world, cy_world = WORLD_WIDTH / 2, WORLD_HEIGHT / 2
+            if math.hypot(ax - cx_world, ay - cy_world) < ASTEROID_MIN_DIST:
+                continue
+            # Check building exclusion zone
+            too_close = any(
+                math.hypot(ax - b.center_x, ay - b.center_y)
+                < RESPAWN_EXCLUSION_RADIUS
+                for b in self.building_list
+            )
+            if too_close:
+                continue
+            asteroid_tex = arcade.load_texture(
+                os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                             "assets", "Pixel Art Space", "Asteroid.png")
+            )
+            self.asteroid_list.append(IronAsteroid(asteroid_tex, ax, ay))
+            return
+
+    def _try_respawn_aliens(self) -> None:
+        """Respawn one alien if count < ALIEN_COUNT, avoiding buildings."""
+        if len(self.alien_list) >= ALIEN_COUNT:
+            return
+        from sprites.alien import SmallAlienShip
+        from PIL import Image as PILImage
+        from constants import ALIEN_SHIP_PNG, ALIEN_FX_PNG
+        margin = 100
+        for _ in range(200):
+            ax = random.uniform(margin, WORLD_WIDTH - margin)
+            ay = random.uniform(margin, WORLD_HEIGHT - margin)
+            cx_world, cy_world = WORLD_WIDTH / 2, WORLD_HEIGHT / 2
+            if math.hypot(ax - cx_world, ay - cy_world) < ALIEN_MIN_DIST:
+                continue
+            too_close = any(
+                math.hypot(ax - b.center_x, ay - b.center_y)
+                < RESPAWN_EXCLUSION_RADIUS
+                for b in self.building_list
+            )
+            if too_close:
+                continue
+            _pil_ship = PILImage.open(ALIEN_SHIP_PNG).convert("RGBA")
+            alien_ship_tex = arcade.Texture(_pil_ship.crop((364, 305, 825, 815)))
+            _pil_fx = PILImage.open(ALIEN_FX_PNG).convert("RGBA")
+            _pil_laser = _pil_fx.crop((4299, 82, 4359, 310))
+            alien_laser_tex = arcade.Texture(_pil_laser.rotate(90, expand=True))
+            self.alien_list.append(
+                SmallAlienShip(alien_ship_tex, alien_laser_tex, ax, ay)
+            )
+            return
 
     def _trigger_shake(self) -> None:
         """Start a brief camera shake."""
@@ -463,6 +528,10 @@ class GameView(arcade.View):
                 }
                 for b in self.building_list
             ],
+            "respawn_timers": {
+                "asteroid": self._asteroid_respawn_timer,
+                "alien": self._alien_respawn_timer,
+            },
         }
         with open(path, "w") as f:
             json.dump(data, f, indent=2)
@@ -559,6 +628,11 @@ class GameView(arcade.View):
             if b.disabled:
                 b.color = (128, 128, 128, 255)
             view.building_list.append(b)
+
+        # Restore respawn timers
+        rt = data.get("respawn_timers", {})
+        view._asteroid_respawn_timer = rt.get("asteroid", 0.0)
+        view._alien_respawn_timer = rt.get("alien", 0.0)
 
         self.window.show_view(view)
 
@@ -873,6 +947,17 @@ class GameView(arcade.View):
             )
             if not near:
                 self._station_info.open = False
+
+        # ── Respawn asteroids and aliens on timer ─────────────────────────
+        self._asteroid_respawn_timer += delta_time
+        if self._asteroid_respawn_timer >= RESPAWN_INTERVAL:
+            self._asteroid_respawn_timer = 0.0
+            self._try_respawn_asteroids()
+
+        self._alien_respawn_timer += delta_time
+        if self._alien_respawn_timer >= RESPAWN_INTERVAL:
+            self._alien_respawn_timer = 0.0
+            self._try_respawn_aliens()
 
         # ── Advance explosion animations ────────────────────────────────────
         for exp in list(self.explosion_list):

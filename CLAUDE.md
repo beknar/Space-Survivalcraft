@@ -28,7 +28,7 @@ Space Survivalcraft/
 ├── .gitignore
 │
 ├── main.py              # Entry point — creates Window, starts SplashView
-├── constants.py         # All game constants (window, physics, assets, factions, ship types)
+├── constants.py         # All game constants (window, physics, assets, factions, ship types, respawn)
 ├── settings.py          # Global runtime AudioSettings singleton (music_volume, sfx_volume)
 │
 │  ── Views (each is an arcade.View subclass) ──
@@ -78,7 +78,8 @@ Space Survivalcraft/
 │   ├── test_contrail.py   # ContrailParticle lifecycle and colour interpolation
 │   ├── test_inventory.py  # Grid math, iron management, drag-and-drop, ejection
 │   ├── test_damage.py     # Damage routing (shields → HP), death triggering
-│   └── test_building.py   # StationModule, Turret, DockingPort, capacity helpers, edge-to-edge snap, collision
+│   ├── test_building.py   # StationModule, Turret, DockingPort, capacity helpers, edge-to-edge snap, collision
+│   └── test_respawn.py    # Respawn position logic, timer logic, alien iron drop constants
 │
 ├── assets/              # Art, sound, music (gitignored — not in repo)
 ├── saves/               # Save slot JSON files (gitignored)

@@ -148,6 +148,12 @@ All ships start with both weapons. The Thunderbolt has 2 guns, so it gets 2x Bas
 - Each hit triggers a shake effect (4 px amplitude, 0.20 s) and orange-red tint flash
 - On destruction: explosion animation + sound, drops one Iron Pickup at the destruction site
 
+**Respawn:**
+- Asteroids respawn every 5 minutes (300 s) until the count returns to 50
+- One asteroid respawns per cycle (timer resets after each spawn attempt)
+- Asteroids will not respawn within 300 px of any player-built station module
+- Same spawn constraints apply: min 400 px from world centre, 100 px from edges
+
 ### Iron Pickups
 
 | Property | Value |
@@ -172,6 +178,16 @@ Pickups idle at their drop position until the ship's hull edge comes within 40 p
 | Display scale | 0.10x |
 | Min spawn distance | 400 px from world centre |
 | Edge margin | 100 px from world edges |
+
+**Respawn:**
+- Alien ships respawn every 5 minutes (300 s) until the count returns to 20
+- One alien respawns per cycle (timer resets after each spawn attempt)
+- Aliens will not respawn within 300 px of any player-built station module
+- Same spawn constraints apply: min 400 px from world centre, 100 px from edges
+
+**Iron Drop:**
+- When an alien ship is destroyed (by player or turret), it drops 5 iron ore at the destruction site
+- The iron pickup behaves identically to asteroid-mined iron (fly-to-ship + collection)
 
 #### Alien Weapon
 
@@ -255,7 +271,7 @@ Pickups idle at their drop position until the ship's hull edge comes within 40 p
 - 25 damage per hit
 - Camera shake
 - Red tint flash on alien (0.15 s)
-- On alien destruction: explosion + sound
+- On alien destruction: explosion + sound + drops 5 iron ore
 
 ### Alien Laser vs Player
 - 10 damage per hit (shields first, then HP)
@@ -281,7 +297,7 @@ Pickups idle at their drop position until the ship's hull edge comes within 40 p
 ### Turret Projectile vs Alien
 - HitSpark at impact point
 - 10 damage per hit
-- On alien destruction: explosion + sound
+- On alien destruction: explosion + sound + drops 5 iron ore
 
 ---
 
@@ -463,6 +479,8 @@ The left-side panel (213 px wide) displays:
 - All surviving asteroids: position, HP
 - All surviving aliens: position, HP, velocity, heading, AI state, home position
 - All iron pickups: position, amount
+- All station buildings: type, position, HP, angle, disabled state
+- Respawn timers: asteroid and alien respawn countdown progress
 
 ### Save Slot Display
 Each slot shows:

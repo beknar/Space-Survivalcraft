@@ -10,7 +10,7 @@ from constants import (
     SHIP_RADIUS, ASTEROID_RADIUS, ALIEN_RADIUS,
     SHIP_COLLISION_DAMAGE, SHIP_COLLISION_COOLDOWN, SHIP_BOUNCE,
     ALIEN_BOUNCE, ALIEN_SPEED, ALIEN_COL_COOLDOWN,
-    BUILDING_RADIUS,
+    BUILDING_RADIUS, ALIEN_IRON_DROP,
 )
 from sprites.explosion import HitSpark
 
@@ -53,6 +53,10 @@ def handle_projectile_hits(gv: GameView) -> None:
                 if alien.hp <= 0:
                     gv._spawn_explosion(alien.center_x, alien.center_y)
                     arcade.play_sound(gv._explosion_snd, volume=0.7)
+                    gv._spawn_iron_pickup(
+                        alien.center_x, alien.center_y,
+                        amount=ALIEN_IRON_DROP,
+                    )
                     alien.remove_from_sprite_lists()
 
 
@@ -282,4 +286,8 @@ def handle_turret_projectile_hits(gv: GameView) -> None:
             if alien.hp <= 0:
                 gv._spawn_explosion(alien.center_x, alien.center_y)
                 arcade.play_sound(gv._explosion_snd, volume=0.7)
+                gv._spawn_iron_pickup(
+                    alien.center_x, alien.center_y,
+                    amount=ALIEN_IRON_DROP,
+                )
                 alien.remove_from_sprite_lists()

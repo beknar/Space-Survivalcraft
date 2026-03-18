@@ -206,6 +206,11 @@ ALIEN_AVOIDANCE_RADIUS: float = 65.0   # px beyond obstacle edge where steering 
 ALIEN_AVOIDANCE_FORCE: float = 2.5     # avoidance repulsion weight relative to pursuit
 ALIEN_BUMP_FLASH: float = 0.15         # seconds of orange tint on collision bump
 
+# ── Respawn constants ──────────────────────────────────────────────────────
+RESPAWN_INTERVAL: float = 300.0          # seconds (5 minutes) between respawn checks
+RESPAWN_EXCLUSION_RADIUS: float = 300.0  # px — no respawn within this range of a building
+ALIEN_IRON_DROP: int = 5                 # iron units dropped when an alien ship is destroyed
+
 # ── Iron pickup constants ───────────────────────────────────────────────────
 IRON_PICKUP_DIST: float = 40.0   # px -- edge distance (from ship hull) to trigger fly-to-ship
 IRON_FLY_SPEED: float = 400.0    # px/s -- speed of iron token once attracted

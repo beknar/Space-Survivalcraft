@@ -37,12 +37,15 @@ A top-down space survival game built with Python and the Arcade framework. Pilot
 - Obstacle-avoidance steering around asteroids and other aliens
 - Physics-based collision bouncing between all entities
 - Leash range prevents aliens from chasing indefinitely
+- Destroyed aliens drop **5 iron ore** that can be collected by the player
+- Alien ships respawn every 5 minutes (not within 300 px of player structures) until 20 again
 
 ### Mining & Resources
 - 50 iron asteroids scattered across the world, each with 100 HP
 - Only the Mining Beam can damage asteroids; Basic Laser has no effect
 - Asteroids spin, shake on hit, and explode with animated effects when destroyed
 - Destroyed asteroids drop iron ore pickups that fly toward the player when nearby
+- Asteroids respawn every 5 minutes (not within 300 px of player structures) until 50 again
 
 ### Inventory System
 - 5x5 cargo hold grid toggled with I key or gamepad Y button
@@ -183,7 +186,7 @@ A top-down space survival game built with Python and the Arcade framework. Pilot
 python -m pytest "unit tests/" -v
 ```
 
-216 unit tests covering all game modules: player physics, weapons, asteroids, aliens, pickups, shields, explosions, contrails, inventory, damage routing, building system (snap math, collision, capacity), and settings.
+236 unit tests covering all game modules: player physics, weapons, asteroids, aliens, pickups, shields, explosions, contrails, inventory, damage routing, building system (snap math, collision, capacity), respawn mechanics, and settings.
 
 ## Project Structure
 
