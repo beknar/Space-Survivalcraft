@@ -14,6 +14,7 @@ from constants import (
     SAVE_SLOT_COUNT,
     SFX_VEHICLES_DIR,
 )
+from settings import audio
 
 
 class EscapeMenu:
@@ -63,13 +64,25 @@ class EscapeMenu:
         self._cursor_visible: bool = True
         self._cursor_timer: float = 0.0
 
+        # ── Audio slider state ──────────────────────────────────────────
+        self._slider_dragging: str = ""   # "", "music", or "sfx"
+
         # ── Main mode geometry (centred on screen) ────────────────────
         self._main_px = (SCREEN_WIDTH - MENU_W) // 2
         self._main_py = (SCREEN_HEIGHT - MENU_H) // 2
 
+        # Slider geometry (placed below title, above buttons)
+        _slider_w = 220
+        _slider_x = self._main_px + (MENU_W - _slider_w) // 2
+        _music_y = self._main_py + MENU_H - 80
+        _sfx_y = _music_y - 50
+        self._slider_music_rect = (_slider_x, _music_y, _slider_w, 8)
+        self._slider_sfx_rect = (_slider_x, _sfx_y, _slider_w, 8)
+
+        # Buttons shifted down to accommodate sliders (~140px from old position)
         self._main_btn_rects: list[tuple[int, int, int, int]] = []
         bx = self._main_px + (MENU_W - MENU_BTN_W) // 2
-        first_by = self._main_py + MENU_H - 60 - MENU_BTN_H
+        first_by = self._main_py + MENU_H - 200 - MENU_BTN_H
         for i in range(len(self._MAIN_BUTTONS)):
             by = first_by - i * (MENU_BTN_H + MENU_BTN_GAP)
             self._main_btn_rects.append((bx, by, MENU_BTN_W, MENU_BTN_H))
@@ -112,6 +125,28 @@ class EscapeMenu:
                 arcade.color.WHITE, 13, bold=True,
                 anchor_x="center", anchor_y="center",
             ))
+
+        # ── Pre-built text objects: audio sliders ──────────────────────
+        sx, sy, sw, _sh = self._slider_music_rect
+        self._t_music_label = arcade.Text(
+            "Music", sx, sy + 16,
+            arcade.color.WHITE, 10, bold=True,
+        )
+        self._t_music_pct = arcade.Text(
+            "", sx + sw, sy + 16,
+            arcade.color.CYAN, 10,
+            anchor_x="right",
+        )
+        sx2, sy2, sw2, _sh2 = self._slider_sfx_rect
+        self._t_sfx_label = arcade.Text(
+            "SFX", sx2, sy2 + 16,
+            arcade.color.WHITE, 10, bold=True,
+        )
+        self._t_sfx_pct = arcade.Text(
+            "", sx2 + sw2, sy2 + 16,
+            arcade.color.CYAN, 10,
+            anchor_x="right",
+        )
 
         # ── Pre-built text objects: save/load mode ────────────────────
         self._t_sl_title = arcade.Text(
@@ -193,6 +228,7 @@ class EscapeMenu:
                         "ship_type": data.get("ship_type", "?"),
                         "hp": player.get("hp", 0),
                         "shields": player.get("shields", 0),
+                        "modules": len(data.get("buildings", [])),
                     })
                 except (json.JSONDecodeError, OSError):
                     self._slots.append({"name": "", "exists": False})
@@ -211,8 +247,12 @@ class EscapeMenu:
         info = self._slots[i]
         if not info.get("exists"):
             return ""
-        return (f"{info.get('faction', '?')} \u00b7 {info.get('ship_type', '?')}"
-                f"  |  HP {info.get('hp', 0)}  Shields {info.get('shields', 0)}")
+        detail = (f"{info.get('faction', '?')} \u00b7 {info.get('ship_type', '?')}"
+                  f"  |  HP {info.get('hp', 0)}  Shields {info.get('shields', 0)}")
+        modules = info.get("modules", 0)
+        if modules > 0:
+            detail += f"  |  Modules {modules}"
+        return detail
 
     # ── Public API ────────────────────────────────────────────────────
 
@@ -237,6 +277,10 @@ class EscapeMenu:
     def on_mouse_motion(self, x: int, y: int) -> None:
         if not self.open:
             return
+        # Slider drag
+        if self._slider_dragging:
+            self._apply_slider_drag(x)
+            return
         if self._mode == self.MODE_MAIN:
             self._hover_idx = self._btn_at(x, y, self._main_btn_rects)
         elif self._mode in (self.MODE_SAVE, self.MODE_LOAD):
@@ -255,7 +299,15 @@ class EscapeMenu:
         if self._mode == self.MODE_NAMING:
             return  # ignore clicks during naming
 
-        arcade.play_sound(self._click_snd, volume=0.5)
+        # Check slider hit before button hit
+        if self._mode == self.MODE_MAIN:
+            slider = self._slider_hit(x, y)
+            if slider:
+                self._slider_dragging = slider
+                self._apply_slider_drag(x)
+                return
+
+        arcade.play_sound(self._click_snd, volume=audio.sfx_volume)
 
         if self._mode == self.MODE_MAIN:
             idx = self._btn_at(x, y, self._main_btn_rects)
@@ -368,6 +420,12 @@ class EscapeMenu:
         )
 
         self._t_title.draw()
+
+        # ── Audio sliders ───────────────────────────────────────────
+        self._draw_slider(self._slider_music_rect, audio.music_volume,
+                          self._t_music_label, self._t_music_pct)
+        self._draw_slider(self._slider_sfx_rect, audio.sfx_volume,
+                          self._t_sfx_label, self._t_sfx_pct)
 
         for i, (_key, _label) in enumerate(self._MAIN_BUTTONS):
             bx, by, bw, bh = self._main_btn_rects[i]
@@ -505,6 +563,58 @@ class EscapeMenu:
         # Hint
         self._t_naming_hint.y = by + 18
         self._t_naming_hint.draw()
+
+    # ── Audio slider drawing / interaction ─────────────────────────────
+
+    def _draw_slider(
+        self,
+        rect: tuple[int, int, int, int],
+        value: float,
+        label_text: arcade.Text,
+        pct_text: arcade.Text,
+    ) -> None:
+        """Draw a horizontal volume slider track + knob + labels."""
+        sx, sy, sw, sh = rect
+        # Track background
+        arcade.draw_rect_filled(arcade.LBWH(sx, sy, sw, sh), (40, 40, 60, 255))
+        # Filled portion
+        fill_w = int(sw * value)
+        if fill_w > 0:
+            arcade.draw_rect_filled(arcade.LBWH(sx, sy, fill_w, sh), (0, 160, 220, 255))
+        # Knob
+        knob_x = sx + fill_w
+        knob_y = sy + sh // 2
+        arcade.draw_circle_filled(knob_x, knob_y, 7, arcade.color.CYAN)
+        # Labels
+        label_text.draw()
+        pct_text.text = f"{int(value * 100)}%"
+        pct_text.draw()
+
+    def _slider_hit(self, x: int, y: int) -> str:
+        """Return 'music', 'sfx', or '' depending on which slider was hit."""
+        for name, rect in [("music", self._slider_music_rect),
+                           ("sfx", self._slider_sfx_rect)]:
+            sx, sy, sw, sh = rect
+            if sx - 10 <= x <= sx + sw + 10 and sy - 10 <= y <= sy + sh + 18:
+                return name
+        return ""
+
+    def _apply_slider_drag(self, x: int) -> None:
+        """Update the volume for the slider currently being dragged."""
+        if not self._slider_dragging:
+            return
+        rect = (self._slider_music_rect if self._slider_dragging == "music"
+                else self._slider_sfx_rect)
+        sx, _sy, sw, _sh = rect
+        frac = max(0.0, min(1.0, (x - sx) / sw))
+        if self._slider_dragging == "music":
+            audio.music_volume = frac
+        else:
+            audio.sfx_volume = frac
+
+    def on_mouse_release(self, x: int, y: int) -> None:
+        """Release slider drag state."""
+        self._slider_dragging = ""
 
     # ── Helpers ───────────────────────────────────────────────────────
 

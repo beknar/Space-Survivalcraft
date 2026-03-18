@@ -225,7 +225,7 @@ MINIMAP_Y: int = MINIMAP_PAD + 16                  # 26 px from bottom; label si
 
 # ── Escape menu constants ─────────────────────────────────────────────────
 MENU_W: int = 320
-MENU_H: int = 340
+MENU_H: int = 480
 MENU_BTN_W: int = 240
 MENU_BTN_H: int = 40
 MENU_BTN_GAP: int = 16
@@ -284,6 +284,9 @@ BASE_MODULE_CAPACITY: int = 4
 
 # Building collision radius (approximate)
 BUILDING_RADIUS: float = 30.0
+
+# Station info panel — max distance to open
+STATION_INFO_RANGE: float = 300.0
 
 # Build menu UI constants
 BUILD_MENU_W: int = 280

@@ -21,6 +21,7 @@ from constants import (
     CONTRAIL_MAX_PARTICLES, CONTRAIL_SPAWN_RATE, CONTRAIL_LIFETIME,
     CONTRAIL_START_SIZE, CONTRAIL_END_SIZE, CONTRAIL_OFFSET, CONTRAIL_COLOURS,
     BUILDING_TYPES, DOCK_SNAP_DIST, TURRET_FREE_PLACE_RADIUS,
+    STATION_INFO_RANGE,
 )
 from settings import audio
 from sprites.projectile import Weapon
@@ -55,7 +56,9 @@ from collisions import (
     handle_alien_laser_building_hits,
     handle_alien_building_collision,
     handle_turret_projectile_hits,
+    handle_ship_building_collision,
 )
+from station_info import StationInfo
 
 _SAVE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "saves")
 
@@ -152,6 +155,9 @@ class GameView(arcade.View):
         self._ghost_sprite: Optional[arcade.Sprite] = None
         self._ghost_list: Optional[arcade.SpriteList] = None
         self._ghost_rotation: float = 0.0
+
+        # Station info overlay
+        self._station_info = StationInfo()
 
         # HUD
         self._hud = HUD(
@@ -362,22 +368,35 @@ class GameView(arcade.View):
         building = create_building(bt, tex, wx, wy, laser_tex=laser_tex, scale=0.5)
         building.angle = self._ghost_rotation
 
-        # Snap to port if connectable
+        # Snap to port if connectable — edge-to-edge placement
         if stats["connectable"]:
             snap = self._find_nearest_snap_port(wx, wy)
             if snap is not None:
                 parent, port, sx, sy = snap
-                building.center_x = sx
-                building.center_y = sy
-                port.occupied = True
-                port.connected_to = building
-                # Mark the opposite port on the new building
+                # Find the opposite port on the new building
                 opp_dir = DockingPort.opposite(port.direction)
+                opp_port = None
                 for np in building.ports:
                     if np.direction == opp_dir:
-                        np.occupied = True
-                        np.connected_to = parent
+                        opp_port = np
                         break
+                # Offset by opposite port so edges meet (not centres)
+                if opp_port is not None:
+                    rad = math.radians(building.angle)
+                    cos_a = math.cos(rad)
+                    sin_a = math.sin(rad)
+                    ox_rot = opp_port.offset_x * cos_a - opp_port.offset_y * sin_a
+                    oy_rot = opp_port.offset_x * sin_a + opp_port.offset_y * cos_a
+                    building.center_x = sx - ox_rot
+                    building.center_y = sy - oy_rot
+                else:
+                    building.center_x = sx
+                    building.center_y = sy
+                port.occupied = True
+                port.connected_to = building
+                if opp_port is not None:
+                    opp_port.occupied = True
+                    opp_port.connected_to = parent
 
         self.building_list.append(building)
         self._cancel_placement()
@@ -622,6 +641,7 @@ class GameView(arcade.View):
                 module_capacity=compute_module_capacity(self.building_list),
                 has_home=self._has_home_station(),
             )
+            self._station_info.draw()
             self._escape_menu.draw()
             self._death_screen.draw()
 
@@ -841,6 +861,19 @@ class GameView(arcade.View):
         # ── Alien vs building collisions ────────────────────────────────────
         handle_alien_building_collision(self)
 
+        # ── Player vs building collision (gentle push-out, no damage) ──
+        handle_ship_building_collision(self)
+
+        # ── Station info auto-close when player moves away ────────────
+        if self._station_info.open:
+            near = any(
+                math.hypot(self.player.center_x - b.center_x,
+                           self.player.center_y - b.center_y) < 400.0
+                for b in self.building_list
+            )
+            if not near:
+                self._station_info.open = False
+
         # ── Advance explosion animations ────────────────────────────────────
         for exp in list(self.explosion_list):
             exp.update_explosion(delta_time)
@@ -888,6 +921,20 @@ class GameView(arcade.View):
                 if self._placing_building is not None:
                     self._cancel_placement()
                 self._build_menu.toggle()
+        elif key == arcade.key.T:
+            if not self._escape_menu.open and not self._player_dead:
+                # Only open if player is near a building
+                near = any(
+                    math.hypot(self.player.center_x - b.center_x,
+                               self.player.center_y - b.center_y) < STATION_INFO_RANGE
+                    for b in self.building_list
+                )
+                if near or self._station_info.open:
+                    self._station_info.toggle(
+                        self.building_list,
+                        compute_modules_used(self.building_list),
+                        compute_module_capacity(self.building_list),
+                    )
 
     def on_key_release(self, key: int, modifiers: int) -> None:
         self._keys.discard(key)
@@ -938,11 +985,14 @@ class GameView(arcade.View):
     def on_mouse_drag(
         self, x: int, y: int, dx: int, dy: int, buttons: int, modifiers: int
     ) -> None:
-        if not self._escape_menu.open:
-            self.inventory.on_mouse_drag(x, y)
+        if self._escape_menu.open:
+            self._escape_menu.on_mouse_motion(x, y)
+            return
+        self.inventory.on_mouse_drag(x, y)
 
     def on_mouse_release(self, x: int, y: int, button: int, modifiers: int) -> None:
         if self._escape_menu.open:
+            self._escape_menu.on_mouse_release(x, y)
             return
         if button == arcade.MOUSE_BUTTON_LEFT:
             ejected = self.inventory.on_mouse_release(x, y)
@@ -985,11 +1035,25 @@ class GameView(arcade.View):
             wy = self.world_cam.position[1] - SCREEN_HEIGHT / 2 + y
             bt = self._placing_building
             stats = BUILDING_TYPES[bt]
-            # Snap to port for connectable modules
+            # Snap to port for connectable modules — edge-to-edge preview
             if stats["connectable"]:
                 snap = self._find_nearest_snap_port(wx, wy)
                 if snap is not None:
-                    _, _, wx, wy = snap
+                    _, port, sx, sy = snap
+                    opp_dir = DockingPort.opposite(port.direction)
+                    # Compute ghost's opposite port offset from texture dims
+                    ghw = (self._ghost_sprite.width) / 2
+                    ghh = (self._ghost_sprite.height) / 2
+                    _port_offsets = {"N": (0, ghh), "S": (0, -ghh),
+                                     "E": (ghw, 0), "W": (-ghw, 0)}
+                    opp_off = _port_offsets.get(opp_dir, (0, 0))
+                    rad = math.radians(self._ghost_rotation)
+                    cos_a = math.cos(rad)
+                    sin_a = math.sin(rad)
+                    ox_rot = opp_off[0] * cos_a - opp_off[1] * sin_a
+                    oy_rot = opp_off[0] * sin_a + opp_off[1] * cos_a
+                    wx = sx - ox_rot
+                    wy = sy - oy_rot
             # Turrets must be within radius of Home Station
             if stats["free_place"]:
                 home = None

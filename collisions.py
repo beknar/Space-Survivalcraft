@@ -244,6 +244,32 @@ def handle_alien_building_collision(gv: GameView) -> None:
                 alien.collision_bump()
 
 
+def handle_ship_building_collision(gv: GameView) -> None:
+    """Player ship vs station building: gentle push-out, no damage, no bounce."""
+    hit_list = arcade.check_for_collision_with_list(
+        gv.player, gv.building_list
+    )
+    for building in hit_list:
+        dx = gv.player.center_x - building.center_x
+        dy = gv.player.center_y - building.center_y
+        dist = math.hypot(dx, dy)
+        if dist == 0:
+            dx, dy, dist = 0.0, 1.0, 1.0
+        nx = dx / dist
+        ny = dy / dist
+        combined_r = SHIP_RADIUS + BUILDING_RADIUS
+        overlap = combined_r - dist
+        if overlap > 0:
+            gv.player.center_x += nx * overlap
+            gv.player.center_y += ny * overlap
+
+        # Zero velocity component toward the building (no bounce, no damage)
+        dot = gv.player.vel_x * nx + gv.player.vel_y * ny
+        if dot < 0:
+            gv.player.vel_x -= dot * nx
+            gv.player.vel_y -= dot * ny
+
+
 def handle_turret_projectile_hits(gv: GameView) -> None:
     """Turret laser projectiles hitting aliens — spawn HitSpark on impact."""
     for proj in list(gv.turret_projectile_list):

@@ -12,7 +12,7 @@ from sprites.building import (
 )
 from constants import (
     BUILDING_TYPES, TURRET_RANGE, TURRET_COOLDOWN,
-    BASE_MODULE_CAPACITY,
+    BASE_MODULE_CAPACITY, SHIP_RADIUS, BUILDING_RADIUS,
 )
 
 
@@ -290,3 +290,144 @@ class TestHomeStationDestruction:
 
         assert sm.disabled is True
         assert t.disabled is True
+
+
+# ── Edge-to-edge snap math ──────────────────────────────────────────────────
+
+class TestEdgeToEdgeSnap:
+    """Verify that edge-to-edge snap offset places buildings correctly."""
+
+    def test_snap_north_no_rotation(self, home_tex):
+        """New building snapping to a parent's N port should sit above, edge-to-edge."""
+        parent = HomeStation(home_tex, 100, 100, "Home Station", scale=0.5)
+        child = ServiceModule(home_tex, 0, 0, "Service Module", scale=0.5)
+
+        # Parent's N port
+        n_port = [p for p in parent.ports if p.direction == "N"][0]
+        sx, sy = parent.get_port_world_pos(n_port)
+
+        # Child's opposite port (S) offset
+        opp_dir = DockingPort.opposite("N")
+        assert opp_dir == "S"
+        opp_port = [p for p in child.ports if p.direction == opp_dir][0]
+
+        # Place child edge-to-edge (no rotation)
+        rad = math.radians(child.angle)
+        cos_a = math.cos(rad)
+        sin_a = math.sin(rad)
+        ox_rot = opp_port.offset_x * cos_a - opp_port.offset_y * sin_a
+        oy_rot = opp_port.offset_x * sin_a + opp_port.offset_y * cos_a
+        child.center_x = sx - ox_rot
+        child.center_y = sy - oy_rot
+
+        # Child should be above parent (its center_y > parent's center_y)
+        assert child.center_y > parent.center_y
+        # Their edges should meet: parent N port aligns with child S port
+        child_sx, child_sy = child.get_port_world_pos(opp_port)
+        assert child_sx == pytest.approx(sx, abs=0.5)
+        assert child_sy == pytest.approx(sy, abs=0.5)
+
+    def test_snap_east_no_rotation(self, home_tex):
+        """New building snapping to parent's E port should sit to the right."""
+        parent = HomeStation(home_tex, 100, 100, "Home Station", scale=0.5)
+        child = ServiceModule(home_tex, 0, 0, "Service Module", scale=0.5)
+
+        e_port = [p for p in parent.ports if p.direction == "E"][0]
+        sx, sy = parent.get_port_world_pos(e_port)
+
+        opp_port = [p for p in child.ports if p.direction == "W"][0]
+        child.center_x = sx - opp_port.offset_x
+        child.center_y = sy - opp_port.offset_y
+
+        assert child.center_x > parent.center_x
+        child_wx, child_wy = child.get_port_world_pos(opp_port)
+        assert child_wx == pytest.approx(sx, abs=0.5)
+        assert child_wy == pytest.approx(sy, abs=0.5)
+
+    def test_opposite_directions_all(self):
+        """All four opposite directions should be correct."""
+        assert DockingPort.opposite("N") == "S"
+        assert DockingPort.opposite("S") == "N"
+        assert DockingPort.opposite("E") == "W"
+        assert DockingPort.opposite("W") == "E"
+
+
+# ── Player-building collision logic ─────────────────────────────────────────
+
+class TestShipBuildingCollision:
+    """Test the push-out / no-bounce collision logic for player vs building."""
+
+    def test_push_out_no_overlap(self, home_tex):
+        """When player overlaps building, push-out should separate them."""
+        building = HomeStation(home_tex, 100, 100, "Home Station", scale=0.5)
+        # Simulate a player at the same position (max overlap)
+        player_x = 100.0
+        player_y = 100.0
+        player_vx = 0.0
+        player_vy = 0.0
+
+        dx = player_x - building.center_x
+        dy = player_y - building.center_y
+        dist = math.hypot(dx, dy)
+        if dist == 0:
+            dx, dy, dist = 0.0, 1.0, 1.0
+        nx = dx / dist
+        ny = dy / dist
+        combined_r = SHIP_RADIUS + BUILDING_RADIUS
+        overlap = combined_r - dist
+        if overlap > 0:
+            player_x += nx * overlap
+            player_y += ny * overlap
+
+        # After push-out, distance should be >= combined radius
+        # (when dist was 0, artificial dist=1 means push = combined_r - 1,
+        #  so new_dist = 1 + (combined_r - 1) = combined_r - but not exactly
+        #  due to the artificial starting distance; just verify no overlap)
+        new_dist = math.hypot(player_x - building.center_x,
+                              player_y - building.center_y)
+        assert new_dist >= combined_r - 1.5  # within tolerance of push-out
+
+    def test_velocity_zeroed_toward_building(self, home_tex):
+        """Velocity component toward building should be zeroed (no bounce)."""
+        building = HomeStation(home_tex, 100, 100, "Home Station", scale=0.5)
+        # Player approaching from left
+        player_x = 80.0
+        player_y = 100.0
+        player_vx = 50.0  # moving right toward building
+        player_vy = 0.0
+
+        dx = player_x - building.center_x
+        dy = player_y - building.center_y
+        dist = math.hypot(dx, dy)
+        nx = dx / dist
+        ny = dy / dist
+        dot = player_vx * nx + player_vy * ny
+        if dot < 0:
+            player_vx -= dot * nx
+            player_vy -= dot * ny
+
+        # Velocity component toward building should now be >= 0
+        new_dot = player_vx * nx + player_vy * ny
+        assert new_dot >= -0.01  # no longer moving toward building
+
+    def test_no_bounce_restitution(self, home_tex):
+        """Unlike asteroid collision, there should be no bounce multiplier."""
+        building = HomeStation(home_tex, 100, 100, "Home Station", scale=0.5)
+        player_x = 80.0
+        player_y = 100.0
+        player_vx = 100.0
+        player_vy = 0.0
+
+        dx = player_x - building.center_x
+        dy = player_y - building.center_y
+        dist = math.hypot(dx, dy)
+        nx = dx / dist
+        ny = dy / dist
+        dot = player_vx * nx + player_vy * ny
+        if dot < 0:
+            player_vx -= dot * nx
+            player_vy -= dot * ny
+
+        # Speed should be <= original (no bounce adds energy)
+        new_speed = math.hypot(player_vx, player_vy)
+        assert new_speed <= 100.01

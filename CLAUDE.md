@@ -39,10 +39,11 @@ Space Survivalcraft/
 │
 │  ── UI overlays (drawn by GameView, not separate Views) ──
 ├── hud.py               # HUD — left status panel (HP/shield bars, speed, weapon, mini-map)
-├── escape_menu.py       # EscapeMenu — pause overlay with save/load/quit (4 internal modes)
+├── escape_menu.py       # EscapeMenu — pause overlay with save/load/quit, audio sliders (4 internal modes)
 ├── death_screen.py      # DeathScreen — "SHIP DESTROYED" overlay with Load/Menu/Exit
 ├── inventory.py         # Inventory — 5×5 cargo grid with drag-and-drop and world ejection
 ├── build_menu.py        # BuildMenu — right-side overlay for constructing station modules
+├── station_info.py      # StationInfo — right-side overlay showing building HP + module stats (T key)
 │
 │  ── Game logic ──
 ├── collisions.py        # All collision handlers (projectile/asteroid/alien/player/building pairs)
@@ -77,7 +78,7 @@ Space Survivalcraft/
 │   ├── test_contrail.py   # ContrailParticle lifecycle and colour interpolation
 │   ├── test_inventory.py  # Grid math, iron management, drag-and-drop, ejection
 │   ├── test_damage.py     # Damage routing (shields → HP), death triggering
-│   └── test_building.py   # StationModule, Turret, DockingPort, capacity helpers
+│   └── test_building.py   # StationModule, Turret, DockingPort, capacity helpers, edge-to-edge snap, collision
 │
 ├── assets/              # Art, sound, music (gitignored — not in repo)
 ├── saves/               # Save slot JSON files (gitignored)
@@ -136,7 +137,7 @@ game_view.py
   ├── sprites/* (PlayerShip, Weapon, Explosion, HitSpark, FireSpark, IronPickup, ContrailParticle, Building*)
   ├── collisions.py (all collision handlers called from on_update)
   ├── world_setup.py (asset loading, asteroid/alien/building population, music tracks)
-  ├── hud.py, escape_menu.py, death_screen.py, inventory.py, build_menu.py (UI overlays)
+  ├── hud.py, escape_menu.py, death_screen.py, inventory.py, build_menu.py, station_info.py (UI overlays)
   └── settings.py (audio volume)
 
 collisions.py

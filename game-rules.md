@@ -16,8 +16,8 @@
 - **5 x 5 cargo inventory** — drag-and-drop grid with item ejection into the game world
 - **Enemy AI** — alien scout ships that patrol, detect, pursue, and fire
 - **Collision physics** — elastic bounces with push-out resolution for all object pairs
-- **Full HUD** — HP/shield bars, speed, heading, weapon indicator, mini-map, music track
-- **Save/load system** — 10 named save slots preserving full game state
+- **Full HUD** — HP/shield bars, speed, heading, weapon indicator, mini-map, music track, station info overlay
+- **Save/load system** — 10 named save slots preserving full game state (includes module count)
 - **Background music** — shuffled playlist of loop tracks from two music packs
 - **Gamepad support** — Xbox 360 controller with analogue stick and button mapping
 - **Visual effects** — explosions, hit sparks, fire sparks, shield flashes, engine contrails
@@ -262,6 +262,27 @@ Pickups idle at their drop position until the ship's hull edge comes within 40 p
 - Camera shake + bump sound
 - Bolt removed on contact
 
+### Player vs Station Building
+- Push-out along collision normal (no interpenetration)
+- Velocity component toward building zeroed (no bounce, restitution = 0)
+- **No damage**, no collision cooldown, no sound, no camera shake
+- Player can touch the station without harm but cannot pass through
+
+### Alien vs Station Building
+- Alien pushed away from building
+- Velocity reflected off building normal
+- Orange bump flash on alien
+
+### Alien Laser vs Station Building
+- HitSpark at impact point
+- Building takes laser damage (10 per hit)
+- If Home Station destroyed: all modules disabled (greyed out)
+
+### Turret Projectile vs Alien
+- HitSpark at impact point
+- 10 damage per hit
+- On alien destruction: explosion + sound
+
 ---
 
 ## Damage & Death
@@ -328,6 +349,8 @@ When HP reaches 0:
 | Cycle weapon | Tab |
 | Open/close inventory | I |
 | Toggle FPS display | F |
+| Open/close build menu | B |
+| Station info panel | T (when near station) |
 | Escape menu | Escape |
 
 ### Xbox 360 Gamepad
@@ -415,10 +438,12 @@ The left-side panel (213 px wide) displays:
 
 ### Escape Menu (In-Game)
 - Toggled with ESC (if inventory is open, first ESC closes inventory)
-- Semi-transparent dark overlay with centred panel (320 x 340 px)
+- Semi-transparent dark overlay with centred panel (320 x 480 px)
 - **Pauses all gameplay** while open
+- **Audio sliders:** Music and SFX volume sliders (220 px wide) at the top of the panel, directly draggable with percentage display
 - **Buttons:** Resume, Save Game, Load Game, Main Menu, Exit Game
 - 10 save slots with naming overlay (max 24 characters, blinking cursor)
+- Save slot detail line shows: faction, ship type, HP, shields, and module count (when > 0)
 - Status feedback messages displayed for 2 seconds
 - ESC in sub-menus returns to main menu; ESC in main menu closes overlay
 
@@ -442,7 +467,7 @@ The left-side panel (213 px wide) displays:
 ### Save Slot Display
 Each slot shows:
 - Slot number and save name (or "Empty")
-- Detail line: faction, ship type, HP, shields
+- Detail line: faction, ship type, HP, shields, module count (when > 0)
 
 ---
 
@@ -546,9 +571,20 @@ Players can spend mined iron to construct a modular space station. Press **B** t
 
 - **Home Station** must be built first; all other modules require it.
 - **Connectable modules** (Home Station, Service Module, Power Receiver, Solar Arrays) snap to unoccupied docking ports (N/S/E/W) on existing modules within 40 px snap distance.
+- **Edge-to-edge snap**: when snapping to a port, the new module is offset so its opposite port aligns with the parent port — modules sit edge-to-edge, not overlapping.
 - **Turrets** are freely placed within 300 px of the Home Station; they do not dock to ports.
 - Mouse wheel rotates the ghost building before placement.
 - ESC cancels placement mode.
+
+### Station Info Panel (T Key)
+
+- Press **T** while within **300 px** of any station building to open the station info overlay.
+- Non-pausing right-side panel (280 x 420 px).
+- Shows each building's type and HP (colour-coded: green > 50%, orange > 25%, red ≤ 25%).
+- Disabled modules shown in grey with "DISABLED" label.
+- Footer: "Modules: X / Y used" (used vs. capacity).
+- Auto-closes when the player moves beyond **400 px** from all buildings.
+- Press **T** again to close manually.
 
 ### Module Capacity
 

@@ -65,15 +65,17 @@ class HUD:
                         arcade.color.LIGHT_GRAY, 9),
             arcade.Text("F           FPS",      10, SCREEN_HEIGHT - 382,
                         arcade.color.LIGHT_GRAY, 9),
+            arcade.Text("T           Station",  10, SCREEN_HEIGHT - 398,
+                        arcade.color.LIGHT_GRAY, 9),
         ]
         self._t_gamepad = (
-            arcade.Text("Gamepad: connected", 10, SCREEN_HEIGHT - 402,
+            arcade.Text("Gamepad: connected", 10, SCREEN_HEIGHT - 418,
                         arcade.color.LIME_GREEN, 9)
             if has_gamepad else None
         )
         self._show_fps: bool = False
         self._fps: float = 60.0
-        self._t_fps = arcade.Text("", 10, SCREEN_HEIGHT - 420,
+        self._t_fps = arcade.Text("", 10, SCREEN_HEIGHT - 436,
                                   arcade.color.YELLOW, 10, bold=True)
         self._t_minimap = arcade.Text(
             "MINI-MAP", STATUS_WIDTH // 2,
@@ -85,20 +87,20 @@ class HUD:
         ship_label = ship_type if ship_type else "Classic"
         self._t_faction = arcade.Text(
             f"FACTION: {faction_label}",
-            10, SCREEN_HEIGHT - 440,
+            10, SCREEN_HEIGHT - 456,
             arcade.color.LIGHT_BLUE, 9, bold=True,
         )
         self._t_ship_type = arcade.Text(
             f"SHIP: {ship_label}",
-            10, SCREEN_HEIGHT - 456,
+            10, SCREEN_HEIGHT - 472,
             arcade.color.LIGHT_GREEN, 9, bold=True,
         )
         self._t_music_hdr = arcade.Text(
-            "NOW PLAYING", STATUS_WIDTH // 2, SCREEN_HEIGHT - 476,
+            "NOW PLAYING", STATUS_WIDTH // 2, SCREEN_HEIGHT - 492,
             arcade.color.LIGHT_GRAY, 9, anchor_x="center",
         )
         self._t_track_name = arcade.Text(
-            "", STATUS_WIDTH // 2, SCREEN_HEIGHT - 492,
+            "", STATUS_WIDTH // 2, SCREEN_HEIGHT - 508,
             arcade.color.KHAKI, 9, bold=True, anchor_x="center",
         )
 
