@@ -150,6 +150,7 @@ class GameView(arcade.View):
         # Placement mode state
         self._placing_building: Optional[str] = None
         self._ghost_sprite: Optional[arcade.Sprite] = None
+        self._ghost_list: Optional[arcade.SpriteList] = None
         self._ghost_rotation: float = 0.0
 
         # HUD
@@ -331,6 +332,8 @@ class GameView(arcade.View):
         tex = self._building_textures[building_type]
         self._ghost_sprite = arcade.Sprite(path_or_texture=tex, scale=0.5)
         self._ghost_sprite.alpha = 140
+        self._ghost_list = arcade.SpriteList()
+        self._ghost_list.append(self._ghost_sprite)
         self._ghost_rotation = 0.0
         self._build_menu.open = False
 
@@ -338,6 +341,7 @@ class GameView(arcade.View):
         """Cancel building placement mode."""
         self._placing_building = None
         self._ghost_sprite = None
+        self._ghost_list = None
 
     def _place_building(self, wx: float, wy: float) -> None:
         """Attempt to place the building at world position (wx, wy)."""
@@ -587,8 +591,8 @@ class GameView(arcade.View):
             for fs in self.fire_sparks:
                 fs.draw()
             # Ghost sprite for placement mode
-            if self._ghost_sprite is not None:
-                self._ghost_sprite.draw()
+            if self._ghost_list is not None:
+                self._ghost_list.draw()
 
         with self.ui_cam.activate():
             spd = math.hypot(self.player.vel_x, self.player.vel_y)
