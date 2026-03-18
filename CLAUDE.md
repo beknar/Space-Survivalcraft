@@ -60,7 +60,7 @@ Space Survivalcraft/
 │   ├── shield.py        # ShieldSprite — animated energy bubble with hit flash
 │   ├── explosion.py     # Explosion, HitSpark, FireSpark visual effects
 │   ├── contrail.py      # ContrailParticle — engine exhaust particle effect
-│   └── building.py      # StationModule, HomeStation, ServiceModule, Turret, DockingPort, etc.
+│   └── building.py      # StationModule, HomeStation, ServiceModule, Turret, RepairModule, DockingPort, etc.
 │
 │  ── Unit tests ──
 ├── unit tests/
@@ -78,7 +78,7 @@ Space Survivalcraft/
 │   ├── test_contrail.py   # ContrailParticle lifecycle and colour interpolation
 │   ├── test_inventory.py  # Grid math, iron management, drag-and-drop, ejection
 │   ├── test_damage.py     # Damage routing (shields → HP), death triggering
-│   ├── test_building.py   # StationModule, Turret, DockingPort, capacity helpers, edge-to-edge snap, collision
+│   ├── test_building.py   # StationModule, Turret, RepairModule, DockingPort, capacity, snap, collision, port disconnect
 │   └── test_respawn.py    # Respawn position logic, timer logic, alien iron drop constants
 │
 ├── assets/              # Art, sound, music (gitignored — not in repo)

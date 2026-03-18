@@ -25,6 +25,7 @@ from constants import (
     CONTRAIL_START_SIZE, CONTRAIL_END_SIZE, CONTRAIL_OFFSET, CONTRAIL_COLOURS,
     BUILDING_TYPES, DOCK_SNAP_DIST, TURRET_FREE_PLACE_RADIUS,
     STATION_INFO_RANGE,
+    REPAIR_RANGE, REPAIR_RATE,
 )
 from settings import audio
 from sprites.projectile import Weapon
@@ -33,7 +34,7 @@ from sprites.pickup import IronPickup
 from sprites.player import PlayerShip
 from sprites.contrail import ContrailParticle
 from sprites.building import (
-    StationModule, HomeStation, Turret,
+    StationModule, HomeStation, Turret, RepairModule,
     create_building, compute_module_capacity, compute_modules_used,
     DockingPort,
 )
@@ -158,6 +159,12 @@ class GameView(arcade.View):
         self._ghost_sprite: Optional[arcade.Sprite] = None
         self._ghost_list: Optional[arcade.SpriteList] = None
         self._ghost_rotation: float = 0.0
+        # Destroy mode state
+        self._destroy_mode: bool = False
+        self._destroy_cursor_x: float = 0.0
+        self._destroy_cursor_y: float = 0.0
+        # Repair healing accumulator
+        self._repair_acc: float = 0.0
 
         # Station info overlay
         self._station_info = StationInfo()
@@ -414,6 +421,44 @@ class GameView(arcade.View):
         self._ghost_sprite = None
         self._ghost_list = None
 
+    def _enter_destroy_mode(self) -> None:
+        """Enter destroy mode — clicks will destroy station modules."""
+        self._destroy_mode = True
+        self._build_menu.open = False
+
+    def _exit_destroy_mode(self) -> None:
+        """Exit destroy mode."""
+        self._destroy_mode = False
+
+    def _disconnect_ports(self, building: StationModule) -> None:
+        """Free docking ports on connected buildings when one is removed."""
+        for port in building.ports:
+            if port.occupied and port.connected_to is not None:
+                other = port.connected_to
+                for op in other.ports:
+                    if op.connected_to is building:
+                        op.occupied = False
+                        op.connected_to = None
+
+    def _destroy_building_at(self, wx: float, wy: float) -> None:
+        """Destroy the closest building within click range of world pos."""
+        best = None
+        best_dist = 40.0  # max click distance
+        for b in self.building_list:
+            d = math.hypot(wx - b.center_x, wy - b.center_y)
+            if d < best_dist:
+                best_dist = d
+                best = b
+        if best is not None:
+            self._disconnect_ports(best)
+            if isinstance(best, HomeStation):
+                for b in self.building_list:
+                    b.disabled = True
+                    b.color = (128, 128, 128, 255)
+            self._spawn_explosion(best.center_x, best.center_y)
+            arcade.play_sound(self._explosion_snd, volume=0.7)
+            best.remove_from_sprite_lists()
+
     def _place_building(self, wx: float, wy: float) -> None:
         """Attempt to place the building at world position (wx, wy)."""
         bt = self._placing_building
@@ -464,6 +509,24 @@ class GameView(arcade.View):
                     opp_port.connected_to = parent
 
         self.building_list.append(building)
+
+        # Post-placement: connect any other adjacent ports (both ends connect)
+        for new_port in building.get_unoccupied_ports():
+            npx, npy = building.get_port_world_pos(new_port)
+            for other in self.building_list:
+                if other is building:
+                    continue
+                for other_port in other.get_unoccupied_ports():
+                    opx, opy = other.get_port_world_pos(other_port)
+                    if math.hypot(npx - opx, npy - opy) < DOCK_SNAP_DIST:
+                        new_port.occupied = True
+                        new_port.connected_to = other
+                        other_port.occupied = True
+                        other_port.connected_to = building
+                        break
+                if new_port.occupied:
+                    break
+
         self._cancel_placement()
 
     # ── Save / Load / Menu ─────────────────────────────────────────────────
@@ -686,6 +749,13 @@ class GameView(arcade.View):
             # Ghost sprite for placement mode
             if self._ghost_list is not None:
                 self._ghost_list.draw()
+            # Destroy mode crosshair
+            if self._destroy_mode:
+                cx, cy = self._destroy_cursor_x, self._destroy_cursor_y
+                sz = 16
+                arcade.draw_line(cx - sz, cy, cx + sz, cy, (255, 60, 60, 200), 2)
+                arcade.draw_line(cx, cy - sz, cx, cy + sz, (255, 60, 60, 200), 2)
+                arcade.draw_circle_outline(cx, cy, 12, (255, 60, 60, 180), 2)
 
         with self.ui_cam.activate():
             spd = math.hypot(self.player.vel_x, self.player.vel_y)
@@ -779,6 +849,32 @@ class GameView(arcade.View):
                 self.player._shield_acc -= pts
                 self.player.shields = min(self.player.max_shields,
                                           self.player.shields + pts)
+
+        # ── Repair Module: heal player HP when near Home Station ─────────
+        if self.player.hp < self.player.max_hp:
+            has_repair = any(
+                isinstance(b, RepairModule) and not b.disabled
+                for b in self.building_list
+            )
+            if has_repair:
+                home = None
+                for b in self.building_list:
+                    if isinstance(b, HomeStation) and not b.disabled:
+                        home = b
+                        break
+                if home is not None:
+                    dist = math.hypot(
+                        self.player.center_x - home.center_x,
+                        self.player.center_y - home.center_y,
+                    )
+                    if dist <= REPAIR_RANGE:
+                        self._repair_acc += REPAIR_RATE * delta_time
+                        pts = int(self._repair_acc)
+                        if pts > 0:
+                            self._repair_acc -= pts
+                            self.player.hp = min(
+                                self.player.max_hp, self.player.hp + pts
+                            )
 
         # ── Shield sprite position + animation ──────────────────────────────
         self.shield_sprite.update_shield(
@@ -979,7 +1075,9 @@ class GameView(arcade.View):
             self._death_screen.on_key_press(key)
             return
         if key == arcade.key.ESCAPE:
-            if self._placing_building is not None:
+            if self._destroy_mode:
+                self._exit_destroy_mode()
+            elif self._placing_building is not None:
                 self._cancel_placement()
             elif self._build_menu.open:
                 self._build_menu.toggle()
@@ -1003,6 +1101,9 @@ class GameView(arcade.View):
             self._hud.toggle_fps()
         elif key == arcade.key.B:
             if not self._escape_menu.open and not self._player_dead:
+                if self._destroy_mode:
+                    self._exit_destroy_mode()
+                    return
                 if self._placing_building is not None:
                     self._cancel_placement()
                 self._build_menu.toggle()
@@ -1034,6 +1135,12 @@ class GameView(arcade.View):
             if self._escape_menu.open:
                 self._escape_menu.on_mouse_press(x, y)
                 return
+            # Destroy mode — click to destroy a building
+            if self._destroy_mode:
+                wx = self.world_cam.position[0] - SCREEN_WIDTH / 2 + x
+                wy = self.world_cam.position[1] - SCREEN_HEIGHT / 2 + y
+                self._destroy_building_at(wx, wy)
+                return
             # Placement mode — click to place
             if self._placing_building is not None:
                 if self._ghost_sprite is not None:
@@ -1053,7 +1160,10 @@ class GameView(arcade.View):
                     has_home=self._has_home_station(),
                 )
                 if selected is not None:
-                    self._enter_placement_mode(selected)
+                    if selected == "__destroy__":
+                        self._enter_destroy_mode()
+                    else:
+                        self._enter_placement_mode(selected)
                 return
             self.inventory.on_mouse_press(x, y)
 
@@ -1110,6 +1220,11 @@ class GameView(arcade.View):
             return
         if self._escape_menu.open:
             self._escape_menu.on_mouse_motion(x, y)
+            return
+        # Track cursor for destroy mode crosshair
+        if self._destroy_mode:
+            self._destroy_cursor_x = self.world_cam.position[0] - SCREEN_WIDTH / 2 + x
+            self._destroy_cursor_y = self.world_cam.position[1] - SCREEN_HEIGHT / 2 + y
             return
         if self._build_menu.open:
             self._build_menu.on_mouse_motion(x, y)

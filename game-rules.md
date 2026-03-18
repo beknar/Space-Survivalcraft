@@ -584,15 +584,26 @@ Players can spend mined iron to construct a modular space station. Press **B** t
 | Solar Array 2 | 50 | 100 | 2 | +10 capacity | Provides additional module capacity |
 | Turret 1 | 100 | 50 | unlimited | 1 slot | Single-barrel auto-fire turret |
 | Turret 2 | 100 | 75 | unlimited | 2 slots | Dual-barrel auto-fire turret |
+| Repair Module | 75 | 75 | 1 | 1 slot | Enables passive HP repair near Home Station |
 
 ### Placement Rules
 
 - **Home Station** must be built first; all other modules require it.
-- **Connectable modules** (Home Station, Service Module, Power Receiver, Solar Arrays) snap to unoccupied docking ports (N/S/E/W) on existing modules within 40 px snap distance.
-- **Edge-to-edge snap**: when snapping to a port, the new module is offset so its opposite port aligns with the parent port — modules sit edge-to-edge, not overlapping.
+- **Connectable modules** (Home Station, Service Module, Power Receiver, Solar Arrays, Repair Module) snap to unoccupied docking ports (N/S/E/W) on existing modules within 40 px snap distance.
+- **Edge-to-edge snap**: when snapping to a port, the new module is offset so its opposite port aligns with the parent port — modules sit edge-to-edge, not overlapping. Both ends of connected pieces have their ports marked as occupied.
+- **Post-placement connectivity**: after placing a new module, any of its remaining ports that are adjacent to other existing modules' ports are also connected automatically.
 - **Turrets** are freely placed within 300 px of the Home Station; they do not dock to ports.
 - Mouse wheel rotates the ghost building before placement.
 - ESC cancels placement mode.
+
+### Deconstruction (Destroy Mode)
+
+- Open the Build Menu (B key) and click the red **DESTROY** button at the bottom.
+- The cursor changes to a **targeting reticle** (red crosshair with circle).
+- Left-click on any station module to destroy it instantly (explosion + sound).
+- Connected ports on adjacent modules are freed when a building is destroyed.
+- Destroying the **Home Station** disables all remaining modules (greyed out).
+- Press **B** or **ESC** to exit destroy mode.
 
 ### Station Info Panel (T Key)
 
@@ -625,6 +636,18 @@ Players can spend mined iron to construct a modular space station. Press **B** t
 - Turret 2 fires two parallel projectiles with lateral barrel offset.
 - Disabled turrets (Home Station destroyed) do not fire.
 
+### Repair Module Behaviour
+
+| Constant | Value |
+|---|---|
+| Repair range | 300 px (distance from Home Station) |
+| Repair rate | 1 HP per second |
+
+- When a non-disabled Repair Module exists and the player is within **300 px** of a non-disabled Home Station, the player's HP regenerates at **1 HP/s**.
+- Uses fractional accumulation (same pattern as shield regen) — whole HP points are applied per frame.
+- Does not heal beyond `max_hp`.
+- Disabled Repair Modules (Home Station destroyed) do not provide healing.
+
 ### Building Assets
 
 All building PNGs are located in `assets/kenney space combat assets/Space Shooter Extension/PNG/Sprites X2/Building/`:
@@ -638,6 +661,7 @@ All building PNGs are located in `assets/kenney space combat assets/Space Shoote
 | Solar Array 2 | `spaceBuilding_024.png` |
 | Turret 1 | `spaceBuilding_011.png` |
 | Turret 2 | `spaceBuilding_012.png` |
+| Repair Module | `spaceBuilding_009.png` |
 
 ### Mini-map
 

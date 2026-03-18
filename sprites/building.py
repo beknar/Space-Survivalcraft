@@ -123,6 +123,11 @@ class PowerReceiver(StationModule):
     pass
 
 
+class RepairModule(StationModule):
+    """Enables passive HP repair when the player is near the Home Station."""
+    pass
+
+
 class SolarArray(StationModule):
     """Provides additional module capacity."""
 
@@ -226,6 +231,7 @@ _TYPE_MAP = {
     "Solar Array 2":  SolarArray,
     "Turret 1":       Turret,
     "Turret 2":       Turret,
+    "Repair Module":  RepairModule,
 }
 
 

@@ -56,7 +56,7 @@ A top-down space survival game built with Python and the Arcade framework. Pilot
 
 ### Space Station Building System
 - Spend mined iron to construct a modular space station (B key to open build menu)
-- **7 module types** with unique stats, costs, and placement rules:
+- **8 module types** with unique stats, costs, and placement rules:
   - **Home Station** --- root module (100 HP, 100 iron); must be built first
   - **Service Module** --- general connector (50 HP, 25 iron; max 4)
   - **Power Receiver** --- links modules to solar arrays (75 HP, 50 iron)
@@ -64,7 +64,10 @@ A top-down space survival game built with Python and the Arcade framework. Pilot
   - **Solar Array 2** --- adds +10 module capacity (50 HP, 100 iron; max 2)
   - **Turret 1** --- single-barrel auto-fire turret (100 HP, 50 iron)
   - **Turret 2** --- dual-barrel auto-fire turret (100 HP, 75 iron; uses 2 slots)
-- **Edge-to-edge snap** --- connectable modules snap to docking ports (N/S/E/W) on existing modules
+  - **Repair Module** --- passive HP repair when near Home Station (75 HP, 75 iron; max 1)
+- **Edge-to-edge snap** --- connectable modules snap to docking ports (N/S/E/W); both ends connect at their edges
+- **Deconstruction** --- Destroy button in build menu activates targeting reticle to remove station pieces
+- **HP Repair** --- with a Repair Module, player HP regenerates at 1/s when within 300 px of Home Station
 - **Turrets** freely placed within 300 px of the Home Station; auto-target nearest alien
 - Mouse wheel rotates buildings during placement; ESC cancels placement
 - Base module capacity of 4, expandable with Solar Arrays
@@ -186,7 +189,7 @@ A top-down space survival game built with Python and the Arcade framework. Pilot
 python -m pytest "unit tests/" -v
 ```
 
-236 unit tests covering all game modules: player physics, weapons, asteroids, aliens, pickups, shields, explosions, contrails, inventory, damage routing, building system (snap math, collision, capacity), respawn mechanics, and settings.
+244 unit tests covering all game modules: player physics, weapons, asteroids, aliens, pickups, shields, explosions, contrails, inventory, damage routing, building system (snap, collision, capacity, repair module, port disconnect), respawn mechanics, and settings.
 
 ## Project Structure
 

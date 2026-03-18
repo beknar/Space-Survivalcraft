@@ -7,12 +7,13 @@ import pytest
 
 from sprites.building import (
     StationModule, HomeStation, ServiceModule, PowerReceiver,
-    SolarArray, Turret, DockingPort, create_building,
+    SolarArray, Turret, RepairModule, DockingPort, create_building,
     compute_module_capacity, compute_modules_used,
 )
 from constants import (
     BUILDING_TYPES, TURRET_RANGE, TURRET_COOLDOWN,
     BASE_MODULE_CAPACITY, SHIP_RADIUS, BUILDING_RADIUS,
+    REPAIR_RANGE, REPAIR_RATE,
 )
 
 
@@ -431,3 +432,99 @@ class TestShipBuildingCollision:
         # Speed should be <= original (no bounce adds energy)
         new_speed = math.hypot(player_vx, player_vy)
         assert new_speed <= 100.01
+
+
+# ── Repair Module ────────────────────────────────────────────────────────────
+
+class TestRepairModule:
+    def test_create_repair_module(self, home_tex):
+        b = create_building("Repair Module", home_tex, 0, 0)
+        assert isinstance(b, RepairModule)
+
+    def test_repair_module_hp(self, home_tex):
+        b = RepairModule(home_tex, 0, 0, "Repair Module", scale=0.5)
+        assert b.hp == 75
+        assert b.max_hp == 75
+
+    def test_repair_module_has_ports(self, home_tex):
+        b = RepairModule(home_tex, 0, 0, "Repair Module", scale=0.5)
+        assert len(b.ports) == 4
+
+    def test_repair_module_in_building_types(self):
+        assert "Repair Module" in BUILDING_TYPES
+        stats = BUILDING_TYPES["Repair Module"]
+        assert stats["cost"] == 75
+        assert stats["max"] == 1
+        assert stats["connectable"] is True
+        assert stats["slots_used"] == 1
+
+    def test_repair_range_constant(self):
+        assert REPAIR_RANGE == 300.0
+
+    def test_repair_rate_constant(self):
+        assert REPAIR_RATE == 1.0
+
+
+# ── Port disconnect on deconstruction ─────────────────────────────────────────
+
+class TestPortDisconnect:
+    def test_disconnect_frees_ports(self, home_tex):
+        """Disconnecting a building should free ports on connected buildings."""
+        parent = HomeStation(home_tex, 100, 100, "Home Station", scale=0.5)
+        child = ServiceModule(home_tex, 100, 200, "Service Module", scale=0.5)
+
+        # Manually connect N port of parent to S port of child
+        p_port = [p for p in parent.ports if p.direction == "N"][0]
+        c_port = [p for p in child.ports if p.direction == "S"][0]
+        p_port.occupied = True
+        p_port.connected_to = child
+        c_port.occupied = True
+        c_port.connected_to = parent
+
+        # Simulate disconnect of child
+        for port in child.ports:
+            if port.occupied and port.connected_to is not None:
+                other = port.connected_to
+                for op in other.ports:
+                    if op.connected_to is child:
+                        op.occupied = False
+                        op.connected_to = None
+
+        # Parent's N port should now be free
+        assert p_port.occupied is False
+        assert p_port.connected_to is None
+
+    def test_disconnect_leaves_other_ports_intact(self, home_tex):
+        """Disconnecting one building shouldn't affect unrelated ports."""
+        parent = HomeStation(home_tex, 100, 100, "Home Station", scale=0.5)
+        child1 = ServiceModule(home_tex, 100, 200, "Service Module", scale=0.5)
+        child2 = ServiceModule(home_tex, 200, 100, "Service Module", scale=0.5)
+
+        # Connect child1 to parent's N port
+        p_n = [p for p in parent.ports if p.direction == "N"][0]
+        c1_s = [p for p in child1.ports if p.direction == "S"][0]
+        p_n.occupied = True
+        p_n.connected_to = child1
+        c1_s.occupied = True
+        c1_s.connected_to = parent
+
+        # Connect child2 to parent's E port
+        p_e = [p for p in parent.ports if p.direction == "E"][0]
+        c2_w = [p for p in child2.ports if p.direction == "W"][0]
+        p_e.occupied = True
+        p_e.connected_to = child2
+        c2_w.occupied = True
+        c2_w.connected_to = parent
+
+        # Disconnect child1 only
+        for port in child1.ports:
+            if port.occupied and port.connected_to is not None:
+                for op in port.connected_to.ports:
+                    if op.connected_to is child1:
+                        op.occupied = False
+                        op.connected_to = None
+
+        # Parent's N port freed, E port still connected
+        assert p_n.occupied is False
+        assert p_e.occupied is True
+        assert p_e.connected_to is child2

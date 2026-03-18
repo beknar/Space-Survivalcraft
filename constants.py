@@ -271,6 +271,9 @@ BUILDING_TYPES = {
     "Turret 2":        {"png": "spaceBuilding_012.png", "hp": 100, "cost":  75,
                         "max": None, "module_slots": 0, "connectable": False,
                         "free_place": True,  "slots_used": 2},
+    "Repair Module":   {"png": "spaceBuilding_009.png", "hp":  75, "cost":  75,
+                        "max": 1,    "module_slots": 0, "connectable": True,
+                        "free_place": False, "slots_used": 1},
 }
 
 # Turret combat constants
@@ -280,6 +283,10 @@ TURRET_COOLDOWN: float = 1.5        # seconds between turret shots
 TURRET_LASER_SPEED: float = 700.0   # turret projectile speed  px/s
 TURRET_LASER_RANGE: float = 500.0   # turret projectile max range  px
 TURRET_FREE_PLACE_RADIUS: float = 300.0  # max distance from Home Station for turrets
+
+# Repair module constants
+REPAIR_RANGE: float = 300.0             # px — distance from Home Station for repair to activate
+REPAIR_RATE: float = 1.0               # HP restored per second when near Home Station
 
 # Docking port snap distance
 DOCK_SNAP_DIST: float = 40.0        # px — max distance to snap to a port

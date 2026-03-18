@@ -21,6 +21,7 @@ _MENU_ORDER = [
     "Solar Array 2",
     "Turret 1",
     "Turret 2",
+    "Repair Module",
 ]
 
 
@@ -36,12 +37,17 @@ class BuildMenu:
         self.open: bool = False
         self._textures: dict[str, arcade.Texture] = {}
         self._hover_idx: int = -1
+        self._hover_destroy: bool = False
         self._mouse_x: float = 0.0
         self._mouse_y: float = 0.0
 
         # Panel geometry — right side of screen, vertically centred
         item_count = len(_MENU_ORDER)
-        self._panel_h = BUILD_MENU_PAD * 2 + 32 + item_count * BUILD_MENU_ITEM_H + 24
+        # Extra space for destroy button (BUILD_MENU_ITEM_H) below items
+        self._panel_h = (BUILD_MENU_PAD * 2 + 32
+                         + item_count * BUILD_MENU_ITEM_H
+                         + BUILD_MENU_ITEM_H + 8  # destroy button + gap
+                         + 24)
         self._panel_w = BUILD_MENU_W
         self._panel_x = SCREEN_WIDTH - self._panel_w - 8
         self._panel_y = (SCREEN_HEIGHT - self._panel_h) // 2
@@ -65,6 +71,10 @@ class BuildMenu:
         self._t_name = arcade.Text("", 0, 0, arcade.color.WHITE, 10, bold=True)
         self._t_cost = arcade.Text("", 0, 0, arcade.color.ORANGE, 9)
         self._t_reason = arcade.Text("", 0, 0, (200, 80, 80), 8)
+        self._t_destroy = arcade.Text(
+            "DESTROY", 0, 0, (255, 80, 80), 12, bold=True,
+            anchor_x="center", anchor_y="center",
+        )
 
     def set_textures(self, textures: dict[str, arcade.Texture]) -> None:
         """Provide icon textures for each building type (called once at init)."""
@@ -80,6 +90,15 @@ class BuildMenu:
         x = self._panel_x + BUILD_MENU_PAD
         y = (self._panel_y + self._panel_h - BUILD_MENU_PAD - 32
              - (idx + 1) * BUILD_MENU_ITEM_H)
+        w = self._panel_w - BUILD_MENU_PAD * 2
+        h = BUILD_MENU_ITEM_H - 4
+        return x, y, w, h
+
+    def _destroy_rect(self) -> tuple[int, int, int, int]:
+        """Return (x, y, w, h) for the Destroy button."""
+        x = self._panel_x + BUILD_MENU_PAD
+        y = (self._panel_y + self._panel_h - BUILD_MENU_PAD - 32
+             - (len(_MENU_ORDER) + 1) * BUILD_MENU_ITEM_H - 4)
         w = self._panel_w - BUILD_MENU_PAD * 2
         h = BUILD_MENU_ITEM_H - 4
         return x, y, w, h
@@ -133,13 +152,18 @@ class BuildMenu:
         self._mouse_x = x
         self._mouse_y = y
         self._hover_idx = -1
+        self._hover_destroy = False
         if not self.open:
             return
         for i in range(len(_MENU_ORDER)):
             ix, iy, iw, ih = self._item_rect(i)
             if ix <= x <= ix + iw and iy <= y <= iy + ih:
                 self._hover_idx = i
-                break
+                return
+        # Check destroy button hover
+        dx, dy, dw, dh = self._destroy_rect()
+        if dx <= x <= dx + dw and dy <= y <= dy + dh:
+            self._hover_destroy = True
 
     def on_mouse_press(
         self,
@@ -151,7 +175,7 @@ class BuildMenu:
         module_capacity: int,
         has_home: bool,
     ) -> Optional[str]:
-        """Handle a click. Returns building type name if an available item was clicked."""
+        """Handle a click. Returns building type name, or "__destroy__" for destroy mode."""
         if not self.open:
             return None
         for i, name in enumerate(_MENU_ORDER):
@@ -164,6 +188,11 @@ class BuildMenu:
                 if avail:
                     return name
                 return None
+        # Check destroy button
+        dx, dy, dw, dh = self._destroy_rect()
+        if dx <= x <= dx + dw and dy <= y <= dy + dh:
+            if has_home:
+                return "__destroy__"
         return None
 
     # ── Drawing ───────────────────────────────────────────────────────────────
@@ -262,3 +291,17 @@ class BuildMenu:
                 self._t_reason.anchor_x = "right"
                 self._t_reason.draw()
                 self._t_reason.anchor_x = "left"
+
+        # Destroy button
+        dx, dy, dw, dh = self._destroy_rect()
+        destroy_fill = (80, 30, 30, 220) if self._hover_destroy else (50, 20, 20, 200)
+        if not has_home:
+            destroy_fill = (40, 30, 30, 150)
+        arcade.draw_rect_filled(arcade.LBWH(dx, dy, dw, dh), destroy_fill)
+        arcade.draw_rect_outline(
+            arcade.LBWH(dx, dy, dw, dh), (120, 50, 50), border_width=1,
+        )
+        self._t_destroy.x = dx + dw // 2
+        self._t_destroy.y = dy + dh // 2
+        self._t_destroy.color = (255, 80, 80) if has_home else (100, 50, 50)
+        self._t_destroy.draw()
