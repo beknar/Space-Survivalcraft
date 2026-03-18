@@ -1,17 +1,17 @@
-# Space Survivalcraft
+# Call of Orion
 
-A space-themed survival crafting game built with Python and the Arcade framework. Pilot a spaceship, mine asteroids for resources, fight alien enemies, manage your cargo, and survive in a vast open world.
+A top-down space survival game built with Python and the Arcade framework. Pilot a customisable spaceship through a vast star field, mine asteroids for iron, fight alien scout ships, build a modular space station, and manage your cargo inventory.
 
 ## Features
 
 ### Faction & Ship Selection
 - Choose from 4 factions: **Earth**, **Colonial**, **Heavy World**, and **Ascended**
 - Select from 5 ship types, each with unique stats:
-  - **Cruiser** — balanced all-rounder
-  - **Bastion** — high HP, heavy armour
-  - **Aegis** — strong shields with fast regeneration
-  - **Striker** — high thrust, agile fighter
-  - **Thunderbolt** — dual-gun weapons platform
+  - **Cruiser** --- balanced all-rounder (100 HP, 100 shields)
+  - **Bastion** --- heavy armour tank (150 HP, 50 shields)
+  - **Aegis** --- shield specialist with fast regen (50 HP, 150 shields, 1.0 pt/s)
+  - **Striker** --- agile high-thrust fighter (300 thrust, lower damping)
+  - **Thunderbolt** --- dual-gun weapons platform (2 guns, lower top speed)
 - Ship previews and stat breakdowns shown on the selection screen
 
 ### Newtonian Flight Model
@@ -22,18 +22,18 @@ A space-themed survival crafting game built with Python and the Arcade framework
 - Keyboard and Xbox 360 gamepad support
 
 ### Combat
-- **Basic Laser** — high-damage weapon for fighting enemies (25 dmg, 0.30 s cooldown)
-- **Mining Beam** — rapid-fire tool for harvesting asteroids (10 dmg, 0.10 s cooldown)
+- **Basic Laser** --- high-damage weapon for fighting enemies (25 dmg, 0.30 s cooldown)
+- **Mining Beam** --- rapid-fire tool for harvesting asteroids (10 dmg, 0.10 s cooldown)
 - Dual-gun ships (Thunderbolt) fire from two laterally-offset hardpoints simultaneously
 - Weapon cycling with Tab key or gamepad right bumper
 - Camera shake and hit sparks on weapon impacts
 - Shield system absorbs damage before HP; regenerates over time
 - Animated energy shield bubble with hit-flash visual feedback
 
-### Enemies — Small Alien Ships
+### Enemies --- Small Alien Ships
 - 20 alien scout ships patrol the world with autonomous AI
 - Two AI states: **Patrol** (lazy loops near spawn) and **Pursue** (chase and fire on detection)
-- Aliens fire laser bolts faster than the player's max speed — dodging required
+- Aliens fire laser bolts faster than the player's max speed --- dodging required
 - Obstacle-avoidance steering around asteroids and other aliens
 - Physics-based collision bouncing between all entities
 - Leash range prevents aliens from chasing indefinitely
@@ -48,29 +48,82 @@ A space-themed survival crafting game built with Python and the Arcade framework
 - 5x5 cargo hold grid toggled with I key or gamepad Y button
 - Drag-and-drop items between inventory slots
 - Drop items into the game world by dragging outside the inventory panel
-- Hover tooltips show item names and quantities
 - Iron ore count displayed in both the inventory and HUD
+- Ejected items despawn after 10 minutes
+
+### Space Station Building System
+- Spend mined iron to construct a modular space station (B key to open build menu)
+- **7 module types** with unique stats, costs, and placement rules:
+  - **Home Station** --- root module (100 HP, 100 iron); must be built first
+  - **Service Module** --- general connector (50 HP, 25 iron; max 4)
+  - **Power Receiver** --- links modules to solar arrays (75 HP, 50 iron)
+  - **Solar Array 1** --- adds +6 module capacity (50 HP, 75 iron; max 2)
+  - **Solar Array 2** --- adds +10 module capacity (50 HP, 100 iron; max 2)
+  - **Turret 1** --- single-barrel auto-fire turret (100 HP, 50 iron)
+  - **Turret 2** --- dual-barrel auto-fire turret (100 HP, 75 iron; uses 2 slots)
+- **Edge-to-edge snap** --- connectable modules snap to docking ports (N/S/E/W) on existing modules
+- **Turrets** freely placed within 300 px of the Home Station; auto-target nearest alien
+- Mouse wheel rotates buildings during placement; ESC cancels placement
+- Base module capacity of 4, expandable with Solar Arrays
+- Destroying the Home Station disables all modules
+- Aliens attack station buildings; turrets defend automatically
+
+### Station Info Panel (T Key)
+- Press **T** while near the station to view building stats
+- Shows each module's type and HP (colour-coded green/orange/red)
+- Displays module count and remaining capacity
+- Auto-closes when the player flies away
+
+### Player-Building Collision
+- Player ship can touch the station without harm
+- Gentle push-out prevents passing through buildings
+- No damage, no bounce, no sound --- just a soft stop
 
 ### HUD & Mini-Map
 - Left-side status panel showing HP bar, shield bar, speed, heading, iron count, and active weapon
 - Faction and ship type indicators
 - Controls reference and gamepad connection status
 - FPS counter (toggle with F key)
-- Mini-map showing the full 6400x6400 world: player (white), asteroids (gray), aliens (red), iron pickups (orange)
+- Now-playing music track name
+- Mini-map showing the full 6400x6400 world:
+  - **White dot** --- player ship (with cyan heading line)
+  - **Grey dots** --- asteroids
+  - **Orange dots** --- iron pickups
+  - **Red dots** --- alien ships
+  - **Cyan dots** --- station buildings
+
+### Save/Load System
+- 10 named save slots with full game state preservation
+- Saves: player position/velocity/HP/shields, weapon index, inventory, all asteroids, all aliens (including AI state), all pickups, and all station buildings
+- Save slot display shows: faction, ship type, HP, shields, and module count
 
 ### Escape Menu
 - Press ESC to open a pause menu that freezes all gameplay
-- **Resume** — return to the game
-- **Save Game** — save full game state to a JSON file
-- **Load Game** — restore a previously saved game
-- **Main Menu** — return to faction/ship selection
-- **Exit Game** — quit the application
-- Single save slot with complete world state preservation
+- **Music and SFX volume sliders** --- draggable with percentage display
+- **Resume** / **Save Game** / **Load Game** / **Main Menu** / **Exit Game**
+- 10 save slots with a naming overlay (max 24 characters, blinking cursor)
+- ESC in sub-menus navigates back; ESC in main menu closes overlay
 
-### World
-- 6400x6400 pixel open world (200x200 tiles) with tiled starfield background
-- Camera follows the player, clamped at world edges
-- Ship-to-asteroid and ship-to-alien collision with bounce physics and damage
+### Death & Respawn
+- Dramatic destruction sequence: large explosion, fire sparks, ship disappears
+- Death screen with "SHIP DESTROYED" and three options:
+  - **Load Game** --- restore from a save slot
+  - **Main Menu** --- return to title screen
+  - **Exit Game** --- quit
+- Gameplay freezes; effects still animate during the 1.5 s death delay
+
+### Audio
+- Shuffled background music playlist from two music packs (auto-advances on track end)
+- Per-weapon sound effects with rapid-fire throttling
+- Engine thruster loop, collision bump sounds, explosion sounds
+- Global music and SFX volume controls in both Options screen and in-game escape menu
+
+### Visual Effects
+- Animated explosion sprite sheets (9 frames)
+- Hit sparks (expanding ring + fading core)
+- Fire sparks on hull damage (12 particles, yellow-to-red transition)
+- Shield hit flash (alpha pulse on damage absorption)
+- Engine contrail particles (ship-type coloured, fading and shrinking)
 
 ## Controls
 
@@ -79,16 +132,19 @@ A space-themed survival crafting game built with Python and the Arcade framework
 | Rotate left/right | Left/Right or A/D | Left stick |
 | Thrust forward | Up or W | Left stick up |
 | Brake/reverse | Down or S | Left stick down |
-| Fire weapon | Space | A button (hold for auto-fire) |
+| Fire weapon | Space (hold for auto-fire) | A button |
 | Cycle weapon | Tab | Right bumper (RB) |
 | Open inventory | I | Y button |
-| Escape menu | Escape | — |
-| Toggle FPS | F | — |
+| Build menu | B | --- |
+| Station info | T (when near station) | --- |
+| Toggle FPS | F | --- |
+| Escape menu | Escape | --- |
 
 ## Requirements
 
 - Python 3.12
 - Python Arcade 3.3.3
+- Pillow 11.3.0
 
 ## Getting Started
 
@@ -121,29 +177,62 @@ A space-themed survival crafting game built with Python and the Arcade framework
    python main.py
    ```
 
+## Running Tests
+
+```bash
+python -m pytest "unit tests/" -v
+```
+
+216 unit tests covering all game modules: player physics, weapons, asteroids, aliens, pickups, shields, explosions, contrails, inventory, damage routing, building system (snap math, collision, capacity), and settings.
+
 ## Project Structure
 
 ```
 Space Survivalcraft/
-├── main.py              # Entry point
-├── constants.py         # All game constants
-├── selection_view.py    # Faction & ship selection screen
-├── game_view.py         # Core gameplay loop
-├── hud.py               # HUD and status panel
-├── collisions.py        # Collision handling
-├── world_setup.py       # Asset loading and world population
-├── escape_menu.py       # Pause menu overlay
-├── inventory.py         # Cargo hold UI
-├── sprites/             # Game object classes
-│   ├── player.py        # Player ship
-│   ├── asteroid.py      # Iron asteroids
-│   ├── alien.py         # Alien scout AI
-│   ├── projectile.py    # Projectiles & weapons
-│   ├── explosion.py     # Explosion & hit effects
-│   ├── shield.py        # Shield bubble
-│   ├── pickup.py        # Iron ore pickup
-│   └── contrail.py      # Engine exhaust particles
-└── assets/              # Art, sound, music (not included in repo)
+├── main.py              # Entry point --- creates Window, starts SplashView
+├── constants.py         # All game constants (window, physics, assets, factions, ships, buildings)
+├── settings.py          # Global AudioSettings singleton (music_volume, sfx_volume)
+│
+│  ── Views ──
+├── splash_view.py       # Title screen with Play/Load/Options/Exit
+├── options_view.py      # Music + SFX volume sliders
+├── selection_view.py    # Two-phase faction then ship-type picker
+├── game_view.py         # Core gameplay loop, cameras, input, music, death logic
+│
+│  ── UI Overlays ──
+├── hud.py               # Left status panel (HP/shield bars, speed, weapon, mini-map)
+├── escape_menu.py       # Pause overlay with save/load/quit and audio sliders
+├── death_screen.py      # "SHIP DESTROYED" overlay with Load/Menu/Exit
+├── inventory.py         # 5x5 cargo grid with drag-and-drop and world ejection
+├── build_menu.py        # Right-side overlay for constructing station modules
+├── station_info.py      # Right-side overlay showing building HP and module stats (T key)
+│
+│  ── Game Logic ──
+├── collisions.py        # All collision handlers (projectile/asteroid/alien/player/building)
+├── world_setup.py       # Asset loading, asteroid/alien/building spawning, music collection
+│
+│  ── Sprites ──
+├── sprites/
+│   ├── player.py        # PlayerShip --- Newtonian ship with faction/ship-type config
+│   ├── projectile.py    # Projectile + Weapon (fire cooldown, sound throttle)
+│   ├── asteroid.py      # IronAsteroid --- minable rock with shake/tint on hit
+│   ├── alien.py         # SmallAlienShip --- PATROL/PURSUE AI with obstacle avoidance
+│   ├── pickup.py        # IronPickup --- collectible ore token with fly-to-ship behaviour
+│   ├── shield.py        # ShieldSprite --- animated energy bubble with hit flash
+│   ├── explosion.py     # Explosion, HitSpark, FireSpark visual effects
+│   ├── contrail.py      # ContrailParticle --- engine exhaust particle effect
+│   └── building.py      # StationModule, HomeStation, Turret, DockingPort, capacity helpers
+│
+│  ── Unit Tests ──
+├── unit tests/
+│   ├── conftest.py      # Shared fixtures (dummy textures)
+│   └── test_*.py        # 216 tests across 14 test files
+│
+├── game-rules.md        # Comprehensive game rules, stats, and asset reference
+├── CLAUDE.md            # Project overview and dev reference
+├── assets/              # Art, sound, music (gitignored)
+├── saves/               # Save slot JSON files (gitignored)
+└── venv/                # Python virtual environment (gitignored)
 ```
 
 ## License
