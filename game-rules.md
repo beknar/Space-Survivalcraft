@@ -464,9 +464,10 @@ The left-side panel (213 px wide) displays:
 - Music Volume slider (0-100%)
 - Sound Effects Volume slider (0-100%)
 - **Resolution selector**: left/right arrows cycling through presets (1280x800, 1366x768, 1600x900, 1920x1080, 2560x1440, 3840x2160)
-- **Fullscreen toggle**: ON/OFF button
+- **Display modes**: Windowed, Fullscreen, Borderless Windowed (toggleable)
 - **Buttons:** Main Menu, Exit Game
 - Settings stored in memory for current session (not persisted to disk)
+- All UI elements dynamically positioned using actual window pixel dimensions
 
 ### Selection Screen
 - Phase 1: Choose faction (Left/Right or A/D to browse, Enter/Space to confirm)
@@ -505,6 +506,7 @@ The left-side panel (213 px wide) displays:
 - All iron pickups: position, amount
 - All station buildings: type, position, HP, angle, disabled state
 - Respawn timers: asteroid and alien respawn countdown progress
+- Fog of war grid: 128 x 128 boolean grid of revealed cells
 
 ### Save Slot Display
 Each slot shows:

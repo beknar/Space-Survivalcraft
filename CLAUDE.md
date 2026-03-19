@@ -172,6 +172,8 @@ sprites/alien.py
 - **Sound throttling** on rapid-fire weapons (min 0.15 s between pyglet media player creations)
 - **PIL for sprite extraction** — alien ship/laser cropped from composite sheets, faction ships cropped from 1024×1024 grids, shield frames from 3×2 sheet
 - **Gamepad resilience** — `joystick.open()` wrapped in `try/except DeviceOpenException` to handle already-open controllers across View transitions
+- **Dynamic UI positioning** — all views and overlays use `self.window.width`/`.height` (or `arcade.get_window()`) for layout, never stale imported `SCREEN_WIDTH`/`SCREEN_HEIGHT` constants, to support runtime resolution changes and fullscreen
+- **Fog of war** — 128×128 boolean grid saved/loaded with game state; mini-map filters objects by revealed cells and draws grey fog overlay using run-length spans
 
 ## Game Rules Reference
 
