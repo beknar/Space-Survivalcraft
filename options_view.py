@@ -5,6 +5,7 @@ import os
 
 import arcade
 
+import constants
 from constants import SCREEN_WIDTH, SCREEN_HEIGHT, SFX_INTERFACE_DIR, RESOLUTION_PRESETS
 from settings import audio, apply_resolution
 
@@ -24,9 +25,9 @@ class OptionsView(arcade.View):
     def __init__(self) -> None:
         super().__init__()
 
-        # Compute positions from current SCREEN_WIDTH / SCREEN_HEIGHT
-        sw = SCREEN_WIDTH
-        sh = SCREEN_HEIGHT
+        # Read live module-level values (not the stale local import)
+        sw = constants.SCREEN_WIDTH
+        sh = constants.SCREEN_HEIGHT
         self._slider_x = (sw - _SLIDER_W) // 2
         self._music_y = sh // 2 + 120
         self._sfx_y = sh // 2 + 40
@@ -155,7 +156,7 @@ class OptionsView(arcade.View):
 
         # Dark background
         arcade.draw_rect_filled(
-            arcade.LBWH(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT),
+            arcade.LBWH(0, 0, self.window.width, self.window.height),
             (8, 8, 24),
         )
 

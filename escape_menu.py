@@ -7,6 +7,7 @@ from typing import Callable, Optional
 
 import arcade
 
+import constants
 from constants import (
     SCREEN_WIDTH, SCREEN_HEIGHT,
     MENU_W, MENU_H, MENU_BTN_W, MENU_BTN_H, MENU_BTN_GAP,
@@ -81,8 +82,10 @@ class EscapeMenu:
         self._slider_dragging: str = ""   # "", "music", or "sfx"
 
         # ── Main mode geometry (centred on screen) ────────────────────
-        self._main_px = (SCREEN_WIDTH - MENU_W) // 2
-        self._main_py = (SCREEN_HEIGHT - MENU_H) // 2
+        sw = constants.SCREEN_WIDTH
+        sh = constants.SCREEN_HEIGHT
+        self._main_px = (sw - MENU_W) // 2
+        self._main_py = (sh - MENU_H) // 2
 
         # Slider geometry (placed below title, above buttons)
         _slider_w = 220
@@ -101,8 +104,8 @@ class EscapeMenu:
             self._main_btn_rects.append((bx, by, MENU_BTN_W, MENU_BTN_H))
 
         # ── Save/Load mode geometry ───────────────────────────────────
-        self._sl_px = (SCREEN_WIDTH - SAVE_MENU_W) // 2
-        self._sl_py = (SCREEN_HEIGHT - SAVE_MENU_H) // 2
+        self._sl_px = (sw - SAVE_MENU_W) // 2
+        self._sl_py = (sh - SAVE_MENU_H) // 2
 
         self._slot_rects: list[tuple[int, int, int, int]] = []
         slot_bx = self._sl_px + (SAVE_MENU_W - SAVE_SLOT_W) // 2
@@ -125,7 +128,7 @@ class EscapeMenu:
         # ── Pre-built text objects: main mode ─────────────────────────
         self._t_title = arcade.Text(
             "MENU",
-            SCREEN_WIDTH // 2, self._main_py + MENU_H - 30,
+            sw // 2, self._main_py + MENU_H - 30,
             arcade.color.LIGHT_BLUE, 22, bold=True,
             anchor_x="center", anchor_y="center",
         )
@@ -165,12 +168,12 @@ class EscapeMenu:
         mid_y = self._main_py + MENU_H // 2
         self._t_res_title = arcade.Text(
             "RESOLUTION",
-            SCREEN_WIDTH // 2, self._main_py + MENU_H - 30,
+            sw // 2, self._main_py + MENU_H - 30,
             arcade.color.LIGHT_BLUE, 14, bold=True,
             anchor_x="center", anchor_y="center",
         )
         self._t_res_value = arcade.Text(
-            "", SCREEN_WIDTH // 2, mid_y,
+            "", sw // 2, mid_y,
             arcade.color.YELLOW, 16, bold=True,
             anchor_x="center", anchor_y="center",
         )
@@ -215,7 +218,7 @@ class EscapeMenu:
         # ── Pre-built text objects: save/load mode ────────────────────
         self._t_sl_title = arcade.Text(
             "SAVE GAME",
-            SCREEN_WIDTH // 2, self._sl_py + SAVE_MENU_H - 30,
+            sw // 2, self._sl_py + SAVE_MENU_H - 30,
             arcade.color.LIGHT_BLUE, 20, bold=True,
             anchor_x="center", anchor_y="center",
         )
@@ -246,19 +249,19 @@ class EscapeMenu:
         # ── Pre-built text objects: naming overlay ────────────────────
         self._t_naming_prompt = arcade.Text(
             "Enter save name:",
-            SCREEN_WIDTH // 2, 0,
+            sw // 2, 0,
             arcade.color.LIGHT_BLUE, 14, bold=True,
             anchor_x="center", anchor_y="center",
         )
         self._t_naming_input = arcade.Text(
             "",
-            SCREEN_WIDTH // 2, 0,
+            sw // 2, 0,
             arcade.color.WHITE, 14,
             anchor_x="center", anchor_y="center",
         )
         self._t_naming_hint = arcade.Text(
             "ENTER to save  \u00b7  ESC to cancel",
-            SCREEN_WIDTH // 2, 0,
+            sw // 2, 0,
             (120, 120, 120), 10,
             anchor_x="center", anchor_y="center",
         )
@@ -266,7 +269,7 @@ class EscapeMenu:
         # ── Status message ────────────────────────────────────────────
         self._t_status = arcade.Text(
             "",
-            SCREEN_WIDTH // 2, 0,
+            sw // 2, 0,
             arcade.color.YELLOW_GREEN, 11, bold=True,
             anchor_x="center", anchor_y="center",
         )
@@ -505,7 +508,7 @@ class EscapeMenu:
 
         # Semi-transparent dark overlay
         arcade.draw_rect_filled(
-            arcade.LBWH(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT),
+            arcade.LBWH(0, 0, constants.SCREEN_WIDTH, constants.SCREEN_HEIGHT),
             (0, 0, 0, 160),
         )
 
@@ -556,7 +559,7 @@ class EscapeMenu:
             self._t_main_labels[i].draw()
 
         if self._status_msg:
-            self._t_status.x = SCREEN_WIDTH // 2
+            self._t_status.x = constants.SCREEN_WIDTH // 2
             self._t_status.y = py + 14
             self._t_status.text = self._status_msg
             self._t_status.draw()
@@ -707,7 +710,7 @@ class EscapeMenu:
 
         # Status
         if self._status_msg:
-            self._t_status.x = SCREEN_WIDTH // 2
+            self._t_status.x = constants.SCREEN_WIDTH // 2
             self._t_status.y = py + 55
             self._t_status.text = self._status_msg
             self._t_status.draw()
@@ -722,8 +725,8 @@ class EscapeMenu:
 
         # Input box
         bw, bh = 300, 100
-        bx = (SCREEN_WIDTH - bw) // 2
-        by = (SCREEN_HEIGHT - bh) // 2
+        bx = (constants.SCREEN_WIDTH - bw) // 2
+        by = (constants.SCREEN_HEIGHT - bh) // 2
 
         arcade.draw_rect_filled(
             arcade.LBWH(bx, by, bw, bh), (20, 20, 60, 250),

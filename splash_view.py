@@ -7,6 +7,7 @@ from typing import Optional
 
 import arcade
 
+import constants
 from constants import (
     SCREEN_WIDTH, SCREEN_HEIGHT,
     SFX_INTERFACE_DIR,
@@ -53,24 +54,27 @@ class SplashView(arcade.View):
         self._hover_idx: int = -1
 
         # ── Pre-compute button rectangles (centred on screen) ──────────
+        # Read live module-level values (not the stale local import)
+        sw = constants.SCREEN_WIDTH
+        sh = constants.SCREEN_HEIGHT
         total_h = len(_BTN_LABELS) * _BTN_H + (len(_BTN_LABELS) - 1) * _BTN_GAP
-        top_y = SCREEN_HEIGHT // 2 - 20  # below the title
+        top_y = sh // 2 - 20  # below the title
         self._btn_rects: list[tuple[int, int, int, int]] = []
         for i in range(len(_BTN_LABELS)):
-            bx = (SCREEN_WIDTH - _BTN_W) // 2
+            bx = (sw - _BTN_W) // 2
             by = top_y - i * (_BTN_H + _BTN_GAP)
             self._btn_rects.append((bx, by, _BTN_W, _BTN_H))
 
         # ── Pre-built text objects ─────────────────────────────────────
         self._t_title = arcade.Text(
             "CALL OF ORION",
-            SCREEN_WIDTH // 2, SCREEN_HEIGHT - 160,
+            sw // 2, sh - 160,
             arcade.color.LIGHT_BLUE, 52, bold=True,
             anchor_x="center", anchor_y="center",
         )
         self._t_subtitle = arcade.Text(
             "A Space Survival Saga",
-            SCREEN_WIDTH // 2, SCREEN_HEIGHT - 210,
+            sw // 2, sh - 210,
             (160, 180, 220), 16,
             anchor_x="center", anchor_y="center",
         )
@@ -85,12 +89,12 @@ class SplashView(arcade.View):
             ))
 
         self._t_track = arcade.Text(
-            "", SCREEN_WIDTH // 2, 30,
+            "", sw // 2, 30,
             arcade.color.KHAKI, 10,
             anchor_x="center", anchor_y="center",
         )
         self._t_music_hdr = arcade.Text(
-            "NOW PLAYING", SCREEN_WIDTH // 2, 48,
+            "NOW PLAYING", sw // 2, 48,
             (120, 120, 130), 8,
             anchor_x="center", anchor_y="center",
         )
@@ -100,7 +104,7 @@ class SplashView(arcade.View):
         self._load_hover: int = -1
         self._load_slots: list[dict] = []
         self._t_load_title = arcade.Text(
-            "LOAD GAME", SCREEN_WIDTH // 2, 0,
+            "LOAD GAME", sw // 2, 0,
             arcade.color.LIGHT_BLUE, 20, bold=True,
             anchor_x="center", anchor_y="center",
         )
@@ -115,7 +119,7 @@ class SplashView(arcade.View):
             for _ in range(SAVE_SLOT_COUNT)
         ]
         self._t_load_back = arcade.Text(
-            "Back", SCREEN_WIDTH // 2, 0,
+            "Back", sw // 2, 0,
             arcade.color.WHITE, 13, bold=True,
             anchor_x="center", anchor_y="center",
         )
@@ -165,10 +169,12 @@ class SplashView(arcade.View):
     def _load_slot_rects(self) -> list[tuple[int, int, int, int]]:
         """Compute slot button rectangles for the load sub-screen."""
         from constants import SAVE_SLOT_W, SAVE_SLOT_H, SAVE_SLOT_GAP, SAVE_MENU_H
-        top_y = SCREEN_HEIGHT // 2 + SAVE_MENU_H // 2 - 60
+        sw = constants.SCREEN_WIDTH
+        sh = constants.SCREEN_HEIGHT
+        top_y = sh // 2 + SAVE_MENU_H // 2 - 60
         rects = []
         for i in range(SAVE_SLOT_COUNT):
-            sx = (SCREEN_WIDTH - SAVE_SLOT_W) // 2
+            sx = (sw - SAVE_SLOT_W) // 2
             sy = top_y - i * (SAVE_SLOT_H + SAVE_SLOT_GAP)
             rects.append((sx, sy, SAVE_SLOT_W, SAVE_SLOT_H))
         return rects
@@ -176,7 +182,7 @@ class SplashView(arcade.View):
     def _load_back_rect(self) -> tuple[int, int, int, int]:
         rects = self._load_slot_rects()
         last = rects[-1]
-        return ((SCREEN_WIDTH - 240) // 2, last[1] - 50, 240, 35)
+        return ((constants.SCREEN_WIDTH - 240) // 2, last[1] - 50, 240, 35)
 
     # ── Drawing ────────────────────────────────────────────────────────
 
@@ -184,16 +190,18 @@ class SplashView(arcade.View):
         self.clear()
 
         # Dark space background
+        sw = self.window.width
+        sh = self.window.height
         arcade.draw_rect_filled(
-            arcade.LBWH(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT),
+            arcade.LBWH(0, 0, sw, sh),
             (6, 6, 18),
         )
 
         # Decorative star dots
         rng = random.Random(42)
         for _ in range(120):
-            sx = rng.randint(0, SCREEN_WIDTH)
-            sy = rng.randint(0, SCREEN_HEIGHT)
+            sx = rng.randint(0, sw)
+            sy = rng.randint(0, sh)
             br = rng.randint(60, 220)
             arcade.draw_point(sx, sy, (br, br, br + 30, 200), 1.5)
 
@@ -232,8 +240,8 @@ class SplashView(arcade.View):
         # Panel background
         slot_rects = self._load_slot_rects()
         panel_w, panel_h = SAVE_MENU_W, SAVE_MENU_H
-        px = (SCREEN_WIDTH - panel_w) // 2
-        py = (SCREEN_HEIGHT - panel_h) // 2
+        px = (constants.SCREEN_WIDTH - panel_w) // 2
+        py = (constants.SCREEN_HEIGHT - panel_h) // 2
         arcade.draw_rect_filled(
             arcade.LBWH(px, py, panel_w, panel_h),
             (20, 20, 50, 240),
