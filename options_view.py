@@ -286,9 +286,14 @@ class OptionsView(arcade.View):
         # Fullscreen toggle
         fx, fy, fw, fh = self._fs_rect
         if fx <= x <= fx + fw and fy <= y <= fy + fh:
-            audio.fullscreen = not audio.fullscreen
+            from settings import DISPLAY_WINDOWED, DISPLAY_FULLSCREEN
+            if audio.display_mode == DISPLAY_WINDOWED:
+                audio.display_mode = DISPLAY_FULLSCREEN
+            else:
+                audio.display_mode = DISPLAY_WINDOWED
+            audio.fullscreen = audio.display_mode != DISPLAY_WINDOWED
             w, h = RESOLUTION_PRESETS[self._res_idx]
-            apply_resolution(self.window, w, h, audio.fullscreen)
+            apply_resolution(self.window, w, h, display_mode=audio.display_mode)
             self.window.show_view(OptionsView())
             return
 
@@ -308,7 +313,7 @@ class OptionsView(arcade.View):
     def _apply_resolution_change(self) -> None:
         """Apply the currently selected resolution preset and rebuild view."""
         w, h = RESOLUTION_PRESETS[self._res_idx]
-        apply_resolution(self.window, w, h, audio.fullscreen)
+        apply_resolution(self.window, w, h, display_mode=audio.display_mode)
         self.window.show_view(OptionsView())
 
     def on_mouse_release(self, x: int, y: int, button: int, modifiers: int) -> None:

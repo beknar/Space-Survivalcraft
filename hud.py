@@ -22,6 +22,10 @@ class HUD:
         faction: str | None = None,
         ship_type: str | None = None,
     ) -> None:
+        # Store the current screen height so draw() uses the right value
+        # (SCREEN_HEIGHT gets updated at runtime by apply_resolution, but
+        #  the local import binding would be stale)
+        self._sh = SCREEN_HEIGHT
         cx = STATUS_WIDTH // 2
         self._t_title = arcade.Text(
             "STATUS", cx, SCREEN_HEIGHT - 26,
@@ -143,11 +147,11 @@ class HUD:
         """Draw the full HUD status panel."""
         # Panel background
         arcade.draw_rect_filled(
-            arcade.LBWH(0, 0, STATUS_WIDTH, SCREEN_HEIGHT),
+            arcade.LBWH(0, 0, STATUS_WIDTH, self._sh),
             (15, 15, 40, 235),
         )
         arcade.draw_rect_outline(
-            arcade.LBWH(0, 0, STATUS_WIDTH, SCREEN_HEIGHT),
+            arcade.LBWH(0, 0, STATUS_WIDTH, self._sh),
             arcade.color.STEEL_BLUE, border_width=2,
         )
 
@@ -185,7 +189,7 @@ class HUD:
             else (200, 30, 30)
         )
         arcade.draw_rect_filled(
-            arcade.LBWH(10, SCREEN_HEIGHT - 192, int(190 * hp_frac), 10),
+            arcade.LBWH(10, self._sh - 192, int(190 * hp_frac), 10),
             hp_color,
         )
         # HP numerical value
@@ -195,7 +199,7 @@ class HUD:
         # Shield bar
         shield_frac = max(0.0, shields / max_shields) if max_shields > 0 else 0.0
         arcade.draw_rect_filled(
-            arcade.LBWH(10, SCREEN_HEIGHT - 236, int(190 * shield_frac), 10),
+            arcade.LBWH(10, self._sh - 236, int(190 * shield_frac), 10),
             (0, 140, 210),
         )
         # Shield numerical value

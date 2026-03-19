@@ -5,6 +5,12 @@ Runtime-mutable volume levels and resolution shared across all views.
 from __future__ import annotations
 
 
+# Display mode constants
+DISPLAY_WINDOWED = "windowed"
+DISPLAY_FULLSCREEN = "fullscreen"
+DISPLAY_BORDERLESS = "borderless"
+
+
 class AudioSettings:
     """Singleton-like container for volume levels and display settings."""
 
@@ -14,22 +20,42 @@ class AudioSettings:
         self.screen_width: int = 1280
         self.screen_height: int = 800
         self.fullscreen: bool = False
+        self.display_mode: str = DISPLAY_WINDOWED
 
 
 # Module-level instance used everywhere
 audio = AudioSettings()
 
 
-def apply_resolution(window, width: int, height: int, fullscreen: bool) -> None:
-    """Update constants and resize the window to the new resolution."""
+def apply_resolution(
+    window,
+    width: int,
+    height: int,
+    fullscreen: bool = False,
+    display_mode: str | None = None,
+) -> None:
+    """Update constants and resize the window to the new resolution.
+
+    *display_mode* can be "windowed", "fullscreen", or "borderless".
+    For backward compat, *fullscreen* bool is used if *display_mode* is None.
+    """
     import constants
     constants.SCREEN_WIDTH = width
     constants.SCREEN_HEIGHT = height
     audio.screen_width = width
     audio.screen_height = height
-    audio.fullscreen = fullscreen
-    if fullscreen:
+
+    if display_mode is None:
+        display_mode = DISPLAY_FULLSCREEN if fullscreen else DISPLAY_WINDOWED
+    audio.display_mode = display_mode
+    audio.fullscreen = display_mode != DISPLAY_WINDOWED
+
+    if display_mode == DISPLAY_FULLSCREEN:
         window.set_fullscreen(True)
+    elif display_mode == DISPLAY_BORDERLESS:
+        # Borderless windowed: fullscreen on the current screen
+        window.set_fullscreen(True, screen=window.current_screen)
     else:
+        # Windowed
         window.set_fullscreen(False)
         window.set_size(width, height)

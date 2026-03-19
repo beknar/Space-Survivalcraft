@@ -32,7 +32,7 @@
 | World size | 6,400 x 6,400 px (200 x 200 tiles of 32 px) |
 | Window resolution | Default 1,280 x 800 px (configurable: 1366x768, 1600x900, 1920x1080, 2560x1440, 3840x2160) |
 | Status panel width | 213 px (left side, excluded from gameplay viewport) |
-| Gameplay viewport | Window width − 213 px × window height |
+| Gameplay viewport | Window width − 213 px × window height (expands with resolution) |
 | Background | Tiled seamless starfield (1,024 x 1,024 px tiles) |
 | Camera | Follows player, clamped at world edges; left edge offset by STATUS_WIDTH so gameplay viewport never shows beyond the world |
 | Player start position | World centre (3,200, 3,200) |
@@ -484,7 +484,7 @@ The left-side panel (213 px wide) displays:
 - 10 save slots with naming overlay (max 24 characters, blinking cursor)
 - Save slot detail line shows: faction, ship type, HP, shields, and module count (when > 0)
 - Status feedback messages displayed for 2 seconds
-- **Resolution** button opens a sub-mode with left/right preset selector plus Apply Windowed / Apply Fullscreen buttons
+- **Resolution** button opens a sub-mode with left/right preset selector plus three display mode buttons: Apply Windowed, Apply Fullscreen, and Borderless Windowed
 - ESC in sub-menus returns to main menu; ESC in main menu closes overlay
 
 ---

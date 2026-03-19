@@ -45,7 +45,7 @@ class EscapeMenu:
         load_fn: Callable[[int], None],
         main_menu_fn: Callable[[], None],
         save_dir: str,
-        resolution_fn: Callable[[int, int, bool], None] | None = None,
+        resolution_fn: Callable[[int, int, str], None] | None = None,
     ) -> None:
         self.open: bool = False
         self._save_fn = save_fn
@@ -196,6 +196,13 @@ class EscapeMenu:
         self._t_apply_fullscreen = arcade.Text(
             "Apply Fullscreen",
             abx + MENU_BTN_W // 2, fs_y + MENU_BTN_H // 2,
+            arcade.color.WHITE, 12, bold=True,
+            anchor_x="center", anchor_y="center",
+        )
+        bl_y = fs_y - MENU_BTN_H - 12
+        self._t_apply_borderless = arcade.Text(
+            "Borderless Windowed",
+            abx + MENU_BTN_W // 2, bl_y + MENU_BTN_H // 2,
             arcade.color.WHITE, 12, bold=True,
             anchor_x="center", anchor_y="center",
         )
@@ -407,20 +414,27 @@ class EscapeMenu:
             if rx <= x <= rx + 36 and ly - 18 <= y <= ly + 18:
                 self._res_idx = (self._res_idx + 1) % len(RESOLUTION_PRESETS)
                 return
-            # Apply button
+            # Apply Windowed button
             apply_y = ly - 50
             abx = self._main_px + (MENU_W - MENU_BTN_W) // 2
             if abx <= x <= abx + MENU_BTN_W and apply_y <= y <= apply_y + MENU_BTN_H:
                 w, h = RESOLUTION_PRESETS[self._res_idx]
                 if self._resolution_fn is not None:
-                    self._resolution_fn(w, h, False)
+                    self._resolution_fn(w, h, "windowed")
                 return
             # Fullscreen button
             fs_y = apply_y - MENU_BTN_H - 12
             if abx <= x <= abx + MENU_BTN_W and fs_y <= y <= fs_y + MENU_BTN_H:
                 w, h = RESOLUTION_PRESETS[self._res_idx]
                 if self._resolution_fn is not None:
-                    self._resolution_fn(w, h, True)
+                    self._resolution_fn(w, h, "fullscreen")
+                return
+            # Borderless Windowed button
+            bl_y = fs_y - MENU_BTN_H - 12
+            if abx <= x <= abx + MENU_BTN_W and bl_y <= y <= bl_y + MENU_BTN_H:
+                w, h = RESOLUTION_PRESETS[self._res_idx]
+                if self._resolution_fn is not None:
+                    self._resolution_fn(w, h, "borderless")
                 return
 
         elif self._mode == self.MODE_SAVE:
@@ -596,6 +610,18 @@ class EscapeMenu:
             arcade.color.CYAN, border_width=1,
         )
         self._t_apply_fullscreen.draw()
+
+        # Borderless Windowed button
+        bl_y = fs_y - MENU_BTN_H - 12
+        arcade.draw_rect_filled(
+            arcade.LBWH(abx, bl_y, MENU_BTN_W, MENU_BTN_H),
+            (40, 30, 60, 220),
+        )
+        arcade.draw_rect_outline(
+            arcade.LBWH(abx, bl_y, MENU_BTN_W, MENU_BTN_H),
+            (120, 100, 200), border_width=1,
+        )
+        self._t_apply_borderless.draw()
 
         # Back button
         bx, by, bw, bh = self._back_rect

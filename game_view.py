@@ -761,7 +761,7 @@ class GameView(arcade.View):
             data = json.load(f)
         self._load_from_dict(data)
 
-    def _change_resolution(self, width: int, height: int, fullscreen: bool) -> None:
+    def _change_resolution(self, width: int, height: int, display_mode: str) -> None:
         """Change resolution mid-game: save state, resize, rebuild view."""
         from settings import apply_resolution
         data = self._save_to_dict()
@@ -769,7 +769,7 @@ class GameView(arcade.View):
             arcade.stop_sound(self._thruster_player)
             self._thruster_player = None
         self._stop_music()
-        apply_resolution(self.window, width, height, fullscreen)
+        apply_resolution(self.window, width, height, display_mode=display_mode)
         view = GameView(
             faction=data.get("faction"),
             ship_type=data.get("ship_type"),
@@ -791,8 +791,10 @@ class GameView(arcade.View):
     def on_draw(self) -> None:
         self.clear()
 
-        hw = SCREEN_WIDTH / 2
-        hh = SCREEN_HEIGHT / 2
+        sw = self.window.width
+        sh = self.window.height
+        hw = sw / 2
+        hh = sh / 2
         cx = max(hw - STATUS_WIDTH, min(WORLD_WIDTH - hw, self.player.center_x))
         cy = max(hh, min(WORLD_HEIGHT - hh, self.player.center_y))
 
@@ -1240,8 +1242,8 @@ class GameView(arcade.View):
                 return
             # Destroy mode — click to destroy a building
             if self._destroy_mode:
-                wx = self.world_cam.position[0] - SCREEN_WIDTH / 2 + x
-                wy = self.world_cam.position[1] - SCREEN_HEIGHT / 2 + y
+                wx = self.world_cam.position[0] - self.window.width / 2 + x
+                wy = self.world_cam.position[1] - self.window.height / 2 + y
                 self._destroy_building_at(wx, wy)
                 return
             # Placement mode — click to place
@@ -1326,16 +1328,16 @@ class GameView(arcade.View):
             return
         # Track cursor for destroy mode crosshair
         if self._destroy_mode:
-            self._destroy_cursor_x = self.world_cam.position[0] - SCREEN_WIDTH / 2 + x
-            self._destroy_cursor_y = self.world_cam.position[1] - SCREEN_HEIGHT / 2 + y
+            self._destroy_cursor_x = self.world_cam.position[0] - self.window.width / 2 + x
+            self._destroy_cursor_y = self.world_cam.position[1] - self.window.height / 2 + y
             return
         if self._build_menu.open:
             self._build_menu.on_mouse_motion(x, y)
         # Ghost sprite follows cursor in world coordinates
         if self._ghost_sprite is not None and self._placing_building is not None:
             # Convert screen pos to world pos
-            wx = self.world_cam.position[0] - SCREEN_WIDTH / 2 + x
-            wy = self.world_cam.position[1] - SCREEN_HEIGHT / 2 + y
+            wx = self.world_cam.position[0] - self.window.width / 2 + x
+            wy = self.world_cam.position[1] - self.window.height / 2 + y
             bt = self._placing_building
             stats = BUILDING_TYPES[bt]
             # Snap to port for connectable modules — edge-to-edge preview
