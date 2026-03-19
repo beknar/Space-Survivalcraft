@@ -423,61 +423,7 @@ class SplashView(arcade.View):
             faction=data.get("faction"),
             ship_type=data.get("ship_type"),
         )
-
-        # Restore player state
-        p = data["player"]
-        view.player.center_x = p["x"]
-        view.player.center_y = p["y"]
-        view.player.heading = p["heading"]
-        view.player.angle = p["heading"]
-        view.player.vel_x = p["vel_x"]
-        view.player.vel_y = p["vel_y"]
-        view.player.hp = p["hp"]
-        view.player.shields = p["shields"]
-        view.player._shield_acc = p.get("shield_acc", 0.0)
-
-        view._weapon_idx = data.get("weapon_idx", 0)
-        view.inventory.iron = data.get("iron", 0)
-
-        # Restore asteroids
-        view.asteroid_list.clear()
-        from sprites.asteroid import IronAsteroid
-        asteroid_tex = arcade.load_texture(
-            os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                         "assets", "Pixel Art Space", "Asteroid.png")
-        )
-        for ad in data.get("asteroids", []):
-            a = IronAsteroid(asteroid_tex, ad["x"], ad["y"])
-            a.hp = ad["hp"]
-            view.asteroid_list.append(a)
-
-        # Restore aliens
-        view.alien_list.clear()
-        from PIL import Image as PILImage
-        from constants import ALIEN_SHIP_PNG, ALIEN_FX_PNG
-        _pil_ship = PILImage.open(ALIEN_SHIP_PNG).convert("RGBA")
-        alien_ship_tex = arcade.Texture(_pil_ship.crop((364, 305, 825, 815)))
-        _pil_fx = PILImage.open(ALIEN_FX_PNG).convert("RGBA")
-        _pil_laser = _pil_fx.crop((4299, 82, 4359, 310))
-        alien_laser_tex = arcade.Texture(_pil_laser.rotate(90, expand=True))
-        from sprites.alien import SmallAlienShip
-        for ald in data.get("aliens", []):
-            al = SmallAlienShip(alien_ship_tex, alien_laser_tex, ald["x"], ald["y"])
-            al.hp = ald["hp"]
-            al.vel_x = ald.get("vel_x", 0.0)
-            al.vel_y = ald.get("vel_y", 0.0)
-            al._heading = ald.get("heading", 0.0)
-            al.angle = al._heading
-            al._state = ald.get("state", 0)
-            al._home_x = ald.get("home_x", ald["x"])
-            al._home_y = ald.get("home_y", ald["y"])
-            view.alien_list.append(al)
-
-        # Restore iron pickups
-        view.iron_pickup_list.clear()
-        for pd in data.get("pickups", []):
-            view._spawn_iron_pickup(pd["x"], pd["y"], amount=pd.get("amount", 10))
-
+        GameView._restore_state(view, data)
         self.window.show_view(view)
 
     def on_key_press(self, key: int, modifiers: int) -> None:

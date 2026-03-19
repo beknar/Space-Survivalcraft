@@ -748,7 +748,11 @@ class GameView(arcade.View):
 
         # Restore fog of war grid
         saved_fog = data.get("fog_grid")
-        if saved_fog and len(saved_fog) == FOG_GRID_H:
+        if (saved_fog is not None
+                and isinstance(saved_fog, list)
+                and len(saved_fog) == FOG_GRID_H
+                and all(isinstance(r, list) and len(r) == FOG_GRID_W
+                        for r in saved_fog)):
             view._fog_grid = saved_fog
 
     def _load_game(self, slot: int) -> None:
