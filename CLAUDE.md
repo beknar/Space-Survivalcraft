@@ -38,7 +38,7 @@ Space Survivalcraft/
 ├── game_view.py         # GameView — core gameplay loop, cameras, input, music, death logic
 │
 │  ── UI overlays (drawn by GameView, not separate Views) ──
-├── hud.py               # HUD — left status panel (HP/shield bars, speed, weapon, mini-map)
+├── hud.py               # HUD — left status panel (HP/shield bars, speed, weapon, asteroid/alien counts, mini-map)
 ├── escape_menu.py       # EscapeMenu — pause overlay with save/load/quit, audio sliders (4 internal modes)
 ├── death_screen.py      # DeathScreen — "SHIP DESTROYED" overlay with Load/Menu/Exit
 ├── inventory.py         # Inventory — 5×5 cargo grid with drag-and-drop and world ejection

@@ -292,6 +292,7 @@ Pickups idle at their drop position until the ship's hull edge comes within 40 p
 ### Alien Laser vs Station Building
 - HitSpark at impact point
 - Building takes laser damage (10 per hit)
+- On building destruction: explosion + iron drop (equal to build cost) + port cleanup
 - If Home Station destroyed: all modules disabled (greyed out)
 
 ### Turret Projectile vs Alien
@@ -414,6 +415,8 @@ The left-side panel (213 px wide) displays:
 | Speed readout | Current velocity in px/s |
 | Heading readout | Current heading in degrees |
 | Iron count | Current iron ore in inventory |
+| Asteroid count | Number of iron asteroids remaining in the world |
+| Alien count | Number of alien ships remaining in the world |
 | Active weapon | Name of the selected weapon group |
 | Controls reference | Keyboard shortcut reminders |
 | Gamepad status | "Gamepad: connected" when detected |
@@ -592,6 +595,7 @@ Players can spend mined iron to construct a modular space station. Press **B** t
 - **Connectable modules** (Home Station, Service Module, Power Receiver, Solar Arrays, Repair Module) snap to unoccupied docking ports (N/S/E/W) on existing modules within 40 px snap distance.
 - **Edge-to-edge snap**: when snapping to a port, the new module is offset so its opposite port aligns with the parent port — modules sit edge-to-edge, not overlapping. Both ends of connected pieces have their ports marked as occupied.
 - **Post-placement connectivity**: after placing a new module, any of its remaining ports that are adjacent to other existing modules' ports are also connected automatically.
+- **Overlap prevention**: a new building cannot be placed if its centre is within `2 × BUILDING_RADIUS` (60 px) of any existing building. If overlap is detected, the placement is cancelled and iron is refunded.
 - **Turrets** are freely placed within 300 px of the Home Station; they do not dock to ports.
 - Mouse wheel rotates the ghost building before placement.
 - ESC cancels placement mode.
@@ -601,9 +605,11 @@ Players can spend mined iron to construct a modular space station. Press **B** t
 - Open the Build Menu (B key) and click the red **DESTROY** button at the bottom.
 - The cursor changes to a **targeting reticle** (red crosshair with circle).
 - Left-click on any station module to destroy it instantly (explosion + sound).
+- **Iron refund**: destroyed buildings drop iron pickups equal to their build cost (e.g. Home Station drops 100 iron).
 - Connected ports on adjacent modules are freed when a building is destroyed.
 - Destroying the **Home Station** disables all remaining modules (greyed out).
 - Press **B** or **ESC** to exit destroy mode.
+- Iron is also dropped when alien lasers destroy a building (same cost-based amount).
 
 ### Station Info Panel (T Key)
 

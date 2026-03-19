@@ -33,49 +33,53 @@ class HUD:
                                   arcade.color.WHITE, 11)
         self._t_iron_hud = arcade.Text("", 10, SCREEN_HEIGHT - 100,
                                        arcade.color.ORANGE, 11)
-        self._t_hp = arcade.Text("HP", 10, SCREEN_HEIGHT - 140,
+        self._t_asteroids = arcade.Text("", 10, SCREEN_HEIGHT - 120,
+                                        (150, 150, 150), 11)
+        self._t_aliens = arcade.Text("", 10, SCREEN_HEIGHT - 140,
+                                     (220, 80, 80), 11)
+        self._t_hp = arcade.Text("HP", 10, SCREEN_HEIGHT - 176,
                                  arcade.color.LIME_GREEN, 10, bold=True)
-        self._t_hp_val = arcade.Text("", 10, SCREEN_HEIGHT - 168,
+        self._t_hp_val = arcade.Text("", 10, SCREEN_HEIGHT - 204,
                                      arcade.color.WHITE, 9)
-        self._t_shield = arcade.Text("SHIELD", 10, SCREEN_HEIGHT - 184,
+        self._t_shield = arcade.Text("SHIELD", 10, SCREEN_HEIGHT - 220,
                                      arcade.color.CYAN, 10, bold=True)
-        self._t_shield_val = arcade.Text("", 10, SCREEN_HEIGHT - 212,
+        self._t_shield_val = arcade.Text("", 10, SCREEN_HEIGHT - 248,
                                          arcade.color.WHITE, 9)
-        self._t_wpn_hdr = arcade.Text("WEAPON", cx, SCREEN_HEIGHT - 230,
+        self._t_wpn_hdr = arcade.Text("WEAPON", cx, SCREEN_HEIGHT - 266,
                                       arcade.color.LIGHT_GRAY, 9,
                                       anchor_x="center")
-        self._t_wpn_name = arcade.Text("", cx, SCREEN_HEIGHT - 246,
+        self._t_wpn_name = arcade.Text("", cx, SCREEN_HEIGHT - 282,
                                        arcade.color.YELLOW, 10, bold=True,
                                        anchor_x="center")
-        self._t_ctrl_hdr = arcade.Text("CONTROLS", cx, SCREEN_HEIGHT - 268,
+        self._t_ctrl_hdr = arcade.Text("CONTROLS", cx, SCREEN_HEIGHT - 304,
                                        arcade.color.LIGHT_GRAY, 9,
                                        anchor_x="center")
         self._t_ctrl_lines = [
-            arcade.Text("L/R  A/D    Rotate",   10, SCREEN_HEIGHT - 286,
+            arcade.Text("L/R  A/D    Rotate",   10, SCREEN_HEIGHT - 322,
                         arcade.color.LIGHT_GRAY, 9),
-            arcade.Text("Up / W      Thrust",   10, SCREEN_HEIGHT - 302,
+            arcade.Text("Up / W      Thrust",   10, SCREEN_HEIGHT - 338,
                         arcade.color.LIGHT_GRAY, 9),
-            arcade.Text("Dn / S      Brake",    10, SCREEN_HEIGHT - 318,
+            arcade.Text("Dn / S      Brake",    10, SCREEN_HEIGHT - 354,
                         arcade.color.LIGHT_GRAY, 9),
-            arcade.Text("Space       Fire",     10, SCREEN_HEIGHT - 334,
+            arcade.Text("Space       Fire",     10, SCREEN_HEIGHT - 370,
                         arcade.color.LIGHT_GRAY, 9),
-            arcade.Text("Tab         Weapon",   10, SCREEN_HEIGHT - 350,
+            arcade.Text("Tab         Weapon",   10, SCREEN_HEIGHT - 386,
                         arcade.color.LIGHT_GRAY, 9),
-            arcade.Text("I           Inventory", 10, SCREEN_HEIGHT - 366,
+            arcade.Text("I           Inventory", 10, SCREEN_HEIGHT - 402,
                         arcade.color.LIGHT_GRAY, 9),
-            arcade.Text("F           FPS",      10, SCREEN_HEIGHT - 382,
+            arcade.Text("F           FPS",      10, SCREEN_HEIGHT - 418,
                         arcade.color.LIGHT_GRAY, 9),
-            arcade.Text("T           Station",  10, SCREEN_HEIGHT - 398,
+            arcade.Text("T           Station",  10, SCREEN_HEIGHT - 434,
                         arcade.color.LIGHT_GRAY, 9),
         ]
         self._t_gamepad = (
-            arcade.Text("Gamepad: connected", 10, SCREEN_HEIGHT - 418,
+            arcade.Text("Gamepad: connected", 10, SCREEN_HEIGHT - 454,
                         arcade.color.LIME_GREEN, 9)
             if has_gamepad else None
         )
         self._show_fps: bool = False
         self._fps: float = 60.0
-        self._t_fps = arcade.Text("", 10, SCREEN_HEIGHT - 436,
+        self._t_fps = arcade.Text("", 10, SCREEN_HEIGHT - 472,
                                   arcade.color.YELLOW, 10, bold=True)
         self._t_minimap = arcade.Text(
             "MINI-MAP", STATUS_WIDTH // 2,
@@ -87,20 +91,20 @@ class HUD:
         ship_label = ship_type if ship_type else "Classic"
         self._t_faction = arcade.Text(
             f"FACTION: {faction_label}",
-            10, SCREEN_HEIGHT - 456,
+            10, SCREEN_HEIGHT - 492,
             arcade.color.LIGHT_BLUE, 9, bold=True,
         )
         self._t_ship_type = arcade.Text(
             f"SHIP: {ship_label}",
-            10, SCREEN_HEIGHT - 472,
+            10, SCREEN_HEIGHT - 508,
             arcade.color.LIGHT_GREEN, 9, bold=True,
         )
         self._t_music_hdr = arcade.Text(
-            "NOW PLAYING", STATUS_WIDTH // 2, SCREEN_HEIGHT - 492,
+            "NOW PLAYING", STATUS_WIDTH // 2, SCREEN_HEIGHT - 528,
             arcade.color.LIGHT_GRAY, 9, anchor_x="center",
         )
         self._t_track_name = arcade.Text(
-            "", STATUS_WIDTH // 2, SCREEN_HEIGHT - 508,
+            "", STATUS_WIDTH // 2, SCREEN_HEIGHT - 544,
             arcade.color.KHAKI, 9, bold=True, anchor_x="center",
         )
 
@@ -164,6 +168,10 @@ class HUD:
         self._t_hdg.draw()
         self._t_iron_hud.text = f"IRON  {iron:>7}"
         self._t_iron_hud.draw()
+        self._t_asteroids.text = f"ROIDS {len(asteroid_list):>5}"
+        self._t_asteroids.draw()
+        self._t_aliens.text = f"ALIEN {len(alien_list):>5}"
+        self._t_aliens.draw()
         self._t_wpn_name.text = weapon_name
         self._t_wpn_name.draw()
 
@@ -175,7 +183,7 @@ class HUD:
             else (200, 30, 30)
         )
         arcade.draw_rect_filled(
-            arcade.LBWH(10, SCREEN_HEIGHT - 156, int(190 * hp_frac), 10),
+            arcade.LBWH(10, SCREEN_HEIGHT - 192, int(190 * hp_frac), 10),
             hp_color,
         )
         # HP numerical value
@@ -185,7 +193,7 @@ class HUD:
         # Shield bar
         shield_frac = max(0.0, shields / max_shields) if max_shields > 0 else 0.0
         arcade.draw_rect_filled(
-            arcade.LBWH(10, SCREEN_HEIGHT - 200, int(190 * shield_frac), 10),
+            arcade.LBWH(10, SCREEN_HEIGHT - 236, int(190 * shield_frac), 10),
             (0, 140, 210),
         )
         # Shield numerical value

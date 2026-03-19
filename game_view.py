@@ -24,7 +24,7 @@ from constants import (
     CONTRAIL_MAX_PARTICLES, CONTRAIL_SPAWN_RATE, CONTRAIL_LIFETIME,
     CONTRAIL_START_SIZE, CONTRAIL_END_SIZE, CONTRAIL_OFFSET, CONTRAIL_COLOURS,
     BUILDING_TYPES, DOCK_SNAP_DIST, TURRET_FREE_PLACE_RADIUS,
-    STATION_INFO_RANGE,
+    BUILDING_RADIUS, STATION_INFO_RANGE,
     REPAIR_RANGE, REPAIR_RATE,
 )
 from settings import audio
@@ -451,6 +451,11 @@ class GameView(arcade.View):
                 best = b
         if best is not None:
             self._disconnect_ports(best)
+            # Drop iron equal to build cost
+            cost = BUILDING_TYPES[best.building_type]["cost"]
+            self._spawn_iron_pickup(
+                best.center_x, best.center_y, amount=cost,
+            )
             if isinstance(best, HomeStation):
                 for b in self.building_list:
                     b.disabled = True
@@ -479,34 +484,47 @@ class GameView(arcade.View):
         building.angle = self._ghost_rotation
 
         # Snap to port if connectable — edge-to-edge placement
+        snap_parent = None
+        snap_port = None
+        snap_opp_port = None
         if stats["connectable"]:
             snap = self._find_nearest_snap_port(wx, wy)
             if snap is not None:
-                parent, port, sx, sy = snap
+                snap_parent, snap_port, sx, sy = snap
                 # Find the opposite port on the new building
-                opp_dir = DockingPort.opposite(port.direction)
-                opp_port = None
+                opp_dir = DockingPort.opposite(snap_port.direction)
                 for np in building.ports:
                     if np.direction == opp_dir:
-                        opp_port = np
+                        snap_opp_port = np
                         break
                 # Offset by opposite port so edges meet (not centres)
-                if opp_port is not None:
+                if snap_opp_port is not None:
                     rad = math.radians(building.angle)
                     cos_a = math.cos(rad)
                     sin_a = math.sin(rad)
-                    ox_rot = opp_port.offset_x * cos_a - opp_port.offset_y * sin_a
-                    oy_rot = opp_port.offset_x * sin_a + opp_port.offset_y * cos_a
+                    ox_rot = snap_opp_port.offset_x * cos_a - snap_opp_port.offset_y * sin_a
+                    oy_rot = snap_opp_port.offset_x * sin_a + snap_opp_port.offset_y * cos_a
                     building.center_x = sx - ox_rot
                     building.center_y = sy - oy_rot
                 else:
                     building.center_x = sx
                     building.center_y = sy
-                port.occupied = True
-                port.connected_to = building
-                if opp_port is not None:
-                    opp_port.occupied = True
-                    opp_port.connected_to = parent
+
+        # Overlap check — no part should be inside any other building
+        for existing in self.building_list:
+            if math.hypot(building.center_x - existing.center_x,
+                          building.center_y - existing.center_y) < BUILDING_RADIUS * 2:
+                self.inventory.iron += cost
+                self._cancel_placement()
+                return
+
+        # Connect ports after overlap check passes
+        if snap_port is not None:
+            snap_port.occupied = True
+            snap_port.connected_to = building
+            if snap_opp_port is not None:
+                snap_opp_port.occupied = True
+                snap_opp_port.connected_to = snap_parent
 
         self.building_list.append(building)
 

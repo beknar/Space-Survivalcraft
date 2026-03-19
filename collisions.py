@@ -11,6 +11,7 @@ from constants import (
     SHIP_COLLISION_DAMAGE, SHIP_COLLISION_COOLDOWN, SHIP_BOUNCE,
     ALIEN_BOUNCE, ALIEN_SPEED, ALIEN_COL_COOLDOWN,
     BUILDING_RADIUS, ALIEN_IRON_DROP,
+    BUILDING_TYPES,
 )
 from sprites.explosion import HitSpark
 
@@ -209,6 +210,12 @@ def handle_alien_laser_building_hits(gv: GameView) -> None:
             proj.remove_from_sprite_lists()
             building.take_damage(int(proj.damage))
             if building.hp <= 0:
+                gv._disconnect_ports(building)
+                # Drop iron equal to build cost
+                cost = BUILDING_TYPES[building.building_type]["cost"]
+                gv._spawn_iron_pickup(
+                    building.center_x, building.center_y, amount=cost,
+                )
                 # Home Station destroyed — disable every module
                 if isinstance(building, HomeStation):
                     for b in gv.building_list:
