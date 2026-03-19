@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 
 import arcade
 
+import arcade as _arcade_mod
 from constants import SCREEN_WIDTH, SCREEN_HEIGHT
 
 if TYPE_CHECKING:
@@ -25,8 +26,9 @@ class StationInfo:
         self.open: bool = False
 
         # Panel position (right side)
-        self._px = SCREEN_WIDTH - _PANEL_W - 10
-        self._py = (SCREEN_HEIGHT - _PANEL_H) // 2
+        self._window = _arcade_mod.get_window()
+        self._px = self._window.width - _PANEL_W - 10
+        self._py = (self._window.height - _PANEL_H) // 2
 
         # Pre-built text objects
         self._t_title = arcade.Text(
@@ -90,6 +92,11 @@ class StationInfo:
     def draw(self) -> None:
         if not self.open:
             return
+        # Update panel position for current window size
+        self._px = self._window.width - _PANEL_W - 10
+        self._py = (self._window.height - _PANEL_H) // 2
+        self._t_title.x = self._px + _PANEL_W // 2
+        self._t_title.y = self._py + _PANEL_H - 20
 
         # Panel background
         arcade.draw_rect_filled(

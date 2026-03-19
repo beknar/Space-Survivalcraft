@@ -22,6 +22,10 @@ class Inventory:
         # items: dict[(row, col)] -> item name string; absent key = empty slot
         self._items: dict[tuple[int, int], str] = {}
         self.open: bool = False
+        try:
+            self._window = arcade.get_window()
+        except Exception:
+            self._window = None  # tests may run without a window
 
         # Stackable resource totals
         self.iron: int = 0
@@ -40,8 +44,10 @@ class Inventory:
         self._mouse_y: float = 0.0
 
         # Pre-built Text labels (avoids per-draw allocations)
-        cx = SCREEN_WIDTH // 2
-        oy = (SCREEN_HEIGHT - INV_H) // 2
+        _sw = self._window.width if self._window else SCREEN_WIDTH
+        _sh = self._window.height if self._window else SCREEN_HEIGHT
+        cx = _sw // 2
+        oy = (_sh - INV_H) // 2
         self._t_title = arcade.Text(
             "CARGO HOLD  (5 \u00d7 5)",
             cx,
@@ -81,8 +87,10 @@ class Inventory:
     # ── Mouse helpers ───────────────────────────────────────────────────────
     def _grid_origin(self) -> tuple[int, int]:
         """Return (grid_x, grid_y) -- pixel coords of the bottom-left of the grid."""
-        ox = (SCREEN_WIDTH - INV_W) // 2
-        oy = (SCREEN_HEIGHT - INV_H) // 2
+        sw = self._window.width if self._window else SCREEN_WIDTH
+        sh = self._window.height if self._window else SCREEN_HEIGHT
+        ox = (sw - INV_W) // 2
+        oy = (sh - INV_H) // 2
         return ox + INV_PAD, oy + INV_PAD + INV_FOOTER
 
     def _cell_at(self, x: float, y: float) -> Optional[tuple[int, int]]:
@@ -102,8 +110,10 @@ class Inventory:
 
     def _panel_contains(self, x: float, y: float) -> bool:
         """Return True if (x, y) lies within the inventory panel rectangle."""
-        ox = (SCREEN_WIDTH - INV_W) // 2
-        oy = (SCREEN_HEIGHT - INV_H) // 2
+        sw = self._window.width if self._window else SCREEN_WIDTH
+        sh = self._window.height if self._window else SCREEN_HEIGHT
+        ox = (sw - INV_W) // 2
+        oy = (sh - INV_H) // 2
         return ox <= x <= ox + INV_W and oy <= y <= oy + INV_H
 
     def on_mouse_press(self, x: float, y: float) -> bool:
@@ -220,8 +230,13 @@ class Inventory:
         if not self.open:
             return
 
-        ox = (SCREEN_WIDTH - INV_W) // 2
-        oy = (SCREEN_HEIGHT - INV_H) // 2
+        ox = (self._window.width - INV_W) // 2
+        oy = (self._window.height - INV_H) // 2
+        # Update title/hint positions for current window size
+        self._t_title.x = self._window.width // 2
+        self._t_title.y = oy + INV_H - INV_HEADER // 2 - 2
+        self._t_hint.x = self._window.width // 2
+        self._t_hint.y = oy + INV_FOOTER // 2
         gx, gy = self._grid_origin()
 
         # Panel background and border
@@ -324,10 +339,10 @@ class Inventory:
                 cell_cx = gx2 + col * INV_CELL + INV_CELL // 2
                 cell_ty = gy2 + (INV_ROWS - 1 - row) * INV_CELL + INV_CELL + 2
                 # Keep tooltip inside screen
-                if cell_ty + 16 > SCREEN_HEIGHT:
+                if cell_ty + 16 > self._window.height:
                     cell_ty = gy2 + (INV_ROWS - 1 - row) * INV_CELL - 18
                 tw = len(tip_label) * 6 + 12
-                tx0 = max(2, min(SCREEN_WIDTH - tw - 2, cell_cx - tw // 2))
+                tx0 = max(2, min(self._window.width - tw - 2, cell_cx - tw // 2))
                 arcade.draw_rect_filled(
                     arcade.LBWH(tx0, cell_ty, tw, 15), (20, 20, 50, 230)
                 )

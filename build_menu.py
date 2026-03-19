@@ -49,8 +49,9 @@ class BuildMenu:
                          + BUILD_MENU_ITEM_H + 8  # destroy button + gap
                          + 24)
         self._panel_w = BUILD_MENU_W
-        self._panel_x = SCREEN_WIDTH - self._panel_w - 8
-        self._panel_y = (SCREEN_HEIGHT - self._panel_h) // 2
+        self._window = arcade.get_window()
+        self._panel_x = self._window.width - self._panel_w - 8
+        self._panel_y = (self._window.height - self._panel_h) // 2
 
         # Pre-built Text objects
         cx = self._panel_x + self._panel_w // 2
@@ -82,6 +83,11 @@ class BuildMenu:
 
     def toggle(self) -> None:
         self.open = not self.open
+
+    def _update_layout(self) -> None:
+        """Recalculate panel position from current window size."""
+        self._panel_x = self._window.width - self._panel_w - 8
+        self._panel_y = (self._window.height - self._panel_h) // 2
 
     # ── Geometry helpers ──────────────────────────────────────────────────────
 
@@ -149,6 +155,7 @@ class BuildMenu:
     # ── Input ─────────────────────────────────────────────────────────────────
 
     def on_mouse_motion(self, x: float, y: float) -> None:
+        self._update_layout()
         self._mouse_x = x
         self._mouse_y = y
         self._hover_idx = -1
@@ -176,6 +183,7 @@ class BuildMenu:
         has_home: bool,
     ) -> Optional[str]:
         """Handle a click. Returns building type name, or "__destroy__" for destroy mode."""
+        self._update_layout()
         if not self.open:
             return None
         for i, name in enumerate(_MENU_ORDER):
@@ -207,6 +215,13 @@ class BuildMenu:
     ) -> None:
         if not self.open:
             return
+        self._update_layout()
+        # Update text positions for current layout
+        cx = self._panel_x + self._panel_w // 2
+        self._t_title.x = cx
+        self._t_title.y = self._panel_y + self._panel_h - BUILD_MENU_PAD - 10
+        self._t_hint.x = cx
+        self._t_hint.y = self._panel_y + 12
 
         # Panel background
         arcade.draw_rect_filled(
