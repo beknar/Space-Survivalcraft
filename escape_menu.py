@@ -639,6 +639,19 @@ class EscapeMenu:
         self._t_res_back.draw()
 
     def _draw_save_load(self) -> None:
+        # Recompute save/load panel position from live window size
+        self._sl_px = (self._window.width - SAVE_MENU_W) // 2
+        self._sl_py = (self._window.height - SAVE_MENU_H) // 2
+        # Recompute slot rects and back button
+        slot_bx = self._sl_px + (SAVE_MENU_W - SAVE_SLOT_W) // 2
+        first_slot_by = self._sl_py + SAVE_MENU_H - 60 - SAVE_SLOT_H
+        self._slot_rects = [
+            (slot_bx, first_slot_by - i * (SAVE_SLOT_H + SAVE_SLOT_GAP),
+             SAVE_SLOT_W, SAVE_SLOT_H)
+            for i in range(SAVE_SLOT_COUNT)
+        ]
+        back_bx = self._sl_px + (SAVE_MENU_W - MENU_BTN_W) // 2
+        self._back_rect = (back_bx, self._sl_py + 16, MENU_BTN_W, 35)
         px, py = self._sl_px, self._sl_py
 
         # Panel
@@ -651,9 +664,11 @@ class EscapeMenu:
             arcade.color.STEEL_BLUE, border_width=2,
         )
 
-        # Title
+        # Title — center above panel
         is_save = self._mode in (self.MODE_SAVE, self.MODE_NAMING)
         self._t_sl_title.text = "SAVE GAME" if is_save else "LOAD GAME"
+        self._t_sl_title.x = px + SAVE_MENU_W // 2
+        self._t_sl_title.y = py + SAVE_MENU_H - 30
         self._t_sl_title.draw()
 
         # Slots
