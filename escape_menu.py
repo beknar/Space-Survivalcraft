@@ -161,6 +161,50 @@ class EscapeMenu:
             anchor_x="right",
         )
 
+        # ── Pre-built text objects: resolution sub-mode ─────────────────
+        mid_y = self._main_py + MENU_H // 2
+        self._t_res_title = arcade.Text(
+            "RESOLUTION",
+            SCREEN_WIDTH // 2, self._main_py + MENU_H - 30,
+            arcade.color.LIGHT_BLUE, 14, bold=True,
+            anchor_x="center", anchor_y="center",
+        )
+        self._t_res_value = arcade.Text(
+            "", SCREEN_WIDTH // 2, mid_y,
+            arcade.color.YELLOW, 16, bold=True,
+            anchor_x="center", anchor_y="center",
+        )
+        self._t_res_left = arcade.Text(
+            "<", self._main_px + 48, mid_y,
+            (180, 180, 180), 22, bold=True,
+            anchor_x="center", anchor_y="center",
+        )
+        self._t_res_right = arcade.Text(
+            ">", self._main_px + MENU_W - 48, mid_y,
+            (180, 180, 180), 22, bold=True,
+            anchor_x="center", anchor_y="center",
+        )
+        apply_y = mid_y - 50
+        abx = self._main_px + (MENU_W - MENU_BTN_W) // 2
+        self._t_apply_windowed = arcade.Text(
+            "Apply Windowed",
+            abx + MENU_BTN_W // 2, apply_y + MENU_BTN_H // 2,
+            arcade.color.WHITE, 12, bold=True,
+            anchor_x="center", anchor_y="center",
+        )
+        fs_y = apply_y - MENU_BTN_H - 12
+        self._t_apply_fullscreen = arcade.Text(
+            "Apply Fullscreen",
+            abx + MENU_BTN_W // 2, fs_y + MENU_BTN_H // 2,
+            arcade.color.WHITE, 12, bold=True,
+            anchor_x="center", anchor_y="center",
+        )
+        self._t_res_back = arcade.Text(
+            "Back", 0, 0,
+            arcade.color.WHITE, 12, bold=True,
+            anchor_x="center", anchor_y="center",
+        )
+
         # ── Pre-built text objects: save/load mode ────────────────────
         self._t_sl_title = arcade.Text(
             "SAVE GAME",
@@ -516,35 +560,19 @@ class EscapeMenu:
             arcade.color.STEEL_BLUE, border_width=2,
         )
 
-        # Title
-        arcade.draw_text(
-            "RESOLUTION", px + MENU_W // 2, py + MENU_H - 30,
-            arcade.color.LIGHT_BLUE, 14, bold=True,
-            anchor_x="center", anchor_y="center",
-        )
+        self._t_res_title.draw()
 
-        # Current resolution
+        # Current resolution value
         w, h = RESOLUTION_PRESETS[self._res_idx]
-        mid_y = py + MENU_H // 2
-        arcade.draw_text(
-            f"{w} x {h}", px + MENU_W // 2, mid_y,
-            arcade.color.YELLOW, 16, bold=True,
-            anchor_x="center", anchor_y="center",
-        )
+        self._t_res_value.text = f"{w} x {h}"
+        self._t_res_value.draw()
 
         # Left/right arrows
-        arcade.draw_text(
-            "<", px + 48, mid_y,
-            (180, 180, 180), 22, bold=True,
-            anchor_x="center", anchor_y="center",
-        )
-        arcade.draw_text(
-            ">", px + MENU_W - 48, mid_y,
-            (180, 180, 180), 22, bold=True,
-            anchor_x="center", anchor_y="center",
-        )
+        self._t_res_left.draw()
+        self._t_res_right.draw()
 
         # Apply Windowed button
+        mid_y = py + MENU_H // 2
         apply_y = mid_y - 50
         abx = px + (MENU_W - MENU_BTN_W) // 2
         arcade.draw_rect_filled(
@@ -555,11 +583,7 @@ class EscapeMenu:
             arcade.LBWH(abx, apply_y, MENU_BTN_W, MENU_BTN_H),
             arcade.color.LIME_GREEN, border_width=1,
         )
-        arcade.draw_text(
-            "Apply Windowed", abx + MENU_BTN_W // 2, apply_y + MENU_BTN_H // 2,
-            arcade.color.WHITE, 12, bold=True,
-            anchor_x="center", anchor_y="center",
-        )
+        self._t_apply_windowed.draw()
 
         # Apply Fullscreen button
         fs_y = apply_y - MENU_BTN_H - 12
@@ -571,11 +595,7 @@ class EscapeMenu:
             arcade.LBWH(abx, fs_y, MENU_BTN_W, MENU_BTN_H),
             arcade.color.CYAN, border_width=1,
         )
-        arcade.draw_text(
-            "Apply Fullscreen", abx + MENU_BTN_W // 2, fs_y + MENU_BTN_H // 2,
-            arcade.color.WHITE, 12, bold=True,
-            anchor_x="center", anchor_y="center",
-        )
+        self._t_apply_fullscreen.draw()
 
         # Back button
         bx, by, bw, bh = self._back_rect
@@ -583,11 +603,9 @@ class EscapeMenu:
         arcade.draw_rect_outline(
             arcade.LBWH(bx, by, bw, bh), arcade.color.STEEL_BLUE, border_width=1,
         )
-        arcade.draw_text(
-            "Back", bx + bw // 2, by + bh // 2,
-            arcade.color.WHITE, 12, bold=True,
-            anchor_x="center", anchor_y="center",
-        )
+        self._t_res_back.x = bx + bw // 2
+        self._t_res_back.y = by + bh // 2
+        self._t_res_back.draw()
 
     def _draw_save_load(self) -> None:
         px, py = self._sl_px, self._sl_py

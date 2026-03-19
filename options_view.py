@@ -134,6 +134,19 @@ class OptionsView(arcade.View):
             arcade.color.WHITE, 15, bold=True,
             anchor_x="center", anchor_y="center",
         )
+        # Resolution arrow text objects
+        lx, ly, lw, lh = self._res_left_rect
+        self._t_arrow_left = arcade.Text(
+            "<", lx + lw // 2, ly + lh // 2,
+            (160, 160, 160), 20, bold=True,
+            anchor_x="center", anchor_y="center",
+        )
+        rx, ry, rw, rh = self._res_right_rect
+        self._t_arrow_right = arcade.Text(
+            ">", rx + rw // 2, ry + rh // 2,
+            (160, 160, 160), 20, bold=True,
+            anchor_x="center", anchor_y="center",
+        )
 
     # ── Drawing ────────────────────────────────────────────────────────
 
@@ -166,14 +179,10 @@ class OptionsView(arcade.View):
         self._t_res_val.text = f"{w} x {h}"
         self._t_res_val.draw()
         # Left/right arrows
-        lx, ly, lw, lh = self._res_left_rect
-        lc = arcade.color.CYAN if self._hover_res_left else (160, 160, 160)
-        arcade.draw_text("<", lx + lw // 2, ly + lh // 2,
-                         lc, 20, bold=True, anchor_x="center", anchor_y="center")
-        rx, ry, rw, rh = self._res_right_rect
-        rc = arcade.color.CYAN if self._hover_res_right else (160, 160, 160)
-        arcade.draw_text(">", rx + rw // 2, ry + rh // 2,
-                         rc, 20, bold=True, anchor_x="center", anchor_y="center")
+        self._t_arrow_left.color = arcade.color.CYAN if self._hover_res_left else (160, 160, 160)
+        self._t_arrow_left.draw()
+        self._t_arrow_right.color = arcade.color.CYAN if self._hover_res_right else (160, 160, 160)
+        self._t_arrow_right.draw()
 
         # Fullscreen toggle
         fx, fy, fw, fh = self._fs_rect
