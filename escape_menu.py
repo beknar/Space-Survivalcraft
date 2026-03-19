@@ -738,6 +738,8 @@ class EscapeMenu:
         )
 
         # Prompt
+        cx = bx + bw // 2
+        self._t_naming_prompt.x = cx
         self._t_naming_prompt.y = by + bh - 22
         self._t_naming_prompt.draw()
 
@@ -746,10 +748,12 @@ class EscapeMenu:
         if self._cursor_visible:
             display += "|"
         self._t_naming_input.text = display
+        self._t_naming_input.x = cx
         self._t_naming_input.y = by + bh // 2
         self._t_naming_input.draw()
 
         # Hint
+        self._t_naming_hint.x = cx
         self._t_naming_hint.y = by + 18
         self._t_naming_hint.draw()
 
