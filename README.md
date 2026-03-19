@@ -126,8 +126,8 @@ A top-down space survival game built with Python and the Arcade framework. Pilot
 
 ### Fog of War
 - World starts fully hidden; areas revealed as the player explores
-- 100 px diameter reveal around the ship (50 px radius)
-- Objects hidden on the mini-map until the player has been to that area
+- 800 px diameter reveal around the ship (400 px radius)
+- Grey fog overlay on the mini-map; cleared areas show objects
 - Fog state persists across save/load
 - 128×128 cell grid covering the full world
 

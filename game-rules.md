@@ -681,15 +681,17 @@ The world starts fully hidden. As the player travels, areas are revealed in a ci
 
 | Property | Value |
 |---|---|
-| Reveal diameter | 100 px (50 px radius) |
+| Reveal diameter | 800 px (400 px radius) |
 | Grid cell size | 50 px |
 | Grid dimensions | 128 x 128 cells (covers the full 6,400 x 6,400 world) |
 | Persistence | Fog state is saved/loaded with game state |
 
 ### Behaviour
 
-- All objects (asteroids, aliens, pickups, buildings) are **hidden on the mini-map** until the player's ship has travelled within 50 px of the cell containing them.
+- All objects (asteroids, aliens, pickups, buildings) are **hidden on the mini-map** until the player's ship has travelled within 400 px of the cell containing them.
+- Unrevealed areas are rendered as a **grey fog overlay** (60, 60, 80, alpha 200) on the mini-map; revealed areas show the dark starfield background with visible objects.
+- Fog is drawn using horizontal run-length spans for efficiency (consecutive unrevealed cells in a row are batched into a single rectangle).
 - Once a cell is revealed, it remains revealed permanently for that session (and across saves).
 - The player's own position and heading are always shown on the mini-map regardless of fog.
-- Each frame, cells within `FOG_REVEAL_RADIUS` of the player's position are marked as revealed.
+- Each frame, cells within `FOG_REVEAL_RADIUS` (400 px) of the player's position are marked as revealed.
 - Fog is stored as a 128 x 128 boolean grid; each cell covers a 50 x 50 px area of the world.

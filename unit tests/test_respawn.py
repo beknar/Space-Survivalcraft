@@ -206,7 +206,7 @@ class TestAlienIronDrop:
 
 class TestFogOfWarConstants:
     def test_reveal_radius(self):
-        assert FOG_REVEAL_RADIUS == 50.0
+        assert FOG_REVEAL_RADIUS == 400.0
 
     def test_cell_size(self):
         assert FOG_CELL_SIZE == 50

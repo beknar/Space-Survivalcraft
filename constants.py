@@ -218,7 +218,7 @@ WORLD_ITEM_LIFETIME: float = 600.0  # seconds before a dropped item despawns (10
 EJECT_DIST: float = 60.0            # px from ship EDGE where ejected items land
 
 # ── Fog of war constants ───────────────────────────────────────────────────
-FOG_REVEAL_RADIUS: float = 50.0         # px — radius around ship that gets revealed (100 px diameter)
+FOG_REVEAL_RADIUS: float = 400.0        # px — radius around ship that gets revealed (800 px diameter)
 FOG_CELL_SIZE: int = 50                 # px per fog grid cell
 FOG_GRID_W: int = WORLD_WIDTH // FOG_CELL_SIZE    # 128 cells
 FOG_GRID_H: int = WORLD_HEIGHT // FOG_CELL_SIZE   # 128 cells

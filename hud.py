@@ -281,6 +281,36 @@ class HUD:
                 bx, by = to_map(building.center_x, building.center_y)
                 arcade.draw_circle_filled(bx, by, 2.5, (100, 220, 255))
 
+        # Draw grey fog overlay on unrevealed cells
+        if fog_grid is not None:
+            cell_w = mw / FOG_GRID_W
+            cell_h = mh / FOG_GRID_H
+            fog_colour = (60, 60, 80, 200)
+            for gy in range(FOG_GRID_H):
+                row = fog_grid[gy]
+                run_start = -1
+                for gx in range(FOG_GRID_W):
+                    if not row[gx]:
+                        if run_start < 0:
+                            run_start = gx
+                    else:
+                        if run_start >= 0:
+                            rx = mx + run_start * cell_w
+                            ry = my + gy * cell_h
+                            rw = (gx - run_start) * cell_w
+                            arcade.draw_rect_filled(
+                                arcade.LBWH(rx, ry, rw, cell_h), fog_colour,
+                            )
+                            run_start = -1
+                # Flush remaining run at end of row
+                if run_start >= 0:
+                    rx = mx + run_start * cell_w
+                    ry = my + gy * cell_h
+                    rw = (FOG_GRID_W - run_start) * cell_w
+                    arcade.draw_rect_filled(
+                        arcade.LBWH(rx, ry, rw, cell_h), fog_colour,
+                    )
+
         sx, sy = to_map(player_x, player_y)
         rad = math.radians(player_heading)
         lx = sx + math.sin(rad) * 5
