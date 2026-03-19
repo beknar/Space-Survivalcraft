@@ -26,6 +26,7 @@ from constants import (
     BUILDING_TYPES, DOCK_SNAP_DIST, TURRET_FREE_PLACE_RADIUS,
     BUILDING_RADIUS, STATION_INFO_RANGE,
     REPAIR_RANGE, REPAIR_RATE,
+    FOG_REVEAL_RADIUS, FOG_CELL_SIZE, FOG_GRID_W, FOG_GRID_H,
 )
 from settings import audio
 from sprites.projectile import Weapon
@@ -173,6 +174,11 @@ class GameView(arcade.View):
         self._asteroid_respawn_timer: float = 0.0
         self._alien_respawn_timer: float = 0.0
 
+        # Fog of war grid — False = hidden, True = revealed
+        self._fog_grid: list[list[bool]] = [
+            [False] * FOG_GRID_W for _ in range(FOG_GRID_H)
+        ]
+
         # HUD
         self._hud = HUD(
             has_gamepad=self.joystick is not None,
@@ -257,6 +263,30 @@ class GameView(arcade.View):
         """Spawn an iron token at world position (x, y)."""
         pickup = IronPickup(self._iron_tex, x, y, amount=amount, lifetime=lifetime)
         self.iron_pickup_list.append(pickup)
+
+    def _update_fog(self) -> None:
+        """Reveal fog cells around the player's current position."""
+        px, py = self.player.center_x, self.player.center_y
+        # Convert player pos to grid cell
+        cx = int(px / FOG_CELL_SIZE)
+        cy = int(py / FOG_CELL_SIZE)
+        # Reveal radius in cells (FOG_REVEAL_RADIUS / FOG_CELL_SIZE, rounded up)
+        r = int(FOG_REVEAL_RADIUS / FOG_CELL_SIZE) + 1
+        for gy in range(max(0, cy - r), min(FOG_GRID_H, cy + r + 1)):
+            for gx in range(max(0, cx - r), min(FOG_GRID_W, cx + r + 1)):
+                # Check actual pixel distance from player to cell centre
+                cell_cx = (gx + 0.5) * FOG_CELL_SIZE
+                cell_cy = (gy + 0.5) * FOG_CELL_SIZE
+                if math.hypot(px - cell_cx, py - cell_cy) <= FOG_REVEAL_RADIUS:
+                    self._fog_grid[gy][gx] = True
+
+    def is_revealed(self, wx: float, wy: float) -> bool:
+        """Check if a world position has been revealed by the fog of war."""
+        gx = int(wx / FOG_CELL_SIZE)
+        gy = int(wy / FOG_CELL_SIZE)
+        if 0 <= gx < FOG_GRID_W and 0 <= gy < FOG_GRID_H:
+            return self._fog_grid[gy][gx]
+        return False
 
     def _try_respawn_asteroids(self) -> None:
         """Respawn one asteroid if count < ASTEROID_COUNT, avoiding buildings."""
@@ -613,6 +643,7 @@ class GameView(arcade.View):
                 "asteroid": self._asteroid_respawn_timer,
                 "alien": self._alien_respawn_timer,
             },
+            "fog_grid": self._fog_grid,
         }
         with open(path, "w") as f:
             json.dump(data, f, indent=2)
@@ -715,6 +746,11 @@ class GameView(arcade.View):
         view._asteroid_respawn_timer = rt.get("asteroid", 0.0)
         view._alien_respawn_timer = rt.get("alien", 0.0)
 
+        # Restore fog of war grid
+        saved_fog = data.get("fog_grid")
+        if saved_fog and len(saved_fog) == FOG_GRID_H:
+            view._fog_grid = saved_fog
+
         self.window.show_view(view)
 
     def _return_to_menu(self) -> None:
@@ -794,6 +830,7 @@ class GameView(arcade.View):
                 player_heading=self.player.heading,
                 track_name=self._current_track_name,
                 building_list=self.building_list,
+                fog_grid=self._fog_grid,
             )
             self.inventory.draw()
             self._build_menu.draw(
@@ -837,8 +874,6 @@ class GameView(arcade.View):
 
         # ── Escape menu tick ──────────────────────────────────────────────
         self._escape_menu.update(delta_time)
-        if self._escape_menu.open:
-            return  # Pause all gameplay while menu is open
 
         # ── Death screen ──────────────────────────────────────────────────
         if self._player_dead:
@@ -900,6 +935,9 @@ class GameView(arcade.View):
             self.player.center_x, self.player.center_y,
             self.player.shields,
         )
+
+        # ── Fog of war ──────────────────────────────────────────────────────
+        self._update_fog()
 
         # ── Movement input ──────────────────────────────────────────────────
         rl = arcade.key.LEFT in self._keys or arcade.key.A in self._keys

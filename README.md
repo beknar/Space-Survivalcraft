@@ -38,14 +38,14 @@ A top-down space survival game built with Python and the Arcade framework. Pilot
 - Physics-based collision bouncing between all entities
 - Leash range prevents aliens from chasing indefinitely
 - Destroyed aliens drop **5 iron ore** that can be collected by the player
-- Alien ships respawn every 5 minutes (not within 300 px of player structures) until 20 again
+- Alien ships respawn every 2 minutes (not within 300 px of player structures) until 20 again
 
 ### Mining & Resources
 - 50 iron asteroids scattered across the world, each with 100 HP
 - Only the Mining Beam can damage asteroids; Basic Laser has no effect
 - Asteroids spin, shake on hit, and explode with animated effects when destroyed
 - Destroyed asteroids drop iron ore pickups that fly toward the player when nearby
-- Asteroids respawn every 5 minutes (not within 300 px of player structures) until 50 again
+- Asteroids respawn every 2 minutes (not within 300 px of player structures) until 50 again
 
 ### Inventory System
 - 5x5 cargo hold grid toggled with I key or gamepad Y button
@@ -124,6 +124,13 @@ A top-down space survival game built with Python and the Arcade framework. Pilot
 - Engine thruster loop, collision bump sounds, explosion sounds
 - Global music and SFX volume controls in both Options screen and in-game escape menu
 
+### Fog of War
+- World starts fully hidden; areas revealed as the player explores
+- 100 px diameter reveal around the ship (50 px radius)
+- Objects hidden on the mini-map until the player has been to that area
+- Fog state persists across save/load
+- 128×128 cell grid covering the full world
+
 ### Visual Effects
 - Animated explosion sprite sheets (9 frames)
 - Hit sparks (expanding ring + fading core)
@@ -189,7 +196,7 @@ A top-down space survival game built with Python and the Arcade framework. Pilot
 python -m pytest "unit tests/" -v
 ```
 
-244 unit tests covering all game modules: player physics, weapons, asteroids, aliens, pickups, shields, explosions, contrails, inventory, damage routing, building system (snap, collision, capacity, repair module, port disconnect), respawn mechanics, and settings.
+253 unit tests covering all game modules: player physics, weapons, asteroids, aliens, pickups, shields, explosions, contrails, inventory, damage routing, building system (snap, collision, capacity, repair module, port disconnect), respawn mechanics, fog of war, and settings.
 
 ## Project Structure
 

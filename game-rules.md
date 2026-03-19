@@ -149,7 +149,7 @@ All ships start with both weapons. The Thunderbolt has 2 guns, so it gets 2x Bas
 - On destruction: explosion animation + sound, drops one Iron Pickup at the destruction site
 
 **Respawn:**
-- Asteroids respawn every 5 minutes (300 s) until the count returns to 50
+- Asteroids respawn every 2 minutes (120 s) until the count returns to 50
 - One asteroid respawns per cycle (timer resets after each spawn attempt)
 - Asteroids will not respawn within 300 px of any player-built station module
 - Same spawn constraints apply: min 400 px from world centre, 100 px from edges
@@ -180,7 +180,7 @@ Pickups idle at their drop position until the ship's hull edge comes within 40 p
 | Edge margin | 100 px from world edges |
 
 **Respawn:**
-- Alien ships respawn every 5 minutes (300 s) until the count returns to 20
+- Alien ships respawn every 2 minutes (120 s) until the count returns to 20
 - One alien respawns per cycle (timer resets after each spawn attempt)
 - Aliens will not respawn within 300 px of any player-built station module
 - Same spawn constraints apply: min 400 px from world centre, 100 px from edges
@@ -458,7 +458,7 @@ The left-side panel (213 px wide) displays:
 ### Escape Menu (In-Game)
 - Toggled with ESC (if inventory is open, first ESC closes inventory)
 - Semi-transparent dark overlay with centred panel (320 x 480 px)
-- **Pauses all gameplay** while open
+- Gameplay **continues** while the escape menu is open (does not pause)
 - **Audio sliders:** Music and SFX volume sliders (220 px wide) at the top of the panel, directly draggable with percentage display
 - **Buttons:** Resume, Save Game, Load Game, Main Menu, Exit Game
 - 10 save slots with naming overlay (max 24 characters, blinking cursor)
@@ -672,3 +672,24 @@ All building PNGs are located in `assets/kenney space combat assets/Space Shoote
 ### Mini-map
 
 Buildings appear as **cyan dots** (2.5 px radius) on the mini-map.
+
+---
+
+## 13. Fog of War
+
+The world starts fully hidden. As the player travels, areas are revealed in a circle around the ship.
+
+| Property | Value |
+|---|---|
+| Reveal diameter | 100 px (50 px radius) |
+| Grid cell size | 50 px |
+| Grid dimensions | 128 x 128 cells (covers the full 6,400 x 6,400 world) |
+| Persistence | Fog state is saved/loaded with game state |
+
+### Behaviour
+
+- All objects (asteroids, aliens, pickups, buildings) are **hidden on the mini-map** until the player's ship has travelled within 50 px of the cell containing them.
+- Once a cell is revealed, it remains revealed permanently for that session (and across saves).
+- The player's own position and heading are always shown on the mini-map regardless of fog.
+- Each frame, cells within `FOG_REVEAL_RADIUS` of the player's position are marked as revealed.
+- Fog is stored as a 128 x 128 boolean grid; each cell covers a 50 x 50 px area of the world.

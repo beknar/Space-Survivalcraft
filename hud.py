@@ -9,6 +9,7 @@ from constants import (
     SCREEN_WIDTH, SCREEN_HEIGHT, STATUS_WIDTH,
     WORLD_WIDTH, WORLD_HEIGHT,
     MINIMAP_PAD, MINIMAP_W, MINIMAP_H, MINIMAP_X, MINIMAP_Y,
+    FOG_CELL_SIZE, FOG_GRID_W, FOG_GRID_H,
 )
 
 
@@ -137,6 +138,7 @@ class HUD:
         player_heading: float,
         track_name: str = "",
         building_list: arcade.SpriteList | None = None,
+        fog_grid: list[list[bool]] | None = None,
     ) -> None:
         """Draw the full HUD status panel."""
         # Panel background
@@ -213,7 +215,19 @@ class HUD:
             asteroid_list, iron_pickup_list, alien_list,
             player_x, player_y, player_heading,
             building_list=building_list,
+            fog_grid=fog_grid,
         )
+
+    @staticmethod
+    def _is_revealed(wx: float, wy: float, fog_grid: list[list[bool]] | None) -> bool:
+        """Check if a world position has been revealed in the fog grid."""
+        if fog_grid is None:
+            return True
+        gx = int(wx / FOG_CELL_SIZE)
+        gy = int(wy / FOG_CELL_SIZE)
+        if 0 <= gx < FOG_GRID_W and 0 <= gy < FOG_GRID_H:
+            return fog_grid[gy][gx]
+        return False
 
     def _draw_minimap(
         self,
@@ -224,6 +238,7 @@ class HUD:
         player_y: float,
         player_heading: float,
         building_list: arcade.SpriteList | None = None,
+        fog_grid: list[list[bool]] | None = None,
     ) -> None:
         """Draw a scaled overview of the world inside the status panel."""
         mx, my = MINIMAP_X, MINIMAP_Y
@@ -242,19 +257,27 @@ class HUD:
             )
 
         for asteroid in asteroid_list:
+            if not self._is_revealed(asteroid.center_x, asteroid.center_y, fog_grid):
+                continue
             ax, ay = to_map(asteroid.center_x, asteroid.center_y)
             arcade.draw_circle_filled(ax, ay, 2.0, (150, 150, 150))
 
         for pickup in iron_pickup_list:
+            if not self._is_revealed(pickup.center_x, pickup.center_y, fog_grid):
+                continue
             px, py = to_map(pickup.center_x, pickup.center_y)
             arcade.draw_circle_filled(px, py, 2.0, (255, 165, 0))
 
         for alien in alien_list:
+            if not self._is_revealed(alien.center_x, alien.center_y, fog_grid):
+                continue
             amx, amy = to_map(alien.center_x, alien.center_y)
             arcade.draw_circle_filled(amx, amy, 2.0, (220, 50, 50))
 
         if building_list is not None:
             for building in building_list:
+                if not self._is_revealed(building.center_x, building.center_y, fog_grid):
+                    continue
                 bx, by = to_map(building.center_x, building.center_y)
                 arcade.draw_circle_filled(bx, by, 2.5, (100, 220, 255))
 

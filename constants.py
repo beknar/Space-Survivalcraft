@@ -207,7 +207,7 @@ ALIEN_AVOIDANCE_FORCE: float = 2.5     # avoidance repulsion weight relative to 
 ALIEN_BUMP_FLASH: float = 0.15         # seconds of orange tint on collision bump
 
 # ── Respawn constants ──────────────────────────────────────────────────────
-RESPAWN_INTERVAL: float = 300.0          # seconds (5 minutes) between respawn checks
+RESPAWN_INTERVAL: float = 120.0          # seconds (2 minutes) between respawn checks
 RESPAWN_EXCLUSION_RADIUS: float = 300.0  # px — no respawn within this range of a building
 ALIEN_IRON_DROP: int = 5                 # iron units dropped when an alien ship is destroyed
 
@@ -216,6 +216,12 @@ IRON_PICKUP_DIST: float = 40.0   # px -- edge distance (from ship hull) to trigg
 IRON_FLY_SPEED: float = 400.0    # px/s -- speed of iron token once attracted
 WORLD_ITEM_LIFETIME: float = 600.0  # seconds before a dropped item despawns (10 min)
 EJECT_DIST: float = 60.0            # px from ship EDGE where ejected items land
+
+# ── Fog of war constants ───────────────────────────────────────────────────
+FOG_REVEAL_RADIUS: float = 50.0         # px — radius around ship that gets revealed (100 px diameter)
+FOG_CELL_SIZE: int = 50                 # px per fog grid cell
+FOG_GRID_W: int = WORLD_WIDTH // FOG_CELL_SIZE    # 128 cells
+FOG_GRID_H: int = WORLD_HEIGHT // FOG_CELL_SIZE   # 128 cells
 
 # ── Camera shake constants ──────────────────────────────────────────────────
 SHAKE_DURATION: float = 0.25     # seconds of camera shake after a hull collision

@@ -38,8 +38,8 @@ Space Survivalcraft/
 ├── game_view.py         # GameView — core gameplay loop, cameras, input, music, death logic
 │
 │  ── UI overlays (drawn by GameView, not separate Views) ──
-├── hud.py               # HUD — left status panel (HP/shield bars, speed, weapon, asteroid/alien counts, mini-map)
-├── escape_menu.py       # EscapeMenu — pause overlay with save/load/quit, audio sliders (4 internal modes)
+├── hud.py               # HUD — left status panel (HP/shield bars, speed, weapon, asteroid/alien counts, fog-filtered mini-map)
+├── escape_menu.py       # EscapeMenu — overlay with save/load/quit, audio sliders (does NOT pause gameplay)
 ├── death_screen.py      # DeathScreen — "SHIP DESTROYED" overlay with Load/Menu/Exit
 ├── inventory.py         # Inventory — 5×5 cargo grid with drag-and-drop and world ejection
 ├── build_menu.py        # BuildMenu — right-side overlay for constructing station modules
@@ -79,7 +79,7 @@ Space Survivalcraft/
 │   ├── test_inventory.py  # Grid math, iron management, drag-and-drop, ejection
 │   ├── test_damage.py     # Damage routing (shields → HP), death triggering
 │   ├── test_building.py   # StationModule, Turret, RepairModule, DockingPort, capacity, snap, collision, port disconnect
-│   └── test_respawn.py    # Respawn position logic, timer logic, alien iron drop constants
+│   └── test_respawn.py    # Respawn position logic, timer logic, alien iron drop, fog of war constants/grid
 │
 ├── assets/              # Art, sound, music (gitignored — not in repo)
 ├── saves/               # Save slot JSON files (gitignored)
