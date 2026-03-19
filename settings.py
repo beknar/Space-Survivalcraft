@@ -53,8 +53,11 @@ def apply_resolution(
     if display_mode == DISPLAY_FULLSCREEN:
         window.set_fullscreen(True)
     elif display_mode == DISPLAY_BORDERLESS:
-        # Borderless windowed: fullscreen on the current screen
-        window.set_fullscreen(True, screen=window.current_screen)
+        # Borderless windowed: use pyglet display to get the current screen
+        import pyglet.display as _disp
+        screens = _disp.get_display().get_screens()
+        screen = screens[0] if screens else None
+        window.set_fullscreen(True, screen=screen)
     else:
         # Windowed
         window.set_fullscreen(False)
