@@ -82,8 +82,10 @@ class EscapeMenu:
         self._slider_dragging: str = ""   # "", "music", or "sfx"
 
         # ── Main mode geometry (centred on screen) ────────────────────
-        sw = constants.SCREEN_WIDTH
-        sh = constants.SCREEN_HEIGHT
+        # Use actual window dimensions (correct in fullscreen)
+        self._window = arcade.get_window()
+        sw = self._window.width
+        sh = self._window.height
         self._main_px = (sw - MENU_W) // 2
         self._main_py = (sh - MENU_H) // 2
 
@@ -508,7 +510,7 @@ class EscapeMenu:
 
         # Semi-transparent dark overlay
         arcade.draw_rect_filled(
-            arcade.LBWH(0, 0, constants.SCREEN_WIDTH, constants.SCREEN_HEIGHT),
+            arcade.LBWH(0, 0, self._window.width, self._window.height),
             (0, 0, 0, 160),
         )
 
@@ -559,7 +561,7 @@ class EscapeMenu:
             self._t_main_labels[i].draw()
 
         if self._status_msg:
-            self._t_status.x = constants.SCREEN_WIDTH // 2
+            self._t_status.x = self._window.width // 2
             self._t_status.y = py + 14
             self._t_status.text = self._status_msg
             self._t_status.draw()
@@ -710,7 +712,7 @@ class EscapeMenu:
 
         # Status
         if self._status_msg:
-            self._t_status.x = constants.SCREEN_WIDTH // 2
+            self._t_status.x = self._window.width // 2
             self._t_status.y = py + 55
             self._t_status.text = self._status_msg
             self._t_status.draw()
@@ -725,8 +727,8 @@ class EscapeMenu:
 
         # Input box
         bw, bh = 300, 100
-        bx = (constants.SCREEN_WIDTH - bw) // 2
-        by = (constants.SCREEN_HEIGHT - bh) // 2
+        bx = (self._window.width - bw) // 2
+        by = (self._window.height - bh) // 2
 
         arcade.draw_rect_filled(
             arcade.LBWH(bx, by, bw, bh), (20, 20, 60, 250),

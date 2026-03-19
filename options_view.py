@@ -25,9 +25,9 @@ class OptionsView(arcade.View):
     def __init__(self) -> None:
         super().__init__()
 
-        # Read live module-level values (not the stale local import)
-        sw = constants.SCREEN_WIDTH
-        sh = constants.SCREEN_HEIGHT
+        # Use actual window dimensions (correct in fullscreen)
+        sw = arcade.get_window().width
+        sh = arcade.get_window().height
         self._slider_x = (sw - _SLIDER_W) // 2
         self._music_y = sh // 2 + 120
         self._sfx_y = sh // 2 + 40

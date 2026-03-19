@@ -25,66 +25,66 @@ class HUD:
         # Store the current screen height so draw() uses the right value
         # (SCREEN_HEIGHT gets updated at runtime by apply_resolution, but
         #  the local import binding would be stale)
-        self._sh = SCREEN_HEIGHT
+        self._sh = arcade.get_window().height
         cx = STATUS_WIDTH // 2
         self._t_title = arcade.Text(
-            "STATUS", cx, SCREEN_HEIGHT - 26,
+            "STATUS", cx, self._sh - 26,
             arcade.color.LIGHT_BLUE, 14, bold=True,
             anchor_x="center", anchor_y="center",
         )
-        self._t_spd = arcade.Text("", 10, SCREEN_HEIGHT - 60,
+        self._t_spd = arcade.Text("", 10, self._sh - 60,
                                   arcade.color.WHITE, 11)
-        self._t_hdg = arcade.Text("", 10, SCREEN_HEIGHT - 80,
+        self._t_hdg = arcade.Text("", 10, self._sh - 80,
                                   arcade.color.WHITE, 11)
-        self._t_iron_hud = arcade.Text("", 10, SCREEN_HEIGHT - 100,
+        self._t_iron_hud = arcade.Text("", 10, self._sh - 100,
                                        arcade.color.ORANGE, 11)
-        self._t_asteroids = arcade.Text("", 10, SCREEN_HEIGHT - 120,
+        self._t_asteroids = arcade.Text("", 10, self._sh - 120,
                                         (150, 150, 150), 11)
-        self._t_aliens = arcade.Text("", 10, SCREEN_HEIGHT - 140,
+        self._t_aliens = arcade.Text("", 10, self._sh - 140,
                                      (220, 80, 80), 11)
-        self._t_hp = arcade.Text("HP", 10, SCREEN_HEIGHT - 176,
+        self._t_hp = arcade.Text("HP", 10, self._sh - 176,
                                  arcade.color.LIME_GREEN, 10, bold=True)
-        self._t_hp_val = arcade.Text("", 10, SCREEN_HEIGHT - 204,
+        self._t_hp_val = arcade.Text("", 10, self._sh - 204,
                                      arcade.color.WHITE, 9)
-        self._t_shield = arcade.Text("SHIELD", 10, SCREEN_HEIGHT - 220,
+        self._t_shield = arcade.Text("SHIELD", 10, self._sh - 220,
                                      arcade.color.CYAN, 10, bold=True)
-        self._t_shield_val = arcade.Text("", 10, SCREEN_HEIGHT - 248,
+        self._t_shield_val = arcade.Text("", 10, self._sh - 248,
                                          arcade.color.WHITE, 9)
-        self._t_wpn_hdr = arcade.Text("WEAPON", cx, SCREEN_HEIGHT - 266,
+        self._t_wpn_hdr = arcade.Text("WEAPON", cx, self._sh - 266,
                                       arcade.color.LIGHT_GRAY, 9,
                                       anchor_x="center")
-        self._t_wpn_name = arcade.Text("", cx, SCREEN_HEIGHT - 282,
+        self._t_wpn_name = arcade.Text("", cx, self._sh - 282,
                                        arcade.color.YELLOW, 10, bold=True,
                                        anchor_x="center")
-        self._t_ctrl_hdr = arcade.Text("CONTROLS", cx, SCREEN_HEIGHT - 304,
+        self._t_ctrl_hdr = arcade.Text("CONTROLS", cx, self._sh - 304,
                                        arcade.color.LIGHT_GRAY, 9,
                                        anchor_x="center")
         self._t_ctrl_lines = [
-            arcade.Text("L/R  A/D    Rotate",   10, SCREEN_HEIGHT - 322,
+            arcade.Text("L/R  A/D    Rotate",   10, self._sh - 322,
                         arcade.color.LIGHT_GRAY, 9),
-            arcade.Text("Up / W      Thrust",   10, SCREEN_HEIGHT - 338,
+            arcade.Text("Up / W      Thrust",   10, self._sh - 338,
                         arcade.color.LIGHT_GRAY, 9),
-            arcade.Text("Dn / S      Brake",    10, SCREEN_HEIGHT - 354,
+            arcade.Text("Dn / S      Brake",    10, self._sh - 354,
                         arcade.color.LIGHT_GRAY, 9),
-            arcade.Text("Space       Fire",     10, SCREEN_HEIGHT - 370,
+            arcade.Text("Space       Fire",     10, self._sh - 370,
                         arcade.color.LIGHT_GRAY, 9),
-            arcade.Text("Tab         Weapon",   10, SCREEN_HEIGHT - 386,
+            arcade.Text("Tab         Weapon",   10, self._sh - 386,
                         arcade.color.LIGHT_GRAY, 9),
-            arcade.Text("I           Inventory", 10, SCREEN_HEIGHT - 402,
+            arcade.Text("I           Inventory", 10, self._sh - 402,
                         arcade.color.LIGHT_GRAY, 9),
-            arcade.Text("F           FPS",      10, SCREEN_HEIGHT - 418,
+            arcade.Text("F           FPS",      10, self._sh - 418,
                         arcade.color.LIGHT_GRAY, 9),
-            arcade.Text("T           Station",  10, SCREEN_HEIGHT - 434,
+            arcade.Text("T           Station",  10, self._sh - 434,
                         arcade.color.LIGHT_GRAY, 9),
         ]
         self._t_gamepad = (
-            arcade.Text("Gamepad: connected", 10, SCREEN_HEIGHT - 454,
+            arcade.Text("Gamepad: connected", 10, self._sh - 454,
                         arcade.color.LIME_GREEN, 9)
             if has_gamepad else None
         )
         self._show_fps: bool = False
         self._fps: float = 60.0
-        self._t_fps = arcade.Text("", 10, SCREEN_HEIGHT - 472,
+        self._t_fps = arcade.Text("", 10, self._sh - 472,
                                   arcade.color.YELLOW, 10, bold=True)
         self._t_minimap = arcade.Text(
             "MINI-MAP", STATUS_WIDTH // 2,
@@ -96,20 +96,20 @@ class HUD:
         ship_label = ship_type if ship_type else "Classic"
         self._t_faction = arcade.Text(
             f"FACTION: {faction_label}",
-            10, SCREEN_HEIGHT - 492,
+            10, self._sh - 492,
             arcade.color.LIGHT_BLUE, 9, bold=True,
         )
         self._t_ship_type = arcade.Text(
             f"SHIP: {ship_label}",
-            10, SCREEN_HEIGHT - 508,
+            10, self._sh - 508,
             arcade.color.LIGHT_GREEN, 9, bold=True,
         )
         self._t_music_hdr = arcade.Text(
-            "NOW PLAYING", STATUS_WIDTH // 2, SCREEN_HEIGHT - 528,
+            "NOW PLAYING", STATUS_WIDTH // 2, self._sh - 528,
             arcade.color.LIGHT_GRAY, 9, anchor_x="center",
         )
         self._t_track_name = arcade.Text(
-            "", STATUS_WIDTH // 2, SCREEN_HEIGHT - 544,
+            "", STATUS_WIDTH // 2, self._sh - 544,
             arcade.color.KHAKI, 9, bold=True, anchor_x="center",
         )
 

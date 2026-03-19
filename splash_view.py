@@ -55,8 +55,8 @@ class SplashView(arcade.View):
 
         # ── Pre-compute button rectangles (centred on screen) ──────────
         # Read live module-level values (not the stale local import)
-        sw = constants.SCREEN_WIDTH
-        sh = constants.SCREEN_HEIGHT
+        sw = self.window.width
+        sh = self.window.height
         total_h = len(_BTN_LABELS) * _BTN_H + (len(_BTN_LABELS) - 1) * _BTN_GAP
         top_y = sh // 2 - 20  # below the title
         self._btn_rects: list[tuple[int, int, int, int]] = []
@@ -169,8 +169,8 @@ class SplashView(arcade.View):
     def _load_slot_rects(self) -> list[tuple[int, int, int, int]]:
         """Compute slot button rectangles for the load sub-screen."""
         from constants import SAVE_SLOT_W, SAVE_SLOT_H, SAVE_SLOT_GAP, SAVE_MENU_H
-        sw = constants.SCREEN_WIDTH
-        sh = constants.SCREEN_HEIGHT
+        sw = self.window.width
+        sh = self.window.height
         top_y = sh // 2 + SAVE_MENU_H // 2 - 60
         rects = []
         for i in range(SAVE_SLOT_COUNT):
@@ -182,14 +182,39 @@ class SplashView(arcade.View):
     def _load_back_rect(self) -> tuple[int, int, int, int]:
         rects = self._load_slot_rects()
         last = rects[-1]
-        return ((constants.SCREEN_WIDTH - 240) // 2, last[1] - 50, 240, 35)
+        return ((self.window.width - 240) // 2, last[1] - 50, 240, 35)
+
+    # ── Layout ────────────────────────────────────────────────────────
+
+    def _update_layout(self) -> None:
+        """Recompute all UI positions from actual window size."""
+        sw = self.window.width
+        sh = self.window.height
+        # Buttons
+        top_y = sh // 2 - 20
+        self._btn_rects = []
+        for i in range(len(_BTN_LABELS)):
+            bx = (sw - _BTN_W) // 2
+            by = top_y - i * (_BTN_H + _BTN_GAP)
+            self._btn_rects.append((bx, by, _BTN_W, _BTN_H))
+        # Text positions
+        self._t_title.x = sw // 2
+        self._t_title.y = sh - 160
+        self._t_subtitle.x = sw // 2
+        self._t_subtitle.y = sh - 210
+        for i in range(len(_BTN_LABELS)):
+            bx, by, bw, bh = self._btn_rects[i]
+            self._t_btn_labels[i].x = bx + bw // 2
+            self._t_btn_labels[i].y = by + bh // 2
+        self._t_track.x = sw // 2
+        self._t_music_hdr.x = sw // 2
 
     # ── Drawing ────────────────────────────────────────────────────────
 
     def on_draw(self) -> None:
         self.clear()
+        self._update_layout()
 
-        # Dark space background
         sw = self.window.width
         sh = self.window.height
         arcade.draw_rect_filled(
@@ -240,8 +265,8 @@ class SplashView(arcade.View):
         # Panel background
         slot_rects = self._load_slot_rects()
         panel_w, panel_h = SAVE_MENU_W, SAVE_MENU_H
-        px = (constants.SCREEN_WIDTH - panel_w) // 2
-        py = (constants.SCREEN_HEIGHT - panel_h) // 2
+        px = (self.window.width - panel_w) // 2
+        py = (self.window.height - panel_h) // 2
         arcade.draw_rect_filled(
             arcade.LBWH(px, py, panel_w, panel_h),
             (20, 20, 50, 240),

@@ -64,18 +64,18 @@ class SelectionView(arcade.View):
         # Pre-built text objects
         self._t_title = arcade.Text(
             "CHOOSE YOUR FACTION",
-            constants.SCREEN_WIDTH // 2, constants.SCREEN_HEIGHT - 60,
+            self.window.width // 2, self.window.height - 60,
             arcade.color.LIGHT_BLUE, 28, bold=True,
             anchor_x="center", anchor_y="center",
         )
         self._t_hint = arcade.Text(
             "UP / DOWN to select    ENTER to confirm    ESC to go back",
-            constants.SCREEN_WIDTH // 2, 40,
+            self.window.width // 2, 40,
             (160, 160, 160), 12,
             anchor_x="center", anchor_y="center",
         )
         self._t_label = arcade.Text(
-            "", constants.SCREEN_WIDTH // 2, 0,
+            "", self.window.width // 2, 0,
             arcade.color.WHITE, 16, bold=True,
             anchor_x="center", anchor_y="center",
         )
@@ -107,7 +107,7 @@ class SelectionView(arcade.View):
 
         # Dark space background
         arcade.draw_rect_filled(
-            arcade.LBWH(0, 0, constants.SCREEN_WIDTH, constants.SCREEN_HEIGHT),
+            arcade.LBWH(0, 0, self.window.width, self.window.height),
             (8, 8, 24),
         )
 
@@ -125,11 +125,11 @@ class SelectionView(arcade.View):
         count = len(self._faction_names)
         spacing = 240
         total_w = (count - 1) * spacing
-        start_x = constants.SCREEN_WIDTH // 2 - total_w // 2
+        start_x = self.window.width // 2 - total_w // 2
 
         for i, name in enumerate(self._faction_names):
             cx = start_x + i * spacing
-            cy = constants.SCREEN_HEIGHT // 2 + 30
+            cy = self.window.height // 2 + 30
             selected = (i == self._selected_faction)
 
             # Selection highlight
@@ -167,11 +167,11 @@ class SelectionView(arcade.View):
         count = len(self._ship_names)
         spacing = 220
         total_w = (count - 1) * spacing
-        start_x = constants.SCREEN_WIDTH // 2 - total_w // 2
+        start_x = self.window.width // 2 - total_w // 2
 
         for i, name in enumerate(self._ship_names):
             cx = start_x + i * spacing
-            cy = constants.SCREEN_HEIGHT // 2 + 60
+            cy = self.window.height // 2 + 60
             selected = (i == self._selected_ship)
 
             if selected:
@@ -216,8 +216,8 @@ class SelectionView(arcade.View):
             f"Guns: {stats['guns']}",
         ]
         self._t_stats.text = "\n".join(lines)
-        self._t_stats.x = constants.SCREEN_WIDTH // 2 - 200
-        self._t_stats.y = constants.SCREEN_HEIGHT // 2 - 80
+        self._t_stats.x = self.window.width // 2 - 200
+        self._t_stats.y = self.window.height // 2 - 80
         self._t_stats.draw()
 
     # ── Input ───────────────────────────────────────────────────────────────

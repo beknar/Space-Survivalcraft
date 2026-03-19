@@ -91,11 +91,12 @@ class DeathScreen:
         self._load_slots: list[dict] = []
 
         # ── Button rects (centred on screen) ───────────────────────────
+        self._window = arcade.get_window()
         total_h = len(_BTN_LABELS) * _BTN_H + (len(_BTN_LABELS) - 1) * _BTN_GAP
-        top_y = constants.SCREEN_HEIGHT // 2 - 60
+        top_y = self._window.height // 2 - 60
         self._btn_rects: list[tuple[int, int, int, int]] = []
         for i in range(len(_BTN_LABELS)):
-            bx = (constants.SCREEN_WIDTH - _BTN_W) // 2
+            bx = (self._window.width - _BTN_W) // 2
             by = top_y - i * (_BTN_H + _BTN_GAP)
             self._btn_rects.append((bx, by, _BTN_W, _BTN_H))
 
@@ -108,13 +109,13 @@ class DeathScreen:
         # ── Text objects ───────────────────────────────────────────────
         self._t_title = arcade.Text(
             "SHIP DESTROYED",
-            constants.SCREEN_WIDTH // 2, constants.SCREEN_HEIGHT // 2 + 100,
+            self._window.width // 2, self._window.height // 2 + 100,
             (255, 80, 60), 36, bold=True,
             anchor_x="center", anchor_y="center",
         )
         self._t_quote = arcade.Text(
             random.choice(_DEATH_QUOTES),
-            constants.SCREEN_WIDTH // 2, constants.SCREEN_HEIGHT // 2 + 40,
+            self._window.width // 2, self._window.height // 2 + 40,
             (200, 180, 140), 14, italic=True,
             anchor_x="center", anchor_y="center",
         )
@@ -130,7 +131,7 @@ class DeathScreen:
 
         # ── Load sub-screen text objects ───────────────────────────────
         self._t_load_title = arcade.Text(
-            "LOAD GAME", constants.SCREEN_WIDTH // 2, 0,
+            "LOAD GAME", self._window.width // 2, 0,
             arcade.color.LIGHT_BLUE, 20, bold=True,
             anchor_x="center", anchor_y="center",
         )
@@ -145,7 +146,7 @@ class DeathScreen:
             for _ in range(SAVE_SLOT_COUNT)
         ]
         self._t_load_back = arcade.Text(
-            "Back", constants.SCREEN_WIDTH // 2, 0,
+            "Back", self._window.width // 2, 0,
             arcade.color.WHITE, 13, bold=True,
             anchor_x="center", anchor_y="center",
         )
@@ -186,10 +187,10 @@ class DeathScreen:
 
     def _load_slot_rects(self) -> list[tuple[int, int, int, int]]:
         from constants import SAVE_SLOT_W, SAVE_SLOT_H, SAVE_SLOT_GAP, SAVE_MENU_H
-        top_y = constants.SCREEN_HEIGHT // 2 + SAVE_MENU_H // 2 - 60
+        top_y = self._window.height // 2 + SAVE_MENU_H // 2 - 60
         rects = []
         for i in range(SAVE_SLOT_COUNT):
-            sx = (constants.SCREEN_WIDTH - SAVE_SLOT_W) // 2
+            sx = (self._window.width - SAVE_SLOT_W) // 2
             sy = top_y - i * (SAVE_SLOT_H + SAVE_SLOT_GAP)
             rects.append((sx, sy, SAVE_SLOT_W, SAVE_SLOT_H))
         return rects
@@ -197,7 +198,7 @@ class DeathScreen:
     def _load_back_rect(self) -> tuple[int, int, int, int]:
         rects = self._load_slot_rects()
         last = rects[-1]
-        return ((constants.SCREEN_WIDTH - 240) // 2, last[1] - 50, 240, 35)
+        return ((self._window.width - 240) // 2, last[1] - 50, 240, 35)
 
     # ── Drawing ────────────────────────────────────────────────────────
 
@@ -207,7 +208,7 @@ class DeathScreen:
 
         # Dark overlay
         arcade.draw_rect_filled(
-            arcade.LBWH(0, 0, constants.SCREEN_WIDTH, constants.SCREEN_HEIGHT),
+            arcade.LBWH(0, 0, self._window.width, self._window.height),
             (0, 0, 0, 200),
         )
 
@@ -238,8 +239,8 @@ class DeathScreen:
         from constants import SAVE_MENU_W, SAVE_MENU_H
         slot_rects = self._load_slot_rects()
         panel_w, panel_h = SAVE_MENU_W, SAVE_MENU_H
-        px = (constants.SCREEN_WIDTH - panel_w) // 2
-        py = (constants.SCREEN_HEIGHT - panel_h) // 2
+        px = (self._window.width - panel_w) // 2
+        py = (self._window.height - panel_h) // 2
         arcade.draw_rect_filled(
             arcade.LBWH(px, py, panel_w, panel_h),
             (20, 20, 50, 240),
