@@ -12,7 +12,7 @@ import arcade.camera
 import pyglet.input
 
 from constants import (
-    SCREEN_WIDTH, SCREEN_HEIGHT,
+    SCREEN_WIDTH, SCREEN_HEIGHT, STATUS_WIDTH,
     WORLD_WIDTH, WORLD_HEIGHT, BG_TILE,
     DEAD_ZONE,
     SHIP_RADIUS, ASTEROID_IRON_YIELD,
@@ -25,7 +25,7 @@ from constants import (
     CONTRAIL_START_SIZE, CONTRAIL_END_SIZE, CONTRAIL_OFFSET, CONTRAIL_COLOURS,
     BUILDING_TYPES, DOCK_SNAP_DIST, TURRET_FREE_PLACE_RADIUS,
     BUILDING_RADIUS, STATION_INFO_RANGE,
-    REPAIR_RANGE, REPAIR_RATE,
+    REPAIR_RANGE, REPAIR_RATE, REPAIR_SHIELD_BOOST,
     FOG_REVEAL_RADIUS, FOG_CELL_SIZE, FOG_GRID_W, FOG_GRID_H,
 )
 from settings import audio
@@ -164,8 +164,9 @@ class GameView(arcade.View):
         self._destroy_mode: bool = False
         self._destroy_cursor_x: float = 0.0
         self._destroy_cursor_y: float = 0.0
-        # Repair healing accumulator
+        # Repair healing accumulators
         self._repair_acc: float = 0.0
+        self._building_repair_acc: float = 0.0
 
         # Station info overlay
         self._station_info = StationInfo()
@@ -205,6 +206,7 @@ class GameView(arcade.View):
             load_fn=self._load_game,
             main_menu_fn=self._return_to_menu,
             save_dir=_SAVE_DIR,
+            resolution_fn=self._change_resolution,
         )
 
         # Death screen
@@ -578,11 +580,9 @@ class GameView(arcade.View):
         self._cancel_placement()
 
     # ── Save / Load / Menu ─────────────────────────────────────────────────
-    def _save_game(self, slot: int, name: str) -> None:
-        """Serialize current game state to a numbered save slot."""
-        os.makedirs(_SAVE_DIR, exist_ok=True)
-        path = os.path.join(_SAVE_DIR, f"save_slot_{slot + 1:02d}.json")
-        data: dict = {
+    def _save_to_dict(self, name: str = "") -> dict:
+        """Serialize current game state to a dict."""
+        return {
             "save_name": name,
             "faction": self._faction,
             "ship_type": self._ship_type,
@@ -645,30 +645,33 @@ class GameView(arcade.View):
             },
             "fog_grid": self._fog_grid,
         }
-        with open(path, "w") as f:
-            json.dump(data, f, indent=2)
 
-    def _load_game(self, slot: int) -> None:
-        """Load game state from a numbered save slot and rebuild the view."""
-        path = os.path.join(_SAVE_DIR, f"save_slot_{slot + 1:02d}.json")
-        if not os.path.exists(path):
-            self._escape_menu._flash_status("No save file found!")
-            return
-        with open(path, "r") as f:
-            data = json.load(f)
-
+    def _load_from_dict(self, data: dict) -> None:
+        """Load game state from a dict and rebuild the view."""
         # Stop sounds before rebuilding
         if self._thruster_player is not None:
             arcade.stop_sound(self._thruster_player)
             self._thruster_player = None
         self._stop_music()
 
-        # Build a new GameView from saved faction/ship
         view = GameView(
             faction=data.get("faction"),
             ship_type=data.get("ship_type"),
         )
+        self._restore_state(view, data)
+        self.window.show_view(view)
 
+    def _save_game(self, slot: int, name: str) -> None:
+        """Serialize current game state to a numbered save slot."""
+        os.makedirs(_SAVE_DIR, exist_ok=True)
+        path = os.path.join(_SAVE_DIR, f"save_slot_{slot + 1:02d}.json")
+        data = self._save_to_dict(name)
+        with open(path, "w") as f:
+            json.dump(data, f, indent=2)
+
+    @staticmethod
+    def _restore_state(view: "GameView", data: dict) -> None:
+        """Restore game state from a dict into a freshly constructed GameView."""
         # Restore player state
         p = data["player"]
         view.player.center_x = p["x"]
@@ -681,13 +684,10 @@ class GameView(arcade.View):
         view.player.shields = p["shields"]
         view.player._shield_acc = p.get("shield_acc", 0.0)
 
-        # Restore weapon index
         view._weapon_idx = data.get("weapon_idx", 0)
-
-        # Restore inventory
         view.inventory.iron = data.get("iron", 0)
 
-        # Restore asteroids — clear default spawn, rebuild from save
+        # Restore asteroids
         view.asteroid_list.clear()
         from sprites.asteroid import IronAsteroid
         asteroid_tex = arcade.load_texture(
@@ -699,7 +699,7 @@ class GameView(arcade.View):
             a.hp = ad["hp"]
             view.asteroid_list.append(a)
 
-        # Restore aliens — clear default spawn, rebuild from save
+        # Restore aliens
         view.alien_list.clear()
         from PIL import Image as PILImage
         from constants import ALIEN_SHIP_PNG, ALIEN_FX_PNG
@@ -751,6 +751,30 @@ class GameView(arcade.View):
         if saved_fog and len(saved_fog) == FOG_GRID_H:
             view._fog_grid = saved_fog
 
+    def _load_game(self, slot: int) -> None:
+        """Load game state from a numbered save slot and rebuild the view."""
+        path = os.path.join(_SAVE_DIR, f"save_slot_{slot + 1:02d}.json")
+        if not os.path.exists(path):
+            self._escape_menu._flash_status("No save file found!")
+            return
+        with open(path, "r") as f:
+            data = json.load(f)
+        self._load_from_dict(data)
+
+    def _change_resolution(self, width: int, height: int, fullscreen: bool) -> None:
+        """Change resolution mid-game: save state, resize, rebuild view."""
+        from settings import apply_resolution
+        data = self._save_to_dict()
+        if self._thruster_player is not None:
+            arcade.stop_sound(self._thruster_player)
+            self._thruster_player = None
+        self._stop_music()
+        apply_resolution(self.window, width, height, fullscreen)
+        view = GameView(
+            faction=data.get("faction"),
+            ship_type=data.get("ship_type"),
+        )
+        self._restore_state(view, data)
         self.window.show_view(view)
 
     def _return_to_menu(self) -> None:
@@ -769,7 +793,7 @@ class GameView(arcade.View):
 
         hw = SCREEN_WIDTH / 2
         hh = SCREEN_HEIGHT / 2
-        cx = max(hw, min(WORLD_WIDTH - hw, self.player.center_x))
+        cx = max(hw - STATUS_WIDTH, min(WORLD_WIDTH - hw, self.player.center_x))
         cy = max(hh, min(WORLD_HEIGHT - hh, self.player.center_y))
 
         shake_x = shake_y = 0.0
@@ -867,10 +891,11 @@ class GameView(arcade.View):
         # ── Smoothed FPS ────────────────────────────────────────────────────
         self._hud.update_fps(delta_time)
 
-        # ── Background music: advance to next track when current ends ─────
-        if (self._music_player is not None
-                and not self._music_player.playing):
-            self._play_next_track()
+        # ── Background music: sync volume + advance to next track ─────────
+        if self._music_player is not None:
+            self._music_player.volume = audio.music_volume
+            if not self._music_player.playing:
+                self._play_next_track()
 
         # ── Escape menu tick ──────────────────────────────────────────────
         self._escape_menu.update(delta_time)
@@ -894,9 +919,32 @@ class GameView(arcade.View):
         if self._shake_timer > 0.0:
             self._shake_timer = max(0.0, self._shake_timer - delta_time)
 
-        # ── Shield regeneration ─────────────────────────────────────────────
+        # ── Repair Module: check proximity once for shield/HP/building ───
+        has_repair = any(
+            isinstance(b, RepairModule) and not b.disabled
+            for b in self.building_list
+        )
+        repair_near_home = False
+        if has_repair:
+            home = None
+            for b in self.building_list:
+                if isinstance(b, HomeStation) and not b.disabled:
+                    home = b
+                    break
+            if home is not None:
+                dist = math.hypot(
+                    self.player.center_x - home.center_x,
+                    self.player.center_y - home.center_y,
+                )
+                if dist <= REPAIR_RANGE:
+                    repair_near_home = True
+
+        # ── Shield regeneration (boosted by Repair Module near home) ──────
         if self.player.shields < self.player.max_shields:
-            self.player._shield_acc += self.player._shield_regen * delta_time
+            regen = self.player._shield_regen
+            if repair_near_home:
+                regen += REPAIR_SHIELD_BOOST
+            self.player._shield_acc += regen * delta_time
             pts = int(self.player._shield_acc)
             if pts > 0:
                 self.player._shield_acc -= pts
@@ -904,37 +952,29 @@ class GameView(arcade.View):
                                           self.player.shields + pts)
 
         # ── Repair Module: heal player HP when near Home Station ─────────
-        if self.player.hp < self.player.max_hp:
-            has_repair = any(
-                isinstance(b, RepairModule) and not b.disabled
+        if repair_near_home and self.player.hp < self.player.max_hp:
+            self._repair_acc += REPAIR_RATE * delta_time
+            pts = int(self._repair_acc)
+            if pts > 0:
+                self._repair_acc -= pts
+                self.player.hp = min(
+                    self.player.max_hp, self.player.hp + pts
+                )
+
+        # ── Repair Module: heal damaged station buildings ─────────────────
+        if has_repair:
+            any_damaged = any(
+                not b.disabled and b.hp < b.max_hp
                 for b in self.building_list
             )
-            if has_repair:
-                home = None
-                for b in self.building_list:
-                    if isinstance(b, HomeStation) and not b.disabled:
-                        home = b
-                        break
-                if home is not None:
-                    dist = math.hypot(
-                        self.player.center_x - home.center_x,
-                        self.player.center_y - home.center_y,
-                    )
-                    if dist <= REPAIR_RANGE:
-                        self._repair_acc += REPAIR_RATE * delta_time
-                        pts = int(self._repair_acc)
-                        if pts > 0:
-                            self._repair_acc -= pts
-                            self.player.hp = min(
-                                self.player.max_hp, self.player.hp + pts
-                            )
-
-        # ── Shield sprite position + animation ──────────────────────────────
-        self.shield_sprite.update_shield(
-            delta_time,
-            self.player.center_x, self.player.center_y,
-            self.player.shields,
-        )
+            if any_damaged:
+                self._building_repair_acc += REPAIR_RATE * delta_time
+                pts = int(self._building_repair_acc)
+                if pts > 0:
+                    self._building_repair_acc -= pts
+                    for b in self.building_list:
+                        if not b.disabled and b.hp < b.max_hp:
+                            b.heal(pts)
 
         # ── Fog of war ──────────────────────────────────────────────────────
         self._update_fog()
@@ -968,6 +1008,13 @@ class GameView(arcade.View):
             self._prev_y = y_btn
 
         self.player.apply_input(delta_time, rl, rr, tf, tb)
+
+        # ── Shield sprite position + animation (after movement so it tracks exactly) ─
+        self.shield_sprite.update_shield(
+            delta_time,
+            self.player.center_x, self.player.center_y,
+            self.player.shields,
+        )
 
         # ── Thruster sound management ─────────────────────────────────────
         thrusting_now = tf or tb

@@ -13,6 +13,7 @@ from constants import (
     SAVE_MENU_W, SAVE_MENU_H, SAVE_SLOT_W, SAVE_SLOT_H, SAVE_SLOT_GAP,
     SAVE_SLOT_COUNT,
     SFX_VEHICLES_DIR,
+    RESOLUTION_PRESETS,
 )
 from settings import audio
 
@@ -25,15 +26,17 @@ class EscapeMenu:
     MODE_SAVE = 1
     MODE_LOAD = 2
     MODE_NAMING = 3
+    MODE_RESOLUTION = 4
 
     MAX_NAME_LEN = 24
 
     _MAIN_BUTTONS: list[tuple[str, str]] = [
-        ("resume",    "Resume"),
-        ("save",      "Save Game"),
-        ("load",      "Load Game"),
-        ("main_menu", "Main Menu"),
-        ("exit",      "Exit Game"),
+        ("resume",     "Resume"),
+        ("save",       "Save Game"),
+        ("load",       "Load Game"),
+        ("resolution", "Resolution"),
+        ("main_menu",  "Main Menu"),
+        ("exit",       "Exit Game"),
     ]
 
     def __init__(
@@ -42,12 +45,22 @@ class EscapeMenu:
         load_fn: Callable[[int], None],
         main_menu_fn: Callable[[], None],
         save_dir: str,
+        resolution_fn: Callable[[int, int, bool], None] | None = None,
     ) -> None:
         self.open: bool = False
         self._save_fn = save_fn
         self._load_fn = load_fn
         self._main_menu_fn = main_menu_fn
         self._save_dir = save_dir
+        self._resolution_fn = resolution_fn
+
+        # Resolution selector state
+        current_res = (audio.screen_width, audio.screen_height)
+        self._res_idx = 0
+        for i, preset in enumerate(RESOLUTION_PRESETS):
+            if preset == current_res:
+                self._res_idx = i
+                break
 
         self._mode: int = self.MODE_MAIN
         self._hover_idx: int = -1
@@ -324,11 +337,47 @@ class EscapeMenu:
                 self._refresh_slots()
                 self._mode = self.MODE_LOAD
                 self._hover_idx = -1
+            elif key == "resolution":
+                self._mode = self.MODE_RESOLUTION
+                self._hover_idx = -1
             elif key == "main_menu":
                 self.open = False
                 self._main_menu_fn()
             elif key == "exit":
                 arcade.exit()
+
+        elif self._mode == self.MODE_RESOLUTION:
+            # Resolution sub-mode click handling
+            if self._point_in_rect(x, y, self._back_rect):
+                self._mode = self.MODE_MAIN
+                self._hover_idx = -1
+                return
+            # Left arrow
+            lx = self._main_px + 30
+            ly = self._main_py + MENU_H // 2
+            if lx <= x <= lx + 36 and ly - 18 <= y <= ly + 18:
+                self._res_idx = (self._res_idx - 1) % len(RESOLUTION_PRESETS)
+                return
+            # Right arrow
+            rx = self._main_px + MENU_W - 66
+            if rx <= x <= rx + 36 and ly - 18 <= y <= ly + 18:
+                self._res_idx = (self._res_idx + 1) % len(RESOLUTION_PRESETS)
+                return
+            # Apply button
+            apply_y = ly - 50
+            abx = self._main_px + (MENU_W - MENU_BTN_W) // 2
+            if abx <= x <= abx + MENU_BTN_W and apply_y <= y <= apply_y + MENU_BTN_H:
+                w, h = RESOLUTION_PRESETS[self._res_idx]
+                if self._resolution_fn is not None:
+                    self._resolution_fn(w, h, False)
+                return
+            # Fullscreen button
+            fs_y = apply_y - MENU_BTN_H - 12
+            if abx <= x <= abx + MENU_BTN_W and fs_y <= y <= fs_y + MENU_BTN_H:
+                w, h = RESOLUTION_PRESETS[self._res_idx]
+                if self._resolution_fn is not None:
+                    self._resolution_fn(w, h, True)
+                return
 
         elif self._mode == self.MODE_SAVE:
             if self._point_in_rect(x, y, self._back_rect):
@@ -371,6 +420,9 @@ class EscapeMenu:
                 self._mode = self.MODE_MAIN
             elif key == arcade.key.BACKSPACE:
                 self._naming_text = self._naming_text[:-1]
+        elif self._mode == self.MODE_RESOLUTION:
+            if key == arcade.key.ESCAPE:
+                self._mode = self.MODE_MAIN
         elif self._mode in (self.MODE_SAVE, self.MODE_LOAD):
             if key == arcade.key.ESCAPE:
                 self._mode = self.MODE_MAIN
@@ -401,6 +453,8 @@ class EscapeMenu:
 
         if self._mode == self.MODE_MAIN:
             self._draw_main()
+        elif self._mode == self.MODE_RESOLUTION:
+            self._draw_resolution()
         elif self._mode in (self.MODE_SAVE, self.MODE_LOAD, self.MODE_NAMING):
             self._draw_save_load()
             if self._mode == self.MODE_NAMING:
@@ -448,6 +502,92 @@ class EscapeMenu:
             self._t_status.y = py + 14
             self._t_status.text = self._status_msg
             self._t_status.draw()
+
+    def _draw_resolution(self) -> None:
+        """Draw the resolution selector sub-mode."""
+        px, py = self._main_px, self._main_py
+
+        arcade.draw_rect_filled(
+            arcade.LBWH(px, py, MENU_W, MENU_H),
+            (20, 20, 50, 240),
+        )
+        arcade.draw_rect_outline(
+            arcade.LBWH(px, py, MENU_W, MENU_H),
+            arcade.color.STEEL_BLUE, border_width=2,
+        )
+
+        # Title
+        arcade.draw_text(
+            "RESOLUTION", px + MENU_W // 2, py + MENU_H - 30,
+            arcade.color.LIGHT_BLUE, 14, bold=True,
+            anchor_x="center", anchor_y="center",
+        )
+
+        # Current resolution
+        w, h = RESOLUTION_PRESETS[self._res_idx]
+        mid_y = py + MENU_H // 2
+        arcade.draw_text(
+            f"{w} x {h}", px + MENU_W // 2, mid_y,
+            arcade.color.YELLOW, 16, bold=True,
+            anchor_x="center", anchor_y="center",
+        )
+
+        # Left/right arrows
+        arcade.draw_text(
+            "<", px + 48, mid_y,
+            (180, 180, 180), 22, bold=True,
+            anchor_x="center", anchor_y="center",
+        )
+        arcade.draw_text(
+            ">", px + MENU_W - 48, mid_y,
+            (180, 180, 180), 22, bold=True,
+            anchor_x="center", anchor_y="center",
+        )
+
+        # Apply Windowed button
+        apply_y = mid_y - 50
+        abx = px + (MENU_W - MENU_BTN_W) // 2
+        arcade.draw_rect_filled(
+            arcade.LBWH(abx, apply_y, MENU_BTN_W, MENU_BTN_H),
+            (30, 60, 30, 220),
+        )
+        arcade.draw_rect_outline(
+            arcade.LBWH(abx, apply_y, MENU_BTN_W, MENU_BTN_H),
+            arcade.color.LIME_GREEN, border_width=1,
+        )
+        arcade.draw_text(
+            "Apply Windowed", abx + MENU_BTN_W // 2, apply_y + MENU_BTN_H // 2,
+            arcade.color.WHITE, 12, bold=True,
+            anchor_x="center", anchor_y="center",
+        )
+
+        # Apply Fullscreen button
+        fs_y = apply_y - MENU_BTN_H - 12
+        arcade.draw_rect_filled(
+            arcade.LBWH(abx, fs_y, MENU_BTN_W, MENU_BTN_H),
+            (30, 30, 60, 220),
+        )
+        arcade.draw_rect_outline(
+            arcade.LBWH(abx, fs_y, MENU_BTN_W, MENU_BTN_H),
+            arcade.color.CYAN, border_width=1,
+        )
+        arcade.draw_text(
+            "Apply Fullscreen", abx + MENU_BTN_W // 2, fs_y + MENU_BTN_H // 2,
+            arcade.color.WHITE, 12, bold=True,
+            anchor_x="center", anchor_y="center",
+        )
+
+        # Back button
+        bx, by, bw, bh = self._back_rect
+        arcade.draw_rect_filled(arcade.LBWH(bx, by, bw, bh), (40, 40, 70, 220))
+        arcade.draw_rect_outline(
+            arcade.LBWH(bx, by, bw, bh), arcade.color.STEEL_BLUE, border_width=1,
+        )
+        arcade.draw_text(
+            "Back", bx + bw // 2, by + bh // 2,
+            arcade.color.WHITE, 12, bold=True,
+            anchor_x="center", anchor_y="center",
+        )
 
     def _draw_save_load(self) -> None:
         px, py = self._sl_px, self._sl_py

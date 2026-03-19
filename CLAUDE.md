@@ -29,11 +29,11 @@ Space Survivalcraft/
 │
 ├── main.py              # Entry point — creates Window, starts SplashView
 ├── constants.py         # All game constants (window, physics, assets, factions, ship types, respawn)
-├── settings.py          # Global runtime AudioSettings singleton (music_volume, sfx_volume)
+├── settings.py          # Global runtime settings singleton (volume, resolution, fullscreen) + apply_resolution()
 │
 │  ── Views (each is an arcade.View subclass) ──
 ├── splash_view.py       # SplashView — "CALL OF ORION" title, Play/Load/Options/Exit buttons
-├── options_view.py      # OptionsView — music + SFX volume sliders, Main Menu + Exit Game
+├── options_view.py      # OptionsView — volume sliders, resolution selector, fullscreen toggle
 ├── selection_view.py    # SelectionView — two-phase faction then ship-type picker
 ├── game_view.py         # GameView — core gameplay loop, cameras, input, music, death logic
 │

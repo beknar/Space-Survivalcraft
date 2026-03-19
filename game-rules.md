@@ -30,11 +30,11 @@
 | Property | Value |
 |---|---|
 | World size | 6,400 x 6,400 px (200 x 200 tiles of 32 px) |
-| Window resolution | 1,280 x 800 px |
-| Status panel width | 213 px (left side) |
-| Gameplay viewport | 1,067 x 800 px |
+| Window resolution | Default 1,280 x 800 px (configurable: 1366x768, 1600x900, 1920x1080, 2560x1440, 3840x2160) |
+| Status panel width | 213 px (left side, excluded from gameplay viewport) |
+| Gameplay viewport | Window width − 213 px × window height |
 | Background | Tiled seamless starfield (1,024 x 1,024 px tiles) |
-| Camera | Follows player, clamped at world edges |
+| Camera | Follows player, clamped at world edges; left edge offset by STATUS_WIDTH so gameplay viewport never shows beyond the world |
 | Player start position | World centre (3,200, 3,200) |
 
 ---
@@ -214,6 +214,24 @@ Pickups idle at their drop position until the ship's hull edge comes within 40 p
 - Avoidance radius: 65 px beyond obstacle edge; avoidance force weight: 2.5x
 
 **Leash:** Returns to PATROL if the player moves beyond 1,500 px (3x detection range)
+
+#### Obstacle Avoidance (Both States)
+
+Alien ships use avoidance steering in both PATROL and PURSUE states:
+- Asteroids and other alien ships within `ALIEN_AVOIDANCE_RADIUS` (65 px beyond obstacle edge) exert repulsion
+- Avoidance force weight: 2.5x, decreasing linearly with distance
+- The combined steering vector (base direction + avoidance) is normalised before movement
+
+#### Stuck Detection
+
+| Constant | Value |
+|---|---|
+| Stuck check interval | 2.0 s |
+| Stuck distance threshold | 10 px |
+
+- Every 2 seconds, if the alien has moved less than 10 px since the last check, it is considered stuck
+- Stuck aliens pick an escape target in the direction **away** from the nearest asteroid (with slight randomisation)
+- This prevents aliens from getting trapped behind asteroids indefinitely
 
 #### Known AI Weaknesses
 - No coordinated group behaviour — each ship acts independently
@@ -445,8 +463,10 @@ The left-side panel (213 px wide) displays:
 ### Options Screen
 - Music Volume slider (0-100%)
 - Sound Effects Volume slider (0-100%)
+- **Resolution selector**: left/right arrows cycling through presets (1280x800, 1366x768, 1600x900, 1920x1080, 2560x1440, 3840x2160)
+- **Fullscreen toggle**: ON/OFF button
 - **Buttons:** Main Menu, Exit Game
-- Volume stored in memory for current session (not persisted to disk)
+- Settings stored in memory for current session (not persisted to disk)
 
 ### Selection Screen
 - Phase 1: Choose faction (Left/Right or A/D to browse, Enter/Space to confirm)
@@ -464,6 +484,7 @@ The left-side panel (213 px wide) displays:
 - 10 save slots with naming overlay (max 24 characters, blinking cursor)
 - Save slot detail line shows: faction, ship type, HP, shields, and module count (when > 0)
 - Status feedback messages displayed for 2 seconds
+- **Resolution** button opens a sub-mode with left/right preset selector plus Apply Windowed / Apply Fullscreen buttons
 - ESC in sub-menus returns to main menu; ESC in main menu closes overlay
 
 ---
@@ -647,12 +668,15 @@ Players can spend mined iron to construct a modular space station. Press **B** t
 | Constant | Value |
 |---|---|
 | Repair range | 300 px (distance from Home Station) |
-| Repair rate | 1 HP per second |
+| Repair rate | 1 HP per second (player + buildings) |
+| Shield regen boost | +1 pt/s (added to ship's base shield regen rate) |
 
-- When a non-disabled Repair Module exists and the player is within **300 px** of a non-disabled Home Station, the player's HP regenerates at **1 HP/s**.
-- Uses fractional accumulation (same pattern as shield regen) — whole HP points are applied per frame.
+- **Player HP repair**: when a non-disabled Repair Module exists and the player is within **300 px** of a non-disabled Home Station, the player's HP regenerates at **1 HP/s**.
+- **Station repair**: when a non-disabled Repair Module exists, all damaged non-disabled station buildings are healed at **1 HP/s** (regardless of player position).
+- **Shield boost**: when the player is within repair range of the Home Station, shield regeneration is boosted by **+1 pt/s** (e.g. Cruiser goes from 0.5 → 1.5 pt/s; Aegis from 1.0 → 2.0 pt/s).
+- Uses fractional accumulation — whole HP points are applied per frame.
 - Does not heal beyond `max_hp`.
-- Disabled Repair Modules (Home Station destroyed) do not provide healing.
+- Disabled Repair Modules (Home Station destroyed) do not provide healing or shield boost.
 
 ### Building Assets
 

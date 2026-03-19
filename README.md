@@ -67,7 +67,7 @@ A top-down space survival game built with Python and the Arcade framework. Pilot
   - **Repair Module** --- passive HP repair when near Home Station (75 HP, 75 iron; max 1)
 - **Edge-to-edge snap** --- connectable modules snap to docking ports (N/S/E/W); both ends connect at their edges
 - **Deconstruction** --- Destroy button in build menu activates targeting reticle to remove station pieces
-- **HP Repair** --- with a Repair Module, player HP regenerates at 1/s when within 300 px of Home Station
+- **Repair Module** --- heals player HP (1/s near Home Station), repairs damaged buildings (1/s), and boosts shield regen (+1 pt/s)
 - **Turrets** freely placed within 300 px of the Home Station; auto-target nearest alien
 - Mouse wheel rotates buildings during placement; ESC cancels placement
 - Base module capacity of 4, expandable with Solar Arrays
@@ -104,9 +104,10 @@ A top-down space survival game built with Python and the Arcade framework. Pilot
 - Save slot display shows: faction, ship type, HP, shields, and module count
 
 ### Escape Menu
-- Press ESC to open a pause menu that freezes all gameplay
+- Press ESC to open the menu overlay (gameplay continues)
 - **Music and SFX volume sliders** --- draggable with percentage display
-- **Resume** / **Save Game** / **Load Game** / **Main Menu** / **Exit Game**
+- **Resolution** selector with windowed and fullscreen options (6 presets: 1280x800 to 3840x2160)
+- **Resume** / **Save Game** / **Load Game** / **Resolution** / **Main Menu** / **Exit Game**
 - 10 save slots with a naming overlay (max 24 characters, blinking cursor)
 - ESC in sub-menus navigates back; ESC in main menu closes overlay
 
@@ -196,7 +197,7 @@ A top-down space survival game built with Python and the Arcade framework. Pilot
 python -m pytest "unit tests/" -v
 ```
 
-253 unit tests covering all game modules: player physics, weapons, asteroids, aliens, pickups, shields, explosions, contrails, inventory, damage routing, building system (snap, collision, capacity, repair module, port disconnect), respawn mechanics, fog of war, and settings.
+262 unit tests covering all game modules: player physics, weapons, asteroids, aliens (AI, stuck detection), pickups, shields, explosions, contrails, inventory, damage routing, building system (snap, collision, capacity, repair module, heal, port disconnect), respawn mechanics, fog of war, and settings.
 
 ## Project Structure
 

@@ -7,6 +7,7 @@ import arcade
 from constants import (
     ALIEN_HP, ALIEN_DETECT_DIST, ALIEN_FIRE_COOLDOWN,
     ALIEN_BUMP_FLASH, ALIEN_VEL_DAMPING,
+    ALIEN_STUCK_TIME, ALIEN_STUCK_DIST,
 )
 from sprites.alien import SmallAlienShip
 
@@ -115,3 +116,26 @@ class TestAlienFiring:
         alien._fire_cd = 0.0
         proj = alien.update_alien(0.01, alien.center_x + 5000, alien.center_y, ast_list, al_list)
         assert proj is None
+
+
+class TestAlienStuckDetection:
+    def test_stuck_fields_initialised(self, alien):
+        assert alien._stuck_timer == 0.0
+        assert alien._stuck_check_x == alien.center_x
+        assert alien._stuck_check_y == alien.center_y
+
+    def test_stuck_constants(self):
+        assert ALIEN_STUCK_TIME == 2.0
+        assert ALIEN_STUCK_DIST == 10.0
+
+    def test_stuck_timer_accumulates(self, alien, empty_sprite_lists):
+        ast_list, al_list = empty_sprite_lists
+        alien.update_alien(0.5, 9999, 9999, ast_list, al_list)
+        assert alien._stuck_timer > 0.0
+
+    def test_stuck_resets_after_threshold(self, alien, empty_sprite_lists):
+        ast_list, al_list = empty_sprite_lists
+        # Tick past the stuck timer threshold
+        alien._stuck_timer = ALIEN_STUCK_TIME - 0.01
+        alien.update_alien(0.02, 9999, 9999, ast_list, al_list)
+        assert alien._stuck_timer < 0.1  # reset happened

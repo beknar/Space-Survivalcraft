@@ -14,6 +14,16 @@ WORLD_HEIGHT: int = 6400
 
 BG_TILE: int = 1024              # Starfield texture is 1024x1024
 
+# ── Resolution presets ────────────────────────────────────────────────────
+RESOLUTION_PRESETS: list[tuple[int, int]] = [
+    (1280, 800),
+    (1366, 768),
+    (1600, 900),
+    (1920, 1080),
+    (2560, 1440),
+    (3840, 2160),
+]
+
 # ── Player physics ──────────────────────────────────────────────────────────
 ROT_SPEED: float = 150.0         # deg / s
 THRUST: float = 250.0            # px / s^2
@@ -205,6 +215,8 @@ ALIEN_COL_COOLDOWN: float = 0.40       # seconds before another bounce can re-tr
 ALIEN_AVOIDANCE_RADIUS: float = 65.0   # px beyond obstacle edge where steering begins
 ALIEN_AVOIDANCE_FORCE: float = 2.5     # avoidance repulsion weight relative to pursuit
 ALIEN_BUMP_FLASH: float = 0.15         # seconds of orange tint on collision bump
+ALIEN_STUCK_TIME: float = 2.0         # seconds before stuck detection triggers
+ALIEN_STUCK_DIST: float = 10.0        # px — if alien moved less than this in STUCK_TIME, it's stuck
 
 # ── Respawn constants ──────────────────────────────────────────────────────
 RESPAWN_INTERVAL: float = 120.0          # seconds (2 minutes) between respawn checks
@@ -293,6 +305,7 @@ TURRET_FREE_PLACE_RADIUS: float = 300.0  # max distance from Home Station for tu
 # Repair module constants
 REPAIR_RANGE: float = 300.0             # px — distance from Home Station for repair to activate
 REPAIR_RATE: float = 1.0               # HP restored per second when near Home Station
+REPAIR_SHIELD_BOOST: float = 1.0      # extra shield regen pt/s from Repair Module
 
 # Docking port snap distance
 DOCK_SNAP_DIST: float = 40.0        # px — max distance to snap to a port

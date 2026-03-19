@@ -8,7 +8,10 @@ from splash_view import SplashView
 
 
 def main() -> None:
-    window = arcade.Window(SCREEN_WIDTH, SCREEN_HEIGHT, SCREEN_TITLE)
+    from settings import audio
+    window = arcade.Window(audio.screen_width, audio.screen_height, SCREEN_TITLE)
+    if audio.fullscreen:
+        window.set_fullscreen(True)
     window.show_view(SplashView())
     arcade.run()
 

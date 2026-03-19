@@ -13,7 +13,7 @@ from sprites.building import (
 from constants import (
     BUILDING_TYPES, TURRET_RANGE, TURRET_COOLDOWN,
     BASE_MODULE_CAPACITY, SHIP_RADIUS, BUILDING_RADIUS,
-    REPAIR_RANGE, REPAIR_RATE,
+    REPAIR_RANGE, REPAIR_RATE, REPAIR_SHIELD_BOOST,
 )
 
 
@@ -463,6 +463,33 @@ class TestRepairModule:
 
     def test_repair_rate_constant(self):
         assert REPAIR_RATE == 1.0
+
+    def test_repair_shield_boost_constant(self):
+        assert REPAIR_SHIELD_BOOST == 1.0
+
+
+# ── Building heal method ──────────────────────────────────────────────────────
+
+class TestBuildingHeal:
+    def test_heal_restores_hp(self, home):
+        home.take_damage(30)
+        home.heal(10)
+        assert home.hp == home.max_hp - 20
+
+    def test_heal_capped_at_max(self, home):
+        home.take_damage(10)
+        home.heal(999)
+        assert home.hp == home.max_hp
+
+    def test_heal_does_nothing_when_full(self, home):
+        home.heal(10)
+        assert home.hp == home.max_hp
+
+    def test_heal_does_nothing_when_disabled(self, home):
+        home.take_damage(30)
+        home.disabled = True
+        home.heal(10)
+        assert home.hp == home.max_hp - 30
 
 
 # ── Port disconnect on deconstruction ─────────────────────────────────────────

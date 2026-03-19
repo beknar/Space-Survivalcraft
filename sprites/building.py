@@ -93,6 +93,11 @@ class StationModule(arcade.Sprite):
         self._hit_timer = self._HIT_FLASH
         self.color = (255, 100, 100, 255)
 
+    def heal(self, amount: int) -> None:
+        """Restore HP, capped at max_hp.  Does nothing if disabled."""
+        if not self.disabled and self.hp < self.max_hp:
+            self.hp = min(self.max_hp, self.hp + amount)
+
     def update_building(self, dt: float) -> None:
         """Tick hit-flash timer and update tint."""
         if self._hit_timer > 0.0:

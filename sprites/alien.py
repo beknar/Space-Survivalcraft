@@ -16,6 +16,7 @@ from constants import (
     ALIEN_BOUNCE, ALIEN_VEL_DAMPING, ALIEN_COL_COOLDOWN,
     ALIEN_AVOIDANCE_RADIUS, ALIEN_AVOIDANCE_FORCE, ALIEN_BUMP_FLASH,
     ASTEROID_RADIUS,
+    ALIEN_STUCK_TIME, ALIEN_STUCK_DIST,
 )
 from sprites.projectile import Projectile
 
@@ -70,6 +71,10 @@ class SmallAlienShip(arcade.Sprite):
         self._col_cd: float = 0.0
         # Collision bump-flash (orange)
         self._bump_timer: float = 0.0
+        # Stuck detection
+        self._stuck_check_x: float = x
+        self._stuck_check_y: float = y
+        self._stuck_timer: float = 0.0
 
     def _pick_patrol_target(self) -> None:
         """Choose a fresh random point within the patrol radius."""
@@ -79,6 +84,63 @@ class SmallAlienShip(arcade.Sprite):
                                      self._home_x + math.cos(angle) * r))
         self._tgt_y = max(50.0, min(WORLD_HEIGHT - 50.0,
                                      self._home_y + math.sin(angle) * r))
+
+    def _pick_escape_target(self, asteroid_list: arcade.SpriteList) -> None:
+        """Pick a new patrol target away from the nearest asteroid."""
+        best_dist = float('inf')
+        near_ax, near_ay = self.center_x, self.center_y
+        for ast in asteroid_list:
+            d = math.hypot(self.center_x - ast.center_x,
+                           self.center_y - ast.center_y)
+            if d < best_dist:
+                best_dist = d
+                near_ax, near_ay = ast.center_x, ast.center_y
+        dx = self.center_x - near_ax
+        dy = self.center_y - near_ay
+        dist = math.hypot(dx, dy)
+        if dist > 0.001:
+            escape_angle = math.atan2(dy, dx) + random.uniform(-0.5, 0.5)
+        else:
+            escape_angle = random.uniform(0.0, math.tau)
+        r = ALIEN_PATROL_RADIUS_MAX * 2
+        self._tgt_x = max(50.0, min(WORLD_WIDTH - 50.0,
+                                     self.center_x + math.cos(escape_angle) * r))
+        self._tgt_y = max(50.0, min(WORLD_HEIGHT - 50.0,
+                                     self.center_y + math.sin(escape_angle) * r))
+
+    def _compute_avoidance(
+        self,
+        base_x: float,
+        base_y: float,
+        asteroid_list: arcade.SpriteList,
+        alien_list: arcade.SpriteList,
+    ) -> tuple[float, float]:
+        """Return an avoidance-adjusted steering vector from a base direction."""
+        steer_x, steer_y = base_x, base_y
+
+        for asteroid in asteroid_list:
+            adx = self.center_x - asteroid.center_x
+            ady = self.center_y - asteroid.center_y
+            adist = math.hypot(adx, ady)
+            thresh = ALIEN_RADIUS + ASTEROID_RADIUS + ALIEN_AVOIDANCE_RADIUS
+            if 0.0 < adist < thresh:
+                w = ALIEN_AVOIDANCE_FORCE * (1.0 - adist / thresh)
+                steer_x += adx / adist * w
+                steer_y += ady / adist * w
+
+        for other in alien_list:
+            if other is self:
+                continue
+            odx = self.center_x - other.center_x
+            ody = self.center_y - other.center_y
+            odist = math.hypot(odx, ody)
+            thresh = ALIEN_RADIUS * 2.0 + ALIEN_AVOIDANCE_RADIUS
+            if 0.0 < odist < thresh:
+                w = ALIEN_AVOIDANCE_FORCE * (1.0 - odist / thresh)
+                steer_x += odx / odist * w
+                steer_y += ody / odist * w
+
+        return steer_x, steer_y
 
     def take_damage(self, amount: int) -> None:
         self.hp -= amount
@@ -133,43 +195,28 @@ class SmallAlienShip(arcade.Sprite):
             if tdist < 8.0:
                 self._pick_patrol_target()
             else:
-                step = min(ALIEN_SPEED * dt, tdist)
-                self.center_x += tdx / tdist * step
-                self.center_y += tdy / tdist * step
-                self._heading = math.degrees(math.atan2(tdx, tdy)) % 360.0
-                self.angle = self._heading
+                base_x = tdx / tdist
+                base_y = tdy / tdist
+                steer_x, steer_y = self._compute_avoidance(
+                    base_x, base_y, asteroid_list, alien_list
+                )
+                smag = math.hypot(steer_x, steer_y)
+                if smag > 0.001:
+                    step = min(ALIEN_SPEED * dt, tdist)
+                    self.center_x += steer_x / smag * step
+                    self.center_y += steer_y / smag * step
+                    self._heading = math.degrees(
+                        math.atan2(steer_x, steer_y)
+                    ) % 360.0
+                    self.angle = self._heading
 
         else:  # PURSUE -- steer toward player with obstacle avoidance
             if dist > 1.0:
-                # Base direction: straight toward player
-                steer_x = dx / dist
-                steer_y = dy / dist
-
-                # Avoidance: push steering away from nearby asteroids
-                for asteroid in asteroid_list:
-                    adx = self.center_x - asteroid.center_x
-                    ady = self.center_y - asteroid.center_y
-                    adist = math.hypot(adx, ady)
-                    thresh = ALIEN_RADIUS + ASTEROID_RADIUS + ALIEN_AVOIDANCE_RADIUS
-                    if 0.0 < adist < thresh:
-                        w = ALIEN_AVOIDANCE_FORCE * (1.0 - adist / thresh)
-                        steer_x += adx / adist * w
-                        steer_y += ady / adist * w
-
-                # Avoidance: push steering away from other alien ships
-                for other in alien_list:
-                    if other is self:
-                        continue
-                    odx = self.center_x - other.center_x
-                    ody = self.center_y - other.center_y
-                    odist = math.hypot(odx, ody)
-                    thresh = ALIEN_RADIUS * 2.0 + ALIEN_AVOIDANCE_RADIUS
-                    if 0.0 < odist < thresh:
-                        w = ALIEN_AVOIDANCE_FORCE * (1.0 - odist / thresh)
-                        steer_x += odx / odist * w
-                        steer_y += ody / odist * w
-
-                # Normalise steering vector and advance
+                base_x = dx / dist
+                base_y = dy / dist
+                steer_x, steer_y = self._compute_avoidance(
+                    base_x, base_y, asteroid_list, alien_list
+                )
                 smag = math.hypot(steer_x, steer_y)
                 if smag > 0.001:
                     steer_x /= smag
@@ -181,6 +228,17 @@ class SmallAlienShip(arcade.Sprite):
                         math.atan2(steer_x, steer_y)
                     ) % 360.0
                     self.angle = self._heading
+
+        # ── Stuck detection ────────────────────────────────────────────────
+        self._stuck_timer += dt
+        if self._stuck_timer >= ALIEN_STUCK_TIME:
+            moved = math.hypot(self.center_x - self._stuck_check_x,
+                               self.center_y - self._stuck_check_y)
+            if moved < ALIEN_STUCK_DIST:
+                self._pick_escape_target(asteroid_list)
+            self._stuck_check_x = self.center_x
+            self._stuck_check_y = self.center_y
+            self._stuck_timer = 0.0
 
         # ── Colour tint (weapon hit = red, collision bump = orange) ─────────
         if self._hit_timer > 0.0:
