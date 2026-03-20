@@ -1,12 +1,15 @@
 """Video player for Space Survivalcraft — plays video files in the HUD status panel.
 
 Uses pyglet's media player to decode video frames and render them as textures.
-Requires FFmpeg to be installed on the system for video format support.
+On Windows, uses the built-in WMF (Windows Media Foundation) decoder for
+MP4, AVI, WMV, and other formats without requiring FFmpeg.
+Falls back to FFmpeg if WMF is unavailable.
 Only active when the game is in fullscreen or borderless display mode.
 """
 from __future__ import annotations
 
 import os
+import sys
 from typing import Optional
 
 import arcade
@@ -14,16 +17,33 @@ import pyglet.media
 
 from settings import audio, DISPLAY_WINDOWED
 
-# Supported video extensions
-_VIDEO_EXTS = {".mp4", ".avi", ".mkv", ".webm", ".mov", ".wmv", ".flv", ".ogv"}
+# Supported video extensions — union of WMF and FFmpeg supported formats
+_VIDEO_EXTS = {
+    ".mp4", ".avi", ".mkv", ".webm", ".mov", ".wmv", ".flv", ".ogv",
+    ".m4v", ".3gp", ".3g2", ".asf",
+}
 
-# Check if FFmpeg is available at import time
-_FFMPEG_AVAILABLE = False
+# Detect available decoders at import time
+_HAS_WMF = False
+_HAS_FFMPEG = False
+_DECODER_NAME = "none"
+
 try:
-    from pyglet.media.codecs.ffmpeg import FFmpegDecoder  # noqa: F401
-    _FFMPEG_AVAILABLE = True
+    from pyglet.media.codecs.wmf import WMFDecoder  # noqa: F401
+    _HAS_WMF = True
+    _DECODER_NAME = "WMF"
 except ImportError:
     pass
+
+try:
+    from pyglet.media.codecs.ffmpeg import FFmpegDecoder  # noqa: F401
+    _HAS_FFMPEG = True
+    if _DECODER_NAME == "none":
+        _DECODER_NAME = "FFmpeg"
+except ImportError:
+    pass
+
+_VIDEO_AVAILABLE = _HAS_WMF or _HAS_FFMPEG
 
 
 def scan_video_dir(directory: str) -> list[str]:
@@ -57,27 +77,32 @@ class VideoPlayer:
         return audio.display_mode != DISPLAY_WINDOWED
 
     @staticmethod
-    def ffmpeg_available() -> bool:
-        """Return True if FFmpeg codec is available."""
-        return _FFMPEG_AVAILABLE
+    def video_available() -> bool:
+        """Return True if any video decoder is available."""
+        return _VIDEO_AVAILABLE
+
+    @staticmethod
+    def decoder_name() -> str:
+        """Return the name of the active video decoder."""
+        return _DECODER_NAME
 
     def play(self, filepath: str, volume: float = 0.35) -> bool:
         """Start playing a video file.  Returns True on success."""
         self.error = ""
-        if not _FFMPEG_AVAILABLE:
-            self.error = "FFmpeg not installed"
+        if not _VIDEO_AVAILABLE:
+            self.error = "No video decoder available"
             print(f"[VideoPlayer] {self.error}")
             return False
         if not os.path.isfile(filepath):
-            self.error = f"File not found: {filepath}"
-            print(f"[VideoPlayer] {self.error}")
+            self.error = f"File not found"
+            print(f"[VideoPlayer] File not found: {filepath}")
             return False
         self.stop()
         try:
             self._source = pyglet.media.load(filepath)
             if self._source.video_format is None:
-                self.error = "No video stream found"
-                print(f"[VideoPlayer] {self.error}")
+                self.error = "No video stream in file"
+                print(f"[VideoPlayer] {self.error}: {filepath}")
                 return False
             self._player = pyglet.media.Player()
             self._player.queue(self._source)
@@ -85,6 +110,7 @@ class VideoPlayer:
             self._player.play()
             self._current_file = os.path.basename(filepath)
             self.active = True
+            print(f"[VideoPlayer] Playing: {self._current_file} (decoder: {_DECODER_NAME})")
             return True
         except Exception as e:
             self.error = str(e)
@@ -132,9 +158,6 @@ class VideoPlayer:
         tex = self.get_texture()
         if tex is None:
             return
-        # Convert pyglet texture to arcade-compatible drawing
-        # pyglet textures can be drawn directly via OpenGL, but for simplicity
-        # we use pyglet's blit which works within arcade's GL context
         try:
             tex.blit(x, y, width=int(size), height=int(size))
         except Exception:

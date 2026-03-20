@@ -16,7 +16,7 @@ from constants import (
     SFX_VEHICLES_DIR,
     RESOLUTION_PRESETS,
 )
-from video_player import scan_video_dir, _FFMPEG_AVAILABLE
+from video_player import scan_video_dir, _VIDEO_AVAILABLE, _DECODER_NAME
 from settings import audio
 
 
@@ -833,9 +833,9 @@ class EscapeMenu:
         self._t_vid_text.bold = False
         self._t_vid_text.draw()
 
-        # FFmpeg status
-        if not _FFMPEG_AVAILABLE:
-            self._t_vid_info.text = "FFmpeg not installed — video unavailable"
+        # Decoder status
+        if not _VIDEO_AVAILABLE:
+            self._t_vid_info.text = "No video decoder available"
             self._t_vid_info.x = cx
             self._t_vid_info.y = py + MENU_H // 2
             self._t_vid_info.color = (200, 80, 80)
