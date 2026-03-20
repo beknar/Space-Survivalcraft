@@ -17,7 +17,19 @@ from constants import (
 _EQ_BARS = 16          # number of frequency bars
 _EQ_BAR_W = 8          # bar width in px
 _EQ_GAP = 3            # gap between bars
-_EQ_MAX_H = 60         # max bar height in px
+_EQ_MAX_H = 40         # max bar height in px
+
+# Colour palette for cascading bars (8 colours cycling)
+_EQ_COLOURS = [
+    (0, 200, 255),    # cyan
+    (50, 180, 255),   # light blue
+    (100, 120, 255),  # blue-purple
+    (180, 80, 255),   # purple
+    (255, 60, 200),   # magenta
+    (255, 80, 100),   # red-pink
+    (255, 160, 50),   # orange
+    (255, 220, 50),   # yellow
+]
 
 
 class HUD:
@@ -122,10 +134,12 @@ class HUD:
 
         # Equalizer visualizer state
         self._eq_heights: list[float] = [0.0] * _EQ_BARS
-        self._eq_targets: list[float] = [0.0] * _EQ_BARS
         self._eq_timer: float = 0.0
         self._eq_phase: list[float] = [random.uniform(0, math.tau) for _ in range(_EQ_BARS)]
         self._eq_speed: list[float] = [random.uniform(2.0, 5.0) for _ in range(_EQ_BARS)]
+        self._eq_colour_offset: float = 0.0       # cascading colour phase
+        self._eq_cascade_dir: int = 1              # +1 = left-to-right, -1 = right-to-left
+        self._eq_next_dir_change: float = 0.0      # timer for next random direction flip
 
     def toggle_fps(self) -> None:
         self._show_fps = not self._show_fps
@@ -141,6 +155,13 @@ class HUD:
         self._eq_timer += delta_time
         from settings import audio
         vol = audio.music_volume
+        # Advance cascading colour offset
+        self._eq_colour_offset += delta_time * 3.0 * self._eq_cascade_dir
+        # Randomly flip cascade direction every 2-5 seconds
+        self._eq_next_dir_change -= delta_time
+        if self._eq_next_dir_change <= 0:
+            self._eq_cascade_dir = random.choice([-1, 1])
+            self._eq_next_dir_change = random.uniform(2.0, 5.0)
         for i in range(_EQ_BARS):
             # Each bar oscillates at its own frequency with volume scaling
             target = (0.3 + 0.7 * abs(math.sin(
@@ -253,20 +274,26 @@ class HUD:
         if track_name and not video_active:
             eq_total_w = _EQ_BARS * _EQ_BAR_W + (_EQ_BARS - 1) * _EQ_GAP
             eq_x = (STATUS_WIDTH - eq_total_w) // 2
-            eq_y = self._sh - 560
+            # Position below the track name text with spacing
+            eq_y = self._sh - 556 - _EQ_MAX_H
             for i in range(_EQ_BARS):
                 h = int(self._eq_heights[i] * _EQ_MAX_H)
                 if h < 2:
                     h = 2
                 bx = eq_x + i * (_EQ_BAR_W + _EQ_GAP)
-                # Colour gradient: cyan at bottom → green at top
-                frac = self._eq_heights[i]
-                r = int(30 + 50 * frac)
-                g = int(180 + 75 * frac)
-                b_col = int(220 - 100 * frac)
+                # Cascading colour: each bar picks from palette based on
+                # position + time offset, creating a wave of colour
+                colour_idx = (self._eq_colour_offset + i * 0.5) % len(_EQ_COLOURS)
+                idx_a = int(colour_idx) % len(_EQ_COLOURS)
+                idx_b = (idx_a + 1) % len(_EQ_COLOURS)
+                frac = colour_idx - int(colour_idx)
+                ca, cb = _EQ_COLOURS[idx_a], _EQ_COLOURS[idx_b]
+                r = int(ca[0] + (cb[0] - ca[0]) * frac)
+                g = int(ca[1] + (cb[1] - ca[1]) * frac)
+                b_col = int(ca[2] + (cb[2] - ca[2]) * frac)
                 arcade.draw_rect_filled(
                     arcade.LBWH(bx, eq_y, _EQ_BAR_W, h),
-                    (r, g, b_col, 220),
+                    (r, g, b_col, 230),
                 )
 
         self._draw_minimap(
