@@ -9,13 +9,14 @@
 - Python 3.12
 - Python Arcade v3.3.3 (game framework, depends on pyglet 2.1.13)
 - PIL / Pillow 11.3.0 (sprite sheet cropping, nearest-neighbour upscaling, rotation)
+- FFmpeg shared DLLs (optional, bundled in project root for video playback; gitignored)
 - Virtual Python environment (`venv/` directory, activate with `venv\Scripts\activate.bat` on CMD)
 - Dependencies tracked in `requirements.txt`
 
 ## Project Setup
 
 - Repository: https://github.com/beknar/Space-Survivalcraft
-- `.gitignore` excludes: `.vscode/`, `PROPOSAL.md`, `.markdownlint*`, `venv/`, `__pycache__/`, `*.pyc`, `assets/`, `build/`, `dist/`, `*.spec`, `saves/`, `savegame.json`
+- `.gitignore` excludes: `.vscode/`, `PROPOSAL.md`, `.markdownlint*`, `venv/`, `__pycache__/`, `*.pyc`, `assets/`, `build/`, `dist/`, `*.spec`, `saves/`, `savegame.json`, `*.dll`
 - Run with: `python main.py`
 
 ## File Structure
