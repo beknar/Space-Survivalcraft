@@ -170,41 +170,41 @@ class VideoPlayer:
         """Return the current video filename for display."""
         return self._current_file if self.active else ""
 
-    def draw_in_hud(self, x: float, y: float, size: float) -> None:
-        """Draw the current video frame at (x, y) with the given square size.
+    def draw_in_hud(self, x: float, y: float, max_w: float) -> None:
+        """Draw the current video frame at (x, y) fitting within max_w.
 
-        Converts the pyglet video texture to a PIL Image, then wraps it
-        as an arcade.Texture for drawing within Arcade's GL pipeline.
+        Maintains 16:9 aspect ratio.  Converts the pyglet texture to a
+        PIL Image then wraps as an arcade.Texture for Arcade's GL pipeline.
         """
         pyglet_tex = self.get_texture()
         if pyglet_tex is None:
-            # Log once that texture is None
             self._frame_count = getattr(self, '_frame_count', 0) + 1
             if self._frame_count == 60:
-                print(f"[VideoPlayer] Warning: get_texture() returned None after 60 frames")
+                print(f"[VideoPlayer] Warning: texture is None after 60 frames")
                 if self._player is not None:
                     print(f"[VideoPlayer] Player playing: {self._player.playing}, time: {self._player.time:.2f}")
             return
         try:
             from PIL import Image as PILImage
-            # Get raw pixel data from the pyglet texture
             img_data = pyglet_tex.get_image_data()
             raw = img_data.get_data("RGBA", img_data.width * 4)
             pil_img = PILImage.frombytes(
                 "RGBA", (img_data.width, img_data.height), raw,
             )
-            # pyglet images are bottom-up; flip for correct orientation
-            pil_img = pil_img.transpose(PILImage.FLIP_TOP_BOTTOM)
+            # No flip — player.texture is already right-side up
             arc_tex = arcade.Texture(pil_img)
+            # 16:9 aspect ratio within the available width
+            draw_w = int(max_w)
+            draw_h = int(max_w * 9 / 16)
             arcade.draw_texture_rect(
                 arc_tex,
-                arcade.LBWH(x, y, int(size), int(size)),
+                arcade.LBWH(x, y, draw_w, draw_h),
             )
-            if not hasattr(self, '_draw_ok_logged'):
+            if not self._draw_ok_logged:
                 print(f"[VideoPlayer] First frame drawn OK ({img_data.width}x{img_data.height})")
                 self._draw_ok_logged = True
         except Exception as e:
-            if not hasattr(self, '_draw_err_logged'):
+            if not self._draw_err_logged:
                 print(f"[VideoPlayer] Draw error: {type(e).__name__}: {e}")
                 import traceback
                 traceback.print_exc()
