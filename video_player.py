@@ -154,11 +154,21 @@ class VideoPlayer:
         return self._current_file if self.active else ""
 
     def draw_in_hud(self, x: float, y: float, size: float) -> None:
-        """Draw the current video frame at (x, y) with the given square size."""
-        tex = self.get_texture()
-        if tex is None:
+        """Draw the current video frame at (x, y) with the given square size.
+
+        Converts the pyglet video texture to an arcade.Texture each frame
+        and draws it using arcade's rendering pipeline.
+        """
+        pyglet_tex = self.get_texture()
+        if pyglet_tex is None:
             return
         try:
-            tex.blit(x, y, width=int(size), height=int(size))
+            # Get the image data from the pyglet texture and wrap as arcade.Texture
+            img = pyglet_tex.get_image_data()
+            arc_tex = arcade.Texture(img)
+            arcade.draw_texture_rect(
+                arc_tex,
+                arcade.LBWH(x, y, int(size), int(size)),
+            )
         except Exception:
             pass
