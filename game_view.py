@@ -27,6 +27,7 @@ from constants import (
     BUILDING_RADIUS, STATION_INFO_RANGE,
     REPAIR_RANGE, REPAIR_RATE, REPAIR_SHIELD_BOOST,
     FOG_REVEAL_RADIUS, FOG_CELL_SIZE, FOG_GRID_W, FOG_GRID_H,
+    MINIMAP_Y, MINIMAP_H,
 )
 from settings import audio
 from sprites.projectile import Weapon
@@ -883,7 +884,6 @@ class GameView(arcade.View):
             )
             # Video frame in status panel (above mini-map)
             if self._video_player.active and audio.fullscreen:
-                from constants import STATUS_WIDTH, MINIMAP_Y, MINIMAP_H
                 vid_size = STATUS_WIDTH - 20
                 vid_x = 10
                 vid_y = MINIMAP_Y + MINIMAP_H + 20
