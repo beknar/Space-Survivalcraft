@@ -89,9 +89,9 @@ class VideoPlayer:
     def play(self, filepath: str, volume: float = 0.35) -> bool:
         """Start playing a video file.  Returns True on success."""
         self.error = ""
-        if not _VIDEO_AVAILABLE:
-            self.error = "No video decoder available"
-            print(f"[VideoPlayer] {self.error}")
+        if not _HAS_FFMPEG:
+            self.error = "FFmpeg required for video display"
+            print(f"[VideoPlayer] {self.error} (WMF only supports audio)")
             return False
         if not os.path.isfile(filepath):
             self.error = f"File not found"
@@ -99,7 +99,13 @@ class VideoPlayer:
             return False
         self.stop()
         try:
-            self._source = pyglet.media.load(filepath)
+            # Use FFmpeg decoder explicitly for video (WMF doesn't provide
+            # video textures via get_texture, only audio)
+            decoder = None
+            if _HAS_FFMPEG:
+                from pyglet.media.codecs.ffmpeg import FFmpegDecoder
+                decoder = FFmpegDecoder()
+            self._source = pyglet.media.load(filepath, decoder=decoder)
             if self._source.video_format is None:
                 self.error = "No video stream in file"
                 print(f"[VideoPlayer] {self.error}: {filepath}")
@@ -111,9 +117,12 @@ class VideoPlayer:
             self._current_file = os.path.basename(filepath)
             self.active = True
             vf = self._source.video_format
-            print(f"[VideoPlayer] Playing: {self._current_file} (decoder: {_DECODER_NAME})")
+            used_decoder = "FFmpeg" if decoder else _DECODER_NAME
+            print(f"[VideoPlayer] Playing: {self._current_file} (decoder: {used_decoder})")
             print(f"[VideoPlayer] Video format: {vf.width}x{vf.height}")
             self._frame_count = 0
+            self._draw_ok_logged = False
+            self._draw_err_logged = False
             return True
         except Exception as e:
             self.error = str(e)
