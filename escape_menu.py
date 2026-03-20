@@ -16,7 +16,7 @@ from constants import (
     SFX_VEHICLES_DIR,
     RESOLUTION_PRESETS,
 )
-from video_player import scan_video_dir
+from video_player import scan_video_dir, _FFMPEG_AVAILABLE
 from settings import audio
 
 
@@ -833,14 +833,35 @@ class EscapeMenu:
         self._t_vid_text.bold = False
         self._t_vid_text.draw()
 
-        # Fullscreen requirement notice
-        if not audio.fullscreen:
+        # FFmpeg status
+        if not _FFMPEG_AVAILABLE:
+            self._t_vid_info.text = "FFmpeg not installed — video unavailable"
+            self._t_vid_info.x = cx
+            self._t_vid_info.y = py + MENU_H // 2
+            self._t_vid_info.color = (200, 80, 80)
+            self._t_vid_info.draw()
+            self._t_vid_text.text = "Install FFmpeg and add to PATH"
+            self._t_vid_text.x = cx
+            self._t_vid_text.y = py + MENU_H // 2 - 20
+            self._t_vid_text.color = (160, 120, 120)
+            self._t_vid_text.anchor_x = "center"
+            self._t_vid_text.draw()
+            self._t_vid_text.anchor_x = "left"
+        elif not audio.fullscreen:
             self._t_vid_info.text = "Fullscreen required for video"
             self._t_vid_info.x = cx
             self._t_vid_info.y = py + MENU_H // 2
             self._t_vid_info.color = (200, 80, 80)
             self._t_vid_info.draw()
         else:
+            # Show last error if any
+            if self._video_fn_play and hasattr(self, '_last_video_error') and self._last_video_error:
+                self._t_vid_info.text = self._last_video_error
+                self._t_vid_info.x = cx
+                self._t_vid_info.y = dir_y - 18
+                self._t_vid_info.color = (220, 100, 80)
+                self._t_vid_info.draw()
+
             # Video file list
             list_y_start = dir_y - 40
             item_h = 28

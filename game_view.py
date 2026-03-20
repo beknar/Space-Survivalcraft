@@ -249,7 +249,13 @@ class GameView(arcade.View):
     def _play_video(self, filepath: str) -> None:
         """Start video playback, replacing the music track."""
         self._stop_music()
-        self._video_player.play(filepath, volume=audio.music_volume)
+        success = self._video_player.play(filepath, volume=audio.music_volume)
+        # Pass error back to escape menu for display
+        self._escape_menu._last_video_error = self._video_player.error if not success else ""
+        if not success:
+            # Resume music if video failed
+            if self._music_tracks:
+                self._play_next_track()
 
     def _stop_video(self) -> None:
         """Stop video playback and resume music."""

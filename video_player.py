@@ -17,6 +17,14 @@ from settings import audio, DISPLAY_WINDOWED
 # Supported video extensions
 _VIDEO_EXTS = {".mp4", ".avi", ".mkv", ".webm", ".mov", ".wmv", ".flv", ".ogv"}
 
+# Check if FFmpeg is available at import time
+_FFMPEG_AVAILABLE = False
+try:
+    from pyglet.media.codecs.ffmpeg import FFmpegDecoder  # noqa: F401
+    _FFMPEG_AVAILABLE = True
+except ImportError:
+    pass
+
 
 def scan_video_dir(directory: str) -> list[str]:
     """Return sorted list of video filenames in *directory*."""
@@ -41,19 +49,36 @@ class VideoPlayer:
         self._source: Optional[pyglet.media.Source] = None
         self.active: bool = False
         self._current_file: str = ""
+        self.error: str = ""  # last error message for UI display
 
     @property
     def is_fullscreen(self) -> bool:
         """True if the display mode allows video playback."""
         return audio.display_mode != DISPLAY_WINDOWED
 
+    @staticmethod
+    def ffmpeg_available() -> bool:
+        """Return True if FFmpeg codec is available."""
+        return _FFMPEG_AVAILABLE
+
     def play(self, filepath: str, volume: float = 0.35) -> bool:
         """Start playing a video file.  Returns True on success."""
+        self.error = ""
+        if not _FFMPEG_AVAILABLE:
+            self.error = "FFmpeg not installed"
+            print(f"[VideoPlayer] {self.error}")
+            return False
         if not os.path.isfile(filepath):
+            self.error = f"File not found: {filepath}"
+            print(f"[VideoPlayer] {self.error}")
             return False
         self.stop()
         try:
             self._source = pyglet.media.load(filepath)
+            if self._source.video_format is None:
+                self.error = "No video stream found"
+                print(f"[VideoPlayer] {self.error}")
+                return False
             self._player = pyglet.media.Player()
             self._player.queue(self._source)
             self._player.volume = volume
@@ -61,7 +86,9 @@ class VideoPlayer:
             self._current_file = os.path.basename(filepath)
             self.active = True
             return True
-        except Exception:
+        except Exception as e:
+            self.error = str(e)
+            print(f"[VideoPlayer] Error: {e}")
             self.active = False
             return False
 
