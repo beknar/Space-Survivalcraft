@@ -889,6 +889,7 @@ class GameView(arcade.View):
                             else self._current_track_name),
                 building_list=self.building_list,
                 fog_grid=self._fog_grid,
+                video_active=self._video_player.active,
             )
             # Video frame in status panel (above mini-map)
             if self._video_player.active:

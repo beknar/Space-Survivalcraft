@@ -439,7 +439,7 @@ The left-side panel (213 px wide) displays:
 | Controls reference | Keyboard shortcut reminders |
 | Gamepad status | "Gamepad: connected" when detected |
 | Faction / Ship type | Current faction and ship labels |
-| Now Playing | Current music track name |
+| Now Playing | Current music track name + equalizer visualizer |
 | FPS counter | Smoothed exponential moving average (toggle with F) |
 | Mini-map | Full world overview (193 x 193 px) |
 

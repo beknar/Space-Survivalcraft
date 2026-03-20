@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import math
+import random
 
 import arcade
 
@@ -11,6 +12,12 @@ from constants import (
     MINIMAP_PAD, MINIMAP_W, MINIMAP_H, MINIMAP_X, MINIMAP_Y,
     FOG_CELL_SIZE, FOG_GRID_W, FOG_GRID_H,
 )
+
+# Equalizer visualizer constants
+_EQ_BARS = 16          # number of frequency bars
+_EQ_BAR_W = 8          # bar width in px
+_EQ_GAP = 3            # gap between bars
+_EQ_MAX_H = 60         # max bar height in px
 
 
 class HUD:
@@ -113,6 +120,13 @@ class HUD:
             arcade.color.KHAKI, 9, bold=True, anchor_x="center",
         )
 
+        # Equalizer visualizer state
+        self._eq_heights: list[float] = [0.0] * _EQ_BARS
+        self._eq_targets: list[float] = [0.0] * _EQ_BARS
+        self._eq_timer: float = 0.0
+        self._eq_phase: list[float] = [random.uniform(0, math.tau) for _ in range(_EQ_BARS)]
+        self._eq_speed: list[float] = [random.uniform(2.0, 5.0) for _ in range(_EQ_BARS)]
+
     def toggle_fps(self) -> None:
         self._show_fps = not self._show_fps
 
@@ -123,6 +137,25 @@ class HUD:
     def update_fps(self, delta_time: float) -> None:
         if delta_time > 0:
             self._fps = 0.9 * self._fps + 0.1 * (1.0 / delta_time)
+        # Update equalizer animation
+        self._eq_timer += delta_time
+        from settings import audio
+        vol = audio.music_volume
+        for i in range(_EQ_BARS):
+            # Each bar oscillates at its own frequency with volume scaling
+            target = (0.3 + 0.7 * abs(math.sin(
+                self._eq_timer * self._eq_speed[i] + self._eq_phase[i]
+            ))) * vol
+            # Bass and treble bars are typically higher
+            if i < 3 or i > _EQ_BARS - 3:
+                target *= 0.6
+            else:
+                target *= 0.8 + 0.4 * abs(math.sin(self._eq_timer * 1.5 + i))
+            # Smooth interpolation (fast rise, slow fall)
+            if target > self._eq_heights[i]:
+                self._eq_heights[i] += (target - self._eq_heights[i]) * min(1.0, delta_time * 12)
+            else:
+                self._eq_heights[i] += (target - self._eq_heights[i]) * min(1.0, delta_time * 4)
 
     def draw(
         self,
@@ -143,6 +176,7 @@ class HUD:
         track_name: str = "",
         building_list: arcade.SpriteList | None = None,
         fog_grid: list[list[bool]] | None = None,
+        video_active: bool = False,
     ) -> None:
         """Draw the full HUD status panel."""
         # Panel background
@@ -214,6 +248,26 @@ class HUD:
             self._t_music_hdr.draw()
             self._t_track_name.text = track_name
             self._t_track_name.draw()
+
+        # Equalizer visualizer (only when music is playing, not video)
+        if track_name and not video_active:
+            eq_total_w = _EQ_BARS * _EQ_BAR_W + (_EQ_BARS - 1) * _EQ_GAP
+            eq_x = (STATUS_WIDTH - eq_total_w) // 2
+            eq_y = self._sh - 560
+            for i in range(_EQ_BARS):
+                h = int(self._eq_heights[i] * _EQ_MAX_H)
+                if h < 2:
+                    h = 2
+                bx = eq_x + i * (_EQ_BAR_W + _EQ_GAP)
+                # Colour gradient: cyan at bottom → green at top
+                frac = self._eq_heights[i]
+                r = int(30 + 50 * frac)
+                g = int(180 + 75 * frac)
+                b_col = int(220 - 100 * frac)
+                arcade.draw_rect_filled(
+                    arcade.LBWH(bx, eq_y, _EQ_BAR_W, h),
+                    (r, g, b_col, 220),
+                )
 
         self._draw_minimap(
             asteroid_list, iron_pickup_list, alien_list,
