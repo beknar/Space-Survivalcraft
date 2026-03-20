@@ -891,7 +891,7 @@ class GameView(arcade.View):
                 fog_grid=self._fog_grid,
             )
             # Video frame in status panel (above mini-map)
-            if self._video_player.active and audio.fullscreen:
+            if self._video_player.active:
                 vid_size = STATUS_WIDTH - 20
                 vid_x = 10
                 vid_y = MINIMAP_Y + MINIMAP_H + 20

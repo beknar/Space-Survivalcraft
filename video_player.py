@@ -156,19 +156,28 @@ class VideoPlayer:
     def draw_in_hud(self, x: float, y: float, size: float) -> None:
         """Draw the current video frame at (x, y) with the given square size.
 
-        Converts the pyglet video texture to an arcade.Texture each frame
-        and draws it using arcade's rendering pipeline.
+        Converts the pyglet video texture to a PIL Image, then wraps it
+        as an arcade.Texture for drawing within Arcade's GL pipeline.
         """
         pyglet_tex = self.get_texture()
         if pyglet_tex is None:
             return
         try:
-            # Get the image data from the pyglet texture and wrap as arcade.Texture
-            img = pyglet_tex.get_image_data()
-            arc_tex = arcade.Texture(img)
+            from PIL import Image as PILImage
+            # Get raw pixel data from the pyglet texture
+            img_data = pyglet_tex.get_image_data()
+            raw = img_data.get_data("RGBA", img_data.width * 4)
+            pil_img = PILImage.frombytes(
+                "RGBA", (img_data.width, img_data.height), raw,
+            )
+            # pyglet images are bottom-up; flip for correct orientation
+            pil_img = pil_img.transpose(PILImage.FLIP_TOP_BOTTOM)
+            arc_tex = arcade.Texture(pil_img)
             arcade.draw_texture_rect(
                 arc_tex,
                 arcade.LBWH(x, y, int(size), int(size)),
             )
-        except Exception:
-            pass
+        except Exception as e:
+            if not hasattr(self, '_draw_err_logged'):
+                print(f"[VideoPlayer] Draw error: {e}")
+                self._draw_err_logged = True
