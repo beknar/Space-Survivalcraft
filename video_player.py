@@ -70,6 +70,8 @@ class VideoPlayer:
         self.active: bool = False
         self._current_file: str = ""
         self.error: str = ""  # last error message for UI display
+        self._cached_arc_tex: Optional[arcade.Texture] = None
+        self._last_video_time: float = -1.0
 
     @property
     def is_fullscreen(self) -> bool:
@@ -138,6 +140,8 @@ class VideoPlayer:
         self._source = None
         self.active = False
         self._current_file = ""
+        self._cached_arc_tex = None
+        self._last_video_time = -1.0
 
     def update(self, volume: float) -> None:
         """Sync volume and check if playback ended (loop)."""
@@ -177,8 +181,8 @@ class VideoPlayer:
     def draw_in_hud(self, x: float, y: float, max_w: float) -> None:
         """Draw the current video frame at (x, y) fitting within max_w.
 
-        Maintains 16:9 aspect ratio.  Converts the pyglet texture to a
-        PIL Image then wraps as an arcade.Texture for Arcade's GL pipeline.
+        Maintains 16:9 aspect ratio.  Caches the arcade.Texture and only
+        rebuilds it when the video time changes (new frame decoded).
         """
         pyglet_tex = self.get_texture()
         if pyglet_tex is None:
@@ -188,28 +192,38 @@ class VideoPlayer:
                 if self._player is not None:
                     print(f"[VideoPlayer] Player playing: {self._player.playing}, time: {self._player.time:.2f}")
             return
+
+        # Only rebuild the arcade texture when a new video frame is available
+        # (videos are typically 24-30fps, no need to convert every game frame)
         try:
-            from PIL import Image as PILImage
-            img_data = pyglet_tex.get_image_data()
-            raw = img_data.get_data("RGBA", img_data.width * 4)
-            pil_img = PILImage.frombytes(
-                "RGBA", (img_data.width, img_data.height), raw,
-            )
-            # No flip — player.texture is already right-side up
-            arc_tex = arcade.Texture(pil_img)
-            # 16:9 aspect ratio within the available width
+            current_time = self._player.time if self._player else 0.0
+        except RuntimeError:
+            current_time = self._last_video_time
+        last_time = getattr(self, '_last_video_time', -1.0)
+
+        if current_time != last_time or self._cached_arc_tex is None:
+            self._last_video_time = current_time
+            try:
+                from PIL import Image as PILImage
+                img_data = pyglet_tex.get_image_data()
+                raw = img_data.get_data("RGBA", img_data.width * 4)
+                pil_img = PILImage.frombytes(
+                    "RGBA", (img_data.width, img_data.height), raw,
+                )
+                self._cached_arc_tex = arcade.Texture(pil_img)
+                if not self._draw_ok_logged:
+                    print(f"[VideoPlayer] First frame drawn OK ({img_data.width}x{img_data.height})")
+                    self._draw_ok_logged = True
+            except Exception as e:
+                if not self._draw_err_logged:
+                    print(f"[VideoPlayer] Draw error: {type(e).__name__}: {e}")
+                    self._draw_err_logged = True
+                return
+
+        if self._cached_arc_tex is not None:
             draw_w = int(max_w)
             draw_h = int(max_w * 9 / 16)
             arcade.draw_texture_rect(
-                arc_tex,
+                self._cached_arc_tex,
                 arcade.LBWH(x, y, draw_w, draw_h),
             )
-            if not self._draw_ok_logged:
-                print(f"[VideoPlayer] First frame drawn OK ({img_data.width}x{img_data.height})")
-                self._draw_ok_logged = True
-        except Exception as e:
-            if not self._draw_err_logged:
-                print(f"[VideoPlayer] Draw error: {type(e).__name__}: {e}")
-                import traceback
-                traceback.print_exc()
-                self._draw_err_logged = True
