@@ -110,7 +110,10 @@ class VideoPlayer:
             self._player.play()
             self._current_file = os.path.basename(filepath)
             self.active = True
+            vf = self._source.video_format
             print(f"[VideoPlayer] Playing: {self._current_file} (decoder: {_DECODER_NAME})")
+            print(f"[VideoPlayer] Video format: {vf.width}x{vf.height}")
+            self._frame_count = 0
             return True
         except Exception as e:
             self.error = str(e)
@@ -161,6 +164,12 @@ class VideoPlayer:
         """
         pyglet_tex = self.get_texture()
         if pyglet_tex is None:
+            # Log once that texture is None
+            self._frame_count = getattr(self, '_frame_count', 0) + 1
+            if self._frame_count == 60:
+                print(f"[VideoPlayer] Warning: get_texture() returned None after 60 frames")
+                if self._player is not None:
+                    print(f"[VideoPlayer] Player playing: {self._player.playing}, time: {self._player.time:.2f}")
             return
         try:
             from PIL import Image as PILImage
@@ -177,7 +186,12 @@ class VideoPlayer:
                 arc_tex,
                 arcade.LBWH(x, y, int(size), int(size)),
             )
+            if not hasattr(self, '_draw_ok_logged'):
+                print(f"[VideoPlayer] First frame drawn OK ({img_data.width}x{img_data.height})")
+                self._draw_ok_logged = True
         except Exception as e:
             if not hasattr(self, '_draw_err_logged'):
-                print(f"[VideoPlayer] Draw error: {e}")
+                print(f"[VideoPlayer] Draw error: {type(e).__name__}: {e}")
+                import traceback
+                traceback.print_exc()
                 self._draw_err_logged = True
