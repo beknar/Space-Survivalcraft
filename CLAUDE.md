@@ -28,10 +28,10 @@ Space Survivalcraft/
 ├── requirements.txt     # pip dependencies (arcade, pillow, pyglet, etc.)
 ├── .gitignore
 │
-├── main.py              # Entry point — creates Window, starts SplashView
+├── main.py              # Entry point — creates Window, starts SplashView, patches pyglet clock for video
 ├── constants.py         # All game constants (window, physics, assets, factions, ship types, respawn)
 ├── settings.py          # Global runtime settings singleton (volume, resolution, display mode, video dir) + apply_resolution()
-├── video_player.py      # VideoPlayer — pyglet-based video playback with frame texture rendering in HUD
+├── video_player.py      # VideoPlayer — FFmpeg video playback with cached frame texture rendering in HUD
 │
 │  ── Views (each is an arcade.View subclass) ──
 ├── splash_view.py       # SplashView — "CALL OF ORION" title, Play/Load/Options/Exit buttons

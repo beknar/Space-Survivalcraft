@@ -497,11 +497,13 @@ Players can configure a directory containing video files to play in place of the
 
 | Property | Value |
 |---|---|
-| Supported formats | MP4, AVI, WMV, M4V, 3GP, ASF (via WMF on Windows); MKV, WebM, MOV, FLV, OGV (via FFmpeg) |
-| Decoders | WMF (Windows Media Foundation, built-in) + FFmpeg (optional, bundled DLLs in project root) |
-| Display location | Status panel, above the mini-map (approximately 193 x 193 px) |
-| Availability | Fullscreen or borderless display modes only |
+| Supported formats | MP4, AVI, WMV, M4V, 3GP, ASF, MKV, WebM, MOV, FLV, OGV |
+| Decoder | FFmpeg (required — bundled DLLs in project root; WMF cannot provide video textures) |
+| Display location | Status panel, above the mini-map, 16:9 aspect ratio |
+| Availability | Any display mode (windowed, fullscreen, borderless) |
 | FFmpeg DLLs | `avcodec-62.dll`, `avformat-62.dll`, `avutil-60.dll`, `swresample-6.dll`, `swscale-9.dll`, `avfilter-11.dll`, `avdevice-62.dll` (gitignored, ~220 MB) |
+| Performance | Video frame cached; PIL conversion only on new video frame (~24-30/s), not every game frame |
+| Clock patch | `main.py` patches pyglet's `Clock.call_scheduled_functions` to handle FFmpeg scheduling conflicts with Arcade |
 
 ### Configuration
 
@@ -512,7 +514,8 @@ Players can configure a directory containing video files to play in place of the
 - Click **Stop Video** to stop playback and resume the music playlist
 - Video loops automatically when it reaches the end
 - Volume is controlled by the Music volume slider
-- If no decoder is available, the UI shows an error message with install instructions
+- FFmpeg DLLs must be in the project root directory for video to work
+- If FFmpeg is not available, the UI shows an error message
 
 ---
 
