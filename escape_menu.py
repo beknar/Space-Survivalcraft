@@ -281,6 +281,11 @@ class EscapeMenu:
             anchor_x="center", anchor_y="center",
         )
 
+        # ── Reusable text objects for video sub-mode ──────────────────
+        self._t_vid_text = arcade.Text("", 0, 0, arcade.color.WHITE, 10)
+        self._t_vid_info = arcade.Text("", 0, 0, (160, 160, 160), 9,
+                                       anchor_x="center", anchor_y="center")
+
         # ── Status message ────────────────────────────────────────────
         self._t_status = arcade.Text(
             "",
@@ -817,36 +822,31 @@ class EscapeMenu:
         dir_display = self._video_dir_text or "(click to set video folder)"
         if len(dir_display) > 30:
             dir_display = "..." + dir_display[-27:]
-        self._t_name.text = dir_display
-        self._t_name.x = dir_x + 4
-        self._t_name.y = dir_y + 15
-        self._t_name.color = arcade.color.WHITE if self._video_dir_text else (120, 120, 120)
-        self._t_name.bold = False
-        self._t_name.draw()
-        self._t_name.bold = True
+        self._t_vid_text.text = dir_display
+        self._t_vid_text.x = dir_x + 4
+        self._t_vid_text.y = dir_y + 15
+        self._t_vid_text.color = arcade.color.WHITE if self._video_dir_text else (120, 120, 120)
+        self._t_vid_text.bold = False
+        self._t_vid_text.draw()
 
         # Fullscreen requirement notice
         if not audio.fullscreen:
-            self._t_cost.text = "Fullscreen required for video"
-            self._t_cost.x = cx
-            self._t_cost.y = py + MENU_H // 2
-            self._t_cost.color = (200, 80, 80)
-            self._t_cost.anchor_x = "center"
-            self._t_cost.draw()
-            self._t_cost.anchor_x = "left"
+            self._t_vid_info.text = "Fullscreen required for video"
+            self._t_vid_info.x = cx
+            self._t_vid_info.y = py + MENU_H // 2
+            self._t_vid_info.color = (200, 80, 80)
+            self._t_vid_info.draw()
         else:
             # Video file list
             list_y_start = dir_y - 40
             item_h = 28
             max_visible = 8
             if not self._video_files:
-                self._t_cost.text = "No video files found"
-                self._t_cost.x = cx
-                self._t_cost.y = list_y_start
-                self._t_cost.color = (160, 160, 160)
-                self._t_cost.anchor_x = "center"
-                self._t_cost.draw()
-                self._t_cost.anchor_x = "left"
+                self._t_vid_info.text = "No video files found"
+                self._t_vid_info.x = cx
+                self._t_vid_info.y = list_y_start
+                self._t_vid_info.color = (160, 160, 160)
+                self._t_vid_info.draw()
             else:
                 for i in range(min(max_visible, len(self._video_files) - self._video_scroll)):
                     idx = self._video_scroll + i
@@ -858,12 +858,12 @@ class EscapeMenu:
                         arcade.LBWH(px + 10, iy, MENU_W - 20, item_h - 2), fill,
                     )
                     display_name = fname if len(fname) <= 28 else fname[:25] + "..."
-                    self._t_name.text = display_name
-                    self._t_name.x = px + 16
-                    self._t_name.y = iy + item_h // 2
-                    self._t_name.color = arcade.color.CYAN if is_selected else arcade.color.WHITE
-                    self._t_name.bold = is_selected
-                    self._t_name.draw()
+                    self._t_vid_text.text = display_name
+                    self._t_vid_text.x = px + 16
+                    self._t_vid_text.y = iy + item_h // 2
+                    self._t_vid_text.color = arcade.color.CYAN if is_selected else arcade.color.WHITE
+                    self._t_vid_text.bold = is_selected
+                    self._t_vid_text.draw()
 
         # Stop Video button
         stop_y = py + 50
