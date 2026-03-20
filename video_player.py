@@ -142,14 +142,16 @@ class VideoPlayer:
     def update(self, volume: float) -> None:
         """Sync volume and check if playback ended (loop)."""
         if self._player is not None and self.active:
-            self._player.volume = volume
-            # Loop: if finished, seek back to start
-            if not self._player.playing and self._source is not None:
-                try:
+            try:
+                self._player.volume = volume
+                # Loop: if finished, seek back to start
+                if not self._player.playing and self._source is not None:
                     self._player.seek(0.0)
                     self._player.play()
-                except Exception:
-                    pass
+            except RuntimeError:
+                pass  # pyglet clock list mutation — safe to skip one frame
+            except Exception:
+                pass
 
     def get_texture(self) -> Optional[pyglet.image.Texture]:
         """Return the current video frame texture, or None.
@@ -162,6 +164,8 @@ class VideoPlayer:
         try:
             self._player.update_texture()
             return self._player.texture
+        except RuntimeError:
+            return None  # pyglet clock reentrancy — skip this frame
         except Exception:
             return None
 
