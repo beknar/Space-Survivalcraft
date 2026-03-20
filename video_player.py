@@ -154,19 +154,14 @@ class VideoPlayer:
     def get_texture(self) -> Optional[pyglet.image.Texture]:
         """Return the current video frame texture, or None.
 
-        Calls update_texture() first to ensure the player has decoded
-        the latest frame — pyglet's event loop may not pump frames
-        automatically when Arcade controls the main loop.
+        Uses player.texture property (not get_texture method) and
+        calls update_texture() first to force frame decode.
         """
         if self._player is None or not self.active:
             return None
         try:
-            # Force the player to decode the current video frame
-            try:
-                self._player.update_texture()
-            except Exception:
-                pass
-            return self._player.get_texture()
+            self._player.update_texture()
+            return self._player.texture
         except Exception:
             return None
 
