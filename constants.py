@@ -248,7 +248,7 @@ MINIMAP_Y: int = MINIMAP_PAD + 16                  # 26 px from bottom; label si
 
 # ── Escape menu constants ─────────────────────────────────────────────────
 MENU_W: int = 320
-MENU_H: int = 480
+MENU_H: int = 540
 MENU_BTN_W: int = 240
 MENU_BTN_H: int = 40
 MENU_BTN_GAP: int = 16

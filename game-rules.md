@@ -490,6 +490,28 @@ The left-side panel (213 px wide) displays:
 
 ---
 
+## 14. Video Player
+
+Players can configure a directory containing video files to play in place of the background music. The video frame is displayed as a small square in the HUD status panel.
+
+| Property | Value |
+|---|---|
+| Supported formats | MP4, AVI, MKV, WebM, MOV, WMV, FLV, OGV (requires FFmpeg) |
+| Display location | Status panel, above the mini-map (approximately 193 x 193 px) |
+| Availability | Fullscreen or borderless display modes only |
+
+### Configuration
+
+- Open the Escape Menu (ESC) or Options and click **Video**
+- Click the directory path bar to type a folder path, then press Enter
+- Available video files in the directory are listed below
+- Click a video file to start playback (replaces background music)
+- Click **Stop Video** to stop playback and resume the music playlist
+- Video loops automatically when it reaches the end
+- Volume is controlled by the Music volume slider
+
+---
+
 ## Save System
 
 - 10 save slots stored as JSON files in `saves/` directory

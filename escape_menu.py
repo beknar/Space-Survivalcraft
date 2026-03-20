@@ -16,6 +16,7 @@ from constants import (
     SFX_VEHICLES_DIR,
     RESOLUTION_PRESETS,
 )
+from video_player import scan_video_dir
 from settings import audio
 
 
@@ -28,6 +29,7 @@ class EscapeMenu:
     MODE_LOAD = 2
     MODE_NAMING = 3
     MODE_RESOLUTION = 4
+    MODE_VIDEO = 5
 
     MAX_NAME_LEN = 24
 
@@ -36,6 +38,7 @@ class EscapeMenu:
         ("save",       "Save Game"),
         ("load",       "Load Game"),
         ("resolution", "Resolution"),
+        ("video",      "Video"),
         ("main_menu",  "Main Menu"),
         ("exit",       "Exit Game"),
     ]
@@ -47,6 +50,8 @@ class EscapeMenu:
         main_menu_fn: Callable[[], None],
         save_dir: str,
         resolution_fn: Callable[[int, int, str], None] | None = None,
+        video_play_fn: Callable[[str], None] | None = None,
+        video_stop_fn: Callable[[], None] | None = None,
     ) -> None:
         self.open: bool = False
         self._save_fn = save_fn
@@ -54,6 +59,8 @@ class EscapeMenu:
         self._main_menu_fn = main_menu_fn
         self._save_dir = save_dir
         self._resolution_fn = resolution_fn
+        self._video_fn_play = video_play_fn
+        self._video_fn_stop = video_stop_fn
 
         # Resolution selector state
         current_res = (audio.screen_width, audio.screen_height)
@@ -77,6 +84,12 @@ class EscapeMenu:
         self._naming_text: str = ""
         self._cursor_visible: bool = True
         self._cursor_timer: float = 0.0
+
+        # ── Video picker state ─────────────────────────────────────────
+        self._video_files: list[str] = []
+        self._video_scroll: int = 0
+        self._video_dir_text: str = audio.video_dir
+        self._video_editing_dir: bool = False
 
         # ── Audio slider state ──────────────────────────────────────────
         self._slider_dragging: str = ""   # "", "music", or "sfx"
@@ -276,6 +289,19 @@ class EscapeMenu:
             anchor_x="center", anchor_y="center",
         )
 
+    def _recalc_main_layout(self) -> None:
+        """Recompute the main panel position from current window size."""
+        sw = self._window.width
+        sh = self._window.height
+        self._main_px = (sw - MENU_W) // 2
+        self._main_py = (sh - MENU_H) // 2
+
+    def _scan_videos(self) -> None:
+        """Scan the configured video directory for video files."""
+        self._video_dir_text = audio.video_dir
+        self._video_files = scan_video_dir(audio.video_dir)
+        self._video_scroll = 0
+
     # ── Slot metadata ─────────────────────────────────────────────────
 
     def _refresh_slots(self) -> None:
@@ -396,6 +422,11 @@ class EscapeMenu:
             elif key == "resolution":
                 self._mode = self.MODE_RESOLUTION
                 self._hover_idx = -1
+            elif key == "video":
+                self._scan_videos()
+                self._mode = self.MODE_VIDEO
+                self._hover_idx = -1
+                self._video_scroll = 0
             elif key == "main_menu":
                 self.open = False
                 self._main_menu_fn()
@@ -403,6 +434,7 @@ class EscapeMenu:
                 arcade.exit()
 
         elif self._mode == self.MODE_RESOLUTION:
+            self._recalc_main_layout()
             # Resolution sub-mode click handling
             if self._point_in_rect(x, y, self._back_rect):
                 self._mode = self.MODE_MAIN
@@ -441,6 +473,47 @@ class EscapeMenu:
                 if self._resolution_fn is not None:
                     self._resolution_fn(w, h, "borderless")
                 return
+
+        elif self._mode == self.MODE_VIDEO:
+            self._recalc_main_layout()
+            px, py = self._main_px, self._main_py
+            # Back button
+            if self._point_in_rect(x, y, self._back_rect):
+                self._mode = self.MODE_MAIN
+                self._hover_idx = -1
+                return
+            # Set Directory button
+            set_dir_y = py + MENU_H - 70
+            set_dir_x = px + 10
+            set_dir_w = MENU_W - 20
+            if (set_dir_x <= x <= set_dir_x + set_dir_w
+                    and set_dir_y <= y <= set_dir_y + 30):
+                self._video_editing_dir = True
+                self._video_dir_text = audio.video_dir
+                return
+            # Stop Video button
+            stop_y = py + 50
+            abx = px + (MENU_W - MENU_BTN_W) // 2
+            if (abx <= x <= abx + MENU_BTN_W
+                    and stop_y <= y <= stop_y + MENU_BTN_H):
+                if self._video_fn_stop is not None:
+                    self._video_fn_stop()
+                return
+            # Video file list items
+            list_y_start = set_dir_y - 40
+            item_h = 28
+            max_visible = 8
+            for i in range(min(max_visible, len(self._video_files) - self._video_scroll)):
+                idx = self._video_scroll + i
+                iy = list_y_start - i * item_h
+                if (px + 10 <= x <= px + MENU_W - 10
+                        and iy <= y <= iy + item_h):
+                    fname = self._video_files[idx]
+                    audio.video_file = fname
+                    if self._video_fn_play is not None:
+                        fpath = os.path.join(audio.video_dir, fname)
+                        self._video_fn_play(fpath)
+                    return
 
         elif self._mode == self.MODE_SAVE:
             if self._point_in_rect(x, y, self._back_rect):
@@ -490,12 +563,29 @@ class EscapeMenu:
             if key == arcade.key.ESCAPE:
                 self._mode = self.MODE_MAIN
                 self._hover_idx = -1
+        elif self._mode == self.MODE_VIDEO:
+            if key == arcade.key.ESCAPE:
+                self._video_editing_dir = False
+                self._mode = self.MODE_MAIN
+                self._hover_idx = -1
+            elif self._video_editing_dir:
+                if key == arcade.key.BACKSPACE:
+                    self._video_dir_text = self._video_dir_text[:-1]
+                elif key in (arcade.key.RETURN, arcade.key.ENTER):
+                    audio.video_dir = self._video_dir_text
+                    self._video_editing_dir = False
+                    self._scan_videos()
         elif self._mode == self.MODE_MAIN:
             if key == arcade.key.ESCAPE:
                 self.open = False
 
     def on_text(self, text: str) -> None:
-        """Handle text input during naming mode."""
+        """Handle text input during naming or video-dir editing mode."""
+        if self._mode == self.MODE_VIDEO and self._video_editing_dir:
+            for ch in text:
+                if ch.isprintable() and len(self._video_dir_text) < 200:
+                    self._video_dir_text += ch
+            return
         if self._mode != self.MODE_NAMING:
             return
         for ch in text:
@@ -518,13 +608,47 @@ class EscapeMenu:
             self._draw_main()
         elif self._mode == self.MODE_RESOLUTION:
             self._draw_resolution()
+        elif self._mode == self.MODE_VIDEO:
+            self._draw_video()
         elif self._mode in (self.MODE_SAVE, self.MODE_LOAD, self.MODE_NAMING):
             self._draw_save_load()
             if self._mode == self.MODE_NAMING:
                 self._draw_naming_overlay()
 
     def _draw_main(self) -> None:
+        self._recalc_main_layout()
         px, py = self._main_px, self._main_py
+        cx = px + MENU_W // 2
+
+        # Recalc button rects
+        bx_base = px + (MENU_W - MENU_BTN_W) // 2
+        first_by = py + MENU_H - 200 - MENU_BTN_H
+        for i in range(len(self._MAIN_BUTTONS)):
+            by = first_by - i * (MENU_BTN_H + MENU_BTN_GAP)
+            self._main_btn_rects[i] = (bx_base, by, MENU_BTN_W, MENU_BTN_H)
+            self._t_main_labels[i].x = bx_base + MENU_BTN_W // 2
+            self._t_main_labels[i].y = by + MENU_BTN_H // 2
+
+        # Recalc slider geometry
+        _slider_w = 220
+        _slider_x = px + (MENU_W - _slider_w) // 2
+        _music_y = py + MENU_H - 80
+        _sfx_y = _music_y - 50
+        self._slider_music_rect = (_slider_x, _music_y, _slider_w, 8)
+        self._slider_sfx_rect = (_slider_x, _sfx_y, _slider_w, 8)
+        self._t_music_label.x = _slider_x
+        self._t_music_label.y = _music_y + 16
+        self._t_music_pct.x = _slider_x + _slider_w
+        self._t_music_pct.y = _music_y + 16
+        self._t_sfx_label.x = _slider_x
+        self._t_sfx_label.y = _sfx_y + 16
+        self._t_sfx_pct.x = _slider_x + _slider_w
+        self._t_sfx_pct.y = _sfx_y + 16
+
+        # Recalc back rect for save/load
+        back_bx = (self._window.width - SAVE_MENU_W) // 2 + (SAVE_MENU_W - MENU_BTN_W) // 2
+        back_by = (self._window.height - SAVE_MENU_H) // 2 + 16
+        self._back_rect = (back_bx, back_by, MENU_BTN_W, 35)
 
         # Panel
         arcade.draw_rect_filled(
@@ -536,6 +660,8 @@ class EscapeMenu:
             arcade.color.STEEL_BLUE, border_width=2,
         )
 
+        self._t_title.x = cx
+        self._t_title.y = py + MENU_H - 30
         self._t_title.draw()
 
         # ── Audio sliders ───────────────────────────────────────────
@@ -568,7 +694,10 @@ class EscapeMenu:
 
     def _draw_resolution(self) -> None:
         """Draw the resolution selector sub-mode."""
+        self._recalc_main_layout()
         px, py = self._main_px, self._main_py
+        cx = px + MENU_W // 2
+        mid_y = py + MENU_H // 2
 
         arcade.draw_rect_filled(
             arcade.LBWH(px, py, MENU_W, MENU_H),
@@ -579,19 +708,27 @@ class EscapeMenu:
             arcade.color.STEEL_BLUE, border_width=2,
         )
 
+        # Title — centred in panel
+        self._t_res_title.x = cx
+        self._t_res_title.y = py + MENU_H - 30
         self._t_res_title.draw()
 
-        # Current resolution value
+        # Current resolution value — centred in panel
         w, h = RESOLUTION_PRESETS[self._res_idx]
         self._t_res_value.text = f"{w} x {h}"
+        self._t_res_value.x = cx
+        self._t_res_value.y = mid_y
         self._t_res_value.draw()
 
-        # Left/right arrows
+        # Left/right arrows — positioned relative to panel
+        self._t_res_left.x = px + 48
+        self._t_res_left.y = mid_y
         self._t_res_left.draw()
+        self._t_res_right.x = px + MENU_W - 48
+        self._t_res_right.y = mid_y
         self._t_res_right.draw()
 
         # Apply Windowed button
-        mid_y = py + MENU_H // 2
         apply_y = mid_y - 50
         abx = px + (MENU_W - MENU_BTN_W) // 2
         arcade.draw_rect_filled(
@@ -602,6 +739,8 @@ class EscapeMenu:
             arcade.LBWH(abx, apply_y, MENU_BTN_W, MENU_BTN_H),
             arcade.color.LIME_GREEN, border_width=1,
         )
+        self._t_apply_windowed.x = abx + MENU_BTN_W // 2
+        self._t_apply_windowed.y = apply_y + MENU_BTN_H // 2
         self._t_apply_windowed.draw()
 
         # Apply Fullscreen button
@@ -614,6 +753,8 @@ class EscapeMenu:
             arcade.LBWH(abx, fs_y, MENU_BTN_W, MENU_BTN_H),
             arcade.color.CYAN, border_width=1,
         )
+        self._t_apply_fullscreen.x = abx + MENU_BTN_W // 2
+        self._t_apply_fullscreen.y = fs_y + MENU_BTN_H // 2
         self._t_apply_fullscreen.draw()
 
         # Borderless Windowed button
@@ -626,7 +767,120 @@ class EscapeMenu:
             arcade.LBWH(abx, bl_y, MENU_BTN_W, MENU_BTN_H),
             (120, 100, 200), border_width=1,
         )
+        self._t_apply_borderless.x = abx + MENU_BTN_W // 2
+        self._t_apply_borderless.y = bl_y + MENU_BTN_H // 2
         self._t_apply_borderless.draw()
+
+        # Back button
+        bx, by, bw, bh = self._back_rect
+        arcade.draw_rect_filled(arcade.LBWH(bx, by, bw, bh), (40, 40, 70, 220))
+        arcade.draw_rect_outline(
+            arcade.LBWH(bx, by, bw, bh), arcade.color.STEEL_BLUE, border_width=1,
+        )
+        self._t_res_back.x = bx + bw // 2
+        self._t_res_back.y = by + bh // 2
+        self._t_res_back.draw()
+
+    def _draw_video(self) -> None:
+        """Draw the video file picker sub-mode."""
+        self._recalc_main_layout()
+        px, py = self._main_px, self._main_py
+        cx = px + MENU_W // 2
+
+        arcade.draw_rect_filled(
+            arcade.LBWH(px, py, MENU_W, MENU_H),
+            (20, 20, 50, 240),
+        )
+        arcade.draw_rect_outline(
+            arcade.LBWH(px, py, MENU_W, MENU_H),
+            arcade.color.STEEL_BLUE, border_width=2,
+        )
+
+        # Title
+        self._t_res_title.text = "VIDEO"
+        self._t_res_title.x = cx
+        self._t_res_title.y = py + MENU_H - 30
+        self._t_res_title.draw()
+
+        # Directory path display/edit
+        dir_y = py + MENU_H - 70
+        dir_x = px + 10
+        dir_w = MENU_W - 20
+        bg = (40, 40, 60, 220) if self._video_editing_dir else (30, 30, 50, 200)
+        arcade.draw_rect_filled(arcade.LBWH(dir_x, dir_y, dir_w, 30), bg)
+        arcade.draw_rect_outline(
+            arcade.LBWH(dir_x, dir_y, dir_w, 30),
+            arcade.color.CYAN if self._video_editing_dir else arcade.color.STEEL_BLUE,
+            border_width=1,
+        )
+        # Directory text (truncate to fit)
+        dir_display = self._video_dir_text or "(click to set video folder)"
+        if len(dir_display) > 30:
+            dir_display = "..." + dir_display[-27:]
+        self._t_name.text = dir_display
+        self._t_name.x = dir_x + 4
+        self._t_name.y = dir_y + 15
+        self._t_name.color = arcade.color.WHITE if self._video_dir_text else (120, 120, 120)
+        self._t_name.bold = False
+        self._t_name.draw()
+        self._t_name.bold = True
+
+        # Fullscreen requirement notice
+        if not audio.fullscreen:
+            self._t_cost.text = "Fullscreen required for video"
+            self._t_cost.x = cx
+            self._t_cost.y = py + MENU_H // 2
+            self._t_cost.color = (200, 80, 80)
+            self._t_cost.anchor_x = "center"
+            self._t_cost.draw()
+            self._t_cost.anchor_x = "left"
+        else:
+            # Video file list
+            list_y_start = dir_y - 40
+            item_h = 28
+            max_visible = 8
+            if not self._video_files:
+                self._t_cost.text = "No video files found"
+                self._t_cost.x = cx
+                self._t_cost.y = list_y_start
+                self._t_cost.color = (160, 160, 160)
+                self._t_cost.anchor_x = "center"
+                self._t_cost.draw()
+                self._t_cost.anchor_x = "left"
+            else:
+                for i in range(min(max_visible, len(self._video_files) - self._video_scroll)):
+                    idx = self._video_scroll + i
+                    fname = self._video_files[idx]
+                    iy = list_y_start - i * item_h
+                    is_selected = (fname == audio.video_file)
+                    fill = (50, 70, 100, 220) if is_selected else (30, 30, 50, 180)
+                    arcade.draw_rect_filled(
+                        arcade.LBWH(px + 10, iy, MENU_W - 20, item_h - 2), fill,
+                    )
+                    display_name = fname if len(fname) <= 28 else fname[:25] + "..."
+                    self._t_name.text = display_name
+                    self._t_name.x = px + 16
+                    self._t_name.y = iy + item_h // 2
+                    self._t_name.color = arcade.color.CYAN if is_selected else arcade.color.WHITE
+                    self._t_name.bold = is_selected
+                    self._t_name.draw()
+
+        # Stop Video button
+        stop_y = py + 50
+        abx = px + (MENU_W - MENU_BTN_W) // 2
+        arcade.draw_rect_filled(
+            arcade.LBWH(abx, stop_y, MENU_BTN_W, MENU_BTN_H),
+            (60, 30, 30, 220),
+        )
+        arcade.draw_rect_outline(
+            arcade.LBWH(abx, stop_y, MENU_BTN_W, MENU_BTN_H),
+            (180, 60, 60), border_width=1,
+        )
+        self._t_apply_windowed.text = "Stop Video"
+        self._t_apply_windowed.x = abx + MENU_BTN_W // 2
+        self._t_apply_windowed.y = stop_y + MENU_BTN_H // 2
+        self._t_apply_windowed.draw()
+        self._t_apply_windowed.text = "Apply Windowed"
 
         # Back button
         bx, by, bw, bh = self._back_rect

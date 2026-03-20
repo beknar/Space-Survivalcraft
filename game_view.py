@@ -64,6 +64,7 @@ from collisions import (
     handle_ship_building_collision,
 )
 from station_info import StationInfo
+from video_player import VideoPlayer
 
 _SAVE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "saves")
 
@@ -201,12 +202,17 @@ class GameView(arcade.View):
         self._contrail_end_colour: tuple[int, int, int] = colours[1]
 
         # Escape menu
+        # Video player
+        self._video_player = VideoPlayer()
+
         self._escape_menu = EscapeMenu(
             save_fn=self._save_game,
             load_fn=self._load_game,
             main_menu_fn=self._return_to_menu,
             save_dir=_SAVE_DIR,
             resolution_fn=self._change_resolution,
+            video_play_fn=self._play_video,
+            video_stop_fn=self._stop_video,
         )
 
         # Death screen
@@ -236,6 +242,17 @@ class GameView(arcade.View):
         if self._music_player is not None:
             arcade.stop_sound(self._music_player)
             self._music_player = None
+
+    def _play_video(self, filepath: str) -> None:
+        """Start video playback, replacing the music track."""
+        self._stop_music()
+        self._video_player.play(filepath, volume=audio.music_volume)
+
+    def _stop_video(self) -> None:
+        """Stop video playback and resume music."""
+        self._video_player.stop()
+        if self._music_tracks:
+            self._play_next_track()
 
     # ── Helpers ──────────────────────────────────────────────────────────────
     @property
@@ -858,10 +875,20 @@ class GameView(arcade.View):
                 player_x=self.player.center_x,
                 player_y=self.player.center_y,
                 player_heading=self.player.heading,
-                track_name=self._current_track_name,
+                track_name=(self._video_player.track_name
+                            if self._video_player.active
+                            else self._current_track_name),
                 building_list=self.building_list,
                 fog_grid=self._fog_grid,
             )
+            # Video frame in status panel (above mini-map)
+            if self._video_player.active and audio.fullscreen:
+                from constants import STATUS_WIDTH, MINIMAP_Y, MINIMAP_H
+                vid_size = STATUS_WIDTH - 20
+                vid_x = 10
+                vid_y = MINIMAP_Y + MINIMAP_H + 20
+                self._video_player.draw_in_hud(vid_x, vid_y, vid_size)
+
             self.inventory.draw()
             self._build_menu.draw(
                 iron=self.inventory.iron,
@@ -897,11 +924,15 @@ class GameView(arcade.View):
         # ── Smoothed FPS ────────────────────────────────────────────────────
         self._hud.update_fps(delta_time)
 
-        # ── Background music: sync volume + advance to next track ─────────
-        if self._music_player is not None:
-            self._music_player.volume = audio.music_volume
-            if not self._music_player.playing:
-                self._play_next_track()
+        # ── Video player update ────────────────────────────────────────────
+        if self._video_player.active:
+            self._video_player.update(audio.music_volume)
+        else:
+            # ── Background music: sync volume + advance to next track ─────
+            if self._music_player is not None:
+                self._music_player.volume = audio.music_volume
+                if not self._music_player.playing:
+                    self._play_next_track()
 
         # ── Escape menu tick ──────────────────────────────────────────────
         self._escape_menu.update(delta_time)

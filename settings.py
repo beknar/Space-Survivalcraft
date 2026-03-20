@@ -21,6 +21,8 @@ class AudioSettings:
         self.screen_height: int = 800
         self.fullscreen: bool = False
         self.display_mode: str = DISPLAY_WINDOWED
+        self.video_dir: str = ""           # directory containing video files
+        self.video_file: str = ""          # currently selected video filename
 
 
 # Module-level instance used everywhere

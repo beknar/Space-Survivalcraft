@@ -106,8 +106,9 @@ A top-down space survival game built with Python and the Arcade framework. Pilot
 ### Escape Menu
 - Press ESC to open the menu overlay (gameplay continues)
 - **Music and SFX volume sliders** --- draggable with percentage display
-- **Resolution** selector with windowed and fullscreen options (6 presets: 1280x800 to 3840x2160)
-- **Resume** / **Save Game** / **Load Game** / **Resolution** / **Main Menu** / **Exit Game**
+- **Resolution** selector with windowed, fullscreen, and borderless options (6 presets: 1280x800 to 3840x2160)
+- **Video** player --- configure a video folder, pick files, plays in the HUD (fullscreen only, requires FFmpeg)
+- **Resume** / **Save Game** / **Load Game** / **Resolution** / **Video** / **Main Menu** / **Exit Game**
 - 10 save slots with a naming overlay (max 24 characters, blinking cursor)
 - ESC in sub-menus navigates back; ESC in main menu closes overlay
 
