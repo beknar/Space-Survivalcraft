@@ -443,6 +443,20 @@ The left-side panel (213 px wide) displays:
 | FPS counter | Smoothed exponential moving average (toggle with F) |
 | Mini-map | Full world overview (193 x 193 px) |
 
+### Equalizer Visualizer
+
+When background music is playing (and no video is active), a 16-bar equalizer animation is displayed below the track name in the status panel.
+
+| Property | Value |
+|---|---|
+| Bar count | 16 |
+| Bar width | 8 px, gap 3 px |
+| Max bar height | 40 px |
+| Colour palette | 8 colours (cyan → blue → purple → magenta → red → orange → yellow), interpolated per bar |
+| Cascade | Colours sweep left-to-right or right-to-left, reversing direction randomly every 2-5 s |
+| Animation | Each bar oscillates at its own random frequency/phase; fast rise, slow fall smoothing |
+| Volume response | Bar heights scale with the music volume setting |
+
 ### Mini-map Legend
 - **Grey dots** — asteroids
 - **Orange dots** — iron pickups
