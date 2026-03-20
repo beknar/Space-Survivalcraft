@@ -1024,15 +1024,17 @@ class GameView(arcade.View):
         # ── Fog of war ──────────────────────────────────────────────────────
         self._update_fog()
 
-        # ── Movement input ──────────────────────────────────────────────────
-        rl = arcade.key.LEFT in self._keys or arcade.key.A in self._keys
-        rr = arcade.key.RIGHT in self._keys or arcade.key.D in self._keys
-        tf = arcade.key.UP in self._keys or arcade.key.W in self._keys
-        tb = arcade.key.DOWN in self._keys or arcade.key.S in self._keys
+        # ── Movement input (suppressed while escape menu is open) ──────────
+        if self._escape_menu.open:
+            rl = rr = tf = tb = fire = False
+        else:
+            rl = arcade.key.LEFT in self._keys or arcade.key.A in self._keys
+            rr = arcade.key.RIGHT in self._keys or arcade.key.D in self._keys
+            tf = arcade.key.UP in self._keys or arcade.key.W in self._keys
+            tb = arcade.key.DOWN in self._keys or arcade.key.S in self._keys
+            fire = arcade.key.SPACE in self._keys
 
-        fire = arcade.key.SPACE in self._keys
-
-        if self.joystick:
+        if self.joystick and not self._escape_menu.open:
             lx = self.joystick.leftx
             ly = self.joystick.lefty
             rl |= lx < -DEAD_ZONE
