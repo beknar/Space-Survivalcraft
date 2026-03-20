@@ -482,12 +482,16 @@ class EscapeMenu:
         elif self._mode == self.MODE_VIDEO:
             self._recalc_main_layout()
             px, py = self._main_px, self._main_py
-            # Back button
-            if self._point_in_rect(x, y, self._back_rect):
+            # Back button (bottom of the menu panel)
+            back_y = py + 12
+            back_x = px + (MENU_W - MENU_BTN_W) // 2
+            if (back_x <= x <= back_x + MENU_BTN_W
+                    and back_y <= y <= back_y + 35):
+                self._video_editing_dir = False
                 self._mode = self.MODE_MAIN
                 self._hover_idx = -1
                 return
-            # Set Directory button
+            # Set Directory bar
             set_dir_y = py + MENU_H - 70
             set_dir_x = px + 10
             set_dir_w = MENU_W - 20
@@ -882,8 +886,10 @@ class EscapeMenu:
         self._t_apply_windowed.draw()
         self._t_apply_windowed.text = "Apply Windowed"
 
-        # Back button
-        bx, by, bw, bh = self._back_rect
+        # Back button (at bottom of menu panel)
+        bx = px + (MENU_W - MENU_BTN_W) // 2
+        by = py + 12
+        bw, bh = MENU_BTN_W, 35
         arcade.draw_rect_filled(arcade.LBWH(bx, by, bw, bh), (40, 40, 70, 220))
         arcade.draw_rect_outline(
             arcade.LBWH(bx, by, bw, bh), arcade.color.STEEL_BLUE, border_width=1,

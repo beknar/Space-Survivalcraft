@@ -233,6 +233,8 @@ class GameView(arcade.View):
         """Start the next track in the shuffled playlist, wrapping around."""
         if not self._music_tracks:
             return
+        # Stop any currently playing track first to prevent overlapping audio
+        self._stop_music()
         track, name = self._music_tracks[self._music_idx]
         self._current_track_name = name
         self._music_player = arcade.play_sound(track, volume=audio.music_volume)
