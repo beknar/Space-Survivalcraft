@@ -260,12 +260,10 @@ class GameView(arcade.View):
                 self._play_next_track()
 
     def _stop_video(self) -> None:
-        """Stop video playback and resume music."""
+        """Stop video playback without resuming music."""
         if not self._video_player.active:
             return
         self._video_player.stop()
-        if self._music_tracks:
-            self._play_next_track()
 
     def _stop_song(self) -> None:
         """Stop the current background music track."""
