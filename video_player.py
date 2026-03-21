@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 import sys
+import time as _time
 from typing import Optional
 
 import arcade
@@ -189,10 +190,33 @@ class VideoPlayer:
         if self._player is None or not self.active:
             return None
         try:
+            t0 = _time.perf_counter()
             self._player.update_texture()
-            return self._player.texture
+            t1 = _time.perf_counter()
+            tex = self._player.texture
+            t2 = _time.perf_counter()
+            # Log timing every 300 frames (~5s at 60fps)
+            self._perf_frame = getattr(self, '_perf_frame', 0) + 1
+            self._perf_update_sum = getattr(self, '_perf_update_sum', 0.0) + (t1 - t0)
+            self._perf_prop_sum = getattr(self, '_perf_prop_sum', 0.0) + (t2 - t1)
+            if self._perf_frame % 300 == 0:
+                avg_update = self._perf_update_sum / 300 * 1000
+                avg_prop = self._perf_prop_sum / 300 * 1000
+                import gc
+                gc_counts = gc.get_count()
+                import tracemalloc
+                if not tracemalloc.is_tracing():
+                    tracemalloc.start()
+                mem_cur, mem_peak = tracemalloc.get_traced_memory()
+                print(f"[VideoPerf] frame={self._perf_frame} "
+                      f"update_tex={avg_update:.2f}ms prop={avg_prop:.2f}ms "
+                      f"mem={mem_cur/1024/1024:.1f}MB peak={mem_peak/1024/1024:.1f}MB "
+                      f"gc={gc_counts}")
+                self._perf_update_sum = 0.0
+                self._perf_prop_sum = 0.0
+            return tex
         except RuntimeError:
-            return None  # pyglet clock reentrancy — skip this frame
+            return None
         except Exception:
             return None
 
@@ -228,16 +252,40 @@ class VideoPlayer:
             self._last_video_time = current_time
             try:
                 from PIL import Image as PILImage
+                t_a = _time.perf_counter()
                 img_data = pyglet_tex.get_image_data()
+                t_b = _time.perf_counter()
                 raw = img_data.get_data("RGBA", img_data.width * 4)
+                t_c = _time.perf_counter()
                 pil_img = PILImage.frombytes(
                     "RGBA", (img_data.width, img_data.height), raw,
                 )
+                t_d = _time.perf_counter()
                 # Downscale to max 200px wide for HUD display
                 if pil_img.width > 200:
                     ratio = 200 / pil_img.width
                     new_h = int(pil_img.height * ratio)
                     pil_img = pil_img.resize((200, new_h), PILImage.NEAREST)
+                t_e = _time.perf_counter()
+
+                # Log PIL conversion timing every 30 conversions (~1s)
+                self._pil_frame = getattr(self, '_pil_frame', 0) + 1
+                self._pil_getimg = getattr(self, '_pil_getimg', 0.0) + (t_b - t_a)
+                self._pil_getdata = getattr(self, '_pil_getdata', 0.0) + (t_c - t_b)
+                self._pil_frombytes = getattr(self, '_pil_frombytes', 0.0) + (t_d - t_c)
+                self._pil_resize = getattr(self, '_pil_resize', 0.0) + (t_e - t_d)
+                if self._pil_frame % 150 == 0:
+                    n = 150
+                    print(f"[VideoPIL] frame={self._pil_frame} "
+                          f"get_img={self._pil_getimg/n*1000:.2f}ms "
+                          f"get_data={self._pil_getdata/n*1000:.2f}ms "
+                          f"frombytes={self._pil_frombytes/n*1000:.2f}ms "
+                          f"resize={self._pil_resize/n*1000:.2f}ms "
+                          f"total={((self._pil_getimg+self._pil_getdata+self._pil_frombytes+self._pil_resize)/n*1000):.2f}ms")
+                    self._pil_getimg = 0.0
+                    self._pil_getdata = 0.0
+                    self._pil_frombytes = 0.0
+                    self._pil_resize = 0.0
 
                 if self._cached_arc_tex is None:
                     # First frame: create the one and only texture
