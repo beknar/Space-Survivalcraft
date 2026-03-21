@@ -900,6 +900,28 @@ class EscapeMenu:
                     self._t_vid_text.bold = is_selected
                     self._t_vid_text.draw()
 
+                # Scrollbar (only if list is longer than max_visible)
+                total = len(self._video_files)
+                if total > max_visible:
+                    sb_x = px + MENU_W - 16
+                    sb_h = max_visible * item_h
+                    sb_y = list_y_start - (max_visible - 1) * item_h
+                    # Track background
+                    arcade.draw_rect_filled(
+                        arcade.LBWH(sb_x, sb_y, 6, sb_h),
+                        (40, 40, 60, 180),
+                    )
+                    # Thumb
+                    max_scroll = total - max_visible
+                    thumb_frac = max_visible / total
+                    thumb_h = max(12, int(sb_h * thumb_frac))
+                    scroll_frac = self._video_scroll / max_scroll if max_scroll > 0 else 0.0
+                    thumb_y = sb_y + sb_h - thumb_h - int(scroll_frac * (sb_h - thumb_h))
+                    arcade.draw_rect_filled(
+                        arcade.LBWH(sb_x, thumb_y, 6, thumb_h),
+                        (120, 150, 200, 220),
+                    )
+
         # Stop Video button
         stop_y = py + 50
         abx = px + (MENU_W - MENU_BTN_W) // 2
