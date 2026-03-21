@@ -72,6 +72,7 @@ class VideoPlayer:
         self.error: str = ""  # last error message for UI display
         self._cached_arc_tex: Optional[arcade.Texture] = None
         self._last_video_time: float = -1.0
+        self._tex_id: int = 0  # incrementing ID for unique texture names
 
     @property
     def is_fullscreen(self) -> bool:
@@ -136,7 +137,17 @@ class VideoPlayer:
         """Stop playback and release resources."""
         if self._player is not None:
             try:
+                self._player.volume = 0.0
                 self._player.pause()
+            except Exception:
+                pass
+            try:
+                # Remove all queued sources to silence audio completely
+                while self._player.source:
+                    self._player.next_source()
+            except Exception:
+                pass
+            try:
                 self._player.delete()
             except Exception:
                 pass
@@ -144,14 +155,16 @@ class VideoPlayer:
         self._source = None
         self.active = False
         self._current_file = ""
-        # Free cached GL texture
+        # Free cached GL texture from atlas
         if self._cached_arc_tex is not None:
             try:
-                self._cached_arc_tex.remove_from_cache()
+                atlas = arcade.get_window().ctx.default_atlas
+                atlas.remove(self._cached_arc_tex)
             except Exception:
                 pass
             self._cached_arc_tex = None
         self._last_video_time = -1.0
+        self._tex_id: int = 0  # reset texture reuse counter
 
     def update(self, volume: float) -> None:
         """Sync volume and check if playback ended (loop)."""
@@ -193,7 +206,7 @@ class VideoPlayer:
 
         Maintains 16:9 aspect ratio.  Caches the arcade.Texture and only
         rebuilds it when the video time changes (new frame decoded).
-        Reuses a single texture name to prevent GL texture accumulation.
+        Uses a fixed texture name to prevent GL texture cache accumulation.
         """
         pyglet_tex = self.get_texture()
         if pyglet_tex is None:
@@ -205,7 +218,6 @@ class VideoPlayer:
             return
 
         # Only rebuild the arcade texture when a new video frame is available
-        # (videos are typically 24-30fps, no need to convert every game frame)
         try:
             current_time = self._player.time if self._player else 0.0
         except RuntimeError:
@@ -225,14 +237,18 @@ class VideoPlayer:
                     ratio = 200 / pil_img.width
                     new_h = int(pil_img.height * ratio)
                     pil_img = pil_img.resize((200, new_h), PILImage.NEAREST)
-                # Remove old texture from arcade's cache to free GL memory
+                # Remove old texture from the GL atlas to free VRAM
                 if self._cached_arc_tex is not None:
                     try:
-                        self._cached_arc_tex.remove_from_cache()
+                        atlas = arcade.get_window().ctx.default_atlas
+                        atlas.remove(self._cached_arc_tex)
                     except Exception:
                         pass
+                self._tex_id += 1
                 self._cached_arc_tex = arcade.Texture(
-                    pil_img, hit_box_algorithm=None,
+                    pil_img,
+                    hit_box_algorithm=None,
+                    hash=f"_vidframe_{self._tex_id}",
                 )
                 if not self._draw_ok_logged:
                     print(f"[VideoPlayer] First frame drawn OK ({img_data.width}x{img_data.height})")

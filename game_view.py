@@ -76,8 +76,10 @@ class GameView(arcade.View):
         self,
         faction: Optional[str] = None,
         ship_type: Optional[str] = None,
+        skip_music: bool = False,
     ) -> None:
         super().__init__()
+        self._skip_music = skip_music
 
         self._faction = faction
         self._ship_type = ship_type
@@ -229,7 +231,7 @@ class GameView(arcade.View):
         self._music_idx: int = 0
         self._music_player: Optional[arcade.sound.media.Player] = None
         self._current_track_name: str = ""
-        if self._music_tracks:
+        if self._music_tracks and not self._skip_music:
             self._play_next_track()
 
     # ── Music ──────────────────────────────────────────────────────────────
@@ -822,6 +824,11 @@ class GameView(arcade.View):
         """Change resolution mid-game: save state, resize, rebuild view."""
         from settings import apply_resolution
         data = self._save_to_dict()
+        # Remember video state before tearing down
+        video_was_active = self._video_player.active
+        video_file = getattr(self._video_player, '_current_file', "")
+        if video_was_active:
+            self._video_player.stop()
         if self._thruster_player is not None:
             arcade.stop_sound(self._thruster_player)
             self._thruster_player = None
@@ -830,8 +837,20 @@ class GameView(arcade.View):
         view = GameView(
             faction=data.get("faction"),
             ship_type=data.get("ship_type"),
+            skip_music=True,  # never auto-start music on resolution change
         )
         self._restore_state(view, data)
+        # Restart video if it was playing, otherwise restart music
+        if video_was_active and video_file:
+            video_dir = getattr(audio, 'video_dir', "")
+            if video_dir:
+                full_path = os.path.join(video_dir, video_file)
+                if os.path.isfile(full_path):
+                    view._video_player.play(full_path, volume=audio.music_volume)
+            if not view._video_player.active:
+                view._play_next_track()
+        else:
+            view._play_next_track()
         self.window.show_view(view)
 
     def _return_to_menu(self) -> None:

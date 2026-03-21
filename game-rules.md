@@ -519,7 +519,7 @@ Players can configure a directory containing video files to play in place of the
 | Display location | Status panel, above the mini-map, 16:9 aspect ratio |
 | Availability | Fullscreen or borderless mode required; Video button shows error in windowed mode |
 | FFmpeg DLLs | `avcodec-62.dll`, `avformat-62.dll`, `avutil-60.dll`, `swresample-6.dll`, `swscale-9.dll`, `avfilter-11.dll`, `avdevice-62.dll` (gitignored, ~220 MB) |
-| Performance | Video frame cached + downscaled to 200 px wide; PIL conversion only on new video frame (~24-30/s); old GL textures removed from cache to prevent VRAM accumulation; player.delete() called on stop |
+| Performance | Video frame cached + downscaled to 200 px wide; PIL conversion only on new video frame (~24-30/s); old GL textures removed from default atlas to prevent VRAM accumulation; volume zeroed + sources drained + player.delete() on stop |
 | Clock patch | `main.py` patches pyglet's `Clock.call_scheduled_functions` to handle FFmpeg scheduling conflicts with Arcade |
 
 ### Configuration
@@ -528,11 +528,13 @@ Players can configure a directory containing video files to play in place of the
 - Click the directory path bar to type a folder path, then press Enter
 - Available video files in the directory are listed below (scrollable with mouse wheel; scrollbar shown when list exceeds 8 items)
 - Click a video file to start playback (replaces background music)
-- Click **Stop Video** to stop playback and resume the music playlist (only acts when video is playing)
+- Click **Stop Video** to stop playback (only acts when video is playing; does not auto-start music)
 - Video loops automatically when it reaches the end
 - Volume is controlled by the Music volume slider
 - FFmpeg DLLs must be in the project root directory for video to work
 - If FFmpeg is not available, the UI shows an error message
+- Changing resolution preserves video playback state (video restarts automatically)
+- Changing resolution does not trigger background music if no music was playing
 
 ---
 
