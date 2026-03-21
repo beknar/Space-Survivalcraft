@@ -1112,13 +1112,13 @@ class EscapeMenu:
         """Release slider drag state."""
         self._slider_dragging = ""
 
-    def on_mouse_scroll(self, scroll_y: int) -> None:
+    def on_mouse_scroll(self, scroll_y: float) -> None:
         """Scroll the video file list."""
         if self._mode == self.MODE_VIDEO and self._video_files:
             max_visible = 8
             max_scroll = max(0, len(self._video_files) - max_visible)
-            self._video_scroll = max(0, min(max_scroll,
-                                            self._video_scroll - scroll_y))
+            self._video_scroll = int(max(0, min(max_scroll,
+                                                self._video_scroll - scroll_y)))
 
     # ── Helpers ───────────────────────────────────────────────────────
 
