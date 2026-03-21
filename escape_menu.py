@@ -434,6 +434,9 @@ class EscapeMenu:
                 self._mode = self.MODE_RESOLUTION
                 self._hover_idx = -1
             elif key == "video":
+                if not audio.fullscreen:
+                    self._flash_status("Fullscreen required for video")
+                    return
                 self._scan_videos()
                 self._mode = self.MODE_VIDEO
                 self._hover_idx = -1
