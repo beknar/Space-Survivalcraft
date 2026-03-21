@@ -204,9 +204,10 @@ class VideoPlayer:
     def draw_in_hud(self, x: float, y: float, max_w: float) -> None:
         """Draw the current video frame at (x, y) fitting within max_w.
 
-        Maintains 16:9 aspect ratio.  Caches the arcade.Texture and only
-        rebuilds it when the video time changes (new frame decoded).
-        Uses a fixed texture name to prevent GL texture cache accumulation.
+        Maintains 16:9 aspect ratio.  Creates ONE arcade.Texture on the
+        first frame, then updates its image data in-place on subsequent
+        frames via atlas.update_texture_image() — no new texture objects
+        are ever created, preventing VRAM and cache accumulation.
         """
         pyglet_tex = self.get_texture()
         if pyglet_tex is None:
@@ -217,7 +218,7 @@ class VideoPlayer:
                     print(f"[VideoPlayer] Player playing: {self._player.playing}, time: {self._player.time:.2f}")
             return
 
-        # Only rebuild the arcade texture when a new video frame is available
+        # Only update when a new video frame is available
         try:
             current_time = self._player.time if self._player else 0.0
         except RuntimeError:
@@ -237,22 +238,25 @@ class VideoPlayer:
                     ratio = 200 / pil_img.width
                     new_h = int(pil_img.height * ratio)
                     pil_img = pil_img.resize((200, new_h), PILImage.NEAREST)
-                # Remove old texture from the GL atlas to free VRAM
-                if self._cached_arc_tex is not None:
+
+                if self._cached_arc_tex is None:
+                    # First frame: create the one and only texture
+                    self._cached_arc_tex = arcade.Texture(
+                        pil_img,
+                        hit_box_algorithm=None,
+                        hash="_vidframe_singleton",
+                    )
+                    if not self._draw_ok_logged:
+                        print(f"[VideoPlayer] First frame drawn OK ({img_data.width}x{img_data.height})")
+                        self._draw_ok_logged = True
+                else:
+                    # Subsequent frames: update image data in-place
+                    self._cached_arc_tex.image = pil_img
                     try:
                         atlas = arcade.get_window().ctx.default_atlas
-                        atlas.remove(self._cached_arc_tex)
+                        atlas.update_texture_image(self._cached_arc_tex)
                     except Exception:
                         pass
-                self._tex_id += 1
-                self._cached_arc_tex = arcade.Texture(
-                    pil_img,
-                    hit_box_algorithm=None,
-                    hash=f"_vidframe_{self._tex_id}",
-                )
-                if not self._draw_ok_logged:
-                    print(f"[VideoPlayer] First frame drawn OK ({img_data.width}x{img_data.height})")
-                    self._draw_ok_logged = True
             except Exception as e:
                 if not self._draw_err_logged:
                     print(f"[VideoPlayer] Draw error: {type(e).__name__}: {e}")
