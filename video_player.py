@@ -76,7 +76,7 @@ class VideoPlayer:
         self._current_file: str = ""
         self.error: str = ""  # last error message for UI display
         self._cached_arc_tex: Optional[arcade.Texture] = None
-        self._last_tex_id: int = -1  # tracks which pyglet texture we last converted
+        self._last_video_time: float = -1.0  # tracks player.time to detect new frames
         self._draw_ok_logged: bool = False
         self._draw_err_logged: bool = False
         self._frame_count: int = 0
@@ -135,7 +135,7 @@ class VideoPlayer:
             self._frame_count = 0
             self._draw_ok_logged = False
             self._draw_err_logged = False
-            self._last_tex_id = -1
+            self._last_video_time = -1.0
             self._perf_converts = 0
             self._perf_skips = 0
             self._perf_timer = _time.perf_counter()
@@ -175,7 +175,7 @@ class VideoPlayer:
             except Exception:
                 pass
             self._cached_arc_tex = None
-        self._last_tex_id = -1
+        self._last_video_time = -1.0
         self._pil_buf = None
         self._pil_buf_size = (0, 0)
 
@@ -224,10 +224,14 @@ class VideoPlayer:
                         pass
             return
 
-        # Only convert when pyglet gives us a NEW texture object
-        tex_id = id(pyglet_tex)
-        if tex_id != self._last_tex_id or self._cached_arc_tex is None:
-            self._last_tex_id = tex_id
+        # Only convert when the player time has advanced (new video frame)
+        try:
+            current_time = self._player.time
+        except Exception:
+            current_time = self._last_video_time
+        new_frame = (current_time != self._last_video_time) or self._cached_arc_tex is None
+        if new_frame:
+            self._last_video_time = current_time
             self._perf_converts += 1
             try:
                 from PIL import Image as PILImage
