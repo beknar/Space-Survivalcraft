@@ -153,6 +153,7 @@ All ships start with both weapons. The Thunderbolt has 2 guns, so it gets 2x Bas
 - One asteroid respawns per cycle (timer resets after each spawn attempt)
 - Asteroids will not respawn within 300 px of any player-built station module
 - Same spawn constraints apply: min 400 px from world centre, 100 px from edges
+- Respawn effect: HitSpark flash + bump sound at the spawn location
 
 ### Iron Pickups
 
@@ -184,6 +185,7 @@ Pickups idle at their drop position until the ship's hull edge comes within 40 p
 - One alien respawns per cycle (timer resets after each spawn attempt)
 - Aliens will not respawn within 300 px of any player-built station module
 - Same spawn constraints apply: min 400 px from world centre, 100 px from edges
+- Respawn effect: HitSpark flash + bump sound at the spawn location
 
 **Iron Drop:**
 - When an alien ship is destroyed (by player or turret), it drops 5 iron ore at the destruction site

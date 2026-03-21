@@ -364,6 +364,8 @@ class GameView(arcade.View):
                              "assets", "Pixel Art Space", "Asteroid.png")
             )
             self.asteroid_list.append(IronAsteroid(asteroid_tex, ax, ay))
+            self.hit_sparks.append(HitSpark(ax, ay))
+            arcade.play_sound(self._bump_snd, volume=0.3)
             return
 
     def _try_respawn_aliens(self) -> None:
@@ -395,6 +397,8 @@ class GameView(arcade.View):
             self.alien_list.append(
                 SmallAlienShip(alien_ship_tex, alien_laser_tex, ax, ay)
             )
+            self.hit_sparks.append(HitSpark(ax, ay))
+            arcade.play_sound(self._bump_snd, volume=0.3)
             return
 
     def _trigger_shake(self) -> None:
