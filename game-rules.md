@@ -502,7 +502,7 @@ When background music is playing (and no video is active), a 16-bar equalizer an
 - Save slot detail line shows: faction, ship type, HP, shields, and module count (when > 0)
 - Status feedback messages displayed for 2 seconds
 - **Resolution** button opens a sub-mode with left/right preset selector plus three display mode buttons: Apply Windowed, Apply Fullscreen, and Borderless Windowed
-- **Video** button opens a sub-mode to configure a video directory, browse files (scrollable list), and play/stop video; works in all display modes
+- **Video** button requires fullscreen mode; shows error status message in windowed mode. Opens a sub-mode to configure a video directory, browse files (scrollable list with scrollbar), and play/stop video
 - Returning to Main Menu stops any playing video
 - ESC in sub-menus returns to main menu; ESC in main menu closes overlay
 
@@ -517,7 +517,7 @@ Players can configure a directory containing video files to play in place of the
 | Supported formats | MP4, AVI, WMV, M4V, 3GP, ASF, MKV, WebM, MOV, FLV, OGV |
 | Decoder | FFmpeg (required — bundled DLLs in project root; WMF cannot provide video textures) |
 | Display location | Status panel, above the mini-map, 16:9 aspect ratio |
-| Availability | Any display mode (windowed, fullscreen, borderless); file browsing works in all modes |
+| Availability | Fullscreen or borderless mode required; Video button shows error in windowed mode |
 | FFmpeg DLLs | `avcodec-62.dll`, `avformat-62.dll`, `avutil-60.dll`, `swresample-6.dll`, `swscale-9.dll`, `avfilter-11.dll`, `avdevice-62.dll` (gitignored, ~220 MB) |
 | Performance | Video frame cached + downscaled to 200 px wide; PIL conversion only on new video frame (~24-30/s), not every game frame |
 | Clock patch | `main.py` patches pyglet's `Clock.call_scheduled_functions` to handle FFmpeg scheduling conflicts with Arcade |
@@ -526,9 +526,9 @@ Players can configure a directory containing video files to play in place of the
 
 - Open the Escape Menu (ESC) and click **Video**
 - Click the directory path bar to type a folder path, then press Enter
-- Available video files in the directory are listed below
+- Available video files in the directory are listed below (scrollable with mouse wheel; scrollbar shown when list exceeds 8 items)
 - Click a video file to start playback (replaces background music)
-- Click **Stop Video** to stop playback and resume the music playlist
+- Click **Stop Video** to stop playback and resume the music playlist (only acts when video is playing)
 - Video loops automatically when it reaches the end
 - Volume is controlled by the Music volume slider
 - FFmpeg DLLs must be in the project root directory for video to work
