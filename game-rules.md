@@ -206,7 +206,7 @@ Pickups idle at their drop position until the ship's hull edge comes within 40 p
 - Picks a new waypoint each time it arrives within 8 px
 - Takes no hostile action
 
-**PURSUE state (triggered when player enters 500 px):**
+**PURSUE state (triggered when player enters 500 px, or player weapon fires within 200 px):**
 - Chases the player at 120 px/s
 - Fires laser bolts along its current heading every 1.5 s when player is within 500 px
 - Fire cooldown resets to 0 on first detection (immediate first shot)
@@ -495,12 +495,15 @@ When background music is playing (and no video is active), a 16-bar equalizer an
 - Semi-transparent dark overlay with centred panel (320 x 480 px)
 - Gameplay **continues** while the escape menu is open (does not pause)
 - **Audio sliders:** Music and SFX volume sliders (220 px wide) at the top of the panel, directly draggable with percentage display
-- **Buttons:** Resume, Save Game, Load Game, Main Menu, Exit Game
+- **Buttons:** Resume, Save Game, Load Game, Resolution, Video, Stop Song, Other Song, Main Menu, Exit Game
+- **Stop Song** stops the current background music track
+- **Other Song** skips to a random different track from the OST
 - 10 save slots with naming overlay (max 24 characters, blinking cursor)
 - Save slot detail line shows: faction, ship type, HP, shields, and module count (when > 0)
 - Status feedback messages displayed for 2 seconds
 - **Resolution** button opens a sub-mode with left/right preset selector plus three display mode buttons: Apply Windowed, Apply Fullscreen, and Borderless Windowed
-- **Video** button opens a sub-mode to configure a video directory, browse files, and play/stop video
+- **Video** button opens a sub-mode to configure a video directory, browse files (scrollable list), and play/stop video; works in all display modes
+- Returning to Main Menu stops any playing video
 - ESC in sub-menus returns to main menu; ESC in main menu closes overlay
 
 ---
@@ -514,9 +517,9 @@ Players can configure a directory containing video files to play in place of the
 | Supported formats | MP4, AVI, WMV, M4V, 3GP, ASF, MKV, WebM, MOV, FLV, OGV |
 | Decoder | FFmpeg (required — bundled DLLs in project root; WMF cannot provide video textures) |
 | Display location | Status panel, above the mini-map, 16:9 aspect ratio |
-| Availability | Any display mode (windowed, fullscreen, borderless) |
+| Availability | Any display mode (windowed, fullscreen, borderless); file browsing works in all modes |
 | FFmpeg DLLs | `avcodec-62.dll`, `avformat-62.dll`, `avutil-60.dll`, `swresample-6.dll`, `swscale-9.dll`, `avfilter-11.dll`, `avdevice-62.dll` (gitignored, ~220 MB) |
-| Performance | Video frame cached; PIL conversion only on new video frame (~24-30/s), not every game frame |
+| Performance | Video frame cached + downscaled to 200 px wide; PIL conversion only on new video frame (~24-30/s), not every game frame |
 | Clock patch | `main.py` patches pyglet's `Clock.call_scheduled_functions` to handle FFmpeg scheduling conflicts with Arcade |
 
 ### Configuration

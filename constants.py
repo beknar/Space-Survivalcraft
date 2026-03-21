@@ -203,6 +203,7 @@ ALIEN_SPEED: float = 120.0              # patrol / pursuit movement speed  px/s
 ALIEN_PATROL_RADIUS_MIN: float = 100.0  # minimum patrol-area radius  px
 ALIEN_PATROL_RADIUS_MAX: float = 150.0  # maximum patrol-area radius  px
 ALIEN_DETECT_DIST: float = 500.0        # player centre-to-centre px -> triggers pursuit
+ALIEN_AGGRO_RANGE: float = 200.0        # px — projectile near alien triggers pursuit
 ALIEN_LASER_DAMAGE: float = 10.0        # HP per alien laser hit
 ALIEN_LASER_RANGE: float = 500.0        # alien laser max range  px
 ALIEN_LASER_SPEED: float = 650.0        # alien laser projectile speed  px/s
@@ -248,7 +249,7 @@ MINIMAP_Y: int = MINIMAP_PAD + 16                  # 26 px from bottom; label si
 
 # ── Escape menu constants ─────────────────────────────────────────────────
 MENU_W: int = 320
-MENU_H: int = 540
+MENU_H: int = 650
 MENU_BTN_W: int = 240
 MENU_BTN_H: int = 40
 MENU_BTN_GAP: int = 16

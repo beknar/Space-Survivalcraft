@@ -210,6 +210,11 @@ class VideoPlayer:
                 pil_img = PILImage.frombytes(
                     "RGBA", (img_data.width, img_data.height), raw,
                 )
+                # Downscale to max 200px wide for HUD display (saves GPU/CPU at 4K)
+                if pil_img.width > 200:
+                    ratio = 200 / pil_img.width
+                    new_h = int(pil_img.height * ratio)
+                    pil_img = pil_img.resize((200, new_h), PILImage.NEAREST)
                 self._cached_arc_tex = arcade.Texture(pil_img)
                 if not self._draw_ok_logged:
                     print(f"[VideoPlayer] First frame drawn OK ({img_data.width}x{img_data.height})")

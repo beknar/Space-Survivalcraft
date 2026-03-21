@@ -11,12 +11,19 @@ from constants import (
     SHIP_COLLISION_DAMAGE, SHIP_COLLISION_COOLDOWN, SHIP_BOUNCE,
     ALIEN_BOUNCE, ALIEN_SPEED, ALIEN_COL_COOLDOWN,
     BUILDING_RADIUS, ALIEN_IRON_DROP,
-    BUILDING_TYPES,
+    BUILDING_TYPES, ALIEN_AGGRO_RANGE,
 )
 from sprites.explosion import HitSpark
 
 if TYPE_CHECKING:
     from game_view import GameView
+
+
+def _alert_nearby_aliens(gv: GameView, x: float, y: float) -> None:
+    """Alert all aliens within ALIEN_AGGRO_RANGE of (x, y) to pursue the player."""
+    for alien in gv.alien_list:
+        if math.hypot(alien.center_x - x, alien.center_y - y) <= ALIEN_AGGRO_RANGE:
+            alien.alert()
 
 
 def handle_projectile_hits(gv: GameView) -> None:
@@ -31,6 +38,7 @@ def handle_projectile_hits(gv: GameView) -> None:
             if hit_asteroids:
                 asteroid = hit_asteroids[0]
                 gv.hit_sparks.append(HitSpark(proj.center_x, proj.center_y))
+                _alert_nearby_aliens(gv, proj.center_x, proj.center_y)
                 proj.remove_from_sprite_lists()
                 consumed = True
                 asteroid.take_damage(int(proj.damage))
@@ -49,6 +57,7 @@ def handle_projectile_hits(gv: GameView) -> None:
                 alien = hit_aliens[0]
                 gv.hit_sparks.append(HitSpark(proj.center_x, proj.center_y))
                 gv._trigger_shake()
+                _alert_nearby_aliens(gv, proj.center_x, proj.center_y)
                 proj.remove_from_sprite_lists()
                 alien.take_damage(int(proj.damage))
                 if alien.hp <= 0:

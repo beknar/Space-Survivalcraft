@@ -214,6 +214,8 @@ class GameView(arcade.View):
             resolution_fn=self._change_resolution,
             video_play_fn=self._play_video,
             video_stop_fn=self._stop_video,
+            stop_song_fn=self._stop_song,
+            other_song_fn=self._other_song,
         )
 
         # Death screen
@@ -259,8 +261,27 @@ class GameView(arcade.View):
 
     def _stop_video(self) -> None:
         """Stop video playback and resume music."""
+        if not self._video_player.active:
+            return
         self._video_player.stop()
         if self._music_tracks:
+            self._play_next_track()
+
+    def _stop_song(self) -> None:
+        """Stop the current background music track."""
+        self._stop_music()
+        self._current_track_name = ""
+
+    def _other_song(self) -> None:
+        """Skip to a random different song from the OST."""
+        self._stop_music()
+        if self._music_tracks:
+            # Pick a random index different from current if possible
+            if len(self._music_tracks) > 1:
+                import random as _rng
+                old = self._music_idx
+                while self._music_idx == old:
+                    self._music_idx = _rng.randint(0, len(self._music_tracks) - 1)
             self._play_next_track()
 
     # ── Helpers ──────────────────────────────────────────────────────────────
@@ -809,6 +830,8 @@ class GameView(arcade.View):
 
     def _return_to_menu(self) -> None:
         """Return to the splash / title screen."""
+        # Stop video if playing
+        self._video_player.stop()
         # Stop sounds
         if self._thruster_player is not None:
             arcade.stop_sound(self._thruster_player)
@@ -1360,7 +1383,10 @@ class GameView(arcade.View):
     def on_mouse_scroll(
         self, x: int, y: int, scroll_x: int, scroll_y: int
     ) -> None:
-        """Mouse wheel rotates ghost sprite during placement."""
+        """Mouse wheel: rotates ghost during placement, scrolls escape menu lists."""
+        if self._escape_menu.open:
+            self._escape_menu.on_mouse_scroll(scroll_y)
+            return
         if self._ghost_sprite is not None and self._placing_building is not None:
             self._ghost_rotation = (self._ghost_rotation + scroll_y * 15.0) % 360.0
             self._ghost_sprite.angle = self._ghost_rotation

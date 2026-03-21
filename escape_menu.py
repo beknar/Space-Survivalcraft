@@ -34,13 +34,15 @@ class EscapeMenu:
     MAX_NAME_LEN = 24
 
     _MAIN_BUTTONS: list[tuple[str, str]] = [
-        ("resume",     "Resume"),
-        ("save",       "Save Game"),
-        ("load",       "Load Game"),
-        ("resolution", "Resolution"),
-        ("video",      "Video"),
-        ("main_menu",  "Main Menu"),
-        ("exit",       "Exit Game"),
+        ("resume",      "Resume"),
+        ("save",        "Save Game"),
+        ("load",        "Load Game"),
+        ("resolution",  "Resolution"),
+        ("video",       "Video"),
+        ("stop_song",   "Stop Song"),
+        ("other_song",  "Other Song"),
+        ("main_menu",   "Main Menu"),
+        ("exit",        "Exit Game"),
     ]
 
     def __init__(
@@ -52,6 +54,8 @@ class EscapeMenu:
         resolution_fn: Callable[[int, int, str], None] | None = None,
         video_play_fn: Callable[[str], None] | None = None,
         video_stop_fn: Callable[[], None] | None = None,
+        stop_song_fn: Callable[[], None] | None = None,
+        other_song_fn: Callable[[], None] | None = None,
     ) -> None:
         self.open: bool = False
         self._save_fn = save_fn
@@ -61,6 +65,8 @@ class EscapeMenu:
         self._resolution_fn = resolution_fn
         self._video_fn_play = video_play_fn
         self._video_fn_stop = video_stop_fn
+        self._stop_song_fn = stop_song_fn
+        self._other_song_fn = other_song_fn
 
         # Resolution selector state
         current_res = (audio.screen_width, audio.screen_height)
@@ -432,6 +438,12 @@ class EscapeMenu:
                 self._mode = self.MODE_VIDEO
                 self._hover_idx = -1
                 self._video_scroll = 0
+            elif key == "stop_song":
+                if self._stop_song_fn is not None:
+                    self._stop_song_fn()
+            elif key == "other_song":
+                if self._other_song_fn is not None:
+                    self._other_song_fn()
             elif key == "main_menu":
                 self.open = False
                 self._main_menu_fn()
@@ -500,13 +512,14 @@ class EscapeMenu:
                 self._video_editing_dir = True
                 self._video_dir_text = audio.video_dir
                 return
-            # Stop Video button
+            # Stop Video button — only acts when video is actually playing
             stop_y = py + 50
             abx = px + (MENU_W - MENU_BTN_W) // 2
             if (abx <= x <= abx + MENU_BTN_W
                     and stop_y <= y <= stop_y + MENU_BTN_H):
-                if self._video_fn_stop is not None:
+                if self._video_fn_stop is not None and audio.video_file:
                     self._video_fn_stop()
+                    audio.video_file = ""
                 return
             # Video file list items
             list_y_start = set_dir_y - 40
@@ -847,12 +860,6 @@ class EscapeMenu:
             self._t_vid_text.anchor_x = "center"
             self._t_vid_text.draw()
             self._t_vid_text.anchor_x = "left"
-        elif not audio.fullscreen:
-            self._t_vid_info.text = "Fullscreen required for video"
-            self._t_vid_info.x = cx
-            self._t_vid_info.y = py + MENU_H // 2
-            self._t_vid_info.color = (200, 80, 80)
-            self._t_vid_info.draw()
         else:
             # Show last error if any
             if self._video_fn_play and hasattr(self, '_last_video_error') and self._last_video_error:
@@ -1104,6 +1111,14 @@ class EscapeMenu:
     def on_mouse_release(self, x: int, y: int) -> None:
         """Release slider drag state."""
         self._slider_dragging = ""
+
+    def on_mouse_scroll(self, scroll_y: int) -> None:
+        """Scroll the video file list."""
+        if self._mode == self.MODE_VIDEO and self._video_files:
+            max_visible = 8
+            max_scroll = max(0, len(self._video_files) - max_visible)
+            self._video_scroll = max(0, min(max_scroll,
+                                            self._video_scroll - scroll_y))
 
     # ── Helpers ───────────────────────────────────────────────────────
 

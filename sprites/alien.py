@@ -142,6 +142,12 @@ class SmallAlienShip(arcade.Sprite):
 
         return steer_x, steer_y
 
+    def alert(self) -> None:
+        """Force this alien into PURSUE state (e.g. player fired nearby)."""
+        if self._state == self._STATE_PATROL:
+            self._state = self._STATE_PURSUE
+            self._fire_cd = 0.0
+
     def take_damage(self, amount: int) -> None:
         self.hp -= amount
         self._hit_timer = 0.15   # flash red for 0.15 s
