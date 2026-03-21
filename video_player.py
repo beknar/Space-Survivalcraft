@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import os
 import sys
-import time as _time
 from typing import Optional
 
 import arcade
@@ -83,10 +82,6 @@ class VideoPlayer:
         # Pre-allocated PIL buffer for frame conversion (avoids GC pressure)
         self._pil_buf: Optional[object] = None  # PIL Image, reused
         self._pil_buf_size: tuple[int, int] = (0, 0)
-        # Performance tracking
-        self._perf_converts: int = 0
-        self._perf_skips: int = 0
-        self._perf_timer: float = 0.0
 
     @property
     def is_fullscreen(self) -> bool:
@@ -136,9 +131,6 @@ class VideoPlayer:
             self._draw_ok_logged = False
             self._draw_err_logged = False
             self._last_video_time = -1.0
-            self._perf_converts = 0
-            self._perf_skips = 0
-            self._perf_timer = _time.perf_counter()
             return True
         except Exception as e:
             self.error = str(e)
@@ -232,7 +224,6 @@ class VideoPlayer:
         new_frame = (current_time != self._last_video_time) or self._cached_arc_tex is None
         if new_frame:
             self._last_video_time = current_time
-            self._perf_converts += 1
             try:
                 from PIL import Image as PILImage
                 img_data = pyglet_tex.get_image_data()
@@ -275,20 +266,6 @@ class VideoPlayer:
                     print(f"[VideoPlayer] Draw error: {type(e).__name__}: {e}")
                     self._draw_err_logged = True
                 return
-        else:
-            self._perf_skips += 1
-
-        # Log performance every 10 seconds
-        now = _time.perf_counter()
-        if now - self._perf_timer >= 10.0:
-            total = self._perf_converts + self._perf_skips
-            if total > 0:
-                print(f"[VideoPerf] 10s: converts={self._perf_converts} "
-                      f"skips={self._perf_skips} "
-                      f"ratio={self._perf_skips/total*100:.0f}% skipped")
-            self._perf_converts = 0
-            self._perf_skips = 0
-            self._perf_timer = now
 
         if self._cached_arc_tex is not None:
             draw_w = int(max_w)
