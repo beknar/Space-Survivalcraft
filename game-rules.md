@@ -493,18 +493,17 @@ When background music is playing (and no video is active), a 16-bar equalizer an
 - Semi-transparent dark overlay with centred panel (320 x 480 px)
 - Gameplay **continues** while the escape menu is open (does not pause)
 - **Audio sliders:** Music and SFX volume sliders (220 px wide) at the top of the panel, directly draggable with percentage display
-- **Buttons:** Resume, Save Game, Load Game, Resolution, Video, Config, Stop Song, Other Song, Help, Main Menu, Exit Game
-- **Stop Song** stops the current background music track
-- **Other Song** skips to a random different track from the OST
+- **Buttons:** Resume, Save Game, Load Game, Video Properties, Help, Songs, Main Menu
 - 10 save slots with naming overlay (max 24 characters, blinking cursor)
 - Save slot detail line shows: faction, ship type, HP, shields, and module count (when > 0)
 - Status feedback messages displayed for 2 seconds
-- **Resolution** button opens a sub-mode with left/right preset selector plus three display mode buttons: Apply Windowed, Apply Fullscreen, and Borderless Windowed
-- **Video** button requires fullscreen mode; shows error status message in windowed mode. Opens a sub-mode to configure a video directory, browse files (scrollable list with scrollbar), and play/stop video
-- **Config** button opens a configuration sub-mode: video directory path, FPS toggle, music/SFX volume sliders. Save Config persists settings to `config.json` (loaded at startup)
+- **Video Properties** opens a sub-mode with resolution selector (left/right preset arrows) plus display mode buttons: Apply Windowed, Apply Fullscreen, Borderless Windowed
 - **Help** button shows keyboard and gamepad controls in a sub-mode panel
+- **Songs** button opens a sub-mode with two sections:
+  - **OST Songs**: Stop Song (stops current music) and Other Song (random OST skip)
+  - **Music Videos**: opens the video browser (requires fullscreen). Configure video directory, browse files (scrollable with scrollbar), play/stop video
 - Returning to Main Menu stops any playing video
-- ESC in sub-menus returns to main menu; ESC in main menu closes overlay
+- ESC in sub-menus returns to parent; ESC in main menu closes overlay
 
 ---
 

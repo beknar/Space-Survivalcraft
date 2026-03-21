@@ -33,21 +33,19 @@ class EscapeMenu:
     MODE_VIDEO = 5
     MODE_HELP = 6
     MODE_CONFIG = 7
+    MODE_VIDEO_PROPS = 8
+    MODE_SONGS = 9
 
     MAX_NAME_LEN = 24
 
     _MAIN_BUTTONS: list[tuple[str, str]] = [
-        ("resume",      "Resume"),
-        ("save",        "Save Game"),
-        ("load",        "Load Game"),
-        ("resolution",  "Resolution"),
-        ("video",       "Video"),
-        ("config",      "Config"),
-        ("stop_song",   "Stop Song"),
-        ("other_song",  "Other Song"),
-        ("help",        "Help"),
-        ("main_menu",   "Main Menu"),
-        ("exit",        "Exit Game"),
+        ("resume",       "Resume"),
+        ("save",         "Save Game"),
+        ("load",         "Load Game"),
+        ("video_props",  "Video Properties"),
+        ("help",         "Help"),
+        ("songs",        "Songs"),
+        ("main_menu",    "Main Menu"),
     ]
 
     def __init__(
@@ -99,6 +97,10 @@ class EscapeMenu:
         # ── Video picker state ─────────────────────────────────────────
         self._video_files: list[str] = []
         self._video_scroll: int = 0
+        # Songs sub-mode button rects (computed during draw)
+        self._songs_stop_rect: tuple = (0, 0, 0, 0)
+        self._songs_other_rect: tuple = (0, 0, 0, 0)
+        self._songs_video_rect: tuple = (0, 0, 0, 0)
         self._video_dir_text: str = audio.video_dir
         self._video_editing_dir: bool = False
 
@@ -453,36 +455,18 @@ class EscapeMenu:
                 self._refresh_slots()
                 self._mode = self.MODE_LOAD
                 self._hover_idx = -1
-            elif key == "resolution":
+            elif key == "video_props":
                 self._mode = self.MODE_RESOLUTION
-                self._hover_idx = -1
-            elif key == "video":
-                if not audio.fullscreen:
-                    self._flash_status("Fullscreen required for video")
-                    return
-                self._scan_videos()
-                self._mode = self.MODE_VIDEO
-                self._hover_idx = -1
-                self._video_scroll = 0
-            elif key == "config":
-                self._config_editing_dir = False
-                self._config_dir_text = audio.video_dir
-                self._mode = self.MODE_CONFIG
                 self._hover_idx = -1
             elif key == "help":
                 self._mode = self.MODE_HELP
                 self._hover_idx = -1
-            elif key == "stop_song":
-                if self._stop_song_fn is not None:
-                    self._stop_song_fn()
-            elif key == "other_song":
-                if self._other_song_fn is not None:
-                    self._other_song_fn()
+            elif key == "songs":
+                self._mode = self.MODE_SONGS
+                self._hover_idx = -1
             elif key == "main_menu":
                 self.open = False
                 self._main_menu_fn()
-            elif key == "exit":
-                arcade.exit()
 
         elif self._mode == self.MODE_RESOLUTION:
             self._recalc_main_layout()
@@ -534,7 +518,7 @@ class EscapeMenu:
             if (back_x <= x <= back_x + MENU_BTN_W
                     and back_y <= y <= back_y + 35):
                 self._video_editing_dir = False
-                self._mode = self.MODE_MAIN
+                self._mode = self.MODE_SONGS
                 self._hover_idx = -1
                 return
             # Set Directory bar
@@ -631,6 +615,37 @@ class EscapeMenu:
                 self._hover_idx = -1
                 return
 
+        elif self._mode == self.MODE_SONGS:
+            self._recalc_main_layout()
+            px, py = self._main_px, self._main_py
+            # Back button
+            bx = px + (MENU_W - MENU_BTN_W) // 2
+            by = py + 12
+            if bx <= x <= bx + MENU_BTN_W and by <= y <= by + 35:
+                self._mode = self.MODE_MAIN
+                self._hover_idx = -1
+                return
+            # Stop Song button
+            if self._point_in_rect(x, y, self._songs_stop_rect):
+                if self._stop_song_fn is not None:
+                    self._stop_song_fn()
+                return
+            # Other Song button
+            if self._point_in_rect(x, y, self._songs_other_rect):
+                if self._other_song_fn is not None:
+                    self._other_song_fn()
+                return
+            # Music Videos button
+            if self._point_in_rect(x, y, self._songs_video_rect):
+                if not audio.fullscreen:
+                    self._flash_status("Fullscreen required for video")
+                    return
+                self._scan_videos()
+                self._mode = self.MODE_VIDEO
+                self._hover_idx = -1
+                self._video_scroll = 0
+                return
+
         elif self._mode == self.MODE_SAVE:
             if self._point_in_rect(x, y, self._back_rect):
                 self._mode = self.MODE_MAIN
@@ -682,7 +697,7 @@ class EscapeMenu:
         elif self._mode == self.MODE_VIDEO:
             if key == arcade.key.ESCAPE:
                 self._video_editing_dir = False
-                self._mode = self.MODE_MAIN
+                self._mode = self.MODE_SONGS
                 self._hover_idx = -1
             elif self._video_editing_dir:
                 if key == arcade.key.BACKSPACE:
@@ -701,7 +716,7 @@ class EscapeMenu:
                     self._config_dir_text = self._config_dir_text[:-1]
                 elif key in (arcade.key.RETURN, arcade.key.ENTER):
                     self._config_editing_dir = False
-        elif self._mode in (self.MODE_HELP,):
+        elif self._mode in (self.MODE_HELP, self.MODE_SONGS):
             if key == arcade.key.ESCAPE:
                 self._mode = self.MODE_MAIN
                 self._hover_idx = -1
@@ -749,6 +764,8 @@ class EscapeMenu:
             self._draw_config()
         elif self._mode == self.MODE_HELP:
             self._draw_help()
+        elif self._mode == self.MODE_SONGS:
+            self._draw_songs()
         elif self._mode in (self.MODE_SAVE, self.MODE_LOAD, self.MODE_NAMING):
             self._draw_save_load()
             if self._mode == self.MODE_NAMING:
@@ -1317,6 +1334,112 @@ class EscapeMenu:
         arcade.draw_rect_outline(
             arcade.LBWH(bx, by, bw, bh), arcade.color.STEEL_BLUE, border_width=1,
         )
+        self._t_res_back.x = bx + bw // 2
+        self._t_res_back.y = by + bh // 2
+        self._t_res_back.draw()
+
+    def _draw_songs(self) -> None:
+        """Draw the Songs sub-mode: OST Songs + Music Videos sections."""
+        self._recalc_main_layout()
+        px, py = self._main_px, self._main_py
+        cx = px + MENU_W // 2
+
+        arcade.draw_rect_filled(
+            arcade.LBWH(px, py, MENU_W, MENU_H),
+            (20, 20, 50, 240),
+        )
+        arcade.draw_rect_outline(
+            arcade.LBWH(px, py, MENU_W, MENU_H),
+            arcade.color.STEEL_BLUE, border_width=2,
+        )
+
+        # Title
+        self._t_res_title.text = "SONGS"
+        self._t_res_title.x = cx
+        self._t_res_title.y = py + MENU_H - 30
+        self._t_res_title.draw()
+
+        abx = px + (MENU_W - MENU_BTN_W) // 2
+        cur_y = py + MENU_H - 70
+
+        # ── OST Songs section ──
+        self._t_vid_text.bold = True
+        self._t_vid_text.text = "OST Songs"
+        self._t_vid_text.x = cx
+        self._t_vid_text.y = cur_y
+        self._t_vid_text.color = arcade.color.LIGHT_BLUE
+        self._t_vid_text.anchor_x = "center"
+        self._t_vid_text.draw()
+        self._t_vid_text.anchor_x = "left"
+        cur_y -= 40
+
+        # Stop Song button
+        self._songs_stop_rect = (abx, cur_y, MENU_BTN_W, MENU_BTN_H)
+        arcade.draw_rect_filled(
+            arcade.LBWH(abx, cur_y, MENU_BTN_W, MENU_BTN_H),
+            (50, 40, 40, 220),
+        )
+        arcade.draw_rect_outline(
+            arcade.LBWH(abx, cur_y, MENU_BTN_W, MENU_BTN_H),
+            arcade.color.STEEL_BLUE, border_width=1,
+        )
+        self._t_res_back.text = "Stop Song"
+        self._t_res_back.x = abx + MENU_BTN_W // 2
+        self._t_res_back.y = cur_y + MENU_BTN_H // 2
+        self._t_res_back.draw()
+        cur_y -= MENU_BTN_H + 10
+
+        # Other Song button
+        self._songs_other_rect = (abx, cur_y, MENU_BTN_W, MENU_BTN_H)
+        arcade.draw_rect_filled(
+            arcade.LBWH(abx, cur_y, MENU_BTN_W, MENU_BTN_H),
+            (30, 50, 40, 220),
+        )
+        arcade.draw_rect_outline(
+            arcade.LBWH(abx, cur_y, MENU_BTN_W, MENU_BTN_H),
+            arcade.color.STEEL_BLUE, border_width=1,
+        )
+        self._t_res_back.text = "Other Song"
+        self._t_res_back.x = abx + MENU_BTN_W // 2
+        self._t_res_back.y = cur_y + MENU_BTN_H // 2
+        self._t_res_back.draw()
+        cur_y -= MENU_BTN_H + 25
+
+        # ── Music Videos section ──
+        self._t_vid_text.bold = True
+        self._t_vid_text.text = "Music Videos"
+        self._t_vid_text.x = cx
+        self._t_vid_text.y = cur_y
+        self._t_vid_text.color = arcade.color.LIGHT_GREEN
+        self._t_vid_text.anchor_x = "center"
+        self._t_vid_text.draw()
+        self._t_vid_text.anchor_x = "left"
+        cur_y -= 40
+
+        # Music Videos button
+        self._songs_video_rect = (abx, cur_y, MENU_BTN_W, MENU_BTN_H)
+        arcade.draw_rect_filled(
+            arcade.LBWH(abx, cur_y, MENU_BTN_W, MENU_BTN_H),
+            (30, 40, 60, 220),
+        )
+        arcade.draw_rect_outline(
+            arcade.LBWH(abx, cur_y, MENU_BTN_W, MENU_BTN_H),
+            arcade.color.CYAN, border_width=1,
+        )
+        self._t_res_back.text = "Music Videos"
+        self._t_res_back.x = abx + MENU_BTN_W // 2
+        self._t_res_back.y = cur_y + MENU_BTN_H // 2
+        self._t_res_back.draw()
+
+        # Back button
+        bx = px + (MENU_W - MENU_BTN_W) // 2
+        by = py + 12
+        bw, bh = MENU_BTN_W, 35
+        arcade.draw_rect_filled(arcade.LBWH(bx, by, bw, bh), (40, 40, 70, 220))
+        arcade.draw_rect_outline(
+            arcade.LBWH(bx, by, bw, bh), arcade.color.STEEL_BLUE, border_width=1,
+        )
+        self._t_res_back.text = "Back"
         self._t_res_back.x = bx + bw // 2
         self._t_res_back.y = by + bh // 2
         self._t_res_back.draw()
