@@ -34,7 +34,9 @@ class OptionsView(arcade.View):
 
         self._dragging: str = ""  # "music", "sfx", or ""
         self._hover_back: bool = False
+        self._hover_help: bool = False
         self._hover_exit: bool = False
+        self._show_help: bool = False
         self._hover_res_left: bool = False
         self._hover_res_right: bool = False
         self._hover_fs: bool = False
@@ -66,9 +68,15 @@ class OptionsView(arcade.View):
             _BTN_W,
             _BTN_H,
         )
-        self._exit_rect = (
+        self._help_rect = (
             (sw - _BTN_W) // 2,
             sh // 2 - 180 - _BTN_H - 16,
+            _BTN_W,
+            _BTN_H,
+        )
+        self._exit_rect = (
+            (sw - _BTN_W) // 2,
+            sh // 2 - 180 - (_BTN_H + 16) * 2,
             _BTN_W,
             _BTN_H,
         )
@@ -128,6 +136,13 @@ class OptionsView(arcade.View):
             arcade.color.WHITE, 15, bold=True,
             anchor_x="center", anchor_y="center",
         )
+        hx, hy, hw, hh = self._help_rect
+        self._t_help = arcade.Text(
+            "Help",
+            hx + hw // 2, hy + hh // 2,
+            arcade.color.WHITE, 15, bold=True,
+            anchor_x="center", anchor_y="center",
+        )
         ex, ey, ew, eh = self._exit_rect
         self._t_exit = arcade.Text(
             "Exit Game",
@@ -135,6 +150,8 @@ class OptionsView(arcade.View):
             arcade.color.WHITE, 15, bold=True,
             anchor_x="center", anchor_y="center",
         )
+        # Help overlay text object (reusable)
+        self._t_help_line = arcade.Text("", 0, 0, arcade.color.WHITE, 11)
         # Resolution arrow text objects
         lx, ly, lw, lh = self._res_left_rect
         self._t_arrow_left = arcade.Text(
@@ -211,6 +228,19 @@ class OptionsView(arcade.View):
         )
         self._t_back.draw()
 
+        # Help button
+        hx, hy, hw, hh = self._help_rect
+        bg_h = (50, 80, 140, 255) if self._hover_help else (25, 35, 70, 230)
+        arcade.draw_rect_filled(arcade.LBWH(hx, hy, hw, hh), bg_h)
+        outline_h = arcade.color.CYAN if self._hover_help else arcade.color.STEEL_BLUE
+        arcade.draw_rect_outline(
+            arcade.LBWH(hx, hy, hw, hh), outline_h, border_width=2,
+        )
+        self._t_help.color = (
+            arcade.color.CYAN if self._hover_help else arcade.color.WHITE
+        )
+        self._t_help.draw()
+
         # Exit Game button
         ex, ey, ew, eh = self._exit_rect
         bg_e = (50, 80, 140, 255) if self._hover_exit else (25, 35, 70, 230)
@@ -223,6 +253,88 @@ class OptionsView(arcade.View):
             arcade.color.CYAN if self._hover_exit else arcade.color.WHITE
         )
         self._t_exit.draw()
+
+        # Help overlay
+        if self._show_help:
+            sw, sh = self.window.width, self.window.height
+            panel_w, panel_h = 340, 380
+            px = (sw - panel_w) // 2
+            py = (sh - panel_h) // 2
+            arcade.draw_rect_filled(
+                arcade.LBWH(px, py, panel_w, panel_h), (15, 15, 40, 240),
+            )
+            arcade.draw_rect_outline(
+                arcade.LBWH(px, py, panel_w, panel_h),
+                arcade.color.STEEL_BLUE, border_width=2,
+            )
+            cx = px + panel_w // 2
+            self._t_help_line.text = "CONTROLS"
+            self._t_help_line.x = cx
+            self._t_help_line.y = py + panel_h - 24
+            self._t_help_line.color = arcade.color.LIGHT_BLUE
+            self._t_help_line.bold = True
+            self._t_help_line.font_size = 14
+            self._t_help_line.anchor_x = "center"
+            self._t_help_line.draw()
+            self._t_help_line.font_size = 11
+            self._t_help_line.anchor_x = "left"
+
+            _HELP = [
+                ("L/R  or  A/D", "Rotate"),
+                ("Up   or  W", "Thrust"),
+                ("Down or  S", "Brake"),
+                ("Space", "Fire weapon"),
+                ("Tab", "Cycle weapon"),
+                ("I", "Inventory"),
+                ("B", "Build menu"),
+                ("T", "Station info"),
+                ("F", "Toggle FPS"),
+                ("ESC", "Menu"),
+                ("", ""),
+                ("GAMEPAD", ""),
+                ("Left stick", "Move / Rotate"),
+                ("A button", "Fire"),
+                ("RB", "Cycle weapon"),
+                ("Y button", "Inventory"),
+            ]
+            line_y = py + panel_h - 52
+            for key_text, action in _HELP:
+                if key_text == "GAMEPAD":
+                    self._t_help_line.text = "GAMEPAD"
+                    self._t_help_line.x = cx
+                    self._t_help_line.color = arcade.color.LIGHT_GREEN
+                    self._t_help_line.bold = True
+                    self._t_help_line.anchor_x = "center"
+                    self._t_help_line.y = line_y
+                    self._t_help_line.draw()
+                    self._t_help_line.anchor_x = "left"
+                    line_y -= 18
+                    continue
+                if not key_text:
+                    line_y -= 8
+                    continue
+                self._t_help_line.text = key_text
+                self._t_help_line.x = px + 20
+                self._t_help_line.y = line_y
+                self._t_help_line.color = (180, 180, 180)
+                self._t_help_line.bold = False
+                self._t_help_line.draw()
+                self._t_help_line.text = action
+                self._t_help_line.x = px + panel_w - 20
+                self._t_help_line.anchor_x = "right"
+                self._t_help_line.color = arcade.color.WHITE
+                self._t_help_line.draw()
+                self._t_help_line.anchor_x = "left"
+                line_y -= 18
+
+            # Close hint
+            self._t_help_line.text = "Click anywhere to close"
+            self._t_help_line.x = cx
+            self._t_help_line.y = py + 12
+            self._t_help_line.color = (120, 120, 120)
+            self._t_help_line.anchor_x = "center"
+            self._t_help_line.draw()
+            self._t_help_line.anchor_x = "left"
 
     def _draw_slider(self, y: int, value: float) -> None:
         """Draw a horizontal slider track + knob at the given y position."""
@@ -252,6 +364,8 @@ class OptionsView(arcade.View):
             return
         bx, by, bw, bh = self._back_rect
         self._hover_back = (bx <= x <= bx + bw and by <= y <= by + bh)
+        hx, hy, hw, hh = self._help_rect
+        self._hover_help = (hx <= x <= hx + hw and hy <= y <= hy + hh)
         ex, ey, ew, eh = self._exit_rect
         self._hover_exit = (ex <= x <= ex + ew and ey <= y <= ey + eh)
         lx, ly, lw, lh = self._res_left_rect
@@ -296,6 +410,15 @@ class OptionsView(arcade.View):
             w, h = RESOLUTION_PRESETS[self._res_idx]
             apply_resolution(self.window, w, h, display_mode=audio.display_mode)
             self.window.show_view(OptionsView())
+            return
+
+        # Help button / close help overlay
+        if self._show_help:
+            self._show_help = False
+            return
+        hx, hy, hw, hh = self._help_rect
+        if hx <= x <= hx + hw and hy <= y <= hy + hh:
+            self._show_help = True
             return
 
         # Back button

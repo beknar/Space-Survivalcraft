@@ -430,14 +430,10 @@ The left-side panel (213 px wide) displays:
 |---|---|
 | HP bar | Green > orange > red as HP falls; numerical value below |
 | Shield bar | Cyan bar; numerical value below |
-| Speed readout | Current velocity in px/s |
-| Heading readout | Current heading in degrees |
 | Iron count | Current iron ore in inventory |
 | Asteroid count | Number of iron asteroids remaining in the world |
 | Alien count | Number of alien ships remaining in the world |
 | Active weapon | Name of the selected weapon group |
-| Controls reference | Keyboard shortcut reminders |
-| Gamepad status | "Gamepad: connected" when detected |
 | Faction / Ship type | Current faction and ship labels |
 | Now Playing | Current music track name + equalizer visualizer |
 | FPS counter | Smoothed exponential moving average (toggle with F) |
@@ -479,7 +475,7 @@ When background music is playing (and no video is active), a 16-bar equalizer an
 - Sound Effects Volume slider (0-100%)
 - **Resolution selector**: left/right arrows cycling through presets (1280x800, 1366x768, 1600x900, 1920x1080, 2560x1440, 3840x2160)
 - **Display modes**: Windowed, Fullscreen, Borderless Windowed (toggleable)
-- **Buttons:** Main Menu, Exit Game
+- **Buttons:** Main Menu, Help, Exit Game
 - Settings stored in memory for current session (not persisted to disk)
 - All UI elements dynamically positioned using actual window pixel dimensions
 
@@ -495,7 +491,7 @@ When background music is playing (and no video is active), a 16-bar equalizer an
 - Semi-transparent dark overlay with centred panel (320 x 480 px)
 - Gameplay **continues** while the escape menu is open (does not pause)
 - **Audio sliders:** Music and SFX volume sliders (220 px wide) at the top of the panel, directly draggable with percentage display
-- **Buttons:** Resume, Save Game, Load Game, Resolution, Video, Stop Song, Other Song, Main Menu, Exit Game
+- **Buttons:** Resume, Save Game, Load Game, Resolution, Video, Stop Song, Other Song, Help, Main Menu, Exit Game
 - **Stop Song** stops the current background music track
 - **Other Song** skips to a random different track from the OST
 - 10 save slots with naming overlay (max 24 characters, blinking cursor)
@@ -503,6 +499,7 @@ When background music is playing (and no video is active), a 16-bar equalizer an
 - Status feedback messages displayed for 2 seconds
 - **Resolution** button opens a sub-mode with left/right preset selector plus three display mode buttons: Apply Windowed, Apply Fullscreen, and Borderless Windowed
 - **Video** button requires fullscreen mode; shows error status message in windowed mode. Opens a sub-mode to configure a video directory, browse files (scrollable list with scrollbar), and play/stop video
+- **Help** button shows keyboard and gamepad controls in a sub-mode panel
 - Returning to Main Menu stops any playing video
 - ESC in sub-menus returns to main menu; ESC in main menu closes overlay
 

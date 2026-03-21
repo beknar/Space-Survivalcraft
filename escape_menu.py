@@ -30,6 +30,7 @@ class EscapeMenu:
     MODE_NAMING = 3
     MODE_RESOLUTION = 4
     MODE_VIDEO = 5
+    MODE_HELP = 6
 
     MAX_NAME_LEN = 24
 
@@ -41,6 +42,7 @@ class EscapeMenu:
         ("video",       "Video"),
         ("stop_song",   "Stop Song"),
         ("other_song",  "Other Song"),
+        ("help",        "Help"),
         ("main_menu",   "Main Menu"),
         ("exit",        "Exit Game"),
     ]
@@ -441,6 +443,9 @@ class EscapeMenu:
                 self._mode = self.MODE_VIDEO
                 self._hover_idx = -1
                 self._video_scroll = 0
+            elif key == "help":
+                self._mode = self.MODE_HELP
+                self._hover_idx = -1
             elif key == "stop_song":
                 if self._stop_song_fn is not None:
                     self._stop_song_fn()
@@ -540,6 +545,17 @@ class EscapeMenu:
                         self._video_fn_play(fpath)
                     return
 
+        elif self._mode == self.MODE_HELP:
+            self._recalc_main_layout()
+            px, py = self._main_px, self._main_py
+            # Back button
+            bx = px + (MENU_W - MENU_BTN_W) // 2
+            by = py + 12
+            if bx <= x <= bx + MENU_BTN_W and by <= y <= by + 35:
+                self._mode = self.MODE_MAIN
+                self._hover_idx = -1
+                return
+
         elif self._mode == self.MODE_SAVE:
             if self._point_in_rect(x, y, self._back_rect):
                 self._mode = self.MODE_MAIN
@@ -635,6 +651,8 @@ class EscapeMenu:
             self._draw_resolution()
         elif self._mode == self.MODE_VIDEO:
             self._draw_video()
+        elif self._mode == self.MODE_HELP:
+            self._draw_help()
         elif self._mode in (self.MODE_SAVE, self.MODE_LOAD, self.MODE_NAMING):
             self._draw_save_load()
             if self._mode == self.MODE_NAMING:
@@ -940,6 +958,113 @@ class EscapeMenu:
         self._t_apply_windowed.text = "Apply Windowed"
 
         # Back button (at bottom of menu panel)
+        bx = px + (MENU_W - MENU_BTN_W) // 2
+        by = py + 12
+        bw, bh = MENU_BTN_W, 35
+        arcade.draw_rect_filled(arcade.LBWH(bx, by, bw, bh), (40, 40, 70, 220))
+        arcade.draw_rect_outline(
+            arcade.LBWH(bx, by, bw, bh), arcade.color.STEEL_BLUE, border_width=1,
+        )
+        self._t_res_back.x = bx + bw // 2
+        self._t_res_back.y = by + bh // 2
+        self._t_res_back.draw()
+
+    def _draw_help(self) -> None:
+        """Draw the controls/help sub-mode."""
+        self._recalc_main_layout()
+        px, py = self._main_px, self._main_py
+        cx = px + MENU_W // 2
+
+        arcade.draw_rect_filled(
+            arcade.LBWH(px, py, MENU_W, MENU_H),
+            (20, 20, 50, 240),
+        )
+        arcade.draw_rect_outline(
+            arcade.LBWH(px, py, MENU_W, MENU_H),
+            arcade.color.STEEL_BLUE, border_width=2,
+        )
+
+        # Title
+        self._t_res_title.text = "CONTROLS"
+        self._t_res_title.x = cx
+        self._t_res_title.y = py + MENU_H - 30
+        self._t_res_title.draw()
+
+        # Control lines
+        _HELP_LINES = [
+            ("L/R  or  A/D", "Rotate"),
+            ("Up   or  W", "Thrust"),
+            ("Down or  S", "Brake"),
+            ("Space", "Fire weapon"),
+            ("Tab", "Cycle weapon"),
+            ("I", "Inventory"),
+            ("B", "Build menu"),
+            ("T", "Station info"),
+            ("F", "Toggle FPS"),
+            ("ESC", "Menu"),
+        ]
+        _GAMEPAD_LINES = [
+            ("Left stick", "Move / Rotate"),
+            ("A button", "Fire"),
+            ("RB", "Cycle weapon"),
+            ("Y button", "Inventory"),
+        ]
+
+        line_y = py + MENU_H - 60
+        self._t_vid_text.bold = True
+        self._t_vid_text.text = "KEYBOARD"
+        self._t_vid_text.x = cx
+        self._t_vid_text.y = line_y
+        self._t_vid_text.color = arcade.color.LIGHT_BLUE
+        self._t_vid_text.anchor_x = "center"
+        self._t_vid_text.draw()
+        self._t_vid_text.anchor_x = "left"
+        line_y -= 20
+
+        for key_text, action in _HELP_LINES:
+            self._t_vid_text.text = key_text
+            self._t_vid_text.x = px + 16
+            self._t_vid_text.y = line_y
+            self._t_vid_text.color = (180, 180, 180)
+            self._t_vid_text.bold = False
+            self._t_vid_text.draw()
+            self._t_vid_info.text = action
+            self._t_vid_info.x = px + MENU_W - 16
+            self._t_vid_info.y = line_y
+            self._t_vid_info.color = arcade.color.WHITE
+            self._t_vid_info.anchor_x = "right"
+            self._t_vid_info.draw()
+            self._t_vid_info.anchor_x = "center"
+            line_y -= 18
+
+        line_y -= 10
+        self._t_vid_text.bold = True
+        self._t_vid_text.text = "GAMEPAD"
+        self._t_vid_text.x = cx
+        self._t_vid_text.y = line_y
+        self._t_vid_text.color = arcade.color.LIGHT_GREEN
+        self._t_vid_text.anchor_x = "center"
+        self._t_vid_text.draw()
+        self._t_vid_text.anchor_x = "left"
+        line_y -= 20
+
+        for key_text, action in _GAMEPAD_LINES:
+            self._t_vid_text.text = key_text
+            self._t_vid_text.x = px + 16
+            self._t_vid_text.y = line_y
+            self._t_vid_text.color = (180, 180, 180)
+            self._t_vid_text.bold = False
+            self._t_vid_text.draw()
+            self._t_vid_info.text = action
+            self._t_vid_info.x = px + MENU_W - 16
+            self._t_vid_info.y = line_y
+            self._t_vid_info.color = arcade.color.WHITE
+            self._t_vid_info.anchor_x = "right"
+            self._t_vid_info.draw()
+            self._t_vid_info.anchor_x = "center"
+            line_y -= 18
+
+        # Back button
         bx = px + (MENU_W - MENU_BTN_W) // 2
         by = py + 12
         bw, bh = MENU_BTN_W, 35

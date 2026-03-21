@@ -891,10 +891,7 @@ class GameView(arcade.View):
                 arcade.draw_circle_outline(cx, cy, 12, (255, 60, 60, 180), 2)
 
         with self.ui_cam.activate():
-            spd = math.hypot(self.player.vel_x, self.player.vel_y)
             self._hud.draw(
-                speed=spd,
-                heading=self.player.heading,
                 iron=self.inventory.iron,
                 weapon_name=self._active_weapon.name,
                 hp=self.player.hp,
