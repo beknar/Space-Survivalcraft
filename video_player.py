@@ -1,10 +1,14 @@
 """Video player for Space Survivalcraft — plays video files in the HUD status panel.
 
 Uses pyglet's media player to decode video frames and render them as textures.
-On Windows, uses the built-in WMF (Windows Media Foundation) decoder for
-MP4, AVI, WMV, and other formats without requiring FFmpeg.
-Falls back to FFmpeg if WMF is unavailable.
+Requires FFmpeg shared DLLs in the project root for video frame rendering.
 Only active when the game is in fullscreen or borderless display mode.
+
+Performance notes:
+- Frames are decoded at the video's native framerate (~24-30 fps), not every game frame
+- A single arcade.Texture is created once and updated in-place via atlas
+- PIL image buffers are pre-allocated and reused to avoid GC pressure
+- The pyglet player.texture property is polled instead of calling update_texture()
 """
 from __future__ import annotations
 
@@ -72,8 +76,17 @@ class VideoPlayer:
         self._current_file: str = ""
         self.error: str = ""  # last error message for UI display
         self._cached_arc_tex: Optional[arcade.Texture] = None
-        self._last_video_time: float = -1.0
-        self._tex_id: int = 0  # incrementing ID for unique texture names
+        self._last_tex_id: int = -1  # tracks which pyglet texture we last converted
+        self._draw_ok_logged: bool = False
+        self._draw_err_logged: bool = False
+        self._frame_count: int = 0
+        # Pre-allocated PIL buffer for frame conversion (avoids GC pressure)
+        self._pil_buf: Optional[object] = None  # PIL Image, reused
+        self._pil_buf_size: tuple[int, int] = (0, 0)
+        # Performance tracking
+        self._perf_converts: int = 0
+        self._perf_skips: int = 0
+        self._perf_timer: float = 0.0
 
     @property
     def is_fullscreen(self) -> bool:
@@ -103,12 +116,8 @@ class VideoPlayer:
             return False
         self.stop()
         try:
-            # Use FFmpeg decoder explicitly for video (WMF doesn't provide
-            # video textures via get_texture, only audio)
-            decoder = None
-            if _HAS_FFMPEG:
-                from pyglet.media.codecs.ffmpeg import FFmpegDecoder
-                decoder = FFmpegDecoder()
+            from pyglet.media.codecs.ffmpeg import FFmpegDecoder
+            decoder = FFmpegDecoder()
             self._source = pyglet.media.load(filepath, decoder=decoder)
             if self._source.video_format is None:
                 self.error = "No video stream in file"
@@ -121,12 +130,15 @@ class VideoPlayer:
             self._current_file = os.path.basename(filepath)
             self.active = True
             vf = self._source.video_format
-            used_decoder = "FFmpeg" if decoder else _DECODER_NAME
-            print(f"[VideoPlayer] Playing: {self._current_file} (decoder: {used_decoder})")
+            print(f"[VideoPlayer] Playing: {self._current_file} (decoder: FFmpeg)")
             print(f"[VideoPlayer] Video format: {vf.width}x{vf.height}")
             self._frame_count = 0
             self._draw_ok_logged = False
             self._draw_err_logged = False
+            self._last_tex_id = -1
+            self._perf_converts = 0
+            self._perf_skips = 0
+            self._perf_timer = _time.perf_counter()
             return True
         except Exception as e:
             self.error = str(e)
@@ -143,7 +155,6 @@ class VideoPlayer:
             except Exception:
                 pass
             try:
-                # Remove all queued sources to silence audio completely
                 while self._player.source:
                     self._player.next_source()
             except Exception:
@@ -164,61 +175,22 @@ class VideoPlayer:
             except Exception:
                 pass
             self._cached_arc_tex = None
-        self._last_video_time = -1.0
-        self._tex_id: int = 0  # reset texture reuse counter
+        self._last_tex_id = -1
+        self._pil_buf = None
+        self._pil_buf_size = (0, 0)
 
     def update(self, volume: float) -> None:
         """Sync volume and check if playback ended (loop)."""
         if self._player is not None and self.active:
             try:
                 self._player.volume = volume
-                # Loop: if finished, seek back to start
                 if not self._player.playing and self._source is not None:
                     self._player.seek(0.0)
                     self._player.play()
             except RuntimeError:
-                pass  # pyglet clock list mutation — safe to skip one frame
+                pass
             except Exception:
                 pass
-
-    def get_texture(self) -> Optional[pyglet.image.Texture]:
-        """Return the current video frame texture, or None.
-
-        Uses player.texture property (not get_texture method) and
-        calls update_texture() first to force frame decode.
-        """
-        if self._player is None or not self.active:
-            return None
-        try:
-            t0 = _time.perf_counter()
-            self._player.update_texture()
-            t1 = _time.perf_counter()
-            tex = self._player.texture
-            t2 = _time.perf_counter()
-            # Log timing every 300 frames (~5s at 60fps)
-            self._perf_frame = getattr(self, '_perf_frame', 0) + 1
-            self._perf_update_sum = getattr(self, '_perf_update_sum', 0.0) + (t1 - t0)
-            self._perf_prop_sum = getattr(self, '_perf_prop_sum', 0.0) + (t2 - t1)
-            if self._perf_frame % 300 == 0:
-                avg_update = self._perf_update_sum / 300 * 1000
-                avg_prop = self._perf_prop_sum / 300 * 1000
-                import gc
-                gc_counts = gc.get_count()
-                import tracemalloc
-                if not tracemalloc.is_tracing():
-                    tracemalloc.start()
-                mem_cur, mem_peak = tracemalloc.get_traced_memory()
-                print(f"[VideoPerf] frame={self._perf_frame} "
-                      f"update_tex={avg_update:.2f}ms prop={avg_prop:.2f}ms "
-                      f"mem={mem_cur/1024/1024:.1f}MB peak={mem_peak/1024/1024:.1f}MB "
-                      f"gc={gc_counts}")
-                self._perf_update_sum = 0.0
-                self._perf_prop_sum = 0.0
-            return tex
-        except RuntimeError:
-            return None
-        except Exception:
-            return None
 
     @property
     def track_name(self) -> str:
@@ -228,78 +200,67 @@ class VideoPlayer:
     def draw_in_hud(self, x: float, y: float, max_w: float) -> None:
         """Draw the current video frame at (x, y) fitting within max_w.
 
-        Maintains 16:9 aspect ratio.  Creates ONE arcade.Texture on the
-        first frame, then updates its image data in-place on subsequent
-        frames via atlas.update_texture_image() — no new texture objects
-        are ever created, preventing VRAM and cache accumulation.
+        Only converts a new frame when pyglet's texture object ID changes,
+        meaning the FFmpeg decoder has decoded a new frame. Reuses a single
+        arcade.Texture and pre-allocated PIL buffer to minimise allocations.
         """
-        pyglet_tex = self.get_texture()
-        if pyglet_tex is None:
-            self._frame_count = getattr(self, '_frame_count', 0) + 1
-            if self._frame_count == 60:
-                print(f"[VideoPlayer] Warning: texture is None after 60 frames")
-                if self._player is not None:
-                    print(f"[VideoPlayer] Player playing: {self._player.playing}, time: {self._player.time:.2f}")
+        if self._player is None or not self.active:
             return
 
-        # Only update when a new video frame is available
+        # Get the pyglet texture — this is the decoded video frame
         try:
-            current_time = self._player.time if self._player else 0.0
-        except RuntimeError:
-            current_time = self._last_video_time
+            pyglet_tex = self._player.texture
+        except Exception:
+            pyglet_tex = None
 
-        if current_time != self._last_video_time or self._cached_arc_tex is None:
-            self._last_video_time = current_time
+        if pyglet_tex is None:
+            self._frame_count += 1
+            if self._frame_count == 60 and not self._draw_ok_logged:
+                print(f"[VideoPlayer] Warning: texture is None after 60 frames")
+                if self._player is not None:
+                    try:
+                        print(f"[VideoPlayer] Player playing: {self._player.playing}, time: {self._player.time:.2f}")
+                    except Exception:
+                        pass
+            return
+
+        # Only convert when pyglet gives us a NEW texture object
+        tex_id = id(pyglet_tex)
+        if tex_id != self._last_tex_id or self._cached_arc_tex is None:
+            self._last_tex_id = tex_id
+            self._perf_converts += 1
             try:
                 from PIL import Image as PILImage
-                t_a = _time.perf_counter()
                 img_data = pyglet_tex.get_image_data()
-                t_b = _time.perf_counter()
-                raw = img_data.get_data("RGBA", img_data.width * 4)
-                t_c = _time.perf_counter()
-                pil_img = PILImage.frombytes(
-                    "RGBA", (img_data.width, img_data.height), raw,
-                )
-                t_d = _time.perf_counter()
-                # Downscale to max 200px wide for HUD display
-                if pil_img.width > 200:
-                    ratio = 200 / pil_img.width
-                    new_h = int(pil_img.height * ratio)
-                    pil_img = pil_img.resize((200, new_h), PILImage.NEAREST)
-                t_e = _time.perf_counter()
+                w, h = img_data.width, img_data.height
+                raw = img_data.get_data("RGBA", w * 4)
 
-                # Log PIL conversion timing every 30 conversions (~1s)
-                self._pil_frame = getattr(self, '_pil_frame', 0) + 1
-                self._pil_getimg = getattr(self, '_pil_getimg', 0.0) + (t_b - t_a)
-                self._pil_getdata = getattr(self, '_pil_getdata', 0.0) + (t_c - t_b)
-                self._pil_frombytes = getattr(self, '_pil_frombytes', 0.0) + (t_d - t_c)
-                self._pil_resize = getattr(self, '_pil_resize', 0.0) + (t_e - t_d)
-                if self._pil_frame % 150 == 0:
-                    n = 150
-                    print(f"[VideoPIL] frame={self._pil_frame} "
-                          f"get_img={self._pil_getimg/n*1000:.2f}ms "
-                          f"get_data={self._pil_getdata/n*1000:.2f}ms "
-                          f"frombytes={self._pil_frombytes/n*1000:.2f}ms "
-                          f"resize={self._pil_resize/n*1000:.2f}ms "
-                          f"total={((self._pil_getimg+self._pil_getdata+self._pil_frombytes+self._pil_resize)/n*1000):.2f}ms")
-                    self._pil_getimg = 0.0
-                    self._pil_getdata = 0.0
-                    self._pil_frombytes = 0.0
-                    self._pil_resize = 0.0
+                # Reuse PIL buffer if same size, otherwise allocate
+                if self._pil_buf_size != (w, h):
+                    self._pil_buf = PILImage.frombytes("RGBA", (w, h), raw)
+                    self._pil_buf_size = (w, h)
+                else:
+                    self._pil_buf.frombytes(raw)
+
+                # Downscale to max 200px wide
+                if w > 200:
+                    ratio = 200 / w
+                    new_h = int(h * ratio)
+                    display_img = self._pil_buf.resize((200, new_h), PILImage.NEAREST)
+                else:
+                    display_img = self._pil_buf
 
                 if self._cached_arc_tex is None:
-                    # First frame: create the one and only texture
                     self._cached_arc_tex = arcade.Texture(
-                        pil_img,
+                        display_img,
                         hit_box_algorithm=None,
                         hash="_vidframe_singleton",
                     )
                     if not self._draw_ok_logged:
-                        print(f"[VideoPlayer] First frame drawn OK ({img_data.width}x{img_data.height})")
+                        print(f"[VideoPlayer] First frame drawn OK ({w}x{h})")
                         self._draw_ok_logged = True
                 else:
-                    # Subsequent frames: update image data in-place
-                    self._cached_arc_tex.image = pil_img
+                    self._cached_arc_tex.image = display_img
                     try:
                         atlas = arcade.get_window().ctx.default_atlas
                         atlas.update_texture_image(self._cached_arc_tex)
@@ -310,6 +271,20 @@ class VideoPlayer:
                     print(f"[VideoPlayer] Draw error: {type(e).__name__}: {e}")
                     self._draw_err_logged = True
                 return
+        else:
+            self._perf_skips += 1
+
+        # Log performance every 10 seconds
+        now = _time.perf_counter()
+        if now - self._perf_timer >= 10.0:
+            total = self._perf_converts + self._perf_skips
+            if total > 0:
+                print(f"[VideoPerf] 10s: converts={self._perf_converts} "
+                      f"skips={self._perf_skips} "
+                      f"ratio={self._perf_skips/total*100:.0f}% skipped")
+            self._perf_converts = 0
+            self._perf_skips = 0
+            self._perf_timer = now
 
         if self._cached_arc_tex is not None:
             draw_w = int(max_w)
