@@ -135,12 +135,22 @@ class VideoPlayer:
     def stop(self) -> None:
         """Stop playback and release resources."""
         if self._player is not None:
-            self._player.pause()
+            try:
+                self._player.pause()
+                self._player.delete()
+            except Exception:
+                pass
             self._player = None
         self._source = None
         self.active = False
         self._current_file = ""
-        self._cached_arc_tex = None
+        # Free cached GL texture
+        if self._cached_arc_tex is not None:
+            try:
+                self._cached_arc_tex.remove_from_cache()
+            except Exception:
+                pass
+            self._cached_arc_tex = None
         self._last_video_time = -1.0
 
     def update(self, volume: float) -> None:
@@ -183,6 +193,7 @@ class VideoPlayer:
 
         Maintains 16:9 aspect ratio.  Caches the arcade.Texture and only
         rebuilds it when the video time changes (new frame decoded).
+        Reuses a single texture name to prevent GL texture accumulation.
         """
         pyglet_tex = self.get_texture()
         if pyglet_tex is None:
@@ -199,9 +210,8 @@ class VideoPlayer:
             current_time = self._player.time if self._player else 0.0
         except RuntimeError:
             current_time = self._last_video_time
-        last_time = getattr(self, '_last_video_time', -1.0)
 
-        if current_time != last_time or self._cached_arc_tex is None:
+        if current_time != self._last_video_time or self._cached_arc_tex is None:
             self._last_video_time = current_time
             try:
                 from PIL import Image as PILImage
@@ -210,12 +220,20 @@ class VideoPlayer:
                 pil_img = PILImage.frombytes(
                     "RGBA", (img_data.width, img_data.height), raw,
                 )
-                # Downscale to max 200px wide for HUD display (saves GPU/CPU at 4K)
+                # Downscale to max 200px wide for HUD display
                 if pil_img.width > 200:
                     ratio = 200 / pil_img.width
                     new_h = int(pil_img.height * ratio)
                     pil_img = pil_img.resize((200, new_h), PILImage.NEAREST)
-                self._cached_arc_tex = arcade.Texture(pil_img)
+                # Remove old texture from arcade's cache to free GL memory
+                if self._cached_arc_tex is not None:
+                    try:
+                        self._cached_arc_tex.remove_from_cache()
+                    except Exception:
+                        pass
+                self._cached_arc_tex = arcade.Texture(
+                    pil_img, hit_box_algorithm=None,
+                )
                 if not self._draw_ok_logged:
                     print(f"[VideoPlayer] First frame drawn OK ({img_data.width}x{img_data.height})")
                     self._draw_ok_logged = True

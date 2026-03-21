@@ -208,7 +208,7 @@ Pickups idle at their drop position until the ship's hull edge comes within 40 p
 - Picks a new waypoint each time it arrives within 8 px
 - Takes no hostile action
 
-**PURSUE state (triggered when player enters 500 px, or player weapon fires within 200 px):**
+**PURSUE state (triggered when player enters 500 px, or player weapon fires within 160 px — 4× ship diameter):**
 - Chases the player at 120 px/s
 - Fires laser bolts along its current heading every 1.5 s when player is within 500 px
 - Fire cooldown resets to 0 on first detection (immediate first shot)
@@ -519,7 +519,7 @@ Players can configure a directory containing video files to play in place of the
 | Display location | Status panel, above the mini-map, 16:9 aspect ratio |
 | Availability | Fullscreen or borderless mode required; Video button shows error in windowed mode |
 | FFmpeg DLLs | `avcodec-62.dll`, `avformat-62.dll`, `avutil-60.dll`, `swresample-6.dll`, `swscale-9.dll`, `avfilter-11.dll`, `avdevice-62.dll` (gitignored, ~220 MB) |
-| Performance | Video frame cached + downscaled to 200 px wide; PIL conversion only on new video frame (~24-30/s), not every game frame |
+| Performance | Video frame cached + downscaled to 200 px wide; PIL conversion only on new video frame (~24-30/s); old GL textures removed from cache to prevent VRAM accumulation; player.delete() called on stop |
 | Clock patch | `main.py` patches pyglet's `Clock.call_scheduled_functions` to handle FFmpeg scheduling conflicts with Arcade |
 
 ### Configuration
