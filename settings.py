@@ -1,8 +1,12 @@
 """Global game settings for Space Survivalcraft.
 
 Runtime-mutable volume levels and resolution shared across all views.
+Persistent configuration is stored in ``config.json`` in the project root.
 """
 from __future__ import annotations
+
+import json
+import os
 
 
 # Display mode constants
@@ -23,10 +27,41 @@ class AudioSettings:
         self.display_mode: str = DISPLAY_WINDOWED
         self.video_dir: str = ""           # directory containing video files
         self.video_file: str = ""          # currently selected video filename
+        self.show_fps: bool = False        # FPS counter toggle
 
 
 # Module-level instance used everywhere
 audio = AudioSettings()
+
+# ── Persistent configuration file ────────────────────────────────────────────
+_CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
+
+
+def save_config() -> None:
+    """Write current settings to config.json."""
+    data = {
+        "music_volume": audio.music_volume,
+        "sfx_volume": audio.sfx_volume,
+        "video_dir": audio.video_dir,
+        "show_fps": getattr(audio, "show_fps", False),
+    }
+    with open(_CONFIG_PATH, "w") as f:
+        json.dump(data, f, indent=2)
+
+
+def load_config() -> None:
+    """Read config.json and apply settings to the audio singleton."""
+    if not os.path.isfile(_CONFIG_PATH):
+        return
+    try:
+        with open(_CONFIG_PATH, "r") as f:
+            data = json.load(f)
+        audio.music_volume = data.get("music_volume", audio.music_volume)
+        audio.sfx_volume = data.get("sfx_volume", audio.sfx_volume)
+        audio.video_dir = data.get("video_dir", audio.video_dir)
+        audio.show_fps = data.get("show_fps", False)
+    except (json.JSONDecodeError, OSError):
+        pass  # corrupt or unreadable — use defaults
 
 
 def apply_resolution(

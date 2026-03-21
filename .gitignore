@@ -10,4 +10,5 @@ dist/
 *.spec
 saves/
 savegame.json
+config.json
 *.dll

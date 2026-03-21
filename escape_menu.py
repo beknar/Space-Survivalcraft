@@ -17,6 +17,7 @@ from constants import (
     RESOLUTION_PRESETS,
 )
 from video_player import scan_video_dir, _HAS_FFMPEG, _DECODER_NAME
+from settings import save_config
 from settings import audio
 
 
@@ -31,6 +32,7 @@ class EscapeMenu:
     MODE_RESOLUTION = 4
     MODE_VIDEO = 5
     MODE_HELP = 6
+    MODE_CONFIG = 7
 
     MAX_NAME_LEN = 24
 
@@ -40,6 +42,7 @@ class EscapeMenu:
         ("load",        "Load Game"),
         ("resolution",  "Resolution"),
         ("video",       "Video"),
+        ("config",      "Config"),
         ("stop_song",   "Stop Song"),
         ("other_song",  "Other Song"),
         ("help",        "Help"),
@@ -98,6 +101,11 @@ class EscapeMenu:
         self._video_scroll: int = 0
         self._video_dir_text: str = audio.video_dir
         self._video_editing_dir: bool = False
+
+        # ── Config state ──────────────────────────────────────────────
+        self._config_editing_dir: bool = False
+        self._config_dir_text: str = audio.video_dir
+        self._config_slider_dragging: str = ""  # "", "music", or "sfx"
 
         # ── Audio slider state ──────────────────────────────────────────
         self._slider_dragging: str = ""   # "", "music", or "sfx"
@@ -385,6 +393,19 @@ class EscapeMenu:
     def on_mouse_motion(self, x: int, y: int) -> None:
         if not self.open:
             return
+        # Config slider drag
+        if self._config_slider_dragging:
+            self._recalc_main_layout()
+            px = self._main_px
+            py = self._main_py
+            slider_x = px + 60
+            slider_w = MENU_W - 80
+            frac = max(0.0, min(1.0, (x - slider_x) / slider_w))
+            if self._config_slider_dragging == "music":
+                audio.music_volume = frac
+            else:
+                audio.sfx_volume = frac
+            return
         # Slider drag
         if self._slider_dragging:
             self._apply_slider_drag(x)
@@ -443,6 +464,11 @@ class EscapeMenu:
                 self._mode = self.MODE_VIDEO
                 self._hover_idx = -1
                 self._video_scroll = 0
+            elif key == "config":
+                self._config_editing_dir = False
+                self._config_dir_text = audio.video_dir
+                self._mode = self.MODE_CONFIG
+                self._hover_idx = -1
             elif key == "help":
                 self._mode = self.MODE_HELP
                 self._hover_idx = -1
@@ -545,6 +571,55 @@ class EscapeMenu:
                         self._video_fn_play(fpath)
                     return
 
+        elif self._mode == self.MODE_CONFIG:
+            self._recalc_main_layout()
+            px, py = self._main_px, self._main_py
+            # Back / Save button
+            bx = px + (MENU_W - MENU_BTN_W) // 2
+            save_y = py + 50
+            if bx <= x <= bx + MENU_BTN_W and save_y <= y <= save_y + MENU_BTN_H:
+                # Save config
+                audio.video_dir = self._config_dir_text
+                save_config()
+                self._flash_status("Config saved!")
+                self._mode = self.MODE_MAIN
+                self._hover_idx = -1
+                return
+            by = py + 12
+            if bx <= x <= bx + MENU_BTN_W and by <= y <= by + 35:
+                self._mode = self.MODE_MAIN
+                self._hover_idx = -1
+                return
+            # Video dir bar
+            dir_y = py + MENU_H - 70
+            dir_x = px + 10
+            dir_w = MENU_W - 20
+            if dir_x <= x <= dir_x + dir_w and dir_y <= y <= dir_y + 30:
+                self._config_editing_dir = True
+                return
+            # FPS toggle
+            fps_y = py + MENU_H - 130
+            fps_x = px + MENU_W - 60
+            if fps_x <= x <= fps_x + 40 and fps_y <= y <= fps_y + 24:
+                audio.show_fps = not audio.show_fps
+                return
+            # Music slider
+            slider_x = px + 60
+            slider_w = MENU_W - 80
+            music_y = py + MENU_H - 180
+            if slider_x <= x <= slider_x + slider_w and music_y - 10 <= y <= music_y + 10:
+                self._config_slider_dragging = "music"
+                frac = max(0.0, min(1.0, (x - slider_x) / slider_w))
+                audio.music_volume = frac
+                return
+            # SFX slider
+            sfx_y = py + MENU_H - 230
+            if slider_x <= x <= slider_x + slider_w and sfx_y - 10 <= y <= sfx_y + 10:
+                self._config_slider_dragging = "sfx"
+                frac = max(0.0, min(1.0, (x - slider_x) / slider_w))
+                audio.sfx_volume = frac
+                return
+
         elif self._mode == self.MODE_HELP:
             self._recalc_main_layout()
             px, py = self._main_px, self._main_py
@@ -616,12 +691,31 @@ class EscapeMenu:
                     audio.video_dir = self._video_dir_text
                     self._video_editing_dir = False
                     self._scan_videos()
+        elif self._mode == self.MODE_CONFIG:
+            if key == arcade.key.ESCAPE:
+                self._config_editing_dir = False
+                self._mode = self.MODE_MAIN
+                self._hover_idx = -1
+            elif self._config_editing_dir:
+                if key == arcade.key.BACKSPACE:
+                    self._config_dir_text = self._config_dir_text[:-1]
+                elif key in (arcade.key.RETURN, arcade.key.ENTER):
+                    self._config_editing_dir = False
+        elif self._mode in (self.MODE_HELP,):
+            if key == arcade.key.ESCAPE:
+                self._mode = self.MODE_MAIN
+                self._hover_idx = -1
         elif self._mode == self.MODE_MAIN:
             if key == arcade.key.ESCAPE:
                 self.open = False
 
     def on_text(self, text: str) -> None:
         """Handle text input during naming or video-dir editing mode."""
+        if self._mode == self.MODE_CONFIG and self._config_editing_dir:
+            for ch in text:
+                if ch.isprintable() and len(self._config_dir_text) < 200:
+                    self._config_dir_text += ch
+            return
         if self._mode == self.MODE_VIDEO and self._video_editing_dir:
             for ch in text:
                 if ch.isprintable() and len(self._video_dir_text) < 200:
@@ -651,6 +745,8 @@ class EscapeMenu:
             self._draw_resolution()
         elif self._mode == self.MODE_VIDEO:
             self._draw_video()
+        elif self._mode == self.MODE_CONFIG:
+            self._draw_config()
         elif self._mode == self.MODE_HELP:
             self._draw_help()
         elif self._mode in (self.MODE_SAVE, self.MODE_LOAD, self.MODE_NAMING):
@@ -969,6 +1065,155 @@ class EscapeMenu:
         self._t_res_back.y = by + bh // 2
         self._t_res_back.draw()
 
+    def _draw_config(self) -> None:
+        """Draw the configuration sub-mode."""
+        self._recalc_main_layout()
+        px, py = self._main_px, self._main_py
+        cx = px + MENU_W // 2
+
+        arcade.draw_rect_filled(
+            arcade.LBWH(px, py, MENU_W, MENU_H), (20, 20, 50, 240),
+        )
+        arcade.draw_rect_outline(
+            arcade.LBWH(px, py, MENU_W, MENU_H),
+            arcade.color.STEEL_BLUE, border_width=2,
+        )
+
+        # Title
+        self._t_res_title.text = "CONFIGURATION"
+        self._t_res_title.x = cx
+        self._t_res_title.y = py + MENU_H - 30
+        self._t_res_title.draw()
+
+        # Video directory
+        dir_y = py + MENU_H - 70
+        dir_x = px + 10
+        dir_w = MENU_W - 20
+        self._t_vid_text.text = "Video Directory:"
+        self._t_vid_text.x = dir_x
+        self._t_vid_text.y = dir_y + 34
+        self._t_vid_text.color = arcade.color.WHITE
+        self._t_vid_text.bold = True
+        self._t_vid_text.draw()
+        bg = (40, 40, 60, 220) if self._config_editing_dir else (30, 30, 50, 200)
+        arcade.draw_rect_filled(arcade.LBWH(dir_x, dir_y, dir_w, 30), bg)
+        arcade.draw_rect_outline(
+            arcade.LBWH(dir_x, dir_y, dir_w, 30),
+            arcade.color.CYAN if self._config_editing_dir else arcade.color.STEEL_BLUE,
+            border_width=1,
+        )
+        dir_display = self._config_dir_text or "(click to set)"
+        if len(dir_display) > 30:
+            dir_display = "..." + dir_display[-27:]
+        self._t_vid_text.text = dir_display
+        self._t_vid_text.x = dir_x + 4
+        self._t_vid_text.y = dir_y + 15
+        self._t_vid_text.color = arcade.color.WHITE if self._config_dir_text else (120, 120, 120)
+        self._t_vid_text.bold = False
+        self._t_vid_text.draw()
+
+        # FPS toggle
+        fps_y = py + MENU_H - 130
+        self._t_vid_text.text = "Show FPS:"
+        self._t_vid_text.x = px + 16
+        self._t_vid_text.y = fps_y + 10
+        self._t_vid_text.color = arcade.color.WHITE
+        self._t_vid_text.bold = True
+        self._t_vid_text.draw()
+        fps_x = px + MENU_W - 60
+        btn_col = (40, 120, 40) if audio.show_fps else (80, 30, 30)
+        arcade.draw_rect_filled(arcade.LBWH(fps_x, fps_y, 40, 24), btn_col)
+        arcade.draw_rect_outline(arcade.LBWH(fps_x, fps_y, 40, 24),
+                                 arcade.color.WHITE, border_width=1)
+        self._t_vid_info.text = "ON" if audio.show_fps else "OFF"
+        self._t_vid_info.x = fps_x + 20
+        self._t_vid_info.y = fps_y + 12
+        self._t_vid_info.color = arcade.color.WHITE
+        self._t_vid_info.anchor_x = "center"
+        self._t_vid_info.draw()
+        self._t_vid_info.anchor_x = "center"
+
+        # Music volume slider
+        music_y = py + MENU_H - 180
+        slider_x = px + 60
+        slider_w = MENU_W - 80
+        self._t_vid_text.text = "Music:"
+        self._t_vid_text.x = px + 16
+        self._t_vid_text.y = music_y + 12
+        self._t_vid_text.color = arcade.color.WHITE
+        self._t_vid_text.bold = True
+        self._t_vid_text.draw()
+        arcade.draw_rect_filled(
+            arcade.LBWH(slider_x, music_y - 4, slider_w, 8), (50, 50, 70),
+        )
+        fill_w = int(slider_w * audio.music_volume)
+        if fill_w > 0:
+            arcade.draw_rect_filled(
+                arcade.LBWH(slider_x, music_y - 4, fill_w, 8), (60, 140, 220),
+            )
+        arcade.draw_circle_filled(slider_x + fill_w, music_y, 6, arcade.color.CYAN)
+        self._t_vid_info.text = f"{int(audio.music_volume * 100)}%"
+        self._t_vid_info.x = px + MENU_W - 16
+        self._t_vid_info.y = music_y + 12
+        self._t_vid_info.color = arcade.color.CYAN
+        self._t_vid_info.anchor_x = "right"
+        self._t_vid_info.draw()
+        self._t_vid_info.anchor_x = "center"
+
+        # SFX volume slider
+        sfx_y = py + MENU_H - 230
+        self._t_vid_text.text = "SFX:"
+        self._t_vid_text.x = px + 16
+        self._t_vid_text.y = sfx_y + 12
+        self._t_vid_text.color = arcade.color.WHITE
+        self._t_vid_text.bold = True
+        self._t_vid_text.draw()
+        arcade.draw_rect_filled(
+            arcade.LBWH(slider_x, sfx_y - 4, slider_w, 8), (50, 50, 70),
+        )
+        sfx_fill = int(slider_w * audio.sfx_volume)
+        if sfx_fill > 0:
+            arcade.draw_rect_filled(
+                arcade.LBWH(slider_x, sfx_y - 4, sfx_fill, 8), (60, 140, 220),
+            )
+        arcade.draw_circle_filled(slider_x + sfx_fill, sfx_y, 6, arcade.color.CYAN)
+        self._t_vid_info.text = f"{int(audio.sfx_volume * 100)}%"
+        self._t_vid_info.x = px + MENU_W - 16
+        self._t_vid_info.y = sfx_y + 12
+        self._t_vid_info.color = arcade.color.CYAN
+        self._t_vid_info.anchor_x = "right"
+        self._t_vid_info.draw()
+        self._t_vid_info.anchor_x = "center"
+
+        # Save button
+        abx = px + (MENU_W - MENU_BTN_W) // 2
+        save_y = py + 50
+        arcade.draw_rect_filled(
+            arcade.LBWH(abx, save_y, MENU_BTN_W, MENU_BTN_H),
+            (30, 80, 30, 220),
+        )
+        arcade.draw_rect_outline(
+            arcade.LBWH(abx, save_y, MENU_BTN_W, MENU_BTN_H),
+            arcade.color.LIME_GREEN, border_width=1,
+        )
+        self._t_apply_windowed.text = "Save Config"
+        self._t_apply_windowed.x = abx + MENU_BTN_W // 2
+        self._t_apply_windowed.y = save_y + MENU_BTN_H // 2
+        self._t_apply_windowed.draw()
+        self._t_apply_windowed.text = "Apply Windowed"
+
+        # Back button
+        bx = px + (MENU_W - MENU_BTN_W) // 2
+        by = py + 12
+        bw, bh = MENU_BTN_W, 35
+        arcade.draw_rect_filled(arcade.LBWH(bx, by, bw, bh), (40, 40, 70, 220))
+        arcade.draw_rect_outline(
+            arcade.LBWH(bx, by, bw, bh), arcade.color.STEEL_BLUE, border_width=1,
+        )
+        self._t_res_back.x = bx + bw // 2
+        self._t_res_back.y = by + bh // 2
+        self._t_res_back.draw()
+
     def _draw_help(self) -> None:
         """Draw the controls/help sub-mode."""
         self._recalc_main_layout()
@@ -1261,6 +1506,7 @@ class EscapeMenu:
     def on_mouse_release(self, x: int, y: int) -> None:
         """Release slider drag state."""
         self._slider_dragging = ""
+        self._config_slider_dragging = ""
 
     def on_mouse_scroll(self, scroll_y: float) -> None:
         """Scroll the video file list."""

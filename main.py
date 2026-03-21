@@ -29,7 +29,8 @@ def _patch_pyglet_clock() -> None:
 
 def main() -> None:
     _patch_pyglet_clock()
-    from settings import audio
+    from settings import audio, load_config
+    load_config()
     window = arcade.Window(audio.screen_width, audio.screen_height, SCREEN_TITLE)
     if audio.fullscreen:
         window.set_fullscreen(True)

@@ -491,7 +491,7 @@ When background music is playing (and no video is active), a 16-bar equalizer an
 - Semi-transparent dark overlay with centred panel (320 x 480 px)
 - Gameplay **continues** while the escape menu is open (does not pause)
 - **Audio sliders:** Music and SFX volume sliders (220 px wide) at the top of the panel, directly draggable with percentage display
-- **Buttons:** Resume, Save Game, Load Game, Resolution, Video, Stop Song, Other Song, Help, Main Menu, Exit Game
+- **Buttons:** Resume, Save Game, Load Game, Resolution, Video, Config, Stop Song, Other Song, Help, Main Menu, Exit Game
 - **Stop Song** stops the current background music track
 - **Other Song** skips to a random different track from the OST
 - 10 save slots with naming overlay (max 24 characters, blinking cursor)
@@ -499,6 +499,7 @@ When background music is playing (and no video is active), a 16-bar equalizer an
 - Status feedback messages displayed for 2 seconds
 - **Resolution** button opens a sub-mode with left/right preset selector plus three display mode buttons: Apply Windowed, Apply Fullscreen, and Borderless Windowed
 - **Video** button requires fullscreen mode; shows error status message in windowed mode. Opens a sub-mode to configure a video directory, browse files (scrollable list with scrollbar), and play/stop video
+- **Config** button opens a configuration sub-mode: video directory path, FPS toggle, music/SFX volume sliders. Save Config persists settings to `config.json` (loaded at startup)
 - **Help** button shows keyboard and gamepad controls in a sub-mode panel
 - Returning to Main Menu stops any playing video
 - ESC in sub-menus returns to main menu; ESC in main menu closes overlay
@@ -530,6 +531,25 @@ Players can configure a directory containing video files to play in place of the
 - Volume is controlled by the Music volume slider
 - FFmpeg DLLs must be in the project root directory for video to work
 - If FFmpeg is not available, the UI shows an error message
+
+---
+
+## 15. Persistent Configuration
+
+Settings are saved to `config.json` in the project root and loaded on startup.
+
+### Stored Settings
+| Setting | Description |
+|---|---|
+| `music_volume` | Music volume (0.0–1.0) |
+| `sfx_volume` | Sound effects volume (0.0–1.0) |
+| `video_dir` | Video file directory path |
+| `show_fps` | FPS counter visibility (true/false) |
+
+### Access
+- **ESC menu** → Config button → sub-mode with sliders, directory text field, FPS toggle, and Save Config button
+- Settings are applied immediately when changed; Save Config writes them to disk
+- `config.json` is gitignored (user-specific)
 
 ---
 

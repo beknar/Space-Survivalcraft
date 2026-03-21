@@ -188,6 +188,8 @@ class GameView(arcade.View):
             faction=faction,
             ship_type=ship_type,
         )
+        if audio.show_fps:
+            self._hud._show_fps = True
 
         # Thruster sound
         self._thruster_snd = load_thruster_sound()
@@ -251,6 +253,7 @@ class GameView(arcade.View):
     def _play_video(self, filepath: str) -> None:
         """Start video playback, replacing the music track."""
         self._stop_music()
+        self._current_track_name = ""  # clear OST track name
         success = self._video_player.play(filepath, volume=audio.music_volume)
         # Pass error back to escape menu for display
         self._escape_menu._last_video_error = self._video_player.error if not success else ""
@@ -260,10 +263,11 @@ class GameView(arcade.View):
                 self._play_next_track()
 
     def _stop_video(self) -> None:
-        """Stop video playback without resuming music."""
+        """Stop video playback without resuming music or equalizer."""
         if not self._video_player.active:
             return
         self._video_player.stop()
+        self._current_track_name = ""  # prevent equalizer from animating
 
     def _stop_song(self) -> None:
         """Stop the current background music track."""
@@ -950,6 +954,8 @@ class GameView(arcade.View):
     def on_update(self, delta_time: float) -> None:
         # ── Smoothed FPS ────────────────────────────────────────────────────
         self._hud.update_fps(delta_time)
+        # Sync FPS display from config (may change via Config menu)
+        self._hud._show_fps = audio.show_fps
 
         # ── Video player update ────────────────────────────────────────────
         if self._video_player.active:
@@ -1268,6 +1274,7 @@ class GameView(arcade.View):
             self.inventory.toggle()
         elif key == arcade.key.F:
             self._hud.toggle_fps()
+            audio.show_fps = self._hud.show_fps
         elif key == arcade.key.B:
             if not self._escape_menu.open and not self._player_dead:
                 if self._destroy_mode:
