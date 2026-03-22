@@ -103,7 +103,10 @@ class StationInventory:
     def _panel_origin(self) -> tuple[int, int]:
         sw = self._window.width if self._window else SCREEN_WIDTH
         sh = self._window.height if self._window else SCREEN_HEIGHT
-        ox = (sw - _INV_W) // 2 - _INV_W // 2 - 20  # left of centre
+        from constants import INV_W
+        # Place station inv to the left of the ship inv (which is centred)
+        ship_inv_left = (sw - INV_W) // 2
+        ox = max(4, ship_inv_left - _INV_W - 10)
         oy = (sh - _INV_H) // 2
         return ox, oy
 
