@@ -198,6 +198,20 @@ class StationInventory:
         self._drag_amount = 0
         self._drag_src = None
 
+        # Check if dropped on the ship inventory panel — treat as external transfer
+        from constants import INV_W, INV_H, INV_HEADER, INV_FOOTER
+        sw = self._window.width if self._window else SCREEN_WIDTH
+        sh = self._window.height if self._window else SCREEN_HEIGHT
+        ship_ox = (sw - INV_W) // 2
+        ship_oy = (sh - INV_H) // 2
+        if ship_ox <= x <= ship_ox + INV_W and ship_oy <= y <= ship_oy + INV_H:
+            # Cursor is on ship inventory — return item for cross-transfer
+            if dt == "iron":
+                transfer = self.iron
+                self.iron = 0
+                return ("iron", transfer)
+            return (dt, da)
+
         cell = self._cell_at(x, y)
         if cell is not None:
             # Dropped back into station grid — handle swap
