@@ -186,8 +186,6 @@ class StationInventory:
 
     def on_mouse_release(self, x: float, y: float) -> Optional[tuple[str, int]]:
         """Returns (item_type, amount) if item was dropped outside panel (for transfer)."""
-        if self._drag_type is not None:
-            print(f"[STATION_REL] drag_type={self._drag_type} at ({x:.0f},{y:.0f})")
         if self._drag_type is None:
             return None
         dt = self._drag_type
@@ -203,10 +201,7 @@ class StationInventory:
         sh = self._window.height if self._window else SCREEN_HEIGHT
         ship_ox = (sw - INV_W) // 2
         ship_oy = (sh - INV_H) // 2
-        print(f"[STATION_REL] ship_panel=({ship_ox},{ship_oy})-({ship_ox+INV_W},{ship_oy+INV_H}) cursor=({x:.0f},{y:.0f})")
         if ship_ox <= x <= ship_ox + INV_W and ship_oy <= y <= ship_oy + INV_H:
-            # Cursor is on ship inventory — return item for cross-transfer
-            print(f"[INV] Station→Ship: returning {dt} x{da}")
             return (dt, da)
 
         cell = self._cell_at(x, y)

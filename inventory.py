@@ -247,7 +247,6 @@ class Inventory:
                 self._drag_type = None
                 self._drag_amount = 0
                 self._drag_src = None
-                print(f"[INV] Ship→Station: ejecting {dt} x{da} at ({x:.0f},{y:.0f})")
                 return (dt, da)
         except ImportError:
             pass

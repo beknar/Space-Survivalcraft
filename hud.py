@@ -148,7 +148,7 @@ class HUD:
         """Return quick-use slot index (0-based) at screen coords, or None."""
         qu_total_w = self._qu_count * self._qu_cell + (self._qu_count - 1) * 2
         qu_x = (STATUS_WIDTH - qu_total_w) // 2
-        qu_y = self._sh - 400
+        qu_y = self._sh - 346 - _EQ_MAX_H - self._qu_cell - 20
         if y < qu_y or y > qu_y + self._qu_cell:
             return None
         for i in range(self._qu_count):
@@ -302,9 +302,10 @@ class HUD:
                 )
 
         # Quick-use bar (5 slots labeled 1–5)
+        # Position below the equalizer (eq bottom = _sh - 346 - _EQ_MAX_H)
         qu_total_w = self._qu_count * self._qu_cell + (self._qu_count - 1) * 2
         qu_x = (STATUS_WIDTH - qu_total_w) // 2
-        qu_y = self._sh - 400
+        qu_y = self._sh - 346 - _EQ_MAX_H - self._qu_cell - 20
         self._t_qu_label.y = qu_y + self._qu_cell + 8
         self._t_qu_label.draw()
         for i in range(self._qu_count):
