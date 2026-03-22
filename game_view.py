@@ -500,14 +500,16 @@ class GameView(arcade.View):
         return any(isinstance(b, HomeStation) for b in self.building_list)
 
     def _find_nearest_snap_port(
-        self, wx: float, wy: float
+        self, wx: float, wy: float, max_dist: float = 0.0,
     ) -> Optional[tuple[StationModule, DockingPort, float, float]]:
-        """Find the nearest unoccupied docking port within DOCK_SNAP_DIST.
+        """Find the nearest unoccupied docking port within max_dist.
 
         Returns (building, port, snap_x, snap_y) or None.
         """
+        if max_dist <= 0:
+            max_dist = DOCK_SNAP_DIST
         best = None
-        best_dist = DOCK_SNAP_DIST + 1.0
+        best_dist = max_dist + 1.0
         for b in self.building_list:
             for port in b.get_unoccupied_ports():
                 px, py = b.get_port_world_pos(port)
@@ -601,7 +603,11 @@ class GameView(arcade.View):
         snap_port = None
         snap_opp_port = None
         if stats["connectable"]:
-            snap = self._find_nearest_snap_port(wx, wy)
+            # Use larger search radius to find port near the edge-to-edge
+            # offset position (ghost center is offset from the port)
+            snap = self._find_nearest_snap_port(
+                wx, wy, max_dist=DOCK_SNAP_DIST + BUILDING_RADIUS * 2,
+            )
             if snap is None and bt != "Home Station":
                 # Non-Home connectable modules MUST snap to a port
                 self.inventory.iron += cost
