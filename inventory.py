@@ -119,6 +119,28 @@ class Inventory:
         oy = (sh - INV_H) // 2
         return ox + INV_PAD, oy + INV_PAD + INV_FOOTER
 
+    def _nearest_empty_cell(self, x: float, y: float) -> Optional[tuple[int, int]]:
+        """Return the closest empty cell to screen coords (x, y)."""
+        import math as _math
+        gx, gy = self._grid_origin()
+        best = None
+        best_dist = float('inf')
+        for r in range(INV_ROWS):
+            for c in range(INV_COLS):
+                cell = (r, c)
+                if cell in self._items:
+                    continue
+                if self.iron > 0 and cell == self._iron_cell:
+                    continue
+                row_from_bottom = INV_ROWS - 1 - r
+                cx = gx + c * INV_CELL + INV_CELL / 2
+                cy = gy + row_from_bottom * INV_CELL + INV_CELL / 2
+                d = _math.hypot(x - cx, y - cy)
+                if d < best_dist:
+                    best_dist = d
+                    best = cell
+        return best
+
     def _cell_at(self, x: float, y: float) -> Optional[tuple[int, int]]:
         """Return (row, col) for screen-space coords, or None if outside grid."""
         gx, gy = self._grid_origin()

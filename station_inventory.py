@@ -114,6 +114,28 @@ class StationInventory:
         ox, oy = self._panel_origin()
         return ox + STATION_INV_PAD, oy + STATION_INV_PAD + _INV_FOOTER
 
+    def _nearest_empty_cell(self, x: float, y: float) -> Optional[tuple[int, int]]:
+        """Return the closest empty cell to screen coords (x, y)."""
+        import math as _math
+        gx, gy = self._grid_origin()
+        best = None
+        best_dist = float('inf')
+        for r in range(STATION_INV_ROWS):
+            for c in range(STATION_INV_COLS):
+                cell = (r, c)
+                if cell in self._items:
+                    continue
+                if self.iron > 0 and cell == self._iron_cell:
+                    continue
+                row_from_bottom = STATION_INV_ROWS - 1 - r
+                cx = gx + c * STATION_INV_CELL + STATION_INV_CELL / 2
+                cy = gy + row_from_bottom * STATION_INV_CELL + STATION_INV_CELL / 2
+                d = _math.hypot(x - cx, y - cy)
+                if d < best_dist:
+                    best_dist = d
+                    best = cell
+        return best
+
     def _cell_at(self, x: float, y: float) -> Optional[tuple[int, int]]:
         gx, gy = self._grid_origin()
         grid_w = STATION_INV_COLS * STATION_INV_CELL

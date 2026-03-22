@@ -1527,7 +1527,7 @@ class GameView(arcade.View):
                 if item_type == "iron":
                     self.inventory.add_iron(amount)
                 else:
-                    # Try to place in the specific ship inv cell under cursor
+                    # Try exact cell, then nearest empty cell to cursor
                     target_cell = self.inventory._cell_at(x, y)
                     iron_occ = (self.inventory.iron > 0
                                 and target_cell == self.inventory._iron_cell)
@@ -1536,7 +1536,10 @@ class GameView(arcade.View):
                             and not iron_occ):
                         self.inventory._items[target_cell] = item_type
                     else:
-                        for _ in range(amount):
+                        nearest = self.inventory._nearest_empty_cell(x, y)
+                        if nearest is not None:
+                            self.inventory._items[nearest] = item_type
+                        else:
                             self.inventory.add_item(item_type)
                     # Update quick-use if repair_pack is assigned
                     if item_type == "repair_pack":
@@ -1554,7 +1557,7 @@ class GameView(arcade.View):
                     if item_type == "iron":
                         self._station_inv.iron += amount
                     else:
-                        # Try to place in the specific cell under cursor
+                        # Try exact cell, then nearest empty cell to cursor
                         target_cell = self._station_inv._cell_at(x, y)
                         iron_occ = (self._station_inv.iron > 0
                                     and target_cell == self._station_inv._iron_cell)
@@ -1563,7 +1566,11 @@ class GameView(arcade.View):
                                 and not iron_occ):
                             self._station_inv._items[target_cell] = (item_type, amount)
                         else:
-                            self._station_inv.add_item(item_type, amount)
+                            nearest = self._station_inv._nearest_empty_cell(x, y)
+                            if nearest is not None:
+                                self._station_inv._items[nearest] = (item_type, amount)
+                            else:
+                                self._station_inv.add_item(item_type, amount)
                 elif item_type == "iron" and amount > 0:
                     eject_angle = random.uniform(0.0, math.tau)
                     eject_r = SHIP_RADIUS + EJECT_DIST
