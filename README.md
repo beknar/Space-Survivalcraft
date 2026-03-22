@@ -31,27 +31,29 @@ A top-down space survival game built with Python and the Arcade framework. Pilot
 - Animated energy shield bubble with hit-flash visual feedback
 
 ### Enemies --- Small Alien Ships
-- 20 alien scout ships patrol the world with autonomous AI
+- 30 alien scout ships patrol the world with autonomous AI
 - Two AI states: **Patrol** (lazy loops near spawn) and **Pursue** (chase and fire on detection)
 - Aliens fire laser bolts faster than the player's max speed --- dodging required
 - Obstacle-avoidance steering around asteroids and other aliens
 - Physics-based collision bouncing between all entities
 - Leash range prevents aliens from chasing indefinitely
 - Destroyed aliens drop **5 iron ore** that can be collected by the player
-- Alien ships respawn every 2 minutes (not within 300 px of player structures) until 20 again
+- Alien ships respawn every 1 minute (not within 300 px of player structures) until 30 again
 
 ### Mining & Resources
-- 50 iron asteroids scattered across the world, each with 100 HP
+- 75 iron asteroids scattered across the world, each with 100 HP
 - Only the Mining Beam can damage asteroids; Basic Laser has no effect
 - Asteroids spin, shake on hit, and explode with animated effects when destroyed
 - Destroyed asteroids drop iron ore pickups that fly toward the player when nearby
-- Asteroids respawn every 2 minutes (not within 300 px of player structures) until 50 again
+- Asteroids respawn every 1 minute (not within 300 px of player structures) until 75 again
 
 ### Inventory System
 - 5x5 cargo hold grid toggled with I key or gamepad Y button
-- Drag-and-drop items between inventory slots
+- All items (iron, repair packs) stored as stackable `(type, count)` tuples per cell
+- Drag-and-drop items between inventory slots with stacking and swapping
+- Iron and repair packs display with dedicated icons and count badges
 - Drop items into the game world by dragging outside the inventory panel
-- Iron ore count displayed in both the inventory and HUD
+- Drag repair packs onto Quick Use slots to assign them
 - Ejected items despawn after 10 minutes
 
 ### Space Station Building System
@@ -65,6 +67,7 @@ A top-down space survival game built with Python and the Arcade framework. Pilot
   - **Turret 1** --- single-barrel auto-fire turret (100 HP, 50 iron)
   - **Turret 2** --- dual-barrel auto-fire turret (100 HP, 75 iron; uses 2 slots)
   - **Repair Module** --- passive HP repair when near Home Station (75 HP, 75 iron; max 1)
+  - **Basic Crafter** --- crafts Repair Packs from 200 iron over 60 s (75 HP, 150 iron; max 1)
 - **Edge-to-edge snap** --- connectable modules snap to docking ports (N/S/E/W); both ends connect at their edges
 - **Deconstruction** --- Destroy button in build menu activates targeting reticle to remove station pieces
 - **Repair Module** --- heals player HP (1/s near Home Station), repairs damaged buildings (1/s), and boosts shield regen (+1 pt/s)
@@ -73,6 +76,20 @@ A top-down space survival game built with Python and the Arcade framework. Pilot
 - Base module capacity of 4, expandable with Solar Arrays
 - Destroying the Home Station disables all modules
 - Aliens attack station buildings; turrets defend automatically
+- **Building hover tooltip** --- hovering near a building shows its type and HP
+
+### Station Inventory & Crafting
+- 10x10 station grid accessible by clicking the Home Station (within 300 px)
+- All items stored as stackable tuples with icons and count badges
+- Drag items between station and ship inventories
+- **Basic Crafter** --- click a placed crafter to open the craft menu; consumes 200 iron to produce 5 Repair Packs over 60 seconds
+
+### Quick Use Bar
+- 5 slots (1--5) displayed in the HUD below the equalizer
+- **Assign**: drag a repair pack from inventory onto a slot (shows icon + count)
+- **Use**: press 1--5 or click the slot to consume one repair pack (heals 50% max HP)
+- **Rearrange**: drag between slots to move or swap assignments
+- **Unassign**: drag out of the bar to remove the binding (item stays in inventory)
 
 ### Station Info Panel (T Key)
 - Press **T** while near the station to view building stats
@@ -100,7 +117,7 @@ A top-down space survival game built with Python and the Arcade framework. Pilot
 
 ### Save/Load System
 - 10 named save slots with full game state preservation
-- Saves: player position/velocity/HP/shields, weapon index, inventory, all asteroids, all aliens (including AI state), all pickups, and all station buildings
+- Saves: player position/velocity/HP/shields, weapon index, cargo items (iron, repair packs), all asteroids, all aliens (including AI state), all pickups, all station buildings, station inventory, fog of war grid
 - Save slot display shows: faction, ship type, HP, shields, and module count
 
 ### Escape Menu
@@ -150,6 +167,7 @@ A top-down space survival game built with Python and the Arcade framework. Pilot
 | Fire weapon | Space (hold for auto-fire) | A button |
 | Cycle weapon | Tab | Right bumper (RB) |
 | Open inventory | I | Y button |
+| Quick Use item | 1-5 (or click slot) | --- |
 | Build menu | B | --- |
 | Station info | T (when near station) | --- |
 | Toggle FPS | F | --- |
@@ -198,7 +216,7 @@ A top-down space survival game built with Python and the Arcade framework. Pilot
 python -m pytest "unit tests/" -v
 ```
 
-262 unit tests covering all game modules: player physics, weapons, asteroids, aliens (AI, stuck detection), pickups, shields, explosions, contrails, inventory, damage routing, building system (snap, collision, capacity, repair module, heal, port disconnect), respawn mechanics, fog of war, and settings.
+275 unit tests covering all game modules: player physics, weapons, asteroids, aliens (AI, stuck detection), pickups, shields, explosions, contrails, inventory (stacking, drag-and-drop), damage routing, building system (snap, collision, capacity, repair module, heal, port disconnect, crafter), respawn mechanics, fog of war, and settings.
 
 ## Project Structure
 
@@ -218,8 +236,10 @@ Space Survivalcraft/
 ├── hud.py               # Left status panel (HP/shield bars, speed, weapon, mini-map)
 ├── escape_menu.py       # Pause overlay with save/load/quit and audio sliders
 ├── death_screen.py      # "SHIP DESTROYED" overlay with Load/Menu/Exit
-├── inventory.py         # 5x5 cargo grid with drag-and-drop and world ejection
+├── inventory.py         # 5x5 cargo grid with stackable items, drag-and-drop, world ejection
+├── station_inventory.py # 10x10 Home Station inventory with item transfer
 ├── build_menu.py        # Right-side overlay for constructing station modules
+├── craft_menu.py        # Crafting UI for Basic Crafter (Repair Pack recipe)
 ├── station_info.py      # Right-side overlay showing building HP and module stats (T key)
 │
 │  ── Game Logic ──
