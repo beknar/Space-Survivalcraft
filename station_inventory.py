@@ -136,8 +136,7 @@ class StationInventory:
         if not self.open:
             return False
         if not self._panel_contains(x, y):
-            self.open = False
-            return False
+            return False  # click outside — don't close, let caller handle
         cell = self._cell_at(x, y)
         if cell is None:
             return False

@@ -1456,11 +1456,8 @@ class GameView(arcade.View):
                 return
             # Station inventory click
             if self._station_inv.open:
-                result = self._station_inv.on_mouse_press(x, y)
-                if result:
-                    return
-                if not self._station_inv.open:
-                    return  # was closed by clicking outside
+                if self._station_inv.on_mouse_press(x, y):
+                    return  # started a drag in station inv
             # Craft menu click
             if self._craft_menu.open:
                 action = self._craft_menu.on_mouse_press(
