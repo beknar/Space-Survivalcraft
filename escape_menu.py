@@ -1444,6 +1444,13 @@ class EscapeMenu:
         self._t_res_back.y = by + bh // 2
         self._t_res_back.draw()
 
+        # Status flash (e.g. "Fullscreen required for video")
+        if self._status_msg:
+            self._t_status.x = cx
+            self._t_status.y = py + MENU_H - 12
+            self._t_status.text = self._status_msg
+            self._t_status.draw()
+
     def _draw_save_load(self) -> None:
         # Recompute save/load panel position from live window size
         self._sl_px = (self._window.width - SAVE_MENU_W) // 2
