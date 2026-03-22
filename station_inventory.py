@@ -178,10 +178,17 @@ class StationInventory:
 
         cell = self._cell_at(x, y)
         if cell is not None:
-            # Dropped back into station grid
+            # Dropped back into station grid — handle swap
             if dt == "iron":
-                pass  # iron stays in self.iron
+                existing = self._items.get(cell)
+                if existing is not None and src is not None:
+                    self._items[src] = existing
+                    del self._items[cell]
+                self._iron_cell = cell
             else:
+                existing = self._items.get(cell)
+                if existing is not None and src is not None:
+                    self._items[src] = existing
                 self._items[cell] = (dt, da)
             return None
 
@@ -195,7 +202,7 @@ class StationInventory:
 
         # Dropped on panel border — return to source
         if dt == "iron":
-            pass  # iron stays
+            pass  # iron stays at current _iron_cell
         elif src is not None:
             self._items[src] = (dt, da)
         return None
