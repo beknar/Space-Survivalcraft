@@ -111,6 +111,30 @@ class HUD:
         self._eq_cascade_dir: int = 1              # +1 = left-to-right, -1 = right-to-left
         self._eq_next_dir_change: float = 0.0      # timer for next random direction flip
 
+        # Quick-use bar state (5 slots, each holds item_type or None)
+        from constants import QUICK_USE_SLOTS, QUICK_USE_CELL
+        self._qu_slots: list[str | None] = [None] * QUICK_USE_SLOTS
+        self._qu_counts: list[int] = [0] * QUICK_USE_SLOTS
+        self._qu_cell = QUICK_USE_CELL
+        self._qu_count = QUICK_USE_SLOTS
+        self._t_qu_label = arcade.Text("QUICK USE", STATUS_WIDTH // 2, 0,
+                                       arcade.color.LIGHT_GRAY, 8,
+                                       anchor_x="center")
+        self._t_qu_num = arcade.Text("", 0, 0, arcade.color.WHITE, 8, bold=True,
+                                     anchor_x="center", anchor_y="center")
+
+    def set_quick_use(self, slot: int, item_type: str | None, count: int = 0) -> None:
+        """Set a quick-use slot (0-indexed)."""
+        if 0 <= slot < self._qu_count:
+            self._qu_slots[slot] = item_type
+            self._qu_counts[slot] = count
+
+    def get_quick_use(self, slot: int) -> str | None:
+        """Get the item type in a quick-use slot (0-indexed)."""
+        if 0 <= slot < self._qu_count:
+            return self._qu_slots[slot]
+        return None
+
     def toggle_fps(self) -> None:
         self._show_fps = not self._show_fps
 
@@ -254,6 +278,41 @@ class HUD:
                     arcade.LBWH(bx, eq_y, _EQ_BAR_W, h),
                     (r, g, b_col, 230),
                 )
+
+        # Quick-use bar (5 slots labeled 1–5)
+        qu_total_w = self._qu_count * self._qu_cell + (self._qu_count - 1) * 2
+        qu_x = (STATUS_WIDTH - qu_total_w) // 2
+        qu_y = self._sh - 400
+        self._t_qu_label.y = qu_y + self._qu_cell + 8
+        self._t_qu_label.draw()
+        for i in range(self._qu_count):
+            sx = qu_x + i * (self._qu_cell + 2)
+            filled = self._qu_slots[i] is not None
+            fill = (50, 70, 50, 220) if filled else (25, 25, 50, 200)
+            arcade.draw_rect_filled(
+                arcade.LBWH(sx, qu_y, self._qu_cell, self._qu_cell), fill,
+            )
+            arcade.draw_rect_outline(
+                arcade.LBWH(sx, qu_y, self._qu_cell, self._qu_cell),
+                (80, 100, 140), border_width=1,
+            )
+            # Slot number
+            self._t_qu_num.text = str(i + 1)
+            self._t_qu_num.x = sx + self._qu_cell // 2
+            self._t_qu_num.y = qu_y + self._qu_cell - 6
+            self._t_qu_num.color = (160, 160, 160)
+            self._t_qu_num.draw()
+            # Item icon/label
+            if self._qu_slots[i] is not None:
+                self._t_qu_num.text = self._qu_slots[i][:3].upper()
+                self._t_qu_num.y = qu_y + self._qu_cell // 2 - 2
+                self._t_qu_num.color = arcade.color.YELLOW
+                self._t_qu_num.draw()
+                if self._qu_counts[i] > 0:
+                    self._t_qu_num.text = str(self._qu_counts[i])
+                    self._t_qu_num.y = qu_y + 4
+                    self._t_qu_num.color = arcade.color.ORANGE
+                    self._t_qu_num.draw()
 
         self._draw_minimap(
             asteroid_list, iron_pickup_list, alien_list,

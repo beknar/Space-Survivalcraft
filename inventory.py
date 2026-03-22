@@ -81,6 +81,32 @@ class Inventory:
     def add_iron(self, amount: int) -> None:
         self.iron += amount
 
+    def add_item(self, item_type: str, count: int = 1) -> None:
+        """Add a named item to the first available cell (stacks if same type)."""
+        for cell, existing in list(self._items.items()):
+            if existing == item_type:
+                # Items stored as strings don't stack — put in new cell
+                break
+        for r in range(INV_ROWS):
+            for c in range(INV_COLS):
+                if (r, c) == self._iron_cell and self.iron > 0:
+                    continue
+                if (r, c) not in self._items:
+                    self._items[(r, c)] = item_type
+                    return
+
+    def count_item(self, item_type: str) -> int:
+        """Count how many cells contain the given item type."""
+        return sum(1 for v in self._items.values() if v == item_type)
+
+    def remove_item(self, item_type: str) -> bool:
+        """Remove one instance of the named item. Returns True if found."""
+        for cell, existing in list(self._items.items()):
+            if existing == item_type:
+                del self._items[cell]
+                return True
+        return False
+
     def toggle(self) -> None:
         self.open = not self.open
 

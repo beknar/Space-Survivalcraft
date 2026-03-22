@@ -184,7 +184,7 @@ SHIP_TYPES = {
 }
 
 # ── Asteroid constants ──────────────────────────────────────────────────────
-ASTEROID_COUNT: int = 50
+ASTEROID_COUNT: int = 75
 ASTEROID_HP: int = 100
 ASTEROID_IRON_YIELD: int = 10
 ASTEROID_MIN_DIST: float = 400.0   # min distance from world centre at spawn
@@ -195,7 +195,7 @@ EXPLOSION_FRAME_H: int = 140
 EXPLOSION_FPS: float = 15.0        # frames per second
 
 # ── Small Alien Ship constants ──────────────────────────────────────────────
-ALIEN_COUNT: int = 20
+ALIEN_COUNT: int = 30
 ALIEN_HP: int = 50
 ALIEN_SCALE: float = 0.10               # display scale  (461 px source -> ~46 px wide)
 ALIEN_RADIUS: float = 20.0              # approx collision radius in px
@@ -220,7 +220,7 @@ ALIEN_STUCK_TIME: float = 2.0         # seconds before stuck detection triggers
 ALIEN_STUCK_DIST: float = 10.0        # px — if alien moved less than this in STUCK_TIME, it's stuck
 
 # ── Respawn constants ──────────────────────────────────────────────────────
-RESPAWN_INTERVAL: float = 120.0          # seconds (2 minutes) between respawn checks
+RESPAWN_INTERVAL: float = 60.0           # seconds (1 minute) between respawn checks
 RESPAWN_EXCLUSION_RADIUS: float = 300.0  # px — no respawn within this range of a building
 ALIEN_IRON_DROP: int = 5                 # iron units dropped when an alien ship is destroyed
 
@@ -293,6 +293,9 @@ BUILDING_TYPES = {
     "Repair Module":   {"png": "spaceBuilding_009.png", "hp":  75, "cost":  75,
                         "max": 1,    "module_slots": 0, "connectable": True,
                         "free_place": False, "slots_used": 1},
+    "Basic Crafter":   {"png": "spaceBuilding_008.png", "hp":  75, "cost": 150,
+                        "max": 1,    "module_slots": 0, "connectable": True,
+                        "free_place": False, "slots_used": 1},
 }
 
 # Turret combat constants
@@ -307,6 +310,29 @@ TURRET_FREE_PLACE_RADIUS: float = 300.0  # max distance from Home Station for tu
 REPAIR_RANGE: float = 300.0             # px — distance from Home Station for repair to activate
 REPAIR_RATE: float = 1.0               # HP restored per second when near Home Station
 REPAIR_SHIELD_BOOST: float = 1.0      # extra shield regen pt/s from Repair Module
+
+# Crafting constants
+CRAFT_TIME: float = 60.0              # seconds to craft one Repair Pack batch
+CRAFT_IRON_COST: int = 200            # iron needed from station inventory
+CRAFT_RESULT_COUNT: int = 5           # number of Repair Packs produced per craft
+REPAIR_PACK_HEAL: float = 0.50       # fraction of max_hp healed per Repair Pack use
+
+# Station inventory constants
+STATION_INV_COLS: int = 10
+STATION_INV_ROWS: int = 10
+STATION_INV_CELL: int = 40            # cell size in px (smaller than ship inv)
+STATION_INV_PAD: int = 10
+
+# Quick use bar constants
+QUICK_USE_SLOTS: int = 5
+QUICK_USE_CELL: int = 30              # cell size in px
+
+# Repair Pack asset (items.png — second 198×198 item in first row)
+REPAIR_PACK_PNG = os.path.join(
+    _HERE, "assets", "gamedevmarket assets",
+    "alien spaceship creation kit", "png", "items.png",
+)
+REPAIR_PACK_CROP = (198, 0, 396, 198)  # (x0, y0, x1, y1) for PIL crop
 
 # Docking port snap distance
 DOCK_SNAP_DIST: float = 40.0        # px — max distance to snap to a port

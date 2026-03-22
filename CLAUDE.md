@@ -44,6 +44,8 @@ Space Survivalcraft/
 ├── escape_menu.py       # EscapeMenu — overlay with save/load/quit, audio sliders, song controls, video picker, help (does NOT pause gameplay)
 ├── death_screen.py      # DeathScreen — "SHIP DESTROYED" overlay with Load/Menu/Exit
 ├── inventory.py         # Inventory — 5×5 cargo grid with drag-and-drop and world ejection
+├── station_inventory.py # StationInventory — 10×10 Home Station inventory with item transfer
+├── craft_menu.py        # CraftMenu — crafting UI for Basic Crafter (Repair Pack recipe)
 ├── build_menu.py        # BuildMenu — right-side overlay for constructing station modules
 ├── station_info.py      # StationInfo — right-side overlay showing building HP + module stats (T key)
 │
@@ -62,7 +64,7 @@ Space Survivalcraft/
 │   ├── shield.py        # ShieldSprite — animated energy bubble with hit flash
 │   ├── explosion.py     # Explosion, HitSpark, FireSpark visual effects
 │   ├── contrail.py      # ContrailParticle — engine exhaust particle effect
-│   └── building.py      # StationModule, HomeStation, ServiceModule, Turret, RepairModule, DockingPort, etc.
+│   └── building.py      # StationModule, HomeStation, ServiceModule, Turret, RepairModule, BasicCrafter, DockingPort, etc.
 │
 │  ── Unit tests ──
 ├── unit tests/

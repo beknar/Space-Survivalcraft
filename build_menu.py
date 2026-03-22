@@ -22,6 +22,7 @@ _MENU_ORDER = [
     "Turret 1",
     "Turret 2",
     "Repair Module",
+    "Basic Crafter",
 ]
 
 

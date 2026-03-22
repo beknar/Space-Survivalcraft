@@ -134,7 +134,7 @@ All ships start with both weapons. The Thunderbolt has 2 guns, so it gets 2x Bas
 
 | Property | Value |
 |---|---|
-| Count | 50 (randomly distributed) |
+| Count | 75 (randomly distributed) |
 | HP | 100 |
 | Iron yield | 10 per asteroid |
 | Sprite size | 64 x 64 px at 1.0x scale |
@@ -149,7 +149,7 @@ All ships start with both weapons. The Thunderbolt has 2 guns, so it gets 2x Bas
 - On destruction: explosion animation + sound, drops one Iron Pickup at the destruction site
 
 **Respawn:**
-- Asteroids respawn every 2 minutes (120 s) until the count returns to 50
+- Asteroids respawn every 1 minute (60 s) until the count returns to 75
 - One asteroid respawns per cycle (timer resets after each spawn attempt)
 - Asteroids will not respawn within 300 px of any player-built station module
 - Same spawn constraints apply: min 400 px from world centre, 100 px from edges
@@ -172,7 +172,7 @@ Pickups idle at their drop position until the ship's hull edge comes within 40 p
 
 | Property | Value |
 |---|---|
-| Count | 20 (randomly distributed) |
+| Count | 30 (randomly distributed) |
 | HP | 50 |
 | Collision radius | 20 px |
 | Movement speed | 120 px/s (patrol and pursuit) |
@@ -181,7 +181,7 @@ Pickups idle at their drop position until the ship's hull edge comes within 40 p
 | Edge margin | 100 px from world edges |
 
 **Respawn:**
-- Alien ships respawn every 2 minutes (120 s) until the count returns to 20
+- Alien ships respawn every 1 minute (60 s) until the count returns to 30
 - One alien respawns per cycle (timer resets after each spawn attempt)
 - Aliens will not respawn within 300 px of any player-built station module
 - Same spawn constraints apply: min 400 px from world centre, 100 px from edges
@@ -578,6 +578,7 @@ Settings are saved to `config.json` in the project root and loaded on startup.
 - All station buildings: type, position, HP, angle, disabled state
 - Respawn timers: asteroid and alien respawn countdown progress
 - Fog of war grid: 128 x 128 boolean grid of revealed cells
+- Station inventory: iron pool + named items with positions and counts
 
 ### Save Slot Display
 Each slot shows:
@@ -682,6 +683,7 @@ Players can spend mined iron to construct a modular space station. Press **B** t
 | Turret 1 | 100 | 50 | unlimited | 1 slot | Single-barrel auto-fire turret |
 | Turret 2 | 100 | 75 | unlimited | 2 slots | Dual-barrel auto-fire turret |
 | Repair Module | 75 | 75 | 1 | 1 slot | Enables passive HP repair near Home Station |
+| Basic Crafter | 75 | 150 | 1 | 1 slot | Crafts Repair Packs from iron |
 
 ### Placement Rules
 
@@ -751,6 +753,47 @@ Players can spend mined iron to construct a modular space station. Press **B** t
 - Does not heal beyond `max_hp`.
 - Disabled Repair Modules (Home Station destroyed) do not provide healing or shield boost.
 
+### Basic Crafter Behaviour
+
+| Constant | Value |
+|---|---|
+| Recipe | Repair Pack |
+| Iron cost | 200 (from station inventory) |
+| Craft time | 60 s |
+| Output | 5× Repair Pack (added to station inventory) |
+
+- Click a placed Basic Crafter (within 300 px) to open the craft menu
+- Craft menu shows recipe info, iron cost, and a Craft button
+- While crafting: progress bar fills over 60 seconds
+- On completion: 5 Repair Packs are added to the station inventory
+- Only one craft can run at a time per crafter
+
+### Station Inventory
+
+- 10×10 grid (100 slots) accessible by left-clicking the Home Station (within 300 px)
+- Has its own iron pool (separate from ship inventory)
+- Stores named items like Repair Packs with stackable counts per cell
+- Drag items from station inventory to ship inventory by dropping outside the panel
+- Saved/loaded with game state
+
+### Repair Pack
+
+| Property | Value |
+|---|---|
+| Asset | `items.png` — second 198×198 item in first row (crop: 198,0,396,198) |
+| Craft cost | 200 iron + 60 seconds |
+| Craft output | 5 packs per craft |
+| Effect | Restores 50% of player's maximum HP |
+| Usage | Place in Quick Use slot, press corresponding number key (1–5) |
+
+### Quick Use Bar
+
+- 5 slots labeled 1–5, displayed below the equalizer in the HUD status panel
+- Each slot can hold one item type with a count
+- Press keys 1–5 to use the item in that slot
+- Currently supports: Repair Pack (heals 50% max HP on use)
+- Items are transferred from ship inventory to quick-use slots
+
 ### Building Assets
 
 All building PNGs are located in `assets/kenney space combat assets/Space Shooter Extension/PNG/Sprites X2/Building/`:
@@ -765,6 +808,8 @@ All building PNGs are located in `assets/kenney space combat assets/Space Shoote
 | Turret 1 | `spaceBuilding_011.png` |
 | Turret 2 | `spaceBuilding_012.png` |
 | Repair Module | `spaceBuilding_009.png` |
+| Basic Crafter | `spaceBuilding_008.png` |
+| Repair Pack icon | `assets/gamedevmarket assets/alien spaceship creation kit/png/items.png` (crop: 198,0,396,198) |
 
 ### Mini-map
 

@@ -27,6 +27,8 @@ from constants import (
     BUILDING_RADIUS, STATION_INFO_RANGE,
     REPAIR_RANGE, REPAIR_RATE, REPAIR_SHIELD_BOOST,
     FOG_REVEAL_RADIUS, FOG_CELL_SIZE, FOG_GRID_W, FOG_GRID_H,
+    CRAFT_TIME, CRAFT_IRON_COST, CRAFT_RESULT_COUNT, REPAIR_PACK_HEAL,
+    REPAIR_PACK_PNG, REPAIR_PACK_CROP,
     MINIMAP_Y, MINIMAP_H,
 )
 from settings import audio
@@ -36,7 +38,7 @@ from sprites.pickup import IronPickup
 from sprites.player import PlayerShip
 from sprites.contrail import ContrailParticle
 from sprites.building import (
-    StationModule, HomeStation, Turret, RepairModule,
+    StationModule, HomeStation, Turret, RepairModule, BasicCrafter,
     create_building, compute_module_capacity, compute_modules_used,
     DockingPort,
 )
@@ -65,6 +67,8 @@ from collisions import (
     handle_ship_building_collision,
 )
 from station_info import StationInfo
+from station_inventory import StationInventory
+from craft_menu import CraftMenu
 from video_player import VideoPlayer
 
 _SAVE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "saves")
@@ -174,6 +178,24 @@ class GameView(arcade.View):
 
         # Station info overlay
         self._station_info = StationInfo()
+
+        # Repair pack texture
+        from PIL import Image as PILImage
+        _pil_items = PILImage.open(REPAIR_PACK_PNG).convert("RGBA")
+        x0, y0, x1, y1 = REPAIR_PACK_CROP
+        self._repair_pack_tex = arcade.Texture(
+            _pil_items.crop((x0, y0, x1, y1))
+        )
+
+        # Station inventory (10×10)
+        self._station_inv = StationInventory(
+            iron_icon=self._iron_tex,
+            repair_pack_icon=self._repair_pack_tex,
+        )
+
+        # Craft menu
+        self._craft_menu = CraftMenu()
+        self._active_crafter: Optional[BasicCrafter] = None
 
         # Respawn timers (count up toward RESPAWN_INTERVAL)
         self._asteroid_respawn_timer: float = 0.0
@@ -703,6 +725,7 @@ class GameView(arcade.View):
                 "alien": self._alien_respawn_timer,
             },
             "fog_grid": self._fog_grid,
+            "station_inventory": self._station_inv.to_save_data(),
         }
 
     def _load_from_dict(self, data: dict) -> None:
@@ -813,6 +836,11 @@ class GameView(arcade.View):
                 and all(isinstance(r, list) and len(r) == FOG_GRID_W
                         for r in saved_fog)):
             view._fog_grid = saved_fog
+
+        # Restore station inventory
+        si_data = data.get("station_inventory")
+        if si_data:
+            view._station_inv.from_save_data(si_data)
 
     def _load_game(self, slot: int) -> None:
         """Load game state from a numbered save slot and rebuild the view."""
@@ -957,6 +985,8 @@ class GameView(arcade.View):
                 has_home=self._has_home_station(),
             )
             self._station_info.draw()
+            self._station_inv.draw()
+            self._craft_menu.draw(self._station_inv.iron)
             self._escape_menu.draw()
             self._death_screen.draw()
 
@@ -1073,6 +1103,22 @@ class GameView(arcade.View):
                     for b in self.building_list:
                         if not b.disabled and b.hp < b.max_hp:
                             b.heal(pts)
+
+        # ── Crafting tick ──────────────────────────────────────────────────
+        for b in self.building_list:
+            if isinstance(b, BasicCrafter) and b.crafting and not b.disabled:
+                b.craft_timer += delta_time
+                if b.craft_timer >= b.craft_total:
+                    b.crafting = False
+                    b.craft_timer = 0.0
+                    self._station_inv.add_item("repair_pack", CRAFT_RESULT_COUNT)
+
+        # Update craft menu progress if open
+        if self._craft_menu.open and self._active_crafter is not None:
+            self._craft_menu.update(
+                self._active_crafter.craft_progress,
+                self._active_crafter.crafting,
+            )
 
         # ── Fog of war ──────────────────────────────────────────────────────
         self._update_fog()
@@ -1278,6 +1324,13 @@ class GameView(arcade.View):
             self._death_screen.on_key_press(key)
             return
         if key == arcade.key.ESCAPE:
+            if self._craft_menu.open:
+                self._craft_menu.open = False
+                self._active_crafter = None
+                return
+            if self._station_inv.open:
+                self._station_inv.open = False
+                return
             if self._destroy_mode:
                 self._exit_destroy_mode()
             elif self._placing_building is not None:
@@ -1325,6 +1378,24 @@ class GameView(arcade.View):
                         compute_modules_used(self.building_list),
                         compute_module_capacity(self.building_list),
                     )
+        # Quick-use keys 1-5
+        elif key in (arcade.key.KEY_1, arcade.key.KEY_2, arcade.key.KEY_3,
+                     arcade.key.KEY_4, arcade.key.KEY_5):
+            if not self._escape_menu.open and not self._player_dead:
+                slot = key - arcade.key.KEY_1
+                item = self._hud.get_quick_use(slot)
+                if item == "repair_pack":
+                    # Use repair pack: heal 50% max HP
+                    heal = int(self.player.max_hp * REPAIR_PACK_HEAL)
+                    self.player.hp = min(self.player.max_hp, self.player.hp + heal)
+                    # Remove from inventory
+                    self.inventory.remove_item("repair_pack")
+                    # Update quick-use slot
+                    remaining = self.inventory.count_item("repair_pack")
+                    if remaining > 0:
+                        self._hud.set_quick_use(slot, "repair_pack", remaining)
+                    else:
+                        self._hud.set_quick_use(slot, None, 0)
 
     def on_key_release(self, key: int, modifiers: int) -> None:
         self._keys.discard(key)
@@ -1369,6 +1440,47 @@ class GameView(arcade.View):
                     else:
                         self._enter_placement_mode(selected)
                 return
+            # Station inventory click
+            if self._station_inv.open:
+                result = self._station_inv.on_mouse_press(x, y)
+                if result:
+                    return
+                if not self._station_inv.open:
+                    return  # was closed by clicking outside
+            # Craft menu click
+            if self._craft_menu.open:
+                action = self._craft_menu.on_mouse_press(
+                    x, y, self._station_inv.iron
+                )
+                if action == "craft" and self._active_crafter is not None:
+                    self._station_inv.iron -= CRAFT_IRON_COST
+                    self._active_crafter.crafting = True
+                    self._active_crafter.craft_timer = 0.0
+                    self._active_crafter.craft_total = CRAFT_TIME
+                if not self._craft_menu.open:
+                    self._active_crafter = None
+                return
+            # Click on world buildings (Home Station → inv, Crafter → craft menu)
+            if not self._build_menu.open and not self._player_dead:
+                wx = self.world_cam.position[0] - self.window.width / 2 + x
+                wy = self.world_cam.position[1] - self.window.height / 2 + y
+                for b in self.building_list:
+                    if math.hypot(wx - b.center_x, wy - b.center_y) < 40:
+                        dist_to_player = math.hypot(
+                            self.player.center_x - b.center_x,
+                            self.player.center_y - b.center_y,
+                        )
+                        if dist_to_player < STATION_INFO_RANGE:
+                            if isinstance(b, HomeStation) and not b.disabled:
+                                self._station_inv.toggle()
+                                return
+                            if isinstance(b, BasicCrafter) and not b.disabled:
+                                self._active_crafter = b
+                                self._craft_menu.toggle()
+                                self._craft_menu.update(
+                                    b.craft_progress, b.crafting,
+                                )
+                                return
             self.inventory.on_mouse_press(x, y)
 
     def _handle_death_action(self, action: str) -> None:
@@ -1387,6 +1499,7 @@ class GameView(arcade.View):
         if self._escape_menu.open:
             self._escape_menu.on_mouse_motion(x, y)
             return
+        self._station_inv.on_mouse_drag(x, y)
         self.inventory.on_mouse_drag(x, y)
 
     def on_mouse_release(self, x: int, y: int, button: int, modifiers: int) -> None:
@@ -1394,6 +1507,22 @@ class GameView(arcade.View):
             self._escape_menu.on_mouse_release(x, y)
             return
         if button == arcade.MOUSE_BUTTON_LEFT:
+            # Station inventory drop — transfer to ship inv
+            station_drop = self._station_inv.on_mouse_release(x, y)
+            if station_drop is not None:
+                item_type, amount = station_drop
+                if item_type == "iron":
+                    self.inventory.add_iron(amount)
+                elif item_type == "repair_pack":
+                    for _ in range(amount):
+                        self.inventory.add_item("repair_pack")
+                    # Update quick-use if repair_pack is assigned
+                    for slot in range(5):
+                        if self._hud.get_quick_use(slot) == "repair_pack":
+                            self._hud.set_quick_use(
+                                slot, "repair_pack",
+                                self.inventory.count_item("repair_pack"),
+                            )
             ejected = self.inventory.on_mouse_release(x, y)
             if ejected is not None:
                 item_type, amount = ejected

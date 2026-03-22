@@ -7,8 +7,8 @@ import pytest
 
 from sprites.building import (
     StationModule, HomeStation, ServiceModule, PowerReceiver,
-    SolarArray, Turret, RepairModule, DockingPort, create_building,
-    compute_module_capacity, compute_modules_used,
+    SolarArray, Turret, RepairModule, BasicCrafter, DockingPort,
+    create_building, compute_module_capacity, compute_modules_used,
 )
 from constants import (
     BUILDING_TYPES, TURRET_RANGE, TURRET_COOLDOWN,
@@ -555,3 +555,44 @@ class TestPortDisconnect:
         assert p_n.occupied is False
         assert p_e.occupied is True
         assert p_e.connected_to is child2
+
+
+# ── Basic Crafter ────────────────────────────────────────────────────────────
+
+class TestBasicCrafter:
+    def test_create_basic_crafter(self, home_tex):
+        b = create_building("Basic Crafter", home_tex, 0, 0)
+        assert isinstance(b, BasicCrafter)
+
+    def test_basic_crafter_hp(self, home_tex):
+        b = BasicCrafter(home_tex, 0, 0, "Basic Crafter", scale=0.5)
+        assert b.hp == 75
+        assert b.max_hp == 75
+
+    def test_basic_crafter_has_ports(self, home_tex):
+        b = BasicCrafter(home_tex, 0, 0, "Basic Crafter", scale=0.5)
+        assert len(b.ports) == 4
+
+    def test_basic_crafter_in_building_types(self):
+        assert "Basic Crafter" in BUILDING_TYPES
+        stats = BUILDING_TYPES["Basic Crafter"]
+        assert stats["cost"] == 150
+        assert stats["max"] == 1
+        assert stats["connectable"] is True
+        assert stats["slots_used"] == 1
+
+    def test_crafting_state_initial(self, home_tex):
+        b = BasicCrafter(home_tex, 0, 0, "Basic Crafter", scale=0.5)
+        assert b.crafting is False
+        assert b.craft_timer == 0.0
+
+    def test_craft_progress_zero_when_not_crafting(self, home_tex):
+        b = BasicCrafter(home_tex, 0, 0, "Basic Crafter", scale=0.5)
+        assert b.craft_progress == 0.0
+
+    def test_craft_progress_during_crafting(self, home_tex):
+        b = BasicCrafter(home_tex, 0, 0, "Basic Crafter", scale=0.5)
+        b.crafting = True
+        b.craft_total = 60.0
+        b.craft_timer = 30.0
+        assert b.craft_progress == pytest.approx(0.5)

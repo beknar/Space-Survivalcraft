@@ -20,8 +20,8 @@ from sprites.building import HomeStation
 # ── Constants validation ─────────────────────────────────────────────────────
 
 class TestRespawnConstants:
-    def test_respawn_interval_is_two_minutes(self):
-        assert RESPAWN_INTERVAL == 120.0
+    def test_respawn_interval_is_one_minute(self):
+        assert RESPAWN_INTERVAL == 60.0
 
     def test_respawn_exclusion_radius(self):
         assert RESPAWN_EXCLUSION_RADIUS == 300.0
@@ -30,10 +30,10 @@ class TestRespawnConstants:
         assert ALIEN_IRON_DROP == 5
 
     def test_asteroid_count(self):
-        assert ASTEROID_COUNT == 50
+        assert ASTEROID_COUNT == 75
 
     def test_alien_count(self):
-        assert ALIEN_COUNT == 20
+        assert ALIEN_COUNT == 30
 
 
 # ── Respawn logic helpers (mirror game_view logic for unit testing) ─────────
@@ -172,21 +172,21 @@ class TestRespawnTimerLogic:
 
     def test_timer_resets_on_threshold(self):
         timer = 0.0
-        # Simulate ticking at 60fps for 2 minutes + 1 frame (covers fp rounding)
-        for _ in range(60 * 120 + 1):
+        # Simulate ticking at 60fps for 1 minute + 1 frame (covers fp rounding)
+        for _ in range(60 * 60 + 1):
             timer += 1.0 / 60.0
         assert timer >= RESPAWN_INTERVAL
 
     def test_timer_does_not_trigger_before_interval(self):
         timer = 0.0
-        for _ in range(60 * 119):
+        for _ in range(60 * 59):
             timer += 1.0 / 60.0
         assert timer < RESPAWN_INTERVAL
 
     def test_respawn_skipped_when_at_max_count(self):
         """When count >= max, no respawn should occur (verified by constants)."""
-        assert ASTEROID_COUNT == 50
-        assert ALIEN_COUNT == 20
+        assert ASTEROID_COUNT == 75
+        assert ALIEN_COUNT == 30
 
 
 class TestAlienIronDrop:

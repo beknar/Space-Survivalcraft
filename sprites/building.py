@@ -133,6 +133,29 @@ class RepairModule(StationModule):
     pass
 
 
+class BasicCrafter(StationModule):
+    """Crafting module that produces items from iron."""
+
+    def __init__(
+        self,
+        texture: arcade.Texture,
+        x: float, y: float,
+        building_type: str,
+        scale: float = 0.5,
+    ) -> None:
+        super().__init__(texture, x, y, building_type, scale)
+        self.crafting: bool = False
+        self.craft_timer: float = 0.0
+        self.craft_total: float = 0.0  # total craft time for progress bar
+
+    @property
+    def craft_progress(self) -> float:
+        """Return 0.0–1.0 progress of the current craft."""
+        if not self.crafting or self.craft_total <= 0:
+            return 0.0
+        return min(1.0, self.craft_timer / self.craft_total)
+
+
 class SolarArray(StationModule):
     """Provides additional module capacity."""
 
@@ -237,6 +260,7 @@ _TYPE_MAP = {
     "Turret 1":       Turret,
     "Turret 2":       Turret,
     "Repair Module":  RepairModule,
+    "Basic Crafter":  BasicCrafter,
 }
 
 
