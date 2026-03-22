@@ -87,6 +87,7 @@ class OptionsView(arcade.View):
             _BTN_H,
         )
         self._hover_config: bool = False
+        self._config_flash: float = 0.0
 
         # ── UI sound ───────────────────────────────────────────────────
         self._click_snd = arcade.load_sound(
@@ -181,6 +182,12 @@ class OptionsView(arcade.View):
         )
 
     # ── Drawing ────────────────────────────────────────────────────────
+
+    def on_update(self, delta_time: float) -> None:
+        if self._config_flash > 0:
+            self._config_flash -= delta_time
+            if self._config_flash <= 0:
+                self._t_config.text = "Config"
 
     def on_draw(self) -> None:
         self.clear()
@@ -464,6 +471,8 @@ class OptionsView(arcade.View):
             from settings import save_config
             save_config()
             arcade.play_sound(self._click_snd, volume=audio.sfx_volume)
+            self._t_config.text = "Saved!"
+            self._config_flash = 1.5  # seconds to show confirmation
             return
 
         # Exit Game button
