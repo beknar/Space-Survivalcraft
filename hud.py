@@ -40,6 +40,7 @@ class HUD:
         has_gamepad: bool = False,
         faction: str | None = None,
         ship_type: str | None = None,
+        repair_pack_icon: arcade.Texture | None = None,
     ) -> None:
         # Store the current screen height so draw() uses the right value
         # (SCREEN_HEIGHT gets updated at runtime by apply_resolution, but
@@ -117,11 +118,19 @@ class HUD:
         self._qu_counts: list[int] = [0] * QUICK_USE_SLOTS
         self._qu_cell = QUICK_USE_CELL
         self._qu_count = QUICK_USE_SLOTS
+        self._repair_pack_icon = repair_pack_icon
         self._t_qu_label = arcade.Text("QUICK USE", STATUS_WIDTH // 2, 0,
                                        arcade.color.LIGHT_GRAY, 8,
                                        anchor_x="center")
         self._t_qu_num = arcade.Text("", 0, 0, arcade.color.WHITE, 8, bold=True,
                                      anchor_x="center", anchor_y="center")
+
+        # Quick-use drag state (for moving items between slots)
+        self._qu_drag_src: int | None = None
+        self._qu_drag_type: str | None = None
+        self._qu_drag_count: int = 0
+        self._qu_drag_x: float = 0.0
+        self._qu_drag_y: float = 0.0
 
     def set_quick_use(self, slot: int, item_type: str | None, count: int = 0) -> None:
         """Set a quick-use slot (0-indexed)."""
@@ -133,6 +142,19 @@ class HUD:
         """Get the item type in a quick-use slot (0-indexed)."""
         if 0 <= slot < self._qu_count:
             return self._qu_slots[slot]
+        return None
+
+    def slot_at(self, x: float, y: float) -> int | None:
+        """Return quick-use slot index (0-based) at screen coords, or None."""
+        qu_total_w = self._qu_count * self._qu_cell + (self._qu_count - 1) * 2
+        qu_x = (STATUS_WIDTH - qu_total_w) // 2
+        qu_y = self._sh - 400
+        if y < qu_y or y > qu_y + self._qu_cell:
+            return None
+        for i in range(self._qu_count):
+            sx = qu_x + i * (self._qu_cell + 2)
+            if sx <= x <= sx + self._qu_cell:
+                return i
         return None
 
     def toggle_fps(self) -> None:
@@ -287,8 +309,14 @@ class HUD:
         self._t_qu_label.draw()
         for i in range(self._qu_count):
             sx = qu_x + i * (self._qu_cell + 2)
-            filled = self._qu_slots[i] is not None
-            fill = (50, 70, 50, 220) if filled else (25, 25, 50, 200)
+            is_drag_src = (i == self._qu_drag_src)
+            filled = self._qu_slots[i] is not None and not is_drag_src
+            if is_drag_src:
+                fill = (60, 60, 20, 200)
+            elif filled:
+                fill = (50, 70, 50, 220)
+            else:
+                fill = (25, 25, 50, 200)
             arcade.draw_rect_filled(
                 arcade.LBWH(sx, qu_y, self._qu_cell, self._qu_cell), fill,
             )
@@ -302,17 +330,63 @@ class HUD:
             self._t_qu_num.y = qu_y + self._qu_cell - 6
             self._t_qu_num.color = (160, 160, 160)
             self._t_qu_num.draw()
-            # Item icon/label
-            if self._qu_slots[i] is not None:
-                self._t_qu_num.text = self._qu_slots[i][:3].upper()
-                self._t_qu_num.y = qu_y + self._qu_cell // 2 - 2
-                self._t_qu_num.color = arcade.color.YELLOW
-                self._t_qu_num.draw()
+            # Item icon/label (skip source slot during drag)
+            if self._qu_slots[i] is not None and not is_drag_src:
+                if self._qu_slots[i] == "repair_pack" and self._repair_pack_icon is not None:
+                    icon = self._repair_pack_icon
+                    icon_pad = 4
+                    icon_size = self._qu_cell - icon_pad * 2
+                    arcade.draw_texture_rect(
+                        icon,
+                        arcade.LBWH(sx + icon_pad, qu_y + icon_pad + 2,
+                                    icon_size, icon_size - 4),
+                    )
+                else:
+                    self._t_qu_num.text = self._qu_slots[i][:3].upper()
+                    self._t_qu_num.y = qu_y + self._qu_cell // 2 - 2
+                    self._t_qu_num.color = arcade.color.YELLOW
+                    self._t_qu_num.draw()
                 if self._qu_counts[i] > 0:
                     self._t_qu_num.text = str(self._qu_counts[i])
+                    self._t_qu_num.x = sx + self._qu_cell // 2
                     self._t_qu_num.y = qu_y + 4
                     self._t_qu_num.color = arcade.color.ORANGE
                     self._t_qu_num.draw()
+
+        # Floating drag preview for quick-use
+        if self._qu_drag_src is not None and self._qu_drag_type is not None:
+            cs = self._qu_cell
+            fx = self._qu_drag_x - cs // 2
+            fy = self._qu_drag_y - cs // 2
+            arcade.draw_rect_filled(
+                arcade.LBWH(fx, fy, cs, cs), (70, 90, 40, 180),
+            )
+            arcade.draw_rect_outline(
+                arcade.LBWH(fx, fy, cs, cs),
+                arcade.color.YELLOW, border_width=2,
+            )
+            if self._qu_drag_type == "repair_pack" and self._repair_pack_icon is not None:
+                icon = self._repair_pack_icon
+                icon_pad = 4
+                icon_size = cs - icon_pad * 2
+                arcade.draw_texture_rect(
+                    icon,
+                    arcade.LBWH(fx + icon_pad, fy + icon_pad + 2,
+                                icon_size, icon_size - 4),
+                    alpha=200,
+                )
+            else:
+                self._t_qu_num.text = self._qu_drag_type[:3].upper()
+                self._t_qu_num.x = fx + cs // 2
+                self._t_qu_num.y = fy + cs // 2 - 2
+                self._t_qu_num.color = arcade.color.YELLOW
+                self._t_qu_num.draw()
+            if self._qu_drag_count > 0:
+                self._t_qu_num.text = str(self._qu_drag_count)
+                self._t_qu_num.x = fx + cs // 2
+                self._t_qu_num.y = fy + 4
+                self._t_qu_num.color = arcade.color.ORANGE
+                self._t_qu_num.draw()
 
         self._draw_minimap(
             asteroid_list, iron_pickup_list, alien_list,

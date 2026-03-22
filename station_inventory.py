@@ -17,7 +17,7 @@ _INV_H = STATION_INV_ROWS * STATION_INV_CELL + STATION_INV_PAD * 2 + _INV_HEADER
 
 
 class StationInventory:
-    """10×10 grid for the Home Station, storing named items and an iron pool."""
+    """10×10 grid for the Home Station, storing named items as (type, count) tuples."""
 
     def __init__(
         self,
@@ -26,10 +26,8 @@ class StationInventory:
     ) -> None:
         self._items: dict[tuple[int, int], tuple[str, int]] = {}
         self.open: bool = False
-        self.iron: int = 0
         self._iron_icon = iron_icon
         self._repair_pack_icon = repair_pack_icon
-        self._iron_cell: tuple[int, int] = (0, 0)
 
         try:
             self._window = arcade.get_window()
@@ -59,6 +57,18 @@ class StationInventory:
     def toggle(self) -> None:
         self.open = not self.open
 
+    # ── Public API ────────────────────────────────────────────────────────
+
+    @property
+    def total_iron(self) -> int:
+        """Total iron across all cells."""
+        return self.count_item("iron")
+
+    # Backward-compat alias
+    @property
+    def iron(self) -> int:
+        return self.total_iron
+
     def add_item(self, item_type: str, count: int = 1) -> None:
         """Add items to the first available cell or stack on existing."""
         # Try to stack on existing cell of same type
@@ -69,8 +79,6 @@ class StationInventory:
         # Find first empty cell
         for r in range(STATION_INV_ROWS):
             for c in range(STATION_INV_COLS):
-                if (r, c) == self._iron_cell and self.iron > 0:
-                    continue
                 if (r, c) not in self._items:
                     self._items[(r, c)] = (item_type, count)
                     return
@@ -125,8 +133,6 @@ class StationInventory:
                 cell = (r, c)
                 if cell in self._items:
                     continue
-                if self.iron > 0 and cell == self._iron_cell:
-                    continue
                 row_from_bottom = STATION_INV_ROWS - 1 - r
                 cx = gx + c * STATION_INV_CELL + STATION_INV_CELL / 2
                 cy = gy + row_from_bottom * STATION_INV_CELL + STATION_INV_CELL / 2
@@ -162,15 +168,6 @@ class StationInventory:
         cell = self._cell_at(x, y)
         if cell is None:
             return False
-        # Iron
-        if self.iron > 0 and cell == self._iron_cell:
-            self._drag_type = "iron"
-            self._drag_amount = self.iron
-            self._drag_src = cell
-            self._drag_x = x
-            self._drag_y = y
-            return True
-        # Named item
         item = self._items.get(cell)
         if item is not None:
             self._drag_type = item[0]
@@ -191,8 +188,6 @@ class StationInventory:
         """Returns (item_type, amount) if item was dropped outside panel (for transfer)."""
         if self._drag_type is not None:
             print(f"[STATION_REL] drag_type={self._drag_type} at ({x:.0f},{y:.0f})")
-        else:
-            pass  # no active drag — silent
         if self._drag_type is None:
             return None
         dt = self._drag_type
@@ -203,7 +198,7 @@ class StationInventory:
         self._drag_src = None
 
         # Check if dropped on the ship inventory panel — treat as external transfer
-        from constants import INV_W, INV_H, INV_HEADER, INV_FOOTER
+        from constants import INV_W, INV_H
         sw = self._window.width if self._window else SCREEN_WIDTH
         sh = self._window.height if self._window else SCREEN_HEIGHT
         ship_ox = (sw - INV_W) // 2
@@ -212,40 +207,31 @@ class StationInventory:
         if ship_ox <= x <= ship_ox + INV_W and ship_oy <= y <= ship_oy + INV_H:
             # Cursor is on ship inventory — return item for cross-transfer
             print(f"[INV] Station→Ship: returning {dt} x{da}")
-            if dt == "iron":
-                transfer = self.iron
-                self.iron = 0
-                return ("iron", transfer)
             return (dt, da)
 
         cell = self._cell_at(x, y)
         if cell is not None:
-            # Dropped back into station grid — handle swap
-            if dt == "iron":
-                existing = self._items.get(cell)
-                if existing is not None and src is not None:
-                    self._items[src] = existing
-                    del self._items[cell]
-                self._iron_cell = cell
+            # Dropped back into station grid — handle swap/stack
+            existing = self._items.get(cell)
+            if existing is not None:
+                if existing[0] == dt:
+                    # Stack onto same type
+                    self._items[cell] = (dt, existing[1] + da)
+                else:
+                    # Swap
+                    if src is not None:
+                        self._items[src] = existing
+                    self._items[cell] = (dt, da)
             else:
-                existing = self._items.get(cell)
-                if existing is not None and src is not None:
-                    self._items[src] = existing
                 self._items[cell] = (dt, da)
             return None
 
         if not self._panel_contains(x, y):
             # Dropped outside panel — return for transfer to ship
-            if dt == "iron":
-                transfer = self.iron
-                self.iron = 0
-                return ("iron", transfer)
             return (dt, da)
 
         # Dropped on panel border — return to source
-        if dt == "iron":
-            pass  # iron stays at current _iron_cell
-        elif src is not None:
+        if src is not None:
             self._items[src] = (dt, da)
         return None
 
@@ -282,12 +268,11 @@ class StationInventory:
                 cell = (r, c)
 
                 # Cell colour
-                is_iron = (self.iron > 0 and cell == self._iron_cell)
                 is_item = cell in self._items
                 is_src = (cell == self._drag_src)
                 if is_src:
                     fill = (70, 90, 40, 200)
-                elif is_iron or is_item:
+                elif is_item:
                     fill = (50, 80, 50, 200)
                 else:
                     fill = (30, 30, 60, 200)
@@ -298,26 +283,18 @@ class StationInventory:
                     (60, 80, 120), border_width=1,
                 )
 
-                # Draw iron
-                if is_iron and not is_src:
-                    if self._iron_icon:
-                        arcade.draw_texture_rect(
-                            self._iron_icon,
-                            arcade.LBWH(cx + 4, cy + 8, cs - 8, cs - 12),
-                        )
-                    self._t_count.text = str(self.iron)
-                    self._t_count.x = cx + cs - 6
-                    self._t_count.y = cy + 4
-                    self._t_count.anchor_x = "right"
-                    self._t_count.draw()
-                    self._t_count.anchor_x = "left"
-
-                # Draw named item
+                # Draw item
                 if is_item and not is_src:
                     it, ct = self._items[cell]
-                    if it == "repair_pack" and self._repair_pack_icon:
+                    icon = None
+                    if it == "iron" and self._iron_icon:
+                        icon = self._iron_icon
+                    elif it == "repair_pack" and self._repair_pack_icon:
+                        icon = self._repair_pack_icon
+
+                    if icon:
                         arcade.draw_texture_rect(
-                            self._repair_pack_icon,
+                            icon,
                             arcade.LBWH(cx + 4, cy + 8, cs - 8, cs - 12),
                         )
                     else:
@@ -337,38 +314,40 @@ class StationInventory:
         if not self.open or self._drag_type is None:
             return
         cs = STATION_INV_CELL
-        if self._drag_type is not None:
-            dx, dy = self._drag_x, self._drag_y
-            arcade.draw_rect_filled(
-                arcade.LBWH(dx - cs // 2, dy - cs // 2, cs, cs),
-                (80, 80, 40, 180),
-            )
-            arcade.draw_rect_outline(
-                arcade.LBWH(dx - cs // 2, dy - cs // 2, cs, cs),
-                arcade.color.YELLOW, border_width=2,
-            )
-            self._t_label.text = self._drag_type[:8]
-            self._t_label.x = dx - cs // 2 + 3
-            self._t_label.y = dy
-            self._t_label.draw()
-            self._t_count.text = str(self._drag_amount)
-            self._t_count.x = dx + cs // 2 - 4
-            self._t_count.y = dy - cs // 2 + 4
-            self._t_count.anchor_x = "right"
-            self._t_count.draw()
-            self._t_count.anchor_x = "left"
+        dx, dy = self._drag_x, self._drag_y
+        arcade.draw_rect_filled(
+            arcade.LBWH(dx - cs // 2, dy - cs // 2, cs, cs),
+            (80, 80, 40, 180),
+        )
+        arcade.draw_rect_outline(
+            arcade.LBWH(dx - cs // 2, dy - cs // 2, cs, cs),
+            arcade.color.YELLOW, border_width=2,
+        )
+        self._t_label.text = self._drag_type[:8]
+        self._t_label.x = dx - cs // 2 + 3
+        self._t_label.y = dy
+        self._t_label.draw()
+        self._t_count.text = str(self._drag_amount)
+        self._t_count.x = dx + cs // 2 - 4
+        self._t_count.y = dy - cs // 2 + 4
+        self._t_count.anchor_x = "right"
+        self._t_count.draw()
+        self._t_count.anchor_x = "left"
 
     def to_save_data(self) -> dict:
         """Serialize station inventory for save game."""
         items = []
         for (r, c), (it, ct) in self._items.items():
             items.append({"r": r, "c": c, "type": it, "count": ct})
-        return {"iron": self.iron, "items": items}
+        return {"items": items}
 
     def from_save_data(self, data: dict) -> None:
         """Restore station inventory from save data."""
-        self.iron = data.get("iron", 0)
         self._items.clear()
+        # Migrate old saves that stored iron as a separate pool
+        old_iron = data.get("iron", 0)
+        if old_iron > 0:
+            self.add_item("iron", old_iron)
         for entry in data.get("items", []):
             r, c = entry["r"], entry["c"]
             self._items[(r, c)] = (entry["type"], entry["count"])

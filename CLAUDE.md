@@ -178,6 +178,9 @@ sprites/alien.py
 - **Gamepad resilience** — `joystick.open()` wrapped in `try/except DeviceOpenException` to handle already-open controllers across View transitions
 - **Dynamic UI positioning** — all views and overlays use `self.window.width`/`.height` (or `arcade.get_window()`) for layout, never stale imported `SCREEN_WIDTH`/`SCREEN_HEIGHT` constants, to support runtime resolution changes and fullscreen
 - **Fog of war** — 128×128 boolean grid saved/loaded with game state; mini-map filters objects by revealed cells and draws grey fog overlay using run-length spans
+- **Unified item storage** — both cargo (5×5) and station (10×10) inventories store items as `(type, count)` tuples per cell; iron is a regular stackable item, not a separate pool; `total_iron` property sums across all cells for HUD/build cost checks
+- **Quick-use drag system** — HUD tracks drag state (`_qu_drag_src/type/count/x/y`) for visible pick-up animation; items can be assigned by dragging from inventory, moved between slots, or unassigned by dragging out
+- **Building hover tooltip** — `on_mouse_motion` detects closest building within 40 px using world-coordinate conversion; tooltip drawn in UI camera space
 
 ## Game Rules Reference
 

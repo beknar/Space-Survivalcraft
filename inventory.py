@@ -14,27 +14,29 @@ from constants import (
 class Inventory:
     """5x5 cargo hold grid drawn as a modal overlay.
 
-    Tracks stackable resources (iron) separately from slot items.
-    Supports mouse drag-and-drop to rearrange items between cells.
+    All items (iron, repair_pack, etc.) are stored as (type, count) tuples
+    in grid cells and support stacking.
     """
 
-    def __init__(self, iron_icon: Optional[arcade.Texture] = None) -> None:
-        # items: dict[(row, col)] -> item name string; absent key = empty slot
-        self._items: dict[tuple[int, int], str] = {}
+    def __init__(
+        self,
+        iron_icon: Optional[arcade.Texture] = None,
+        repair_pack_icon: Optional[arcade.Texture] = None,
+    ) -> None:
+        # items: dict[(row, col)] -> (item_type, count); absent key = empty slot
+        self._items: dict[tuple[int, int], tuple[str, int]] = {}
         self.open: bool = False
         try:
             self._window = arcade.get_window()
         except Exception:
             self._window = None  # tests may run without a window
 
-        # Stackable resource totals
-        self.iron: int = 0
         self._iron_icon: Optional[arcade.Texture] = iron_icon
-        # Cell that currently displays the iron stack (draggable)
-        self._iron_cell: tuple[int, int] = (0, 0)
+        self._repair_pack_icon: Optional[arcade.Texture] = repair_pack_icon
 
         # Drag-and-drop state
-        self._drag_type: Optional[str] = None        # item name or "iron"
+        self._drag_type: Optional[str] = None
+        self._drag_amount: int = 0
         self._drag_src: Optional[tuple[int, int]] = None
         self._drag_x: float = 0.0
         self._drag_y: float = 0.0
@@ -67,8 +69,8 @@ class Inventory:
             anchor_x="center",
             anchor_y="center",
         )
-        # Iron count label (reused in cell and while dragging)
-        self._t_iron = arcade.Text("", 0, 0, arcade.color.ORANGE, 9, bold=True)
+        # Count label (reused for all item types)
+        self._t_count = arcade.Text("", 0, 0, arcade.color.ORANGE, 9, bold=True)
         # Generic item text labels
         self._t_item_label = arcade.Text("", 0, 0, arcade.color.WHITE, 8)
         self._t_drag_label = arcade.Text("", 0, 0, arcade.color.WHITE, 8)
@@ -78,34 +80,59 @@ class Inventory:
         )
 
     # ── Public API ──────────────────────────────────────────────────────────
+
+    @property
+    def total_iron(self) -> int:
+        """Total iron across all cells."""
+        return self.count_item("iron")
+
+    # Backward-compat alias so existing code using `inventory.iron` keeps working
+    # during migration. Reads sum from cells; writes not supported (use add_item).
+    @property
+    def iron(self) -> int:
+        return self.total_iron
+
     def add_iron(self, amount: int) -> None:
-        self.iron += amount
+        """Backward-compat helper — delegates to add_item."""
+        self.add_item("iron", amount)
 
     def add_item(self, item_type: str, count: int = 1) -> None:
-        """Add a named item to the first available cell (stacks if same type)."""
-        for cell, existing in list(self._items.items()):
-            if existing == item_type:
-                # Items stored as strings don't stack — put in new cell
-                break
+        """Add items to the first available cell or stack on existing."""
+        # Try to stack on existing cell of same type
+        for cell, (it, ct) in list(self._items.items()):
+            if it == item_type:
+                self._items[cell] = (it, ct + count)
+                return
+        # Find first empty cell
         for r in range(INV_ROWS):
             for c in range(INV_COLS):
-                if (r, c) == self._iron_cell and self.iron > 0:
-                    continue
                 if (r, c) not in self._items:
-                    self._items[(r, c)] = item_type
+                    self._items[(r, c)] = (item_type, count)
                     return
 
     def count_item(self, item_type: str) -> int:
-        """Count how many cells contain the given item type."""
-        return sum(1 for v in self._items.values() if v == item_type)
+        """Count total items of the given type across all cells."""
+        total = 0
+        for (it, ct) in self._items.values():
+            if it == item_type:
+                total += ct
+        return total
 
-    def remove_item(self, item_type: str) -> bool:
-        """Remove one instance of the named item. Returns True if found."""
-        for cell, existing in list(self._items.items()):
-            if existing == item_type:
-                del self._items[cell]
-                return True
-        return False
+    def remove_item(self, item_type: str, count: int = 1) -> int:
+        """Remove up to *count* items of the given type. Returns amount removed."""
+        removed = 0
+        for cell, (it, ct) in list(self._items.items()):
+            if it == item_type:
+                take = min(ct, count - removed)
+                remaining = ct - take
+                removed += take
+                if remaining <= 0:
+                    del self._items[cell]
+                else:
+                    self._items[cell] = (it, remaining)
+                if removed >= count:
+                    break
+        return removed
 
     def toggle(self) -> None:
         self.open = not self.open
@@ -129,8 +156,6 @@ class Inventory:
             for c in range(INV_COLS):
                 cell = (r, c)
                 if cell in self._items:
-                    continue
-                if self.iron > 0 and cell == self._iron_cell:
                     continue
                 row_from_bottom = INV_ROWS - 1 - r
                 cx = gx + c * INV_CELL + INV_CELL / 2
@@ -171,17 +196,10 @@ class Inventory:
         cell = self._cell_at(x, y)
         if cell is None:
             return False
-        # Iron stack has priority in its display cell
-        if self.iron > 0 and cell == self._iron_cell:
-            self._drag_type = "iron"
-            self._drag_src = cell
-            self._drag_x = x
-            self._drag_y = y
-            return True
-        # Named item
         item = self._items.get(cell)
         if item is not None:
-            self._drag_type = item
+            self._drag_type = item[0]
+            self._drag_amount = item[1]
             self._drag_src = cell
             del self._items[cell]
             self._drag_x = x
@@ -213,6 +231,9 @@ class Inventory:
         if self._drag_type is None:
             return None
 
+        dt = self._drag_type
+        da = self._drag_amount
+
         # Check if dropped on station inventory panel — treat as cross-transfer
         from station_inventory import StationInventory, _INV_W as _SI_W, _INV_H as _SI_H
         try:
@@ -223,16 +244,11 @@ class Inventory:
             si_ox = max(4, ship_left - _SI_W - 10)
             si_oy = (sh - _SI_H) // 2
             if si_ox <= x <= si_ox + _SI_W and si_oy <= y <= si_oy + _SI_H:
-                ejected_type = self._drag_type
-                if ejected_type == "iron":
-                    ejected_amount = self.iron
-                    self.iron = 0
-                else:
-                    ejected_amount = 1
                 self._drag_type = None
+                self._drag_amount = 0
                 self._drag_src = None
-                print(f"[INV] Ship→Station: ejecting {ejected_type} x{ejected_amount} at ({x:.0f},{y:.0f})")
-                return (ejected_type, ejected_amount)
+                print(f"[INV] Ship→Station: ejecting {dt} x{da} at ({x:.0f},{y:.0f})")
+                return (dt, da)
         except ImportError:
             pass
 
@@ -240,62 +256,68 @@ class Inventory:
 
         if target is None and not self._panel_contains(x, y):
             # ── Ejected outside the inventory panel -> drop into world ─────
-            ejected_type = self._drag_type
-            if ejected_type == "iron":
-                ejected_amount = self.iron
-                self.iron = 0
-            else:
-                ejected_amount = 1
             self._drag_type = None
+            self._drag_amount = 0
             self._drag_src = None
-            return (ejected_type, ejected_amount)
+            return (dt, da)
 
         if target is None:
             # Dropped on panel header/border -- return to source cell
             target = self._drag_src
 
         assert target is not None
-        if self._drag_type == "iron":
-            existing = self._items.get(target)
-            if existing is not None:
-                self._items[self._drag_src] = existing
-                del self._items[target]
-            self._iron_cell = target
+        existing = self._items.get(target)
+        if existing is not None:
+            if existing[0] == dt:
+                # Stack onto same type
+                self._items[target] = (dt, existing[1] + da)
+            else:
+                # Swap: put existing back in source, place dragged in target
+                if self._drag_src is not None:
+                    self._items[self._drag_src] = existing
+                self._items[target] = (dt, da)
         else:
-            existing = self._items.get(target)
-            if existing is not None:
-                self._items[self._drag_src] = existing
-            elif self._drag_src in self._items:
-                del self._items[self._drag_src]
-            self._items[target] = self._drag_type
+            self._items[target] = (dt, da)
 
         self._drag_type = None
+        self._drag_amount = 0
         self._drag_src = None
         return None
 
     # ── Drawing ─────────────────────────────────────────────────────────────
-    def _draw_iron_in_cell(
-        self, cell_x: float, cell_y: float, alpha: int = 255
+    def _draw_item_in_cell(
+        self, item_type: str, count: int, cell_x: float, cell_y: float, alpha: int = 255
     ) -> None:
-        """Draw the iron icon + count badge anchored at the bottom-left of a cell."""
-        if self._iron_icon is not None:
-            icon_scale = (INV_CELL - 12) / max(
-                self._iron_icon.width, self._iron_icon.height
-            )
+        """Draw an item icon + count badge in a cell."""
+        icon = None
+        if item_type == "iron" and self._iron_icon is not None:
+            icon = self._iron_icon
+        elif item_type == "repair_pack" and self._repair_pack_icon is not None:
+            icon = self._repair_pack_icon
+
+        if icon is not None:
+            icon_scale = (INV_CELL - 12) / max(icon.width, icon.height)
             arcade.draw_texture_rect(
-                self._iron_icon,
+                icon,
                 arcade.LBWH(
                     cell_x + 6, cell_y + 6,
-                    self._iron_icon.width * icon_scale,
-                    self._iron_icon.height * icon_scale,
+                    icon.width * icon_scale,
+                    icon.height * icon_scale,
                 ),
                 alpha=alpha,
             )
-        self._t_iron.text = str(self.iron)
-        self._t_iron.x = cell_x + INV_CELL - 4
-        self._t_iron.y = cell_y + 3
-        self._t_iron.anchor_x = "right"
-        self._t_iron.draw()
+        else:
+            self._t_item_label.text = item_type[:6]
+            self._t_item_label.x = cell_x + 4
+            self._t_item_label.y = cell_y + INV_CELL // 2 - 5
+            self._t_item_label.draw()
+
+        self._t_count.text = str(count)
+        self._t_count.x = cell_x + INV_CELL - 4
+        self._t_count.y = cell_y + 3
+        self._t_count.anchor_x = "right"
+        self._t_count.draw()
+        self._t_count.anchor_x = "left"
 
     def draw(self) -> None:
         if not self.open:
@@ -335,8 +357,7 @@ class Inventory:
                 is_hover = (cell == hover_cell)
 
                 item = self._items.get(cell)
-                has_iron = (self.iron > 0 and cell == self._iron_cell)
-                occupied = (item is not None) or has_iron
+                occupied = item is not None
 
                 if is_src:
                     fill = (60, 60, 20, 200)
@@ -358,14 +379,8 @@ class Inventory:
                 )
 
                 # Draw item content (skip source cell of drag)
-                if not is_src:
-                    if has_iron:
-                        self._draw_iron_in_cell(cx_, cy_)
-                    elif item is not None:
-                        self._t_item_label.text = item[:6]
-                        self._t_item_label.x = cx_ + 4
-                        self._t_item_label.y = cy_ + INV_CELL // 2 - 5
-                        self._t_item_label.draw()
+                if not is_src and item is not None:
+                    self._draw_item_in_cell(item[0], item[1], cx_, cy_)
 
         # Hint text (drawn after grid so cells don't occlude it)
         self._t_hint.draw()
@@ -384,28 +399,20 @@ class Inventory:
                 arcade.color.YELLOW,
                 border_width=1,
             )
-            if self._drag_type == "iron":
-                self._draw_iron_in_cell(fx, fy, alpha=200)
-            else:
-                self._t_drag_label.text = self._drag_type[:6]
-                self._t_drag_label.x = fx + 4
-                self._t_drag_label.y = fy + INV_CELL // 2 - 5
-                self._t_drag_label.draw()
+            self._draw_item_in_cell(self._drag_type, self._drag_amount, fx, fy, alpha=200)
 
         # ── Hover tooltip ──────────────────────────────────────────────────
         tip_cell = self._cell_at(self._mouse_x, self._mouse_y)
         if tip_cell is not None and self._drag_type is None:
-            row, col = tip_cell
-            is_iron = (self.iron > 0 and tip_cell == self._iron_cell)
             item = self._items.get(tip_cell)
-            if is_iron:
-                tip_label = f"Iron  \u00d7{self.iron}"
-            elif item is not None:
-                tip_label = item
+            if item is not None:
+                it, ct = item
+                tip_label = f"{it}  \u00d7{ct}"
             else:
                 tip_label = None
 
             if tip_label:
+                row, col = tip_cell
                 gx2, gy2 = self._grid_origin()
                 cell_cx = gx2 + col * INV_CELL + INV_CELL // 2
                 cell_ty = gy2 + (INV_ROWS - 1 - row) * INV_CELL + INV_CELL + 2

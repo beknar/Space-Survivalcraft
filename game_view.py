@@ -153,8 +153,19 @@ class GameView(arcade.View):
         self.hit_sparks: list[HitSpark] = []
         self.fire_sparks: list[FireSpark] = []
 
+        # Repair pack texture
+        from PIL import Image as PILImage
+        _pil_items = PILImage.open(REPAIR_PACK_PNG).convert("RGBA")
+        x0, y0, x1, y1 = REPAIR_PACK_CROP
+        self._repair_pack_tex = arcade.Texture(
+            _pil_items.crop((x0, y0, x1, y1))
+        )
+
         # Inventory
-        self.inventory = Inventory(iron_icon=self._iron_tex)
+        self.inventory = Inventory(
+            iron_icon=self._iron_tex,
+            repair_pack_icon=self._repair_pack_tex,
+        )
 
         # Building system
         self.building_list = arcade.SpriteList(use_spatial_hash=True)
@@ -175,17 +186,17 @@ class GameView(arcade.View):
         # Repair healing accumulators
         self._repair_acc: float = 0.0
         self._building_repair_acc: float = 0.0
+        # Building hover tooltip state
+        self._hover_building: Optional[StationModule] = None
+        self._hover_screen_x: float = 0.0
+        self._hover_screen_y: float = 0.0
+        self._t_building_tip = arcade.Text(
+            "", 0, 0, arcade.color.WHITE, 10, bold=True,
+            anchor_x="center", anchor_y="bottom",
+        )
 
         # Station info overlay
         self._station_info = StationInfo()
-
-        # Repair pack texture
-        from PIL import Image as PILImage
-        _pil_items = PILImage.open(REPAIR_PACK_PNG).convert("RGBA")
-        x0, y0, x1, y1 = REPAIR_PACK_CROP
-        self._repair_pack_tex = arcade.Texture(
-            _pil_items.crop((x0, y0, x1, y1))
-        )
 
         # Station inventory (10×10)
         self._station_inv = StationInventory(
@@ -211,6 +222,7 @@ class GameView(arcade.View):
             has_gamepad=self.joystick is not None,
             faction=faction,
             ship_type=ship_type,
+            repair_pack_icon=self._repair_pack_tex,
         )
         if audio.show_fps:
             self._hud._show_fps = True
@@ -588,10 +600,10 @@ class GameView(arcade.View):
         cost = stats["cost"]
 
         # Deduct iron
-        if self.inventory.iron < cost:
+        if self.inventory.total_iron < cost:
             self._cancel_placement()
             return
-        self.inventory.iron -= cost
+        self.inventory.remove_item("iron", cost)
 
         tex = self._building_textures[bt]
         laser_tex = self._turret_laser_tex if "Turret" in bt else None
@@ -610,7 +622,7 @@ class GameView(arcade.View):
             )
             if snap is None and bt != "Home Station":
                 # Non-Home connectable modules MUST snap to a port
-                self.inventory.iron += cost
+                self.inventory.add_item("iron", cost)
                 self._cancel_placement()
                 return
             if snap is not None:
@@ -641,7 +653,7 @@ class GameView(arcade.View):
                 continue
             if math.hypot(building.center_x - existing.center_x,
                           building.center_y - existing.center_y) < BUILDING_RADIUS * 2:
-                self.inventory.iron += cost
+                self.inventory.add_item("iron", cost)
                 self._cancel_placement()
                 return
 
@@ -692,7 +704,11 @@ class GameView(arcade.View):
                 "shield_acc": self.player._shield_acc,
             },
             "weapon_idx": self._weapon_idx,
-            "iron": self.inventory.iron,
+            "iron": self.inventory.total_iron,
+            "cargo_items": [
+                {"r": r, "c": c, "type": it, "count": ct}
+                for (r, c), (it, ct) in self.inventory._items.items()
+            ],
             "asteroids": [
                 {
                     "x": a.center_x,
@@ -781,7 +797,18 @@ class GameView(arcade.View):
         view.player._shield_acc = p.get("shield_acc", 0.0)
 
         view._weapon_idx = data.get("weapon_idx", 0)
-        view.inventory.iron = data.get("iron", 0)
+        # Restore cargo inventory items
+        view.inventory._items.clear()
+        cargo_items = data.get("cargo_items")
+        if cargo_items:
+            for entry in cargo_items:
+                r, c = entry["r"], entry["c"]
+                view.inventory._items[(r, c)] = (entry["type"], entry["count"])
+        else:
+            # Migrate old saves: iron was a pooled integer
+            old_iron = data.get("iron", 0)
+            if old_iron > 0:
+                view.inventory.add_item("iron", old_iron)
 
         # Restore asteroids
         view.asteroid_list.clear()
@@ -964,7 +991,7 @@ class GameView(arcade.View):
 
         with self.ui_cam.activate():
             self._hud.draw(
-                iron=self.inventory.iron,
+                iron=self.inventory.total_iron,
                 weapon_name=self._active_weapon.name,
                 hp=self.player.hp,
                 max_hp=self.player.max_hp,
@@ -995,14 +1022,42 @@ class GameView(arcade.View):
             self.inventory.draw()
             self._station_inv.draw_drag_preview()
             self._build_menu.draw(
-                iron=self.inventory.iron,
+                iron=self.inventory.total_iron,
                 building_counts=self._building_counts(),
                 modules_used=compute_modules_used(self.building_list),
                 module_capacity=compute_module_capacity(self.building_list),
                 has_home=self._has_home_station(),
             )
             self._station_info.draw()
-            self._craft_menu.draw(self._station_inv.iron)
+            self._craft_menu.draw(self._station_inv.total_iron)
+            # Building hover tooltip
+            if (self._hover_building is not None
+                    and not self._escape_menu.open
+                    and not self._death_screen.active
+                    and not self._build_menu.open
+                    and self._placing_building is None
+                    and not self._destroy_mode):
+                b = self._hover_building
+                label = f"{b.building_type}  HP {b.hp}/{b.max_hp}"
+                self._t_building_tip.text = label
+                tx = self._hover_screen_x
+                ty = self._hover_screen_y + 20
+                # Keep tooltip inside screen
+                tw = len(label) * 7 + 16
+                th = 18
+                tx0 = max(2, min(self.window.width - tw - 2, tx - tw // 2))
+                if ty + th > self.window.height:
+                    ty = self._hover_screen_y - 22
+                arcade.draw_rect_filled(
+                    arcade.LBWH(tx0, ty, tw, th), (10, 10, 30, 220),
+                )
+                arcade.draw_rect_outline(
+                    arcade.LBWH(tx0, ty, tw, th),
+                    arcade.color.STEEL_BLUE, border_width=1,
+                )
+                self._t_building_tip.x = tx0 + tw // 2
+                self._t_building_tip.y = ty + 2
+                self._t_building_tip.draw()
             self._escape_menu.draw()
             self._death_screen.draw()
 
@@ -1252,7 +1307,7 @@ class GameView(arcade.View):
         for pickup in list(self.iron_pickup_list):
             collected = pickup.update_pickup(delta_time, sx, sy, SHIP_RADIUS)
             if collected:
-                self.inventory.add_iron(pickup.amount)
+                self.inventory.add_item("iron", pickup.amount)
 
         # ── Alien ship AI + movement ────────────────────────────────────────
         px, py = self.player.center_x, self.player.center_y
@@ -1400,12 +1455,12 @@ class GameView(arcade.View):
             if not self._escape_menu.open and not self._player_dead:
                 slot = key - arcade.key.KEY_1
                 item = self._hud.get_quick_use(slot)
-                if item == "repair_pack":
+                if item == "repair_pack" and self.inventory.count_item("repair_pack") > 0:
                     # Use repair pack: heal 50% max HP
                     heal = int(self.player.max_hp * REPAIR_PACK_HEAL)
                     self.player.hp = min(self.player.max_hp, self.player.hp + heal)
-                    # Remove from inventory
-                    self.inventory.remove_item("repair_pack")
+                    # Remove one from inventory
+                    self.inventory.remove_item("repair_pack", 1)
                     # Update quick-use slot
                     remaining = self.inventory.count_item("repair_pack")
                     if remaining > 0:
@@ -1440,11 +1495,22 @@ class GameView(arcade.View):
                         self._ghost_sprite.center_y,
                     )
                 return
+            # Quick-use slot click — start drag if slot has an item
+            qu_slot = self._hud.slot_at(x, y)
+            if qu_slot is not None and not self._player_dead:
+                item = self._hud.get_quick_use(qu_slot)
+                if item is not None:
+                    self._hud._qu_drag_src = qu_slot
+                    self._hud._qu_drag_type = item
+                    self._hud._qu_drag_count = self._hud._qu_counts[qu_slot]
+                    self._hud._qu_drag_x = x
+                    self._hud._qu_drag_y = y
+                return
             # Build menu click
             if self._build_menu.open:
                 selected = self._build_menu.on_mouse_press(
                     x, y,
-                    iron=self.inventory.iron,
+                    iron=self.inventory.total_iron,
                     building_counts=self._building_counts(),
                     modules_used=compute_modules_used(self.building_list),
                     module_capacity=compute_module_capacity(self.building_list),
@@ -1463,10 +1529,10 @@ class GameView(arcade.View):
             # Craft menu click
             if self._craft_menu.open:
                 action = self._craft_menu.on_mouse_press(
-                    x, y, self._station_inv.iron
+                    x, y, self._station_inv.total_iron
                 )
                 if action == "craft" and self._active_crafter is not None:
-                    self._station_inv.iron -= CRAFT_IRON_COST
+                    self._station_inv.remove_item("iron", CRAFT_IRON_COST)
                     self._active_crafter.crafting = True
                     self._active_crafter.craft_timer = 0.0
                     self._active_crafter.craft_total = CRAFT_TIME
@@ -1512,6 +1578,9 @@ class GameView(arcade.View):
         if self._escape_menu.open:
             self._escape_menu.on_mouse_motion(x, y)
             return
+        if self._hud._qu_drag_src is not None:
+            self._hud._qu_drag_x = x
+            self._hud._qu_drag_y = y
         self._station_inv.on_mouse_drag(x, y)
         self.inventory.on_mouse_drag(x, y)
 
@@ -1520,29 +1589,65 @@ class GameView(arcade.View):
             self._escape_menu.on_mouse_release(x, y)
             return
         if button == arcade.MOUSE_BUTTON_LEFT:
+            # Quick-use drag release
+            if self._hud._qu_drag_src is not None:
+                src = self._hud._qu_drag_src
+                dt = self._hud._qu_drag_type
+                dc = self._hud._qu_drag_count
+                self._hud._qu_drag_src = None
+                self._hud._qu_drag_type = None
+                self._hud._qu_drag_count = 0
+                target = self._hud.slot_at(x, y)
+                if target is not None and target != src:
+                    # Move to different slot — swap contents
+                    dst_type = self._hud.get_quick_use(target)
+                    dst_count = self._hud._qu_counts[target]
+                    self._hud.set_quick_use(target, dt, dc)
+                    self._hud.set_quick_use(src, dst_type, dst_count)
+                elif target == src:
+                    # Released on same slot — use the item
+                    if dt == "repair_pack" and self.inventory.count_item("repair_pack") > 0:
+                        heal = int(self.player.max_hp * REPAIR_PACK_HEAL)
+                        self.player.hp = min(self.player.max_hp, self.player.hp + heal)
+                        self.inventory.remove_item("repair_pack", 1)
+                        remaining = self.inventory.count_item("repair_pack")
+                        if remaining > 0:
+                            self._hud.set_quick_use(src, "repair_pack", remaining)
+                        else:
+                            self._hud.set_quick_use(src, None, 0)
+                else:
+                    # Released outside any slot — unassign from quick-use
+                    self._hud.set_quick_use(src, None, 0)
+                return
             # Station inventory drop — transfer to ship inv
             station_drop = self._station_inv.on_mouse_release(x, y)
             if station_drop is not None:
                 item_type, amount = station_drop
-                if item_type == "iron":
-                    self.inventory.add_iron(amount)
+                # Check if dropped on a quick-use slot
+                qu_slot = self._hud.slot_at(x, y)
+                if qu_slot is not None and item_type == "repair_pack":
+                    # Assign repair pack to quick-use slot; put item into cargo
+                    self.inventory.add_item(item_type, amount)
+                    total = self.inventory.count_item("repair_pack")
+                    # Clear any other slot that already has repair_pack
+                    for s in range(5):
+                        if s != qu_slot and self._hud.get_quick_use(s) == "repair_pack":
+                            self._hud.set_quick_use(s, None, 0)
+                    self._hud.set_quick_use(qu_slot, "repair_pack", total)
                 else:
                     # Try exact cell, then nearest empty cell to cursor
                     target_cell = self.inventory._cell_at(x, y)
-                    iron_occ = (self.inventory.iron > 0
-                                and target_cell == self.inventory._iron_cell)
                     if (target_cell is not None
-                            and target_cell not in self.inventory._items
-                            and not iron_occ):
-                        self.inventory._items[target_cell] = item_type
+                            and target_cell not in self.inventory._items):
+                        self.inventory._items[target_cell] = (item_type, amount)
                         print(f"[INV] Station→Ship: exact cell {target_cell}")
                     else:
                         nearest = self.inventory._nearest_empty_cell(x, y)
                         if nearest is not None:
-                            self.inventory._items[nearest] = item_type
+                            self.inventory._items[nearest] = (item_type, amount)
                             print(f"[INV] Station→Ship: nearest {nearest} (cursor={x:.0f},{y:.0f}, exact={target_cell})")
                         else:
-                            self.inventory.add_item(item_type)
+                            self.inventory.add_item(item_type, amount)
                             print(f"[INV] Station→Ship: fallback add_item")
                     # Update quick-use if repair_pack is assigned
                     if item_type == "repair_pack":
@@ -1555,27 +1660,35 @@ class GameView(arcade.View):
             ejected = self.inventory.on_mouse_release(x, y)
             if ejected is not None:
                 item_type, amount = ejected
+                # Check if dropped on a quick-use slot
+                qu_slot = self._hud.slot_at(x, y)
+                if qu_slot is not None and item_type == "repair_pack":
+                    # Assign repair pack to quick-use slot; put item back
+                    self.inventory.add_item(item_type, amount)
+                    total = self.inventory.count_item("repair_pack")
+                    # Clear any other slot that already has repair_pack
+                    for s in range(5):
+                        if s != qu_slot and self._hud.get_quick_use(s) == "repair_pack":
+                            self._hud.set_quick_use(s, None, 0)
+                    self._hud.set_quick_use(qu_slot, "repair_pack", total)
+                elif qu_slot is not None:
+                    # Non-assignable item dropped on quick-use — put it back
+                    self.inventory.add_item(item_type, amount)
                 # Check if dropped onto station inventory panel
-                if self._station_inv.open and self._station_inv._panel_contains(x, y):
-                    if item_type == "iron":
-                        self._station_inv.iron += amount
+                elif self._station_inv.open and self._station_inv._panel_contains(x, y):
+                    # Try exact cell, then nearest empty cell to cursor
+                    target_cell = self._station_inv._cell_at(x, y)
+                    if (target_cell is not None
+                            and target_cell not in self._station_inv._items):
+                        self._station_inv._items[target_cell] = (item_type, amount)
+                        print(f"[INV] Ship→Station: exact cell {target_cell}")
                     else:
-                        # Try exact cell, then nearest empty cell to cursor
-                        target_cell = self._station_inv._cell_at(x, y)
-                        iron_occ = (self._station_inv.iron > 0
-                                    and target_cell == self._station_inv._iron_cell)
-                        if (target_cell is not None
-                                and target_cell not in self._station_inv._items
-                                and not iron_occ):
-                            self._station_inv._items[target_cell] = (item_type, amount)
-                            print(f"[INV] Ship→Station: exact cell {target_cell}")
+                        nearest = self._station_inv._nearest_empty_cell(x, y)
+                        if nearest is not None:
+                            self._station_inv._items[nearest] = (item_type, amount)
+                            print(f"[INV] Ship→Station: nearest {nearest} (cursor={x:.0f},{y:.0f}, exact={target_cell})")
                         else:
-                            nearest = self._station_inv._nearest_empty_cell(x, y)
-                            if nearest is not None:
-                                self._station_inv._items[nearest] = (item_type, amount)
-                                print(f"[INV] Ship→Station: nearest {nearest} (cursor={x:.0f},{y:.0f}, exact={target_cell})")
-                            else:
-                                self._station_inv.add_item(item_type, amount)
+                            self._station_inv.add_item(item_type, amount)
                 elif item_type == "iron" and amount > 0:
                     eject_angle = random.uniform(0.0, math.tau)
                     eject_r = SHIP_RADIUS + EJECT_DIST
@@ -1661,6 +1774,19 @@ class GameView(arcade.View):
             self._ghost_sprite.center_y = wy
         else:
             self.inventory.on_mouse_move(x, y)
+            # Building hover tooltip — detect building under cursor
+            wx = self.world_cam.position[0] - self.window.width / 2 + x
+            wy = self.world_cam.position[1] - self.window.height / 2 + y
+            best = None
+            best_dist = 40.0
+            for b in self.building_list:
+                d = math.hypot(wx - b.center_x, wy - b.center_y)
+                if d < best_dist:
+                    best_dist = d
+                    best = b
+            self._hover_building = best
+            self._hover_screen_x = x
+            self._hover_screen_y = y
 
     def on_text(self, text: str) -> None:
         if self._escape_menu.open:

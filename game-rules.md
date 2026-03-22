@@ -386,6 +386,7 @@ When HP reaches 0:
 | Cycle weapon | Tab |
 | Open/close inventory | I |
 | Toggle FPS display | F |
+| Quick Use item | 1-5 (or click the slot) |
 | Open/close build menu | B |
 | Station info panel | T (when near station) |
 | Escape menu | Escape |
@@ -409,13 +410,17 @@ Gamepad dead zone: 0.15
 - 5 x 5 grid (25 slots)
 - Toggled with I (keyboard) or Y (gamepad)
 - Modal overlay; does **not** pause gameplay
-- Iron is tracked as a stackable count in a single cell (default position: 0,0)
+- All items (iron, repair packs, etc.) stored as `(type, count)` tuples per cell — items stack within a single cell
+- Iron and repair packs display with their respective icons + count badge
 
 ### Drag & Drop
 - Left-click an occupied cell to pick up; drag to a new cell to move
+- Dropping on a cell with the same item type merges (stacks) the counts
+- Dropping on a cell with a different item type swaps the two items
 - Source cell highlighted yellow; drop target highlighted blue
 - Dropping inside the panel but outside the grid returns item to source
 - Dropping **outside** the panel ejects the item into the game world
+- Dragging a repair pack onto a Quick Use slot assigns it to that slot
 
 ### Ejection
 - Items spawn 60 px from the ship's hull edge in a random direction
@@ -571,14 +576,14 @@ Settings are saved to `config.json` in the project root and loaded on startup.
 - Faction and ship type
 - Player state: position, heading, velocity, HP, shields, shield accumulator
 - Active weapon index
-- Inventory iron count
+- Cargo inventory items: cell positions with (type, count) tuples (iron, repair packs, etc.)
 - All surviving asteroids: position, HP
 - All surviving aliens: position, HP, velocity, heading, AI state, home position
 - All iron pickups: position, amount
 - All station buildings: type, position, HP, angle, disabled state
 - Respawn timers: asteroid and alien respawn countdown progress
 - Fog of war grid: 128 x 128 boolean grid of revealed cells
-- Station inventory: iron pool + named items with positions and counts
+- Station inventory: all items with cell positions and counts (iron stored as regular items)
 
 ### Save Slot Display
 Each slot shows:
@@ -707,6 +712,13 @@ Players can spend mined iron to construct a modular space station. Press **B** t
 - Press **B** or **ESC** to exit destroy mode.
 - Iron is also dropped when alien lasers destroy a building (same cost-based amount).
 
+### Building Hover Tooltip
+
+- When the mouse cursor hovers within 40 px of a station building, a tooltip appears near the cursor
+- Shows building type name and current/max HP (e.g. "Home Station  HP 85/100")
+- Dark background with steel-blue border, white bold text
+- Hidden during escape menu, death screen, build menu, placement mode, or destroy mode
+
 ### Station Info Panel (T Key)
 
 - Press **T** while within **300 px** of any station building to open the station info overlay.
@@ -771,10 +783,11 @@ Players can spend mined iron to construct a modular space station. Press **B** t
 ### Station Inventory
 
 - 10×10 grid (100 slots) accessible by left-clicking the Home Station (within 300 px)
-- Has its own iron pool (separate from ship inventory)
-- Stores named items like Repair Packs with stackable counts per cell
-- Drag items from station inventory to ship inventory by dropping outside the panel
-- Saved/loaded with game state
+- All items (iron, repair packs, etc.) stored as `(type, count)` tuples per cell — items stack within a single cell
+- Iron and repair packs display with their respective icons + count badge
+- Drag items between station and ship inventories by dropping on the target panel
+- Dragging a repair pack onto a Quick Use slot assigns it directly
+- Saved/loaded with game state (backward-compatible with old saves that stored iron as a separate pool)
 
 ### Repair Pack
 
@@ -790,9 +803,12 @@ Players can spend mined iron to construct a modular space station. Press **B** t
 
 - 5 slots labeled 1–5, displayed below the equalizer in the HUD status panel
 - Each slot can hold one item type with a count
-- Press keys 1–5 to use the item in that slot
-- Currently supports: Repair Pack (heals 50% max HP on use)
-- Items are transferred from ship inventory to quick-use slots
+- **Assign items**: drag a repair pack from the cargo hold or station inventory and drop it on a Quick Use slot
+- If the item is already assigned to a different slot, it moves to the new slot (only one slot per item type)
+- **Use items**: press keys 1–5 or click the slot to use the item (consumes one, decrements count)
+- **Rearrange**: click and drag between Quick Use slots to move or swap assignments; visible pick-up animation during drag
+- **Unassign**: drag an item out of the Quick Use bar (release outside any slot) to remove the assignment; the item remains in inventory
+- Currently supports: Repair Pack (heals 50% max HP on use, displays repair pack icon in slot)
 
 ### Building Assets
 

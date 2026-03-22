@@ -1,4 +1,4 @@
-"""Tests for inventory.py — grid math, iron management, drag-and-drop."""
+"""Tests for inventory.py — grid math, item management, drag-and-drop."""
 from __future__ import annotations
 
 import pytest
@@ -32,15 +32,51 @@ class TestInventoryToggle:
 class TestIronManagement:
     def test_initial_iron_zero(self, inv):
         assert inv.iron == 0
+        assert inv.total_iron == 0
 
     def test_add_iron(self, inv):
         inv.add_iron(10)
         assert inv.iron == 10
+        assert inv.total_iron == 10
 
     def test_add_iron_accumulates(self, inv):
         inv.add_iron(10)
         inv.add_iron(5)
         assert inv.iron == 15
+
+    def test_add_iron_stored_as_item(self, inv):
+        inv.add_item("iron", 20)
+        assert inv.total_iron == 20
+        assert inv.count_item("iron") == 20
+
+    def test_remove_iron(self, inv):
+        inv.add_item("iron", 50)
+        removed = inv.remove_item("iron", 20)
+        assert removed == 20
+        assert inv.total_iron == 30
+
+    def test_remove_iron_partial(self, inv):
+        inv.add_item("iron", 10)
+        removed = inv.remove_item("iron", 20)
+        assert removed == 10
+        assert inv.total_iron == 0
+
+
+class TestItemStacking:
+    def test_items_stack_on_same_type(self, inv):
+        inv.add_item("repair_pack", 3)
+        inv.add_item("repair_pack", 2)
+        assert inv.count_item("repair_pack") == 5
+        # Should be in one cell
+        cells_with_pack = [c for c, (t, n) in inv._items.items() if t == "repair_pack"]
+        assert len(cells_with_pack) == 1
+
+    def test_different_types_separate_cells(self, inv):
+        inv.add_item("iron", 10)
+        inv.add_item("repair_pack", 3)
+        assert inv.count_item("iron") == 10
+        assert inv.count_item("repair_pack") == 3
+        assert len(inv._items) == 2
 
 
 class TestCellAt:
@@ -105,21 +141,28 @@ class TestDragAndDrop:
 
     def test_pick_up_iron(self, inv):
         inv.open = True
-        inv.iron = 10
-        inv._iron_cell = (0, 0)
+        inv.add_item("iron", 10)
+        # Find which cell iron ended up in
+        iron_cell = None
+        for cell, (it, ct) in inv._items.items():
+            if it == "iron":
+                iron_cell = cell
+                break
+        assert iron_cell is not None
         gx, gy = self._grid_origin(inv)
-        # Cell (0,0) is top row → screen y = gy + (INV_ROWS-1) * INV_CELL
-        cx = gx + INV_CELL // 2
-        cy = gy + (INV_ROWS - 1) * INV_CELL + INV_CELL // 2
+        row, col = iron_cell
+        cx = gx + col * INV_CELL + INV_CELL // 2
+        cy = gy + (INV_ROWS - 1 - row) * INV_CELL + INV_CELL // 2
         result = inv.on_mouse_press(cx, cy)
         assert result is True
         assert inv._drag_type == "iron"
+        assert inv._drag_amount == 10
 
     def test_drop_iron_in_new_cell(self, inv):
         inv.open = True
-        inv.iron = 10
-        inv._iron_cell = (0, 0)
+        # Simulate drag in progress (item already removed from _items)
         inv._drag_type = "iron"
+        inv._drag_amount = 10
         inv._drag_src = (0, 0)
         gx, gy = self._grid_origin(inv)
         # Drop in cell (0, 1)
@@ -127,35 +170,51 @@ class TestDragAndDrop:
         cy = gy + (INV_ROWS - 1) * INV_CELL + INV_CELL // 2
         result = inv.on_mouse_release(cx, cy)
         assert result is None  # no ejection
-        assert inv._iron_cell == (0, 1)
+        assert inv._items[(0, 1)] == ("iron", 10)
 
     def test_drop_outside_panel_ejects(self, inv):
         inv.open = True
-        inv.iron = 10
+        # Simulate drag in progress (item already removed from _items)
         inv._drag_type = "iron"
+        inv._drag_amount = 10
         inv._drag_src = (0, 0)
         # Drop far outside
         result = inv.on_mouse_release(0, 0)
         assert result is not None
         assert result[0] == "iron"
         assert result[1] == 10
-        assert inv.iron == 0
+        assert inv.total_iron == 0
 
     def test_drop_on_panel_border_returns_to_source(self, inv):
         inv.open = True
-        inv.iron = 10
-        inv._iron_cell = (0, 0)
+        # Simulate drag in progress (item already removed from _items)
         inv._drag_type = "iron"
+        inv._drag_amount = 10
         inv._drag_src = (0, 0)
         # Drop inside panel but outside grid (on header area)
         ox = (SCREEN_WIDTH - INV_W) // 2
         oy = (SCREEN_HEIGHT - INV_H) // 2
         result = inv.on_mouse_release(ox + INV_W // 2, oy + INV_H - 5)
         assert result is None
-        assert inv._iron_cell == (0, 0)
+        assert inv._items[(0, 0)] == ("iron", 10)
 
     def test_no_drag_when_closed(self, inv):
         inv.open = False
-        inv.iron = 10
+        inv.add_item("iron", 10)
         result = inv.on_mouse_press(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2)
         assert result is False
+
+    def test_stack_on_drop(self, inv):
+        """Dropping iron onto an existing iron cell should merge counts."""
+        inv.open = True
+        inv._items[(0, 0)] = ("iron", 5)
+        # Simulate drag in progress from (0,1) — item already removed
+        inv._drag_type = "iron"
+        inv._drag_amount = 10
+        inv._drag_src = (0, 1)
+        gx, gy = self._grid_origin(inv)
+        cx = gx + INV_CELL // 2
+        cy = gy + (INV_ROWS - 1) * INV_CELL + INV_CELL // 2
+        result = inv.on_mouse_release(cx, cy)
+        assert result is None
+        assert inv._items[(0, 0)] == ("iron", 15)
