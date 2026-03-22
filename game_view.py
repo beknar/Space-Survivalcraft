@@ -1529,7 +1529,11 @@ class GameView(arcade.View):
                 else:
                     # Try to place in the specific ship inv cell under cursor
                     target_cell = self.inventory._cell_at(x, y)
-                    if target_cell is not None and target_cell not in self.inventory._items:
+                    iron_occ = (self.inventory.iron > 0
+                                and target_cell == self.inventory._iron_cell)
+                    if (target_cell is not None
+                            and target_cell not in self.inventory._items
+                            and not iron_occ):
                         self.inventory._items[target_cell] = item_type
                     else:
                         for _ in range(amount):
@@ -1552,7 +1556,11 @@ class GameView(arcade.View):
                     else:
                         # Try to place in the specific cell under cursor
                         target_cell = self._station_inv._cell_at(x, y)
-                        if target_cell is not None and target_cell not in self._station_inv._items:
+                        iron_occ = (self._station_inv.iron > 0
+                                    and target_cell == self._station_inv._iron_cell)
+                        if (target_cell is not None
+                                and target_cell not in self._station_inv._items
+                                and not iron_occ):
                             self._station_inv._items[target_cell] = (item_type, amount)
                         else:
                             self._station_inv.add_item(item_type, amount)
