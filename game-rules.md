@@ -477,8 +477,9 @@ When background music is playing (and no video is active), a 16-bar equalizer an
 - Sound Effects Volume slider (0-100%)
 - **Resolution selector**: left/right arrows cycling through presets (1280x800, 1366x768, 1600x900, 1920x1080, 2560x1440, 3840x2160)
 - **Display modes**: Windowed, Fullscreen, Borderless Windowed (toggleable)
-- **Buttons:** Main Menu, Help, Exit Game
-- Settings stored in memory for current session (not persisted to disk)
+- **Buttons:** Main Menu, Help, Config, Exit Game
+- **Config** button saves current music/SFX volume and video directory to `config.json`
+- Settings stored in memory for current session; Config persists them to disk
 - All UI elements dynamically positioned using actual window pixel dimensions
 
 ### Selection Screen
@@ -500,8 +501,9 @@ When background music is playing (and no video is active), a 16-bar equalizer an
 - **Video Properties** opens a sub-mode with resolution selector (left/right preset arrows) plus display mode buttons: Apply Windowed, Apply Fullscreen, Borderless Windowed
 - **Help** button shows keyboard and gamepad controls in a sub-mode panel
 - **Songs** button opens a sub-mode with two sections:
-  - **OST Songs**: Stop Song (stops current music) and Other Song (random OST skip)
-  - **Music Videos**: opens the video browser (requires fullscreen). Configure video directory, browse files (scrollable with scrollbar), play/stop video
+  - **OST Songs**: Stop Song (stops current music and any video) and Other Song (stops video, plays random OST track)
+  - **Music Videos**: opens the video browser (requires fullscreen). Configure video directory, browse files (scrollable with scrollbar), play/stop video. Starting a video stops OST music and equalizer
+- Resolution changes preserve the current audio/video state — no spurious OST playback is triggered
 - Returning to Main Menu stops any playing video
 - ESC in sub-menus returns to parent; ESC in main menu closes overlay
 

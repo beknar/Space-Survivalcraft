@@ -74,12 +74,19 @@ class OptionsView(arcade.View):
             _BTN_W,
             _BTN_H,
         )
-        self._exit_rect = (
+        self._config_rect = (
             (sw - _BTN_W) // 2,
             sh // 2 - 180 - (_BTN_H + 16) * 2,
             _BTN_W,
             _BTN_H,
         )
+        self._exit_rect = (
+            (sw - _BTN_W) // 2,
+            sh // 2 - 180 - (_BTN_H + 16) * 3,
+            _BTN_W,
+            _BTN_H,
+        )
+        self._hover_config: bool = False
 
         # ── UI sound ───────────────────────────────────────────────────
         self._click_snd = arcade.load_sound(
@@ -140,6 +147,13 @@ class OptionsView(arcade.View):
         self._t_help = arcade.Text(
             "Help",
             hx + hw // 2, hy + hh // 2,
+            arcade.color.WHITE, 15, bold=True,
+            anchor_x="center", anchor_y="center",
+        )
+        cx2, cy2, cw2, ch2 = self._config_rect
+        self._t_config = arcade.Text(
+            "Config",
+            cx2 + cw2 // 2, cy2 + ch2 // 2,
             arcade.color.WHITE, 15, bold=True,
             anchor_x="center", anchor_y="center",
         )
@@ -240,6 +254,19 @@ class OptionsView(arcade.View):
             arcade.color.CYAN if self._hover_help else arcade.color.WHITE
         )
         self._t_help.draw()
+
+        # Config button
+        cx2, cy2, cw2, ch2 = self._config_rect
+        bg_c = (50, 80, 140, 255) if self._hover_config else (25, 35, 70, 230)
+        arcade.draw_rect_filled(arcade.LBWH(cx2, cy2, cw2, ch2), bg_c)
+        outline_c = arcade.color.CYAN if self._hover_config else arcade.color.STEEL_BLUE
+        arcade.draw_rect_outline(
+            arcade.LBWH(cx2, cy2, cw2, ch2), outline_c, border_width=2,
+        )
+        self._t_config.color = (
+            arcade.color.CYAN if self._hover_config else arcade.color.WHITE
+        )
+        self._t_config.draw()
 
         # Exit Game button
         ex, ey, ew, eh = self._exit_rect
@@ -366,6 +393,8 @@ class OptionsView(arcade.View):
         self._hover_back = (bx <= x <= bx + bw and by <= y <= by + bh)
         hx, hy, hw, hh = self._help_rect
         self._hover_help = (hx <= x <= hx + hw and hy <= y <= hy + hh)
+        cx2, cy2, cw2, ch2 = self._config_rect
+        self._hover_config = (cx2 <= x <= cx2 + cw2 and cy2 <= y <= cy2 + ch2)
         ex, ey, ew, eh = self._exit_rect
         self._hover_exit = (ex <= x <= ex + ew and ey <= y <= ey + eh)
         lx, ly, lw, lh = self._res_left_rect
@@ -427,6 +456,14 @@ class OptionsView(arcade.View):
             arcade.play_sound(self._click_snd, volume=audio.sfx_volume)
             from splash_view import SplashView
             self.window.show_view(SplashView())
+            return
+
+        # Config button — save current audio/video settings to config.json
+        cx2, cy2, cw2, ch2 = self._config_rect
+        if cx2 <= x <= cx2 + cw2 and cy2 <= y <= cy2 + ch2:
+            from settings import save_config
+            save_config()
+            arcade.play_sound(self._click_snd, volume=audio.sfx_volume)
             return
 
         # Exit Game button

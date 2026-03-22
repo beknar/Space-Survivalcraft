@@ -35,7 +35,7 @@ Space Survivalcraft/
 │
 │  ── Views (each is an arcade.View subclass) ──
 ├── splash_view.py       # SplashView — "CALL OF ORION" title, Play/Load/Options/Exit buttons
-├── options_view.py      # OptionsView — volume sliders, resolution selector, fullscreen toggle
+├── options_view.py      # OptionsView — volume sliders, resolution selector, fullscreen toggle, Config save
 ├── selection_view.py    # SelectionView — two-phase faction then ship-type picker
 ├── game_view.py         # GameView — core gameplay loop, cameras, input, music, death logic
 │

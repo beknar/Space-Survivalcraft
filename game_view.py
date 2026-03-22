@@ -272,12 +272,16 @@ class GameView(arcade.View):
         self._current_track_name = ""  # prevent equalizer from animating
 
     def _stop_song(self) -> None:
-        """Stop the current background music track."""
+        """Stop the current background music track and any video."""
+        if self._video_player.active:
+            self._video_player.stop()
         self._stop_music()
         self._current_track_name = ""
 
     def _other_song(self) -> None:
-        """Skip to a random different song from the OST."""
+        """Skip to a random different song from the OST (stops video first)."""
+        if self._video_player.active:
+            self._video_player.stop()
         self._stop_music()
         if self._music_tracks:
             # Pick a random index different from current if possible
@@ -824,9 +828,11 @@ class GameView(arcade.View):
         """Change resolution mid-game: save state, resize, rebuild view."""
         from settings import apply_resolution
         data = self._save_to_dict()
-        # Remember video state before tearing down
+        # Remember audio/video state before tearing down
         video_was_active = self._video_player.active
         video_file = getattr(self._video_player, '_current_file', "")
+        music_was_playing = (self._music_player is not None
+                             and self._current_track_name != "")
         if video_was_active:
             self._video_player.stop()
         if self._thruster_player is not None:
@@ -840,16 +846,15 @@ class GameView(arcade.View):
             skip_music=True,  # never auto-start music on resolution change
         )
         self._restore_state(view, data)
-        # Restart video if it was playing, otherwise restart music
+        # Restart video if it was playing
         if video_was_active and video_file:
             video_dir = getattr(audio, 'video_dir', "")
             if video_dir:
                 full_path = os.path.join(video_dir, video_file)
                 if os.path.isfile(full_path):
                     view._video_player.play(full_path, volume=audio.music_volume)
-            if not view._video_player.active:
-                view._play_next_track()
-        else:
+        # Only restart music if music was playing before (not video, not silent)
+        if not view._video_player.active and music_was_playing:
             view._play_next_track()
         self.window.show_view(view)
 
