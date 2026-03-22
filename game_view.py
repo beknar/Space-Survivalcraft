@@ -990,6 +990,8 @@ class GameView(arcade.View):
                 vid_y = MINIMAP_Y + MINIMAP_H + 20
                 self._video_player.draw_in_hud(vid_x, vid_y, vid_size)
 
+            # Draw station inv first so ship inv drag preview appears on top
+            self._station_inv.draw()
             self.inventory.draw()
             self._build_menu.draw(
                 iron=self.inventory.iron,
@@ -999,7 +1001,6 @@ class GameView(arcade.View):
                 has_home=self._has_home_station(),
             )
             self._station_info.draw()
-            self._station_inv.draw()
             self._craft_menu.draw(self._station_inv.iron)
             self._escape_menu.draw()
             self._death_screen.draw()
@@ -1542,7 +1543,12 @@ class GameView(arcade.View):
                     if item_type == "iron":
                         self._station_inv.iron += amount
                     else:
-                        self._station_inv.add_item(item_type, amount)
+                        # Try to place in the specific cell under cursor
+                        target_cell = self._station_inv._cell_at(x, y)
+                        if target_cell is not None and target_cell not in self._station_inv._items:
+                            self._station_inv._items[target_cell] = (item_type, amount)
+                        else:
+                            self._station_inv.add_item(item_type, amount)
                 elif item_type == "iron" and amount > 0:
                     eject_angle = random.uniform(0.0, math.tau)
                     eject_r = SHIP_RADIUS + EJECT_DIST
