@@ -454,9 +454,9 @@ class OptionsView(arcade.View):
             # Video directory text field
             self._t_cfg_label.text = "Videos Directory"
             self._t_cfg_label.x = px + 16
-            self._t_cfg_label.y = cur_y + 12
+            self._t_cfg_label.y = cur_y + 16
             self._t_cfg_label.draw()
-            cur_y -= 6
+            cur_y -= 14
             dir_bg = (40, 60, 80) if self._config_editing_dir else (30, 30, 50)
             arcade.draw_rect_filled(
                 arcade.LBWH(px + 12, cur_y, panel_w - 24, 24), dir_bg,

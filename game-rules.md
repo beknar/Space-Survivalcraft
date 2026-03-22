@@ -467,7 +467,7 @@ When background music is playing (and no video is active), a 16-bar equalizer an
 
 ### Splash Screen (Title)
 - Displays "CALL OF ORION" with subtitle "A Space Survival Saga"
-- Background music with track name at bottom
+- Background music with track name at bottom (only plays if `autoplay_ost` is ON in config)
 - Decorative starfield (procedural, fixed seed)
 - **Buttons:** Play Now, Load Game, Options, Exit Game
 - ESC exits the application
