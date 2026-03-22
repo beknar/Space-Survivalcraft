@@ -602,6 +602,11 @@ class GameView(arcade.View):
         snap_opp_port = None
         if stats["connectable"]:
             snap = self._find_nearest_snap_port(wx, wy)
+            if snap is None and bt != "Home Station":
+                # Non-Home connectable modules MUST snap to a port
+                self.inventory.iron += cost
+                self._cancel_placement()
+                return
             if snap is not None:
                 snap_parent, snap_port, sx, sy = snap
                 # Find the opposite port on the new building
