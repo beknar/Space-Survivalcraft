@@ -213,6 +213,29 @@ class Inventory:
         if self._drag_type is None:
             return None
 
+        # Check if dropped on station inventory panel — treat as cross-transfer
+        from station_inventory import StationInventory, _INV_W as _SI_W, _INV_H as _SI_H
+        try:
+            from constants import INV_W as _ship_w
+            sw = self._window.width if self._window else SCREEN_WIDTH
+            sh = self._window.height if self._window else SCREEN_HEIGHT
+            ship_left = (sw - _ship_w) // 2
+            si_ox = max(4, ship_left - _SI_W - 10)
+            si_oy = (sh - _SI_H) // 2
+            if si_ox <= x <= si_ox + _SI_W and si_oy <= y <= si_oy + _SI_H:
+                ejected_type = self._drag_type
+                if ejected_type == "iron":
+                    ejected_amount = self.iron
+                    self.iron = 0
+                else:
+                    ejected_amount = 1
+                self._drag_type = None
+                self._drag_src = None
+                print(f"[INV] Ship→Station: ejecting {ejected_type} x{ejected_amount} at ({x:.0f},{y:.0f})")
+                return (ejected_type, ejected_amount)
+        except ImportError:
+            pass
+
         target = self._cell_at(x, y)
 
         if target is None and not self._panel_contains(x, y):
