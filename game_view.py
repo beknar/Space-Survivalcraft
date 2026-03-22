@@ -990,9 +990,10 @@ class GameView(arcade.View):
                 vid_y = MINIMAP_Y + MINIMAP_H + 20
                 self._video_player.draw_in_hud(vid_x, vid_y, vid_size)
 
-            # Draw station inv first so ship inv drag preview appears on top
+            # Draw station grid, then ship inv, then both drag previews on top
             self._station_inv.draw()
             self.inventory.draw()
+            self._station_inv.draw_drag_preview()
             self._build_menu.draw(
                 iron=self.inventory.iron,
                 building_counts=self._building_counts(),
@@ -1525,16 +1526,22 @@ class GameView(arcade.View):
                 item_type, amount = station_drop
                 if item_type == "iron":
                     self.inventory.add_iron(amount)
-                elif item_type == "repair_pack":
-                    for _ in range(amount):
-                        self.inventory.add_item("repair_pack")
+                else:
+                    # Try to place in the specific ship inv cell under cursor
+                    target_cell = self.inventory._cell_at(x, y)
+                    if target_cell is not None and target_cell not in self.inventory._items:
+                        self.inventory._items[target_cell] = item_type
+                    else:
+                        for _ in range(amount):
+                            self.inventory.add_item(item_type)
                     # Update quick-use if repair_pack is assigned
-                    for slot in range(5):
-                        if self._hud.get_quick_use(slot) == "repair_pack":
-                            self._hud.set_quick_use(
-                                slot, "repair_pack",
-                                self.inventory.count_item("repair_pack"),
-                            )
+                    if item_type == "repair_pack":
+                        for slot in range(5):
+                            if self._hud.get_quick_use(slot) == "repair_pack":
+                                self._hud.set_quick_use(
+                                    slot, "repair_pack",
+                                    self.inventory.count_item("repair_pack"),
+                                )
             ejected = self.inventory.on_mouse_release(x, y)
             if ejected is not None:
                 item_type, amount = ejected

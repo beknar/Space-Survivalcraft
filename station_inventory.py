@@ -283,7 +283,11 @@ class StationInventory:
                     self._t_count.draw()
                     self._t_count.anchor_x = "left"
 
-        # Draw drag preview
+    def draw_drag_preview(self) -> None:
+        """Draw the drag preview separately (call after ship inv to be on top)."""
+        if not self.open or self._drag_type is None:
+            return
+        cs = STATION_INV_CELL
         if self._drag_type is not None:
             dx, dy = self._drag_x, self._drag_y
             arcade.draw_rect_filled(
