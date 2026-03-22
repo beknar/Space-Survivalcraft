@@ -1540,7 +1540,13 @@ class GameView(arcade.View):
             ejected = self.inventory.on_mouse_release(x, y)
             if ejected is not None:
                 item_type, amount = ejected
-                if item_type == "iron" and amount > 0:
+                # Check if dropped onto station inventory panel
+                if self._station_inv.open and self._station_inv._panel_contains(x, y):
+                    if item_type == "iron":
+                        self._station_inv.iron += amount
+                    else:
+                        self._station_inv.add_item(item_type, amount)
+                elif item_type == "iron" and amount > 0:
                     eject_angle = random.uniform(0.0, math.tau)
                     eject_r = SHIP_RADIUS + EJECT_DIST
                     eject_x = max(0.0, min(WORLD_WIDTH,
@@ -1552,6 +1558,9 @@ class GameView(arcade.View):
                         amount=amount,
                         lifetime=WORLD_ITEM_LIFETIME,
                     )
+                elif item_type != "iron" and amount > 0:
+                    # Non-iron item ejected to world — just drop it
+                    pass  # items other than iron can't become world pickups yet
 
     def on_mouse_scroll(
         self, x: int, y: int, scroll_x: int, scroll_y: int
