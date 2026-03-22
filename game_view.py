@@ -1535,12 +1535,15 @@ class GameView(arcade.View):
                             and target_cell not in self.inventory._items
                             and not iron_occ):
                         self.inventory._items[target_cell] = item_type
+                        print(f"[INV] Station→Ship: exact cell {target_cell}")
                     else:
                         nearest = self.inventory._nearest_empty_cell(x, y)
                         if nearest is not None:
                             self.inventory._items[nearest] = item_type
+                            print(f"[INV] Station→Ship: nearest {nearest} (cursor={x:.0f},{y:.0f}, exact={target_cell})")
                         else:
                             self.inventory.add_item(item_type)
+                            print(f"[INV] Station→Ship: fallback add_item")
                     # Update quick-use if repair_pack is assigned
                     if item_type == "repair_pack":
                         for slot in range(5):
@@ -1565,10 +1568,12 @@ class GameView(arcade.View):
                                 and target_cell not in self._station_inv._items
                                 and not iron_occ):
                             self._station_inv._items[target_cell] = (item_type, amount)
+                            print(f"[INV] Ship→Station: exact cell {target_cell}")
                         else:
                             nearest = self._station_inv._nearest_empty_cell(x, y)
                             if nearest is not None:
                                 self._station_inv._items[nearest] = (item_type, amount)
+                                print(f"[INV] Ship→Station: nearest {nearest} (cursor={x:.0f},{y:.0f}, exact={target_cell})")
                             else:
                                 self._station_inv.add_item(item_type, amount)
                 elif item_type == "iron" and amount > 0:
