@@ -635,7 +635,10 @@ class GameView(arcade.View):
                     building.center_y = sy
 
         # Overlap check — no part should be inside any other building
+        # Skip the snap parent (connected buildings are intentionally close)
         for existing in self.building_list:
+            if existing is snap_parent:
+                continue
             if math.hypot(building.center_x - existing.center_x,
                           building.center_y - existing.center_y) < BUILDING_RADIUS * 2:
                 self.inventory.iron += cost
