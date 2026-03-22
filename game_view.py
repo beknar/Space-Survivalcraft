@@ -231,7 +231,7 @@ class GameView(arcade.View):
         self._music_idx: int = 0
         self._music_player: Optional[arcade.sound.media.Player] = None
         self._current_track_name: str = ""
-        if self._music_tracks and not self._skip_music:
+        if self._music_tracks and not self._skip_music and audio.autoplay_ost:
             self._play_next_track()
 
     # ── Music ──────────────────────────────────────────────────────────────

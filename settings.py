@@ -28,6 +28,7 @@ class AudioSettings:
         self.video_dir: str = ""           # directory containing video files
         self.video_file: str = ""          # currently selected video filename
         self.show_fps: bool = False        # FPS counter toggle
+        self.autoplay_ost: bool = True     # play OST music on game start
 
 
 # Module-level instance used everywhere
@@ -44,6 +45,7 @@ def save_config() -> None:
         "sfx_volume": audio.sfx_volume,
         "video_dir": audio.video_dir,
         "show_fps": getattr(audio, "show_fps", False),
+        "autoplay_ost": getattr(audio, "autoplay_ost", True),
     }
     with open(_CONFIG_PATH, "w") as f:
         json.dump(data, f, indent=2)
@@ -60,6 +62,7 @@ def load_config() -> None:
         audio.sfx_volume = data.get("sfx_volume", audio.sfx_volume)
         audio.video_dir = data.get("video_dir", audio.video_dir)
         audio.show_fps = data.get("show_fps", False)
+        audio.autoplay_ost = data.get("autoplay_ost", True)
     except (json.JSONDecodeError, OSError):
         pass  # corrupt or unreadable — use defaults
 

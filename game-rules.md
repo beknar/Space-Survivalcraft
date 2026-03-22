@@ -478,8 +478,9 @@ When background music is playing (and no video is active), a 16-bar equalizer an
 - **Resolution selector**: left/right arrows cycling through presets (1280x800, 1366x768, 1600x900, 1920x1080, 2560x1440, 3840x2160)
 - **Display modes**: Windowed, Fullscreen, Borderless Windowed (toggleable)
 - **Buttons:** Main Menu, Help, Config, Exit Game
-- **Config** button saves current music/SFX volume and video directory to `config.json`
-- Settings stored in memory for current session; Config persists them to disk
+- **Config** button opens a configuration panel with: music volume slider, SFX volume slider, video directory text field, autoplay OST on/off toggle, and Save Config button
+- Save Config writes all settings (volumes, video dir, autoplay OST, FPS toggle) to `config.json`
+- Settings are loaded from `config.json` on startup
 - All UI elements dynamically positioned using actual window pixel dimensions
 
 ### Selection Screen
@@ -550,8 +551,10 @@ Settings are saved to `config.json` in the project root and loaded on startup.
 | `sfx_volume` | Sound effects volume (0.0–1.0) |
 | `video_dir` | Video file directory path |
 | `show_fps` | FPS counter visibility (true/false) |
+| `autoplay_ost` | Whether OST music plays automatically on game start (true/false) |
 
 ### Access
+- **Options screen** → Config button → panel with volume sliders, video dir, autoplay OST toggle, and Save Config
 - **ESC menu** → Config button → sub-mode with sliders, directory text field, FPS toggle, and Save Config button
 - Settings are applied immediately when changed; Save Config writes them to disk
 - `config.json` is gitignored (user-specific)

@@ -88,6 +88,20 @@ class OptionsView(arcade.View):
         )
         self._hover_config: bool = False
         self._config_flash: float = 0.0
+        self._show_config: bool = False
+        self._config_editing_dir: bool = False
+        self._config_dir_text: str = audio.video_dir
+        self._config_slider_dragging: str = ""  # "music", "sfx", or ""
+        # Pre-built text objects for config panel
+        self._t_cfg_title = arcade.Text(
+            "CONFIGURATION", 0, 0,
+            arcade.color.LIGHT_BLUE, 14, bold=True,
+            anchor_x="center", anchor_y="center",
+        )
+        self._t_cfg_label = arcade.Text("", 0, 0, arcade.color.WHITE, 10, bold=True)
+        self._t_cfg_val = arcade.Text("", 0, 0, arcade.color.CYAN, 10, anchor_x="right")
+        self._t_cfg_btn = arcade.Text("", 0, 0, arcade.color.WHITE, 12, bold=True,
+                                      anchor_x="center", anchor_y="center")
 
         # ── UI sound ───────────────────────────────────────────────────
         self._click_snd = arcade.load_sound(
@@ -370,6 +384,157 @@ class OptionsView(arcade.View):
             self._t_help_line.draw()
             self._t_help_line.anchor_x = "left"
 
+        # Config panel overlay
+        if self._show_config:
+            sw, sh = self.window.width, self.window.height
+            panel_w, panel_h = 380, 420
+            px = (sw - panel_w) // 2
+            py = (sh - panel_h) // 2
+            arcade.draw_rect_filled(
+                arcade.LBWH(px, py, panel_w, panel_h), (15, 15, 40, 245),
+            )
+            arcade.draw_rect_outline(
+                arcade.LBWH(px, py, panel_w, panel_h),
+                arcade.color.STEEL_BLUE, border_width=2,
+            )
+            cx = px + panel_w // 2
+
+            # Title
+            self._t_cfg_title.x = cx
+            self._t_cfg_title.y = py + panel_h - 24
+            self._t_cfg_title.draw()
+
+            cur_y = py + panel_h - 60
+
+            # Music Volume slider
+            self._t_cfg_label.text = "Music Volume"
+            self._t_cfg_label.x = px + 16
+            self._t_cfg_label.y = cur_y + 12
+            self._t_cfg_label.color = arcade.color.WHITE
+            self._t_cfg_label.draw()
+            slider_x = px + 16
+            slider_w = panel_w - 32
+            arcade.draw_rect_filled(
+                arcade.LBWH(slider_x, cur_y, slider_w, 8), (50, 50, 70),
+            )
+            fill_w = int(slider_w * audio.music_volume)
+            arcade.draw_rect_filled(
+                arcade.LBWH(slider_x, cur_y, fill_w, 8), arcade.color.CYAN,
+            )
+            knob_x = slider_x + fill_w
+            arcade.draw_circle_filled(knob_x, cur_y + 4, 8, arcade.color.WHITE)
+            self._t_cfg_val.text = f"{int(audio.music_volume * 100)}%"
+            self._t_cfg_val.x = px + panel_w - 16
+            self._t_cfg_val.y = cur_y + 12
+            self._t_cfg_val.draw()
+            self._cfg_music_slider = (slider_x, cur_y, slider_w, 8)
+            cur_y -= 50
+
+            # SFX Volume slider
+            self._t_cfg_label.text = "SFX Volume"
+            self._t_cfg_label.x = px + 16
+            self._t_cfg_label.y = cur_y + 12
+            self._t_cfg_label.draw()
+            arcade.draw_rect_filled(
+                arcade.LBWH(slider_x, cur_y, slider_w, 8), (50, 50, 70),
+            )
+            fill_w = int(slider_w * audio.sfx_volume)
+            arcade.draw_rect_filled(
+                arcade.LBWH(slider_x, cur_y, fill_w, 8), arcade.color.CYAN,
+            )
+            knob_x = slider_x + fill_w
+            arcade.draw_circle_filled(knob_x, cur_y + 4, 8, arcade.color.WHITE)
+            self._t_cfg_val.text = f"{int(audio.sfx_volume * 100)}%"
+            self._t_cfg_val.x = px + panel_w - 16
+            self._t_cfg_val.y = cur_y + 12
+            self._t_cfg_val.draw()
+            self._cfg_sfx_slider = (slider_x, cur_y, slider_w, 8)
+            cur_y -= 50
+
+            # Video directory text field
+            self._t_cfg_label.text = "Videos Directory"
+            self._t_cfg_label.x = px + 16
+            self._t_cfg_label.y = cur_y + 12
+            self._t_cfg_label.draw()
+            cur_y -= 6
+            dir_bg = (40, 60, 80) if self._config_editing_dir else (30, 30, 50)
+            arcade.draw_rect_filled(
+                arcade.LBWH(px + 12, cur_y, panel_w - 24, 24), dir_bg,
+            )
+            arcade.draw_rect_outline(
+                arcade.LBWH(px + 12, cur_y, panel_w - 24, 24),
+                arcade.color.STEEL_BLUE, border_width=1,
+            )
+            display_text = self._config_dir_text or "(click to set)"
+            if self._config_editing_dir:
+                display_text = self._config_dir_text + "|"
+            self._t_cfg_val.anchor_x = "left"
+            self._t_cfg_val.text = display_text[:40]
+            self._t_cfg_val.x = px + 16
+            self._t_cfg_val.y = cur_y + 12
+            self._t_cfg_val.color = arcade.color.KHAKI if self._config_editing_dir else (150, 150, 150)
+            self._t_cfg_val.draw()
+            self._t_cfg_val.anchor_x = "right"
+            self._t_cfg_val.color = arcade.color.CYAN
+            self._cfg_dir_rect = (px + 12, cur_y, panel_w - 24, 24)
+            cur_y -= 45
+
+            # Autoplay OST toggle
+            self._t_cfg_label.text = "Autoplay OST on Start"
+            self._t_cfg_label.x = px + 16
+            self._t_cfg_label.y = cur_y + 6
+            self._t_cfg_label.draw()
+            toggle_x = px + panel_w - 60
+            toggle_text = "ON" if audio.autoplay_ost else "OFF"
+            toggle_color = arcade.color.LIME_GREEN if audio.autoplay_ost else (180, 60, 60)
+            arcade.draw_rect_filled(
+                arcade.LBWH(toggle_x, cur_y - 4, 40, 24), (40, 40, 60),
+            )
+            arcade.draw_rect_outline(
+                arcade.LBWH(toggle_x, cur_y - 4, 40, 24), toggle_color, border_width=2,
+            )
+            self._t_cfg_btn.text = toggle_text
+            self._t_cfg_btn.x = toggle_x + 20
+            self._t_cfg_btn.y = cur_y + 8
+            self._t_cfg_btn.color = toggle_color
+            self._t_cfg_btn.font_size = 10
+            self._t_cfg_btn.draw()
+            self._t_cfg_btn.font_size = 12
+            self._cfg_ost_rect = (toggle_x, cur_y - 4, 40, 24)
+            cur_y -= 50
+
+            # Save Config button
+            btn_w, btn_h = 160, 38
+            btn_x = cx - btn_w // 2
+            arcade.draw_rect_filled(
+                arcade.LBWH(btn_x, cur_y, btn_w, btn_h), (30, 60, 30, 220),
+            )
+            arcade.draw_rect_outline(
+                arcade.LBWH(btn_x, cur_y, btn_w, btn_h),
+                arcade.color.LIME_GREEN, border_width=1,
+            )
+            self._t_cfg_btn.text = "Save Config"
+            self._t_cfg_btn.x = btn_x + btn_w // 2
+            self._t_cfg_btn.y = cur_y + btn_h // 2
+            self._t_cfg_btn.color = arcade.color.WHITE
+            self._t_cfg_btn.draw()
+            self._cfg_save_rect = (btn_x, cur_y, btn_w, btn_h)
+            cur_y -= btn_h + 12
+
+            # Back button
+            arcade.draw_rect_filled(
+                arcade.LBWH(btn_x, cur_y, btn_w, btn_h), (40, 40, 70, 220),
+            )
+            arcade.draw_rect_outline(
+                arcade.LBWH(btn_x, cur_y, btn_w, btn_h),
+                arcade.color.STEEL_BLUE, border_width=1,
+            )
+            self._t_cfg_btn.text = "Back"
+            self._t_cfg_btn.x = btn_x + btn_w // 2
+            self._t_cfg_btn.y = cur_y + btn_h // 2
+            self._t_cfg_btn.draw()
+            self._cfg_back_rect = (btn_x, cur_y, btn_w, btn_h)
+
     def _draw_slider(self, y: int, value: float) -> None:
         """Draw a horizontal slider track + knob at the given y position."""
         sx = self._slider_x
@@ -412,6 +577,10 @@ class OptionsView(arcade.View):
         self._hover_fs = (fx <= x <= fx + fw and fy <= y <= fy + fh)
 
     def on_mouse_press(self, x: int, y: int, button: int, modifiers: int) -> None:
+        # Config panel intercepts all clicks when open
+        if self._show_config:
+            self._handle_config_click(x, y)
+            return
         # Check if clicking on a slider knob or track
         if self._hit_slider(x, y, self._music_y):
             self._dragging = "music"
@@ -465,14 +634,13 @@ class OptionsView(arcade.View):
             self.window.show_view(SplashView())
             return
 
-        # Config button — save current audio/video settings to config.json
+        # Config button — open config panel
         cx2, cy2, cw2, ch2 = self._config_rect
         if cx2 <= x <= cx2 + cw2 and cy2 <= y <= cy2 + ch2:
-            from settings import save_config
-            save_config()
+            self._show_config = True
+            self._config_editing_dir = False
+            self._config_dir_text = audio.video_dir
             arcade.play_sound(self._click_snd, volume=audio.sfx_volume)
-            self._t_config.text = "Saved!"
-            self._config_flash = 1.5  # seconds to show confirmation
             return
 
         # Exit Game button
@@ -488,11 +656,90 @@ class OptionsView(arcade.View):
 
     def on_mouse_release(self, x: int, y: int, button: int, modifiers: int) -> None:
         self._dragging = ""
+        self._config_slider_dragging = ""
+
+    def on_mouse_drag(self, x: int, y: int, dx: int, dy: int, buttons: int, modifiers: int) -> None:
+        if self._config_slider_dragging and self._show_config:
+            rect = self._cfg_music_slider if self._config_slider_dragging == "music" else self._cfg_sfx_slider
+            sx, _sy, sw, _sh = rect
+            frac = max(0.0, min(1.0, (x - sx) / sw))
+            if self._config_slider_dragging == "music":
+                audio.music_volume = frac
+            else:
+                audio.sfx_volume = frac
+
+    def _handle_config_click(self, x: int, y: int) -> None:
+        """Handle clicks inside the config panel."""
+        # Music slider
+        if hasattr(self, '_cfg_music_slider'):
+            sx, sy, sw, sh = self._cfg_music_slider
+            if sx <= x <= sx + sw and sy - 10 <= y <= sy + 18:
+                self._config_slider_dragging = "music"
+                frac = max(0.0, min(1.0, (x - sx) / sw))
+                audio.music_volume = frac
+                return
+        # SFX slider
+        if hasattr(self, '_cfg_sfx_slider'):
+            sx, sy, sw, sh = self._cfg_sfx_slider
+            if sx <= x <= sx + sw and sy - 10 <= y <= sy + 18:
+                self._config_slider_dragging = "sfx"
+                frac = max(0.0, min(1.0, (x - sx) / sw))
+                audio.sfx_volume = frac
+                return
+        # Directory text field
+        if hasattr(self, '_cfg_dir_rect'):
+            dx, dy, dw, dh = self._cfg_dir_rect
+            if dx <= x <= dx + dw and dy <= y <= dy + dh:
+                self._config_editing_dir = True
+                return
+            else:
+                self._config_editing_dir = False
+        # Autoplay OST toggle
+        if hasattr(self, '_cfg_ost_rect'):
+            tx, ty, tw, th = self._cfg_ost_rect
+            if tx <= x <= tx + tw and ty <= y <= ty + th:
+                audio.autoplay_ost = not audio.autoplay_ost
+                return
+        # Save Config button
+        if hasattr(self, '_cfg_save_rect'):
+            bx, by, bw, bh = self._cfg_save_rect
+            if bx <= x <= bx + bw and by <= y <= by + bh:
+                audio.video_dir = self._config_dir_text
+                from settings import save_config
+                save_config()
+                arcade.play_sound(self._click_snd, volume=audio.sfx_volume)
+                self._t_config.text = "Saved!"
+                self._config_flash = 1.5
+                self._show_config = False
+                return
+        # Back button
+        if hasattr(self, '_cfg_back_rect'):
+            bx, by, bw, bh = self._cfg_back_rect
+            if bx <= x <= bx + bw and by <= y <= by + bh:
+                self._show_config = False
+                self._config_editing_dir = False
+                return
 
     def on_key_press(self, key: int, modifiers: int) -> None:
+        if self._show_config:
+            if key == arcade.key.ESCAPE:
+                self._show_config = False
+                self._config_editing_dir = False
+            elif self._config_editing_dir:
+                if key == arcade.key.BACKSPACE:
+                    self._config_dir_text = self._config_dir_text[:-1]
+                elif key in (arcade.key.RETURN, arcade.key.ENTER):
+                    audio.video_dir = self._config_dir_text
+                    self._config_editing_dir = False
+            return
         if key == arcade.key.ESCAPE:
             from splash_view import SplashView
             self.window.show_view(SplashView())
+
+    def on_text(self, text: str) -> None:
+        if self._show_config and self._config_editing_dir:
+            if text.isprintable() and len(self._config_dir_text) < 200:
+                self._config_dir_text += text
 
     def _hit_slider(self, x: int, y: int, slider_y: int) -> bool:
         """Check if (x, y) is within the interactive area of a slider."""
