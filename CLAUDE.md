@@ -31,7 +31,10 @@ Space Survivalcraft/
 ├── main.py              # Entry point — creates Window, starts SplashView, patches pyglet clock for video
 ├── constants.py         # All game constants (window, physics, assets, factions, ship types, respawn)
 ├── settings.py          # Global runtime settings singleton (volume, resolution, display mode, video dir) + apply_resolution() + save_config()/load_config()
-├── video_player.py      # VideoPlayer — FFmpeg video playback with cached frame texture rendering in HUD
+├── video_player.py      # VideoPlayer — FFmpeg video playback with GPU blit downscale, segment looping, character video support
+│
+│  ── Character videos ──
+├── characters/          # Character video files (Name.mp4), scanned by video_player.scan_characters_dir()
 │
 │  ── Views (each is an arcade.View subclass) ──
 ├── splash_view.py       # SplashView — "CALL OF ORION" title, Play/Load/Options/Exit buttons
@@ -40,14 +43,25 @@ Space Survivalcraft/
 ├── game_view.py         # GameView — core gameplay loop, cameras, input, music, death logic
 │
 │  ── UI overlays (drawn by GameView, not separate Views) ──
-├── hud.py               # HUD — left status panel (HP/shield bars, iron/asteroid/alien counts, weapon, fog-filtered mini-map, equalizer visualizer)
-├── escape_menu.py       # EscapeMenu — overlay with save/load/quit, audio sliders, song controls, video picker, help (does NOT pause gameplay)
+├── hud.py               # HUD — left status panel (HP/shield bars, character video, weapon, fog-filtered mini-map, equalizer visualizer)
+├── escape_menu/         # EscapeMenu package — overlay with save/load/quit, audio sliders, song controls, video/character picker, help
+│   ├── __init__.py      # EscapeMenu orchestrator — delegates draw/input to active mode (~157 lines)
+│   ├── _context.py      # MenuContext (shared state) + MenuMode base class
+│   ├── _ui.py           # Shared drawing helpers (panel, back button, slider, hit tests)
+│   ├── _main_mode.py    # Main menu mode — buttons + audio sliders
+│   ├── _save_load_mode.py # Save/Load/Naming mode — 10 slots with naming overlay
+│   ├── _resolution_mode.py # Resolution selector — windowed/fullscreen/borderless
+│   ├── _video_props_mode.py # Video Properties — resolution + character picker
+│   ├── _video_mode.py   # Video file picker — directory scanning + playback
+│   ├── _config_mode.py  # Config mode — FPS toggle, sliders, video dir
+│   ├── _songs_mode.py   # Songs mode — stop/other song, music videos button
+│   └── _help_mode.py    # Help mode — keyboard and gamepad controls display
 ├── death_screen.py      # DeathScreen — "SHIP DESTROYED" overlay with Load/Menu/Exit
 ├── inventory.py         # Inventory — 5×5 cargo grid with drag-and-drop and world ejection
 ├── station_inventory.py # StationInventory — 10×10 Home Station inventory with item transfer
 ├── craft_menu.py        # CraftMenu — crafting UI for Basic Crafter (Repair Pack recipe)
 ├── build_menu.py        # BuildMenu — right-side overlay for constructing station modules
-├── station_info.py      # StationInfo — right-side overlay showing building HP + module stats (T key)
+├── station_info.py      # StationInfo — right-side overlay showing building HP + module stats + world stats (T key)
 │
 │  ── Game logic ──
 ├── collisions.py        # All collision handlers (projectile/asteroid/alien/player/building pairs)
@@ -123,8 +137,9 @@ main.py
         └─▶ Load Game ─▶ GameView (game_view.py)
 
 GameView overlays:
-  ├── EscapeMenu (escape_menu.py)  — pauses gameplay
+  ├── EscapeMenu (escape_menu/)  — pauses gameplay
   │     ├── Save/Load sub-menus
+  │     ├── Video Properties (resolution + character picker)
   │     └── Main Menu ─▶ SplashView
   ├── DeathScreen (death_screen.py) — shown when HP = 0
   │     └── Load/Menu/Exit
@@ -142,7 +157,8 @@ game_view.py
   ├── sprites/* (PlayerShip, Weapon, Explosion, HitSpark, FireSpark, IronPickup, ContrailParticle, Building*)
   ├── collisions.py (all collision handlers called from on_update)
   ├── world_setup.py (asset loading, asteroid/alien/building population, music tracks)
-  ├── hud.py, escape_menu.py, death_screen.py, inventory.py, build_menu.py, station_info.py (UI overlays)
+  ├── hud.py, escape_menu/, death_screen.py, inventory.py, build_menu.py, station_info.py (UI overlays)
+  ├── video_player.py (character video + music video playback)
   └── settings.py (audio volume)
 
 collisions.py
@@ -181,6 +197,8 @@ sprites/alien.py
 - **Unified item storage** — both cargo (5×5) and station (10×10) inventories store items as `(type, count)` tuples per cell; iron is a regular stackable item, not a separate pool; `total_iron` property sums across all cells for HUD/build cost checks
 - **Quick-use drag system** — HUD tracks drag state (`_qu_drag_src/type/count/x/y`) for visible pick-up animation; items can be assigned by dragging from inventory, moved between slots, or unassigned by dragging out
 - **Building hover tooltip** — `on_mouse_motion` detects closest building within 40 px using world-coordinate conversion; tooltip drawn in UI camera space
+- **Character video player** — looping character portrait in HUD; uses GPU-side `glBlitFramebuffer` downscale (1440→200px, ~90KB readback vs 8MB); frame conversion throttled to 15fps; seamless loop via pre-built standby player loaded 5s before end-of-file
+- **Escape menu package** — refactored from 1918-line monolith into `escape_menu/` package; `MenuContext` + `MenuMode` base class pattern; each sub-mode (main, save/load, resolution, video, config, help, songs, video_props) in its own file; orchestrator `__init__.py` delegates all draw/input to active mode
 
 ## Game Rules Reference
 

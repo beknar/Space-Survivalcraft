@@ -95,6 +95,8 @@ A top-down space survival game built with Python and the Arcade framework. Pilot
 - Press **T** while near the station to view building stats
 - Shows each module's type and HP (colour-coded green/orange/red)
 - Displays module count and remaining capacity
+- World stats: **IRON** count, **ROIDS** (asteroid count), **ALIEN** count
+- Stats update in real-time while the panel is open
 - Auto-closes when the player flies away
 
 ### Player-Building Collision
@@ -102,12 +104,19 @@ A top-down space survival game built with Python and the Arcade framework. Pilot
 - Gentle push-out prevents passing through buildings
 - No damage, no bounce, no sound --- just a soft stop
 
+### Character Video Player
+- Looping character video portrait displayed in the HUD status panel
+- Choose a character via **Video Properties** in the ESC menu
+- Characters are video files (`Name.mp4`) in the `characters/` directory
+- Video starts at a random position and loops seamlessly with a pre-built standby player
+- GPU-side downscale via `glBlitFramebuffer` for high performance (~90 KB readback vs ~8 MB)
+- Frame conversion throttled to 15 fps to maintain 50+ game FPS
+
 ### HUD & Mini-Map
-- Left-side status panel showing HP bar, shield bar, speed, heading, iron count, and active weapon
-- Faction and ship type indicators
-- Controls reference and gamepad connection status
+- Left-side status panel showing HP bar, shield bar, character video, active weapon, and faction/ship info
 - FPS counter (toggle with F key)
-- Now-playing music track name
+- Now-playing music track name with equalizer visualizer
+- Quick Use bar (5 slots) below the equalizer
 - Mini-map showing the full 6400x6400 world:
   - **White dot** --- player ship (with cyan heading line)
   - **Grey dots** --- asteroids
@@ -125,7 +134,8 @@ A top-down space survival game built with Python and the Arcade framework. Pilot
 - **Music and SFX volume sliders** --- draggable with percentage display
 - **Resolution** selector with windowed, fullscreen, and borderless options (6 presets: 1280x800 to 3840x2160)
 - **Video** player --- configure a video folder, pick files, plays in the HUD (fullscreen only, requires FFmpeg)
-- **Resume** / **Save Game** / **Load Game** / **Resolution** / **Video** / **Main Menu** / **Exit Game**
+- **Video Properties** --- resolution selector (windowed/fullscreen/borderless) + character picker for the HUD video portrait
+- **Resume** / **Save Game** / **Load Game** / **Video Properties** / **Help** / **Songs** / **Main Menu**
 - 10 save slots with a naming overlay (max 24 characters, blinking cursor)
 - ESC in sub-menus navigates back; ESC in main menu closes overlay
 
@@ -216,7 +226,7 @@ A top-down space survival game built with Python and the Arcade framework. Pilot
 python -m pytest "unit tests/" -v
 ```
 
-275 unit tests covering all game modules: player physics, weapons, asteroids, aliens (AI, stuck detection), pickups, shields, explosions, contrails, inventory (stacking, drag-and-drop), damage routing, building system (snap, collision, capacity, repair module, heal, port disconnect, crafter), respawn mechanics, fog of war, and settings.
+275 unit tests covering all game modules: player physics, weapons, asteroids, aliens (AI, stuck detection), pickups, shields, explosions, contrails, inventory (stacking, drag-and-drop), damage routing, building system (snap, collision, capacity, repair module, heal, port disconnect, crafter), respawn mechanics, fog of war, settings, and more.
 
 ## Project Structure
 
@@ -233,14 +243,15 @@ Space Survivalcraft/
 ├── game_view.py         # Core gameplay loop, cameras, input, music, death logic
 │
 │  ── UI Overlays ──
-├── hud.py               # Left status panel (HP/shield bars, speed, weapon, mini-map)
-├── escape_menu.py       # Pause overlay with save/load/quit and audio sliders
+├── hud.py               # Left status panel (HP/shield bars, character video, weapon, mini-map)
+├── escape_menu/         # Escape menu package (10 sub-modes, ~157 line orchestrator)
 ├── death_screen.py      # "SHIP DESTROYED" overlay with Load/Menu/Exit
 ├── inventory.py         # 5x5 cargo grid with stackable items, drag-and-drop, world ejection
 ├── station_inventory.py # 10x10 Home Station inventory with item transfer
 ├── build_menu.py        # Right-side overlay for constructing station modules
 ├── craft_menu.py        # Crafting UI for Basic Crafter (Repair Pack recipe)
-├── station_info.py      # Right-side overlay showing building HP and module stats (T key)
+├── station_info.py      # Right-side overlay showing building HP, module stats, and world stats (T key)
+├── video_player.py      # VideoPlayer --- FFmpeg playback with GPU blit downscale and character video support
 │
 │  ── Game Logic ──
 ├── collisions.py        # All collision handlers (projectile/asteroid/alien/player/building)
@@ -261,7 +272,7 @@ Space Survivalcraft/
 │  ── Unit Tests ──
 ├── unit tests/
 │   ├── conftest.py      # Shared fixtures (dummy textures)
-│   └── test_*.py        # 216 tests across 14 test files
+│   └── test_*.py        # 275 tests across 14 test files
 │
 ├── game-rules.md        # Comprehensive game rules, stats, and asset reference
 ├── CLAUDE.md            # Project overview and dev reference
