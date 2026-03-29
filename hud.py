@@ -52,29 +52,37 @@ class HUD:
             arcade.color.LIGHT_BLUE, 14, bold=True,
             anchor_x="center", anchor_y="center",
         )
-        self._t_iron_hud = arcade.Text("", 10, self._sh - 60,
-                                       arcade.color.ORANGE, 11)
-        self._t_asteroids = arcade.Text("", 10, self._sh - 80,
-                                        (150, 150, 150), 11)
-        self._t_aliens = arcade.Text("", 10, self._sh - 100,
-                                     (220, 80, 80), 11)
-        self._t_hp = arcade.Text("HP", 10, self._sh - 136,
+
+        # Character video area (replaces old IRON/ROIDS/ALIEN stats)
+        # Video is drawn externally; we just reserve layout space + name label
+        self._char_vid_y = self._sh - 60  # top of video area
+        self._char_vid_h = int((STATUS_WIDTH - 20) * 9 / 16)  # 16:9 aspect
+        self._t_char_name = arcade.Text(
+            "", cx, self._char_vid_y - self._char_vid_h - 10,
+            arcade.color.KHAKI, 10, bold=True,
+            anchor_x="center", anchor_y="top",
+        )
+
+        # HP header starts below character video + name
+        self._hp_y_offset = self._char_vid_y - self._char_vid_h - 30
+        self._t_hp = arcade.Text("HP", 10, self._hp_y_offset,
                                  arcade.color.LIME_GREEN, 10, bold=True)
-        self._t_hp_val = arcade.Text("", 10, self._sh - 164,
+        hp_y = self._hp_y_offset
+        self._t_hp_val = arcade.Text("", 10, hp_y - 28,
                                      arcade.color.WHITE, 9)
-        self._t_shield = arcade.Text("SHIELD", 10, self._sh - 180,
+        self._t_shield = arcade.Text("SHIELD", 10, hp_y - 44,
                                      arcade.color.CYAN, 10, bold=True)
-        self._t_shield_val = arcade.Text("", 10, self._sh - 208,
+        self._t_shield_val = arcade.Text("", 10, hp_y - 72,
                                          arcade.color.WHITE, 9)
-        self._t_wpn_hdr = arcade.Text("WEAPON", cx, self._sh - 226,
+        self._t_wpn_hdr = arcade.Text("WEAPON", cx, hp_y - 90,
                                       arcade.color.LIGHT_GRAY, 9,
                                       anchor_x="center")
-        self._t_wpn_name = arcade.Text("", cx, self._sh - 242,
+        self._t_wpn_name = arcade.Text("", cx, hp_y - 106,
                                        arcade.color.YELLOW, 10, bold=True,
                                        anchor_x="center")
         self._show_fps: bool = False
         self._fps: float = 60.0
-        self._t_fps = arcade.Text("", 10, self._sh - 262,
+        self._t_fps = arcade.Text("", 10, hp_y - 126,
                                   arcade.color.YELLOW, 10, bold=True)
         self._t_minimap = arcade.Text(
             "MINI-MAP", STATUS_WIDTH // 2,
@@ -86,20 +94,20 @@ class HUD:
         ship_label = ship_type if ship_type else "Classic"
         self._t_faction = arcade.Text(
             f"FACTION: {faction_label}",
-            10, self._sh - 282,
+            10, hp_y - 146,
             arcade.color.LIGHT_BLUE, 9, bold=True,
         )
         self._t_ship_type = arcade.Text(
             f"SHIP: {ship_label}",
-            10, self._sh - 298,
+            10, hp_y - 162,
             arcade.color.LIGHT_GREEN, 9, bold=True,
         )
         self._t_music_hdr = arcade.Text(
-            "NOW PLAYING", STATUS_WIDTH // 2, self._sh - 318,
+            "NOW PLAYING", STATUS_WIDTH // 2, hp_y - 182,
             arcade.color.LIGHT_GRAY, 9, anchor_x="center",
         )
         self._t_track_name = arcade.Text(
-            "", STATUS_WIDTH // 2, self._sh - 334,
+            "", STATUS_WIDTH // 2, hp_y - 198,
             arcade.color.KHAKI, 9, bold=True, anchor_x="center",
         )
 
@@ -132,6 +140,11 @@ class HUD:
         self._qu_drag_x: float = 0.0
         self._qu_drag_y: float = 0.0
 
+    @property
+    def char_video_rect(self) -> tuple[float, float, float]:
+        """Return (x, y, max_w) for drawing the character video in the HUD."""
+        return (10, self._char_vid_y - self._char_vid_h, STATUS_WIDTH - 20)
+
     def set_quick_use(self, slot: int, item_type: str | None, count: int = 0) -> None:
         """Set a quick-use slot (0-indexed)."""
         if 0 <= slot < self._qu_count:
@@ -148,7 +161,7 @@ class HUD:
         """Return quick-use slot index (0-based) at screen coords, or None."""
         qu_total_w = self._qu_count * self._qu_cell + (self._qu_count - 1) * 2
         qu_x = (STATUS_WIDTH - qu_total_w) // 2
-        qu_y = self._sh - 346 - _EQ_MAX_H - self._qu_cell - 20
+        qu_y = self._hp_y_offset - 210 - _EQ_MAX_H - self._qu_cell - 20
         if y < qu_y or y > qu_y + self._qu_cell:
             return None
         for i in range(self._qu_count):
@@ -196,7 +209,6 @@ class HUD:
 
     def draw(
         self,
-        iron: int,
         weapon_name: str,
         hp: int,
         max_hp: int,
@@ -212,6 +224,7 @@ class HUD:
         building_list: arcade.SpriteList | None = None,
         fog_grid: list[list[bool]] | None = None,
         video_active: bool = False,
+        character_name: str = "",
     ) -> None:
         """Draw the full HUD status panel."""
         # Panel background
@@ -225,6 +238,13 @@ class HUD:
         )
 
         self._t_title.draw()
+
+        # Character name label below video area
+        if character_name:
+            self._t_char_name.text = character_name
+            self._t_char_name.draw()
+
+        hp_y = self._hp_y_offset
         self._t_hp.draw()
         self._t_shield.draw()
         self._t_wpn_hdr.draw()
@@ -232,12 +252,6 @@ class HUD:
             self._t_fps.text = f"FPS  {self._fps:>6.1f}"
             self._t_fps.draw()
 
-        self._t_iron_hud.text = f"IRON  {iron:>7}"
-        self._t_iron_hud.draw()
-        self._t_asteroids.text = f"ROIDS {len(asteroid_list):>5}"
-        self._t_asteroids.draw()
-        self._t_aliens.text = f"ALIEN {len(alien_list):>5}"
-        self._t_aliens.draw()
         self._t_wpn_name.text = weapon_name
         self._t_wpn_name.draw()
 
@@ -249,7 +263,7 @@ class HUD:
             else (200, 30, 30)
         )
         arcade.draw_rect_filled(
-            arcade.LBWH(10, self._sh - 152, int(190 * hp_frac), 10),
+            arcade.LBWH(10, hp_y - 16, int(190 * hp_frac), 10),
             hp_color,
         )
         # HP numerical value
@@ -259,7 +273,7 @@ class HUD:
         # Shield bar
         shield_frac = max(0.0, shields / max_shields) if max_shields > 0 else 0.0
         arcade.draw_rect_filled(
-            arcade.LBWH(10, self._sh - 196, int(190 * shield_frac), 10),
+            arcade.LBWH(10, hp_y - 60, int(190 * shield_frac), 10),
             (0, 140, 210),
         )
         # Shield numerical value
@@ -280,7 +294,7 @@ class HUD:
             eq_total_w = _EQ_BARS * _EQ_BAR_W + (_EQ_BARS - 1) * _EQ_GAP
             eq_x = (STATUS_WIDTH - eq_total_w) // 2
             # Position below the track name text with spacing
-            eq_y = self._sh - 346 - _EQ_MAX_H
+            eq_y = self._hp_y_offset - 210 - _EQ_MAX_H
             for i in range(_EQ_BARS):
                 h = int(self._eq_heights[i] * _EQ_MAX_H)
                 if h < 2:
@@ -305,7 +319,7 @@ class HUD:
         # Position below the equalizer (eq bottom = _sh - 346 - _EQ_MAX_H)
         qu_total_w = self._qu_count * self._qu_cell + (self._qu_count - 1) * 2
         qu_x = (STATUS_WIDTH - qu_total_w) // 2
-        qu_y = self._sh - 346 - _EQ_MAX_H - self._qu_cell - 20
+        qu_y = self._hp_y_offset - 210 - _EQ_MAX_H - self._qu_cell - 20
         self._t_qu_label.y = qu_y + self._qu_cell + 8
         self._t_qu_label.draw()
         for i in range(self._qu_count):

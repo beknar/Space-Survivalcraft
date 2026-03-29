@@ -16,7 +16,7 @@ from constants import (
     SFX_VEHICLES_DIR,
     RESOLUTION_PRESETS,
 )
-from video_player import scan_video_dir, _HAS_FFMPEG, _DECODER_NAME
+from video_player import scan_video_dir, scan_characters_dir, _HAS_FFMPEG, _DECODER_NAME
 from settings import save_config
 from settings import audio
 
@@ -59,6 +59,7 @@ class EscapeMenu:
         video_stop_fn: Callable[[], None] | None = None,
         stop_song_fn: Callable[[], None] | None = None,
         other_song_fn: Callable[[], None] | None = None,
+        character_select_fn: Callable[[str], None] | None = None,
     ) -> None:
         self.open: bool = False
         self._save_fn = save_fn
@@ -70,6 +71,7 @@ class EscapeMenu:
         self._video_fn_stop = video_stop_fn
         self._stop_song_fn = stop_song_fn
         self._other_song_fn = other_song_fn
+        self._character_select_fn = character_select_fn
 
         # Resolution selector state
         current_res = (audio.screen_width, audio.screen_height)
@@ -97,6 +99,9 @@ class EscapeMenu:
         # ── Video picker state ─────────────────────────────────────────
         self._video_files: list[str] = []
         self._video_scroll: int = 0
+        # ── Character picker state ────────────────────────────────────
+        self._character_files: list[str] = []
+        self._character_scroll: int = 0
         # Songs sub-mode button rects (computed during draw)
         self._songs_stop_rect: tuple = (0, 0, 0, 0)
         self._songs_other_rect: tuple = (0, 0, 0, 0)
@@ -456,7 +461,9 @@ class EscapeMenu:
                 self._mode = self.MODE_LOAD
                 self._hover_idx = -1
             elif key == "video_props":
-                self._mode = self.MODE_RESOLUTION
+                self._character_files = scan_characters_dir()
+                self._character_scroll = 0
+                self._mode = self.MODE_VIDEO_PROPS
                 self._hover_idx = -1
             elif key == "help":
                 self._mode = self.MODE_HELP
@@ -646,6 +653,70 @@ class EscapeMenu:
                 self._video_scroll = 0
                 return
 
+        elif self._mode == self.MODE_VIDEO_PROPS:
+            self._recalc_main_layout()
+            px, py = self._main_px, self._main_py
+            cx = px + MENU_W // 2
+            # Back button
+            bx = px + (MENU_W - MENU_BTN_W) // 2
+            by = py + 12
+            if bx <= x <= bx + MENU_BTN_W and by <= y <= by + 35:
+                self._mode = self.MODE_MAIN
+                self._hover_idx = -1
+                return
+
+            # ── Resolution controls ──────────────────────────────
+            res_section_y = py + MENU_H - 60
+            res_val_y = res_section_y - 30
+            # Left arrow
+            if px + 12 <= x <= px + 48 and res_val_y - 14 <= y <= res_val_y + 14:
+                self._res_idx = (self._res_idx - 1) % len(RESOLUTION_PRESETS)
+                return
+            # Right arrow
+            if px + MENU_W - 48 <= x <= px + MENU_W - 12 and res_val_y - 14 <= y <= res_val_y + 14:
+                self._res_idx = (self._res_idx + 1) % len(RESOLUTION_PRESETS)
+                return
+            abx = px + (MENU_W - MENU_BTN_W) // 2
+            apply_y = res_val_y - 44
+            # Windowed
+            if abx <= x <= abx + MENU_BTN_W and apply_y <= y <= apply_y + 30:
+                w, h = RESOLUTION_PRESETS[self._res_idx]
+                if self._resolution_fn is not None:
+                    self._resolution_fn(w, h, "windowed")
+                return
+            # Fullscreen
+            fs_y = apply_y - 36
+            if abx <= x <= abx + MENU_BTN_W and fs_y <= y <= fs_y + 30:
+                w, h = RESOLUTION_PRESETS[self._res_idx]
+                if self._resolution_fn is not None:
+                    self._resolution_fn(w, h, "fullscreen")
+                return
+            # Borderless
+            bl_y = fs_y - 36
+            if abx <= x <= abx + MENU_BTN_W and bl_y <= y <= bl_y + 30:
+                w, h = RESOLUTION_PRESETS[self._res_idx]
+                if self._resolution_fn is not None:
+                    self._resolution_fn(w, h, "borderless")
+                return
+
+            # ── Character list items ─────────────────────────────
+            char_header_y = bl_y - 30
+            list_y_start = char_header_y - 18
+            item_h = 30
+            max_visible = 6
+            for i in range(min(max_visible, len(self._character_files) - self._character_scroll)):
+                idx = self._character_scroll + i
+                iy = list_y_start - i * item_h
+                if (px + 10 <= x <= px + MENU_W - 10
+                        and iy <= y <= iy + item_h):
+                    name = self._character_files[idx]
+                    audio.character_name = name
+                    save_config()
+                    if self._character_select_fn is not None:
+                        self._character_select_fn(name)
+                    self._flash_status(f"Character: {name}")
+                    return
+
         elif self._mode == self.MODE_SAVE:
             if self._point_in_rect(x, y, self._back_rect):
                 self._mode = self.MODE_MAIN
@@ -687,6 +758,10 @@ class EscapeMenu:
                 self._mode = self.MODE_MAIN
             elif key == arcade.key.BACKSPACE:
                 self._naming_text = self._naming_text[:-1]
+        elif self._mode == self.MODE_VIDEO_PROPS:
+            if key == arcade.key.ESCAPE:
+                self._mode = self.MODE_MAIN
+                self._hover_idx = -1
         elif self._mode == self.MODE_RESOLUTION:
             if key == arcade.key.ESCAPE:
                 self._mode = self.MODE_MAIN
@@ -766,6 +841,8 @@ class EscapeMenu:
             self._draw_help()
         elif self._mode == self.MODE_SONGS:
             self._draw_songs()
+        elif self._mode == self.MODE_VIDEO_PROPS:
+            self._draw_video_props()
         elif self._mode in (self.MODE_SAVE, self.MODE_LOAD, self.MODE_NAMING):
             self._draw_save_load()
             if self._mode == self.MODE_NAMING:
@@ -936,6 +1013,172 @@ class EscapeMenu:
         self._t_res_back.x = bx + bw // 2
         self._t_res_back.y = by + bh // 2
         self._t_res_back.draw()
+
+    def _draw_video_props(self) -> None:
+        """Draw the video properties sub-mode (resolution + character picker)."""
+        self._recalc_main_layout()
+        px, py = self._main_px, self._main_py
+        cx = px + MENU_W // 2
+
+        arcade.draw_rect_filled(
+            arcade.LBWH(px, py, MENU_W, MENU_H),
+            (20, 20, 50, 240),
+        )
+        arcade.draw_rect_outline(
+            arcade.LBWH(px, py, MENU_W, MENU_H),
+            arcade.color.STEEL_BLUE, border_width=2,
+        )
+
+        # Title
+        self._t_res_title.text = "VIDEO PROPERTIES"
+        self._t_res_title.x = cx
+        self._t_res_title.y = py + MENU_H - 30
+        self._t_res_title.draw()
+
+        # ── Resolution section ───────────────────────────────────────
+        res_section_y = py + MENU_H - 60
+        self._t_vid_info.text = "Resolution"
+        self._t_vid_info.x = cx
+        self._t_vid_info.y = res_section_y
+        self._t_vid_info.color = arcade.color.WHITE
+        self._t_vid_info.draw()
+
+        # Resolution value with arrows
+        res_val_y = res_section_y - 30
+        from constants import RESOLUTION_PRESETS
+        w, h = RESOLUTION_PRESETS[self._res_idx]
+        self._t_res_value.text = f"{w} x {h}"
+        self._t_res_value.x = cx
+        self._t_res_value.y = res_val_y
+        self._t_res_value.draw()
+
+        self._t_res_left.x = px + 30
+        self._t_res_left.y = res_val_y
+        self._t_res_left.draw()
+        self._t_res_right.x = px + MENU_W - 30
+        self._t_res_right.y = res_val_y
+        self._t_res_right.draw()
+
+        # Apply buttons (stacked vertically, below resolution value)
+        abx = px + (MENU_W - MENU_BTN_W) // 2
+        apply_y = res_val_y - 44
+        # Windowed
+        arcade.draw_rect_filled(
+            arcade.LBWH(abx, apply_y, MENU_BTN_W, 30),
+            (30, 60, 30, 220),
+        )
+        arcade.draw_rect_outline(
+            arcade.LBWH(abx, apply_y, MENU_BTN_W, 30),
+            arcade.color.LIME_GREEN, border_width=1,
+        )
+        self._t_apply_windowed.text = "Apply Windowed"
+        self._t_apply_windowed.x = abx + MENU_BTN_W // 2
+        self._t_apply_windowed.y = apply_y + 15
+        self._t_apply_windowed.draw()
+
+        # Fullscreen
+        fs_y = apply_y - 36
+        arcade.draw_rect_filled(
+            arcade.LBWH(abx, fs_y, MENU_BTN_W, 30),
+            (30, 30, 60, 220),
+        )
+        arcade.draw_rect_outline(
+            arcade.LBWH(abx, fs_y, MENU_BTN_W, 30),
+            arcade.color.CYAN, border_width=1,
+        )
+        self._t_apply_fullscreen.x = abx + MENU_BTN_W // 2
+        self._t_apply_fullscreen.y = fs_y + 15
+        self._t_apply_fullscreen.draw()
+
+        # Borderless
+        bl_y = fs_y - 36
+        arcade.draw_rect_filled(
+            arcade.LBWH(abx, bl_y, MENU_BTN_W, 30),
+            (40, 30, 60, 220),
+        )
+        arcade.draw_rect_outline(
+            arcade.LBWH(abx, bl_y, MENU_BTN_W, 30),
+            (120, 100, 200), border_width=1,
+        )
+        self._t_apply_borderless.x = abx + MENU_BTN_W // 2
+        self._t_apply_borderless.y = bl_y + 15
+        self._t_apply_borderless.draw()
+
+        # ── Character section ────────────────────────────────────────
+        char_header_y = bl_y - 30
+        self._t_vid_text.text = "Character"
+        self._t_vid_text.x = cx
+        self._t_vid_text.y = char_header_y
+        self._t_vid_text.color = arcade.color.WHITE
+        self._t_vid_text.bold = True
+        self._t_vid_text.anchor_x = "center"
+        self._t_vid_text.draw()
+        self._t_vid_text.anchor_x = "left"
+
+        list_y_start = char_header_y - 18
+        item_h = 30
+        max_visible = 6
+        if not self._character_files:
+            self._t_vid_info.text = "No characters in characters/"
+            self._t_vid_info.x = cx
+            self._t_vid_info.y = list_y_start - 20
+            self._t_vid_info.color = (200, 80, 80)
+            self._t_vid_info.draw()
+        else:
+            for i in range(min(max_visible, len(self._character_files) - self._character_scroll)):
+                idx = self._character_scroll + i
+                name = self._character_files[idx]
+                iy = list_y_start - i * item_h
+                is_selected = (name == audio.character_name)
+                fill = (50, 70, 100, 220) if is_selected else (30, 30, 50, 180)
+                arcade.draw_rect_filled(
+                    arcade.LBWH(px + 10, iy, MENU_W - 20, item_h - 2), fill,
+                )
+                self._t_vid_text.text = name
+                self._t_vid_text.x = px + 20
+                self._t_vid_text.y = iy + item_h // 2
+                self._t_vid_text.color = arcade.color.CYAN if is_selected else arcade.color.WHITE
+                self._t_vid_text.bold = is_selected
+                self._t_vid_text.draw()
+
+            # Scrollbar
+            total = len(self._character_files)
+            if total > max_visible:
+                sb_x = px + MENU_W - 16
+                sb_h = max_visible * item_h
+                sb_y = list_y_start - (max_visible - 1) * item_h
+                arcade.draw_rect_filled(
+                    arcade.LBWH(sb_x, sb_y, 6, sb_h),
+                    (40, 40, 60, 180),
+                )
+                max_scroll = total - max_visible
+                thumb_frac = max_visible / total
+                thumb_h = max(12, int(sb_h * thumb_frac))
+                scroll_frac = self._character_scroll / max_scroll if max_scroll > 0 else 0.0
+                thumb_y = sb_y + sb_h - thumb_h - int(scroll_frac * (sb_h - thumb_h))
+                arcade.draw_rect_filled(
+                    arcade.LBWH(sb_x, thumb_y, 6, thumb_h),
+                    (120, 150, 200, 220),
+                )
+
+        # Back button
+        bx = px + (MENU_W - MENU_BTN_W) // 2
+        by = py + 12
+        bw, bh = MENU_BTN_W, 35
+        arcade.draw_rect_filled(arcade.LBWH(bx, by, bw, bh), (40, 40, 70, 220))
+        arcade.draw_rect_outline(
+            arcade.LBWH(bx, by, bw, bh), arcade.color.STEEL_BLUE, border_width=1,
+        )
+        self._t_res_back.x = bx + bw // 2
+        self._t_res_back.y = by + bh // 2
+        self._t_res_back.draw()
+
+        # Status message
+        if self._status_msg:
+            self._t_status.x = self._window.width // 2
+            self._t_status.y = py + MENU_H + 20
+            self._t_status.text = self._status_msg
+            self._t_status.draw()
 
     def _draw_video(self) -> None:
         """Draw the video file picker sub-mode."""
@@ -1639,12 +1882,17 @@ class EscapeMenu:
         self._config_slider_dragging = ""
 
     def on_mouse_scroll(self, scroll_y: float) -> None:
-        """Scroll the video file list."""
+        """Scroll the video or character file list."""
         if self._mode == self.MODE_VIDEO and self._video_files:
             max_visible = 8
             max_scroll = max(0, len(self._video_files) - max_visible)
             self._video_scroll = int(max(0, min(max_scroll,
                                                 self._video_scroll - scroll_y)))
+        elif self._mode == self.MODE_VIDEO_PROPS and self._character_files:
+            max_visible = 12
+            max_scroll = max(0, len(self._character_files) - max_visible)
+            self._character_scroll = int(max(0, min(max_scroll,
+                                                    self._character_scroll - scroll_y)))
 
     # ── Helpers ───────────────────────────────────────────────────────
 

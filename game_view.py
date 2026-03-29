@@ -69,7 +69,7 @@ from collisions import (
 from station_info import StationInfo
 from station_inventory import StationInventory
 from craft_menu import CraftMenu
-from video_player import VideoPlayer
+from video_player import VideoPlayer, character_video_path
 
 _SAVE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "saves")
 
@@ -241,8 +241,11 @@ class GameView(arcade.View):
         self._contrail_end_colour: tuple[int, int, int] = colours[1]
 
         # Escape menu
-        # Video player
+        # Video player (music videos)
         self._video_player = VideoPlayer()
+        # Character video player (looping character portrait in HUD)
+        self._char_video_player = VideoPlayer()
+        self._start_character_video()
 
         self._escape_menu = EscapeMenu(
             save_fn=self._save_game,
@@ -254,6 +257,7 @@ class GameView(arcade.View):
             video_stop_fn=self._stop_video,
             stop_song_fn=self._stop_song,
             other_song_fn=self._other_song,
+            character_select_fn=self._select_character,
         )
 
         # Death screen
@@ -297,6 +301,23 @@ class GameView(arcade.View):
             # Resume music if video failed
             if self._music_tracks:
                 self._play_next_track()
+
+    def _start_character_video(self) -> None:
+        """Start the character video if one is configured."""
+        name = audio.character_name
+        if not name:
+            return
+        path = character_video_path(name)
+        if path:
+            self._char_video_player.play_segments(path, volume=0.0)
+
+    def _select_character(self, name: str) -> None:
+        """Called when the player picks a character in the ESC menu."""
+        self._char_video_player.stop()
+        if name:
+            path = character_video_path(name)
+            if path:
+                self._char_video_player.play_segments(path, volume=0.0)
 
     def _stop_video(self) -> None:
         """Stop video playback without resuming music or equalizer."""
@@ -904,6 +925,7 @@ class GameView(arcade.View):
                              and self._current_track_name != "")
         if video_was_active:
             self._video_player.stop()
+        self._char_video_player.stop()
         if self._thruster_player is not None:
             arcade.stop_sound(self._thruster_player)
             self._thruster_player = None
@@ -931,6 +953,7 @@ class GameView(arcade.View):
         """Return to the splash / title screen."""
         # Stop video if playing
         self._video_player.stop()
+        self._char_video_player.stop()
         # Stop sounds
         if self._thruster_player is not None:
             arcade.stop_sound(self._thruster_player)
@@ -991,7 +1014,6 @@ class GameView(arcade.View):
 
         with self.ui_cam.activate():
             self._hud.draw(
-                iron=self.inventory.total_iron,
                 weapon_name=self._active_weapon.name,
                 hp=self.player.hp,
                 max_hp=self.player.max_hp,
@@ -1009,8 +1031,13 @@ class GameView(arcade.View):
                 building_list=self.building_list,
                 fog_grid=self._fog_grid,
                 video_active=self._video_player.active,
+                character_name=audio.character_name,
             )
-            # Video frame in status panel (above mini-map)
+            # Character video in HUD (looping portrait)
+            if self._char_video_player.active:
+                cvx, cvy, cvw = self._hud.char_video_rect
+                self._char_video_player.draw_in_hud(cvx, cvy, cvw)
+            # Music video frame in status panel (above mini-map)
             if self._video_player.active:
                 vid_size = STATUS_WIDTH - 20
                 vid_x = 10
@@ -1085,6 +1112,10 @@ class GameView(arcade.View):
         self._hud.update_fps(delta_time)
         # Sync FPS display from config (may change via Config menu)
         self._hud._show_fps = audio.show_fps
+
+        # ── Character video player update (silent, segment rotation) ────
+        if self._char_video_player.active:
+            self._char_video_player.update_volume(0.0)
 
         # ── Video player update ────────────────────────────────────────────
         if self._video_player.active:
@@ -1354,6 +1385,13 @@ class GameView(arcade.View):
         # ── Player vs building collision (gentle push-out, no damage) ──
         handle_ship_building_collision(self)
 
+        # ── Station info live stats update ────────────────────────────
+        if self._station_info.open:
+            self._station_info.update_stats(
+                self.inventory.total_iron,
+                len(self.asteroid_list),
+                len(self.alien_list),
+            )
         # ── Station info auto-close when player moves away ────────────
         if self._station_info.open:
             near = any(
@@ -1448,6 +1486,9 @@ class GameView(arcade.View):
                         self.building_list,
                         compute_modules_used(self.building_list),
                         compute_module_capacity(self.building_list),
+                        iron=self.inventory.total_iron,
+                        asteroid_count=len(self.asteroid_list),
+                        alien_count=len(self.alien_list),
                     )
         # Quick-use keys 1-5
         elif key in (arcade.key.KEY_1, arcade.key.KEY_2, arcade.key.KEY_3,

@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 
 # Panel dimensions
 _PANEL_W = 280
-_PANEL_H = 420
+_PANEL_H = 490
 _PANEL_PAD = 12
 _LINE_H = 22
 _MAX_LINES = 14  # max building lines in pool
@@ -56,30 +56,51 @@ class StationInfo:
             anchor_x="center", anchor_y="center",
         )
 
+        # World stats (IRON / ROIDS / ALIEN) below footer
+        self._t_iron = arcade.Text("", self._px + _PANEL_PAD, self._py + 80,
+                                   arcade.color.ORANGE, 11)
+        self._t_roids = arcade.Text("", self._px + _PANEL_PAD, self._py + 60,
+                                    (150, 150, 150), 11)
+        self._t_aliens = arcade.Text("", self._px + _PANEL_PAD, self._py + 40,
+                                     (220, 80, 80), 11)
+
         # Cached data
         self._building_data: list[tuple[str, int, int, bool]] = []
         self._modules_used: int = 0
         self._module_capacity: int = 0
+        self._iron_count: int = 0
+        self._asteroid_count: int = 0
+        self._alien_count: int = 0
 
     def toggle(
         self,
         building_list: arcade.SpriteList,
         modules_used: int,
         module_capacity: int,
+        iron: int = 0,
+        asteroid_count: int = 0,
+        alien_count: int = 0,
     ) -> None:
         """Toggle overlay, refreshing building data when opening."""
         self.open = not self.open
         if self.open:
-            self._refresh(building_list, modules_used, module_capacity)
+            self._refresh(building_list, modules_used, module_capacity,
+                          iron, asteroid_count, alien_count)
 
     def _refresh(
         self,
         building_list: arcade.SpriteList,
         modules_used: int,
         module_capacity: int,
+        iron: int = 0,
+        asteroid_count: int = 0,
+        alien_count: int = 0,
     ) -> None:
         self._modules_used = modules_used
         self._module_capacity = module_capacity
+        self._iron_count = iron
+        self._asteroid_count = asteroid_count
+        self._alien_count = alien_count
         self._building_data = []
         for b in building_list:
             self._building_data.append((
@@ -88,6 +109,12 @@ class StationInfo:
                 b.max_hp,
                 b.disabled,
             ))
+
+    def update_stats(self, iron: int, asteroid_count: int, alien_count: int) -> None:
+        """Update world stats while panel is open (called every frame)."""
+        self._iron_count = iron
+        self._asteroid_count = asteroid_count
+        self._alien_count = alien_count
 
     def draw(self) -> None:
         if not self.open:
@@ -130,7 +157,25 @@ class StationInfo:
                 t.draw()
 
         # Footer
+        self._t_footer.x = self._px + _PANEL_W // 2
+        self._t_footer.y = self._py + 100
         self._t_footer.text = (
             f"Modules: {self._modules_used} / {self._module_capacity} used"
         )
         self._t_footer.draw()
+
+        # World stats
+        self._t_iron.x = self._px + _PANEL_PAD
+        self._t_iron.y = self._py + 76
+        self._t_iron.text = f"IRON  {self._iron_count:>7}"
+        self._t_iron.draw()
+
+        self._t_roids.x = self._px + _PANEL_PAD
+        self._t_roids.y = self._py + 56
+        self._t_roids.text = f"ROIDS {self._asteroid_count:>5}"
+        self._t_roids.draw()
+
+        self._t_aliens.x = self._px + _PANEL_PAD
+        self._t_aliens.y = self._py + 36
+        self._t_aliens.text = f"ALIEN {self._alien_count:>5}"
+        self._t_aliens.draw()
