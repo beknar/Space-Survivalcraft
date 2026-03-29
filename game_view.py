@@ -1036,7 +1036,7 @@ class GameView(arcade.View):
             # Character video in HUD (looping portrait)
             if self._char_video_player.active:
                 cvx, cvy, cvw = self._hud.char_video_rect
-                self._char_video_player.draw_in_hud(cvx, cvy, cvw)
+                self._char_video_player.draw_in_hud(cvx, cvy, cvw, aspect=1.0)
             # Music video frame in status panel (above mini-map)
             if self._video_player.active:
                 vid_size = STATUS_WIDTH - 20

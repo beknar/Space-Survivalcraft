@@ -131,7 +131,7 @@ class VideoPlayer:
         self._draw_fbo: int = 0
         self._small_tex: int = 0
         self._small_w: int = 200
-        self._small_h: int = 112  # 16:9 aspect
+        self._small_h: int = 200  # square FBO; blit stretches to fit
         self._pixel_buf: Optional[ctypes.Array] = None
 
     @property
@@ -453,9 +453,11 @@ class VideoPlayer:
         # Pre-allocate pixel readback buffer
         self._pixel_buf = (gl.GLubyte * (self._small_w * self._small_h * 4))()
 
-    def draw_in_hud(self, x: float, y: float, max_w: float) -> None:
+    def draw_in_hud(self, x: float, y: float, max_w: float,
+                    aspect: float = 16 / 9) -> None:
         """Draw the current video frame at (x, y) fitting within max_w.
 
+        *aspect* is width/height ratio (default 16:9).  Pass 1.0 for square.
         Uses GPU-side blit to downscale the video texture, then reads back
         only the small result (~90 KB instead of ~8 MB for 1440p sources).
         """
@@ -475,7 +477,7 @@ class VideoPlayer:
             # Draw cached texture while waiting for first frame of new video
             if self._cached_arc_tex is not None:
                 draw_w = int(max_w)
-                draw_h = int(max_w * 9 / 16)
+                draw_h = int(max_w / aspect)
                 arcade.draw_texture_rect(
                     self._cached_arc_tex,
                     arcade.LBWH(x, y, draw_w, draw_h),
@@ -488,7 +490,7 @@ class VideoPlayer:
         if not need_first and (now - self._convert_cooldown) < self._convert_interval:
             if self._cached_arc_tex is not None:
                 draw_w = int(max_w)
-                draw_h = int(max_w * 9 / 16)
+                draw_h = int(max_w / aspect)
                 arcade.draw_texture_rect(
                     self._cached_arc_tex,
                     arcade.LBWH(x, y, draw_w, draw_h),
@@ -562,7 +564,7 @@ class VideoPlayer:
 
         if self._cached_arc_tex is not None:
             draw_w = int(max_w)
-            draw_h = int(max_w * 9 / 16)
+            draw_h = int(max_w / aspect)
             arcade.draw_texture_rect(
                 self._cached_arc_tex,
                 arcade.LBWH(x, y, draw_w, draw_h),

@@ -105,7 +105,7 @@ A top-down space survival game built with Python and the Arcade framework. Pilot
 - No damage, no bounce, no sound --- just a soft stop
 
 ### Character Video Player
-- Looping character video portrait displayed in the HUD status panel
+- Looping 1:1 square character video portrait displayed in the HUD status panel
 - Choose a character via **Video Properties** in the ESC menu
 - Characters are video files (`Name.mp4`) in the `characters/` directory
 - Video starts at a random position and loops seamlessly with a pre-built standby player

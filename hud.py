@@ -56,7 +56,7 @@ class HUD:
         # Character video area (replaces old IRON/ROIDS/ALIEN stats)
         # Video is drawn externally; we just reserve layout space + name label
         self._char_vid_y = self._sh - 60  # top of video area
-        self._char_vid_h = int((STATUS_WIDTH - 20) * 9 / 16)  # 16:9 aspect
+        self._char_vid_h = STATUS_WIDTH - 20  # 1:1 square aspect
         self._t_char_name = arcade.Text(
             "", cx, self._char_vid_y - self._char_vid_h - 10,
             arcade.color.KHAKI, 10, bold=True,
