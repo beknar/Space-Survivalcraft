@@ -1,7 +1,6 @@
 """GameView -- core gameplay view for Space Survivalcraft."""
 from __future__ import annotations
 
-import json
 import math
 import os
 import random
@@ -72,9 +71,8 @@ from station_info import StationInfo
 from ship_stats import ShipStats
 from station_inventory import StationInventory
 from craft_menu import CraftMenu
-from video_player import VideoPlayer, character_video_path
-
-_SAVE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "saves")
+from video_player import VideoPlayer
+from game_save import _SAVE_DIR
 
 
 class GameView(arcade.View):
@@ -338,80 +336,30 @@ class GameView(arcade.View):
         if self._music_tracks and not self._skip_music and audio.autoplay_ost:
             self._play_next_track()
 
-    # ── Music ──────────────────────────────────────────────────────────────
+    # ── Music (delegated to game_music module) ──────────────────────────────
     def _play_next_track(self) -> None:
-        """Start the next track in the shuffled playlist, wrapping around."""
-        if not self._music_tracks:
-            return
-        # Stop any currently playing track first to prevent overlapping audio
-        self._stop_music()
-        track, name = self._music_tracks[self._music_idx]
-        self._current_track_name = name
-        self._music_player = arcade.play_sound(track, volume=audio.music_volume)
-        self._music_idx = (self._music_idx + 1) % len(self._music_tracks)
+        from game_music import play_next_track; play_next_track(self)
 
     def _stop_music(self) -> None:
-        """Stop the currently playing music track."""
-        if self._music_player is not None:
-            arcade.stop_sound(self._music_player)
-            self._music_player = None
+        from game_music import stop_music; stop_music(self)
 
     def _play_video(self, filepath: str) -> None:
-        """Start video playback, replacing the music track."""
-        self._stop_music()
-        self._current_track_name = ""  # clear OST track name
-        success = self._video_player.play(filepath, volume=audio.music_volume)
-        # Pass error back to escape menu for display
-        self._escape_menu._last_video_error = self._video_player.error if not success else ""
-        if not success:
-            # Resume music if video failed
-            if self._music_tracks:
-                self._play_next_track()
+        from game_music import play_video; play_video(self, filepath)
 
     def _start_character_video(self) -> None:
-        """Start the character video if one is configured."""
-        name = audio.character_name
-        if not name:
-            return
-        path = character_video_path(name)
-        if path:
-            self._char_video_player.play_segments(path, volume=0.0)
+        from game_music import start_character_video; start_character_video(self)
 
     def _select_character(self, name: str) -> None:
-        """Called when the player picks a character in the ESC menu."""
-        self._char_video_player.stop()
-        if name:
-            path = character_video_path(name)
-            if path:
-                self._char_video_player.play_segments(path, volume=0.0)
+        from game_music import select_character; select_character(self, name)
 
     def _stop_video(self) -> None:
-        """Stop video playback without resuming music or equalizer."""
-        if not self._video_player.active:
-            return
-        self._video_player.stop()
-        self._current_track_name = ""  # prevent equalizer from animating
+        from game_music import stop_video; stop_video(self)
 
     def _stop_song(self) -> None:
-        """Stop the current background music track and any video."""
-        if self._video_player.active:
-            self._video_player.stop()
-        self._stop_music()
-        self._current_track_name = ""
+        from game_music import stop_song; stop_song(self)
 
     def _other_song(self) -> None:
-        """Skip to a random different song from the OST (stops video first)."""
-        if self._video_player.active:
-            self._video_player.stop()
-        self._stop_music()
-        if self._music_tracks:
-            # Pick a random index different from current if possible
-            if len(self._music_tracks) > 1:
-                import random as _rng
-                old = self._music_idx
-                while self._music_idx == old:
-                    self._music_idx = _rng.randint(0, len(self._music_tracks) - 1)
-            self._play_next_track()
+        from game_music import other_song; other_song(self)
 
     # ── Helpers ──────────────────────────────────────────────────────────────
     @property
@@ -812,287 +760,25 @@ class GameView(arcade.View):
 
         self._cancel_placement()
 
-    # ── Save / Load / Menu ─────────────────────────────────────────────────
+    # ── Save / Load / Menu (delegated to game_save / game_music modules) ───
     def _save_to_dict(self, name: str = "") -> dict:
-        """Serialize current game state to a dict."""
-        return {
-            "save_name": name,
-            "faction": self._faction,
-            "ship_type": self._ship_type,
-            "player": {
-                "x": self.player.center_x,
-                "y": self.player.center_y,
-                "heading": self.player.heading,
-                "vel_x": self.player.vel_x,
-                "vel_y": self.player.vel_y,
-                "hp": self.player.hp,
-                "shields": self.player.shields,
-                "shield_acc": self.player._shield_acc,
-            },
-            "weapon_idx": self._weapon_idx,
-            "iron": self.inventory.total_iron,
-            "cargo_items": [
-                {"r": r, "c": c, "type": it, "count": ct}
-                for (r, c), (it, ct) in self.inventory._items.items()
-            ],
-            "asteroids": [
-                {
-                    "x": a.center_x,
-                    "y": a.center_y,
-                    "hp": a.hp,
-                }
-                for a in self.asteroid_list
-            ],
-            "aliens": [
-                {
-                    "x": al.center_x,
-                    "y": al.center_y,
-                    "hp": al.hp,
-                    "vel_x": al.vel_x,
-                    "vel_y": al.vel_y,
-                    "heading": al._heading,
-                    "state": al._state,
-                    "home_x": al._home_x,
-                    "home_y": al._home_y,
-                }
-                for al in self.alien_list
-            ],
-            "pickups": [
-                {
-                    "x": p.center_x,
-                    "y": p.center_y,
-                    "amount": p.amount,
-                }
-                for p in self.iron_pickup_list
-            ],
-            "buildings": [
-                {
-                    "type": b.building_type,
-                    "x": b.center_x,
-                    "y": b.center_y,
-                    "hp": b.hp,
-                    "angle": b.angle,
-                    "disabled": b.disabled,
-                }
-                for b in self.building_list
-            ],
-            "respawn_timers": {
-                "asteroid": self._asteroid_respawn_timer,
-                "alien": self._alien_respawn_timer,
-            },
-            "fog_grid": self._fog_grid,
-            "station_inventory": self._station_inv.to_save_data(),
-            "module_slots": self._module_slots,
-            "quick_use": [
-                {"type": self._hud._qu_slots[i], "count": self._hud._qu_counts[i]}
-                for i in range(QUICK_USE_SLOTS)
-            ],
-            "unlocked_recipes": list(self._craft_menu._unlocked),
-        }
-
-    def _load_from_dict(self, data: dict) -> None:
-        """Load game state from a dict and rebuild the view."""
-        # Stop sounds before rebuilding
-        if self._thruster_player is not None:
-            arcade.stop_sound(self._thruster_player)
-            self._thruster_player = None
-        self._stop_music()
-
-        view = GameView(
-            faction=data.get("faction"),
-            ship_type=data.get("ship_type"),
-        )
-        self._restore_state(view, data)
-        self.window.show_view(view)
+        from game_save import save_to_dict; return save_to_dict(self, name)
 
     def _save_game(self, slot: int, name: str) -> None:
-        """Serialize current game state to a numbered save slot."""
-        os.makedirs(_SAVE_DIR, exist_ok=True)
-        path = os.path.join(_SAVE_DIR, f"save_slot_{slot + 1:02d}.json")
-        data = self._save_to_dict(name)
-        with open(path, "w") as f:
-            json.dump(data, f, indent=2)
+        from game_save import save_game; save_game(self, slot, name)
 
     @staticmethod
     def _restore_state(view: "GameView", data: dict) -> None:
-        """Restore game state from a dict into a freshly constructed GameView."""
-        # Restore player state
-        p = data["player"]
-        view.player.center_x = p["x"]
-        view.player.center_y = p["y"]
-        view.player.heading = p["heading"]
-        view.player.angle = p["heading"]
-        view.player.vel_x = p["vel_x"]
-        view.player.vel_y = p["vel_y"]
-        view.player.hp = p["hp"]
-        view.player.shields = p["shields"]
-        view.player._shield_acc = p.get("shield_acc", 0.0)
-
-        view._weapon_idx = data.get("weapon_idx", 0)
-        # Restore cargo inventory items
-        view.inventory._items.clear()
-        cargo_items = data.get("cargo_items")
-        if cargo_items:
-            for entry in cargo_items:
-                r, c = entry["r"], entry["c"]
-                view.inventory._items[(r, c)] = (entry["type"], entry["count"])
-        else:
-            # Migrate old saves: iron was a pooled integer
-            old_iron = data.get("iron", 0)
-            if old_iron > 0:
-                view.inventory.add_item("iron", old_iron)
-
-        # Restore asteroids
-        view.asteroid_list.clear()
-        from sprites.asteroid import IronAsteroid
-        asteroid_tex = arcade.load_texture(
-            os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                         "assets", "Pixel Art Space", "Asteroid.png")
-        )
-        for ad in data.get("asteroids", []):
-            a = IronAsteroid(asteroid_tex, ad["x"], ad["y"])
-            a.hp = ad["hp"]
-            view.asteroid_list.append(a)
-
-        # Restore aliens
-        view.alien_list.clear()
-        from PIL import Image as PILImage
-        from constants import ALIEN_SHIP_PNG, ALIEN_FX_PNG
-        _pil_ship = PILImage.open(ALIEN_SHIP_PNG).convert("RGBA")
-        alien_ship_tex = arcade.Texture(_pil_ship.crop((364, 305, 825, 815)))
-        _pil_fx = PILImage.open(ALIEN_FX_PNG).convert("RGBA")
-        _pil_laser = _pil_fx.crop((4299, 82, 4359, 310))
-        alien_laser_tex = arcade.Texture(_pil_laser.rotate(90, expand=True))
-        from sprites.alien import SmallAlienShip
-        for ald in data.get("aliens", []):
-            al = SmallAlienShip(alien_ship_tex, alien_laser_tex, ald["x"], ald["y"])
-            al.hp = ald["hp"]
-            al.vel_x = ald.get("vel_x", 0.0)
-            al.vel_y = ald.get("vel_y", 0.0)
-            al._heading = ald.get("heading", 0.0)
-            al.angle = al._heading
-            al._state = ald.get("state", 0)
-            al._home_x = ald.get("home_x", ald["x"])
-            al._home_y = ald.get("home_y", ald["y"])
-            view.alien_list.append(al)
-
-        # Restore iron pickups
-        view.iron_pickup_list.clear()
-        for pd in data.get("pickups", []):
-            view._spawn_iron_pickup(pd["x"], pd["y"], amount=pd.get("amount", 10))
-
-        # Restore buildings
-        view.building_list.clear()
-        for bd in data.get("buildings", []):
-            bt = bd["type"]
-            tex = view._building_textures[bt]
-            laser_tex = view._turret_laser_tex if "Turret" in bt else None
-            b = create_building(bt, tex, bd["x"], bd["y"],
-                                laser_tex=laser_tex, scale=0.5)
-            b.hp = bd.get("hp", b.max_hp)
-            b.angle = bd.get("angle", 0.0)
-            b.disabled = bd.get("disabled", False)
-            if b.disabled:
-                b.color = (128, 128, 128, 255)
-            view.building_list.append(b)
-
-        # Restore respawn timers
-        rt = data.get("respawn_timers", {})
-        view._asteroid_respawn_timer = rt.get("asteroid", 0.0)
-        view._alien_respawn_timer = rt.get("alien", 0.0)
-
-        # Restore fog of war grid
-        saved_fog = data.get("fog_grid")
-        if (saved_fog is not None
-                and isinstance(saved_fog, list)
-                and len(saved_fog) == FOG_GRID_H
-                and all(isinstance(r, list) and len(r) == FOG_GRID_W
-                        for r in saved_fog)):
-            view._fog_grid = saved_fog
-
-        # Restore station inventory
-        si_data = data.get("station_inventory")
-        if si_data:
-            view._station_inv.from_save_data(si_data)
-
-        # Restore module slots
-        saved_mods = data.get("module_slots")
-        if saved_mods and isinstance(saved_mods, list):
-            for i in range(min(len(saved_mods), MODULE_SLOT_COUNT)):
-                view._module_slots[i] = saved_mods[i]
-            view.player.apply_modules(view._module_slots)
-            view._hud._mod_slots = list(view._module_slots)
-
-        # Restore unlocked recipes
-        saved_unlocked = data.get("unlocked_recipes")
-        if saved_unlocked and isinstance(saved_unlocked, list):
-            view._craft_menu._unlocked = set(saved_unlocked)
-
-        # Restore quick-use slots
-        saved_qu = data.get("quick_use")
-        if saved_qu and isinstance(saved_qu, list):
-            for i, slot_data in enumerate(saved_qu):
-                if i < QUICK_USE_SLOTS and isinstance(slot_data, dict):
-                    view._hud.set_quick_use(
-                        i, slot_data.get("type"), slot_data.get("count", 0))
+        from game_save import restore_state; restore_state(view, data)
 
     def _load_game(self, slot: int) -> None:
-        """Load game state from a numbered save slot and rebuild the view."""
-        path = os.path.join(_SAVE_DIR, f"save_slot_{slot + 1:02d}.json")
-        if not os.path.exists(path):
-            self._escape_menu._flash_status("No save file found!")
-            return
-        with open(path, "r") as f:
-            data = json.load(f)
-        self._load_from_dict(data)
+        from game_save import load_game; load_game(self, slot)
 
     def _change_resolution(self, width: int, height: int, display_mode: str) -> None:
-        """Change resolution mid-game: save state, resize, rebuild view."""
-        from settings import apply_resolution
-        data = self._save_to_dict()
-        # Remember audio/video state before tearing down
-        video_was_active = self._video_player.active
-        video_file = getattr(self._video_player, '_current_file', "")
-        music_was_playing = (self._music_player is not None
-                             and self._current_track_name != "")
-        if video_was_active:
-            self._video_player.stop()
-        self._char_video_player.stop()
-        if self._thruster_player is not None:
-            arcade.stop_sound(self._thruster_player)
-            self._thruster_player = None
-        self._stop_music()
-        apply_resolution(self.window, width, height, display_mode=display_mode)
-        view = GameView(
-            faction=data.get("faction"),
-            ship_type=data.get("ship_type"),
-            skip_music=True,  # never auto-start music on resolution change
-        )
-        self._restore_state(view, data)
-        # Restart video if it was playing
-        if video_was_active and video_file:
-            video_dir = getattr(audio, 'video_dir', "")
-            if video_dir:
-                full_path = os.path.join(video_dir, video_file)
-                if os.path.isfile(full_path):
-                    view._video_player.play(full_path, volume=audio.music_volume)
-        # Only restart music if music was playing before (not video, not silent)
-        if not view._video_player.active and music_was_playing:
-            view._play_next_track()
-        self.window.show_view(view)
+        from game_music import change_resolution; change_resolution(self, width, height, display_mode)
 
     def _return_to_menu(self) -> None:
-        """Return to the splash / title screen."""
-        # Stop video if playing
-        self._video_player.stop()
-        self._char_video_player.stop()
-        # Stop sounds
-        if self._thruster_player is not None:
-            arcade.stop_sound(self._thruster_player)
-            self._thruster_player = None
-        self._stop_music()
-        from splash_view import SplashView
-        self.window.show_view(SplashView())
+        from game_music import return_to_menu; return_to_menu(self)
 
     # ── Drawing ──────────────────────────────────────────────────────────────
     def on_draw(self) -> None:
