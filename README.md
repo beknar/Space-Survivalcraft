@@ -310,6 +310,28 @@ Space Survivalcraft/
 └── venv/                # Python virtual environment (gitignored)
 ```
 
+## Future Features
+
+- **Boss end fights** --- large-scale boss encounters at the end of each region or story arc
+- **New space biomes** --- visually distinct sectors with unique asteroid types, backgrounds, and resources
+- **Hazardous zones**
+  - Radiation clouds --- passive damage over time while inside
+  - Electrical discharge areas --- periodic burst damage to ship and shields
+  - EMP discharge areas --- ship systems (weapons, shields, thrusters) randomly fail temporarily
+  - Maze-like barriers --- navigable obstacle fields requiring careful piloting
+- **Characters** --- multiple playable characters, each with:
+  - Unique personalities, appearances, and background stories
+  - Character-specific abilities and equipment
+  - Branching play-through storylines with choices and consequences
+  - Different ship skins per character
+- **Planetary landing** --- ability to land on planets with different surface biomes (desert, ice, jungle, volcanic, etc.)
+- **Planetary vehicles** --- ground-based exploration vehicles for planet surfaces
+- **Warp gates** --- travel to new star systems and outer space environments with distinct challenges
+- **Advanced resources** --- new material types for crafting mid-range and advanced ship equipment
+- **Ship level advancement** --- upgrade ships through experience or resources to unlock higher tiers and stats
+- **New space monsters** --- varied alien creatures with unique behaviours, attacks, and loot
+- **Enemy ships** --- hostile NPC ships that manoeuvre like the player (thrust, brake, sideslip, weapon switching)
+
 ## License
 
 TBD
