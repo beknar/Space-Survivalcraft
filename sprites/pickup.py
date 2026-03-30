@@ -6,7 +6,10 @@ from typing import Optional
 
 import arcade
 
-from constants import ASTEROID_IRON_YIELD, IRON_PICKUP_DIST, IRON_FLY_SPEED
+from constants import (
+    ASTEROID_IRON_YIELD, IRON_PICKUP_DIST, IRON_FLY_SPEED,
+    BLUEPRINT_SPIN_SPEED,
+)
 
 
 class IronPickup(arcade.Sprite):
@@ -68,3 +71,30 @@ class IronPickup(arcade.Sprite):
             self.center_y += dy * ratio
 
         return False
+
+
+class BlueprintPickup(IronPickup):
+    """Spinning blueprint pickup dropped by destroyed aliens/asteroids.
+
+    Inherits fly-to-ship behavior from IronPickup.  Adds a spinning
+    animation and stores the module type for inventory integration.
+    """
+
+    def __init__(
+        self,
+        texture: arcade.Texture,
+        x: float,
+        y: float,
+        module_type: str,
+        lifetime: Optional[float] = None,
+    ) -> None:
+        super().__init__(texture, x, y, amount=1, lifetime=lifetime)
+        self.module_type: str = module_type
+        self.item_type: str = f"bp_{module_type}"
+        self.scale = 0.4
+
+    def update_pickup(
+        self, dt: float, ship_x: float, ship_y: float, ship_radius: float = 0.0
+    ) -> bool:
+        self.angle = (self.angle + BLUEPRINT_SPIN_SPEED * dt) % 360
+        return super().update_pickup(dt, ship_x, ship_y, ship_radius)

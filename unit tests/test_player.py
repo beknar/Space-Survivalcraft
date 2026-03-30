@@ -33,6 +33,11 @@ def ship(dummy_texture):
     s.shields = PLAYER_MAX_SHIELD
     s.max_shields = PLAYER_MAX_SHIELD
     s._shield_regen = 0.5
+    s._base_max_hp = PLAYER_MAX_HP
+    s._base_max_spd = MAX_SPD
+    s._base_max_shields = PLAYER_MAX_SHIELD
+    s._base_shield_regen = 0.5
+    s.shield_absorb = 0
     s._shield_acc = 0.0
     s._collision_cd = 0.0
     s.guns = 1

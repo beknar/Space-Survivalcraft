@@ -55,8 +55,32 @@ A top-down space survival game built with Python and the Arcade framework. Pilot
 - Drop items into the game world by dragging outside the inventory panel
 - Drag repair packs onto Quick Use slots to assign them
 - Ejected items despawn after 10 minutes
+- **Consolidate** button merges stacks of the same item type (respects max stack: iron 999, repair packs 99, others 10)
+
+### Ship Module System
+- **4 module slots** displayed above the quick-use bar at the bottom of the screen
+- **6 module types**, each with a unique effect:
+  - **Armor Plate** --- +20 max HP (craft cost: 50 iron)
+  - **Engine Booster** --- +50 max speed (craft cost: 75 iron)
+  - **Shield Booster** --- +20 max shields (craft cost: 100 iron)
+  - **Shield Enhancer** --- +3 shield regeneration/s, rotating yellow ring effect (craft cost: 125 iron)
+  - **Damage Absorber** --- -3 damage to shields (craft cost: 150 iron)
+  - **Broadside Module** --- fires basic lasers perpendicular to ship on both sides (craft cost: 200 iron)
+- **Blueprint drops**: destroyed aliens have 50% chance, asteroids have 25% chance to drop a color-coded spinning blueprint pickup
+- **Crafting flow**: deposit blueprint in station inventory to permanently unlock the recipe in the Basic Crafter, then craft with iron
+- **Equipping**: drag crafted module from inventory to a module slot; only 1 of each type can be equipped
+- **Drag support**: move modules between slots, drag back to inventory to unequip, drag from station inventory directly to slots
+- **Module icons**: each slot shows the module's icon; hover tooltip shows module name
+- **Ship Stats panel** (C key): shows all ship stats with base value, modification, and which module provides it
+- **Cancel crafting**: click the CRAFT button while crafting to cancel and refund the iron cost
+- Repair packs cannot be used when HP and shields are already full
+
+### Sideslip
+- **Q** slips the ship left, **E** slips right (perpendicular to heading)
+- Sideslip speed matches the ship's reverse thrust (brake value)
 
 ### Space Station Building System
+- Build menu detects iron in both ship inventory and station inventory
 - Spend mined iron to construct a modular space station (B key to open build menu)
 - **8 module types** with unique stats, costs, and placement rules:
   - **Home Station** --- root module (100 HP, 100 iron); must be built first
@@ -82,10 +106,10 @@ A top-down space survival game built with Python and the Arcade framework. Pilot
 - 10x10 station grid accessible by clicking the Home Station (within 300 px)
 - All items stored as stackable tuples with icons and count badges
 - Drag items between station and ship inventories
-- **Basic Crafter** --- click a placed crafter to open the craft menu; consumes 200 iron to produce 5 Repair Packs over 60 seconds
+- **Basic Crafter** --- click a placed crafter to open the craft menu; craft Repair Packs (200 iron for 5 packs) or ship modules (50--200 iron each); recipes unlock permanently when blueprints are deposited; cancel button refunds iron
 
 ### Quick Use Bar
-- 5 slots (1--5) displayed in the HUD below the equalizer
+- 10 slots (1--9, 0) displayed at the bottom-centre of the play area
 - **Assign**: drag a repair pack from inventory onto a slot (shows icon + count)
 - **Use**: press 1--5 or click the slot to consume one repair pack (heals 50% max HP)
 - **Rearrange**: drag between slots to move or swap assignments
@@ -166,6 +190,7 @@ A top-down space survival game built with Python and the Arcade framework. Pilot
 - Fire sparks on hull damage (12 particles, yellow-to-red transition)
 - Shield hit flash (alpha pulse on damage absorption)
 - Engine contrail particles (ship-type coloured, fading and shrinking)
+- Shield enhancer rotating dashed yellow ring (counter-clockwise, color-shifting)
 
 ## Controls
 
@@ -174,11 +199,14 @@ A top-down space survival game built with Python and the Arcade framework. Pilot
 | Rotate left/right | Left/Right or A/D | Left stick |
 | Thrust forward | Up or W | Left stick up |
 | Brake/reverse | Down or S | Left stick down |
+| Sideslip left | Q | --- |
+| Sideslip right | E | --- |
 | Fire weapon | Space (hold for auto-fire) | A button |
 | Cycle weapon | Tab | Right bumper (RB) |
 | Open inventory | I | Y button |
-| Quick Use item | 1-5 (or click slot) | --- |
+| Quick Use item | 1-0 (or click slot) | --- |
 | Build menu | B | --- |
+| Ship stats | C | --- |
 | Station info | T (when near station) | --- |
 | Toggle FPS | F | --- |
 | Escape menu | Escape | --- |
@@ -226,7 +254,7 @@ A top-down space survival game built with Python and the Arcade framework. Pilot
 python -m pytest "unit tests/" -v
 ```
 
-275 unit tests covering all game modules: player physics, weapons, asteroids, aliens (AI, stuck detection), pickups, shields, explosions, contrails, inventory (stacking, drag-and-drop), damage routing, building system (snap, collision, capacity, repair module, heal, port disconnect, crafter), respawn mechanics, fog of war, settings, and more.
+319 unit tests covering all game modules: player physics, weapons, asteroids, aliens (AI, stuck detection), pickups, blueprints, shields, explosions, contrails, inventory (stacking, drag-and-drop, consolidate), damage routing, building system (snap, collision, capacity, repair module, heal, port disconnect, crafter), ship modules (apply_modules, sideslip, stack limits), respawn mechanics, fog of war, character video scanning, settings, and more.
 
 ## Project Structure
 
@@ -245,6 +273,7 @@ Space Survivalcraft/
 │  ── UI Overlays ──
 ├── hud.py               # Left status panel (HP/shield bars, character video, weapon, mini-map)
 ├── escape_menu/         # Escape menu package (10 sub-modes, ~157 line orchestrator)
+├── ship_stats.py        # Ship stats overlay (C key) with module modification details
 ├── death_screen.py      # "SHIP DESTROYED" overlay with Load/Menu/Exit
 ├── inventory.py         # 5x5 cargo grid with stackable items, drag-and-drop, world ejection
 ├── station_inventory.py # 10x10 Home Station inventory with item transfer
@@ -272,7 +301,7 @@ Space Survivalcraft/
 │  ── Unit Tests ──
 ├── unit tests/
 │   ├── conftest.py      # Shared fixtures (dummy textures)
-│   └── test_*.py        # 275 tests across 14 test files
+│   └── test_*.py        # 319 tests across 17 test files
 │
 ├── game-rules.md        # Comprehensive game rules, stats, and asset reference
 ├── CLAUDE.md            # Project overview and dev reference

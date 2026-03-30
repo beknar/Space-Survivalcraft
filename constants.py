@@ -323,8 +323,15 @@ STATION_INV_ROWS: int = 10
 STATION_INV_CELL: int = 40            # cell size in px (smaller than ship inv)
 STATION_INV_PAD: int = 10
 
+# Item stack limits
+MAX_STACK: dict[str, int] = {
+    "iron": 999,
+    "repair_pack": 99,
+}
+MAX_STACK_DEFAULT: int = 10  # for blueprints, modules, etc.
+
 # Quick use bar constants
-QUICK_USE_SLOTS: int = 5
+QUICK_USE_SLOTS: int = 10
 QUICK_USE_CELL: int = 30              # cell size in px
 
 # Repair Pack asset (items.png — second 198×198 item in first row)
@@ -333,6 +340,44 @@ REPAIR_PACK_PNG = os.path.join(
     "alien spaceship creation kit", "png", "items.png",
 )
 REPAIR_PACK_CROP = (198, 0, 396, 198)  # (x0, y0, x1, y1) for PIL crop
+
+# ── Ship Module System ────────────────────────────────────────────────────────
+MODULE_SLOT_COUNT: int = 4
+MODULE_SLOT_CELL: int = 36            # cell size in px (slightly larger than quick-use)
+
+BLUEPRINT_PNG = os.path.join(
+    _HERE, "assets", "kenney space combat assets",
+    "Simple Space", "PNG", "Retina", "satellite_D.png",
+)
+BLUEPRINT_SPIN_SPEED: float = 180.0   # degrees per second
+BLUEPRINT_DROP_CHANCE_ALIEN: float = 0.50
+BLUEPRINT_DROP_CHANCE_ASTEROID: float = 0.25
+
+_MODULE_ITEMS_DIR = os.path.join(
+    _HERE, "assets", "gamedevmarket assets",
+    "alien spaceship creation kit", "png", "Separate", "Items",
+)
+
+MODULE_TYPES: dict[str, dict] = {
+    "armor_plate":     {"label": "Armor Plate",      "effect": "max_hp",        "value": 20,
+                        "craft_cost": 50,  "icon": os.path.join(_MODULE_ITEMS_DIR, "Blank.png")},
+    "engine_booster":  {"label": "Engine Booster",    "effect": "max_speed",     "value": 50,
+                        "craft_cost": 75,  "icon": os.path.join(_MODULE_ITEMS_DIR, "Energy.png")},
+    "shield_booster":  {"label": "Shield Booster",    "effect": "max_shields",   "value": 20,
+                        "craft_cost": 100, "icon": os.path.join(_MODULE_ITEMS_DIR, "Shield.png")},
+    "shield_enhancer": {"label": "Shield Enhancer",   "effect": "shield_regen",  "value": 3.0,
+                        "craft_cost": 125, "icon": os.path.join(_MODULE_ITEMS_DIR, "Freeze.png")},
+    "damage_absorber": {"label": "Damage Absorber",   "effect": "shield_absorb", "value": 3,
+                        "craft_cost": 150, "icon": os.path.join(_MODULE_ITEMS_DIR, "Nuke.png")},
+    "broadside":       {"label": "Broadside Module",  "effect": "broadside",     "value": 1,
+                        "craft_cost": 200, "icon": os.path.join(_MODULE_ITEMS_DIR, "Poison.png")},
+}
+
+# Broadside weapon stats
+BROADSIDE_COOLDOWN: float = 0.50      # seconds between shots
+BROADSIDE_DAMAGE: int = 25            # same as basic laser
+BROADSIDE_SPEED: float = 600.0        # projectile speed
+BROADSIDE_RANGE: float = 400.0        # max travel distance
 
 # Docking port snap distance
 DOCK_SNAP_DIST: float = 40.0        # px — max distance to snap to a port

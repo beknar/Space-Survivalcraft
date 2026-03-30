@@ -57,9 +57,10 @@ Space Survivalcraft/
 │   ├── _songs_mode.py   # Songs mode — stop/other song, music videos button
 │   └── _help_mode.py    # Help mode — keyboard and gamepad controls display
 ├── death_screen.py      # DeathScreen — "SHIP DESTROYED" overlay with Load/Menu/Exit
-├── inventory.py         # Inventory — 5×5 cargo grid with drag-and-drop and world ejection
-├── station_inventory.py # StationInventory — 10×10 Home Station inventory with item transfer
-├── craft_menu.py        # CraftMenu — crafting UI for Basic Crafter (Repair Pack recipe)
+├── inventory.py         # Inventory — 5×5 cargo grid with drag-and-drop, consolidate, module/blueprint icons
+├── station_inventory.py # StationInventory — 10×10 Home Station inventory with item transfer, consolidate, tooltips
+├── craft_menu.py        # CraftMenu — crafting UI for Basic Crafter (Repair Pack + module recipes, cancel support)
+├── ship_stats.py        # ShipStats — ship statistics overlay (C key) showing faction, stats, module modifications
 ├── build_menu.py        # BuildMenu — right-side overlay for constructing station modules
 ├── station_info.py      # StationInfo — right-side overlay showing building HP + module stats + world stats (T key)
 │
@@ -70,11 +71,11 @@ Space Survivalcraft/
 │  ── Sprite classes ──
 ├── sprites/
 │   ├── __init__.py      # Re-exports all sprite classes
-│   ├── player.py        # PlayerShip — Newtonian ship with faction/ship-type config
+│   ├── player.py        # PlayerShip — Newtonian ship with faction/ship-type config, apply_modules, sideslip
 │   ├── projectile.py    # Projectile + Weapon (fire cooldown, sound throttle)
 │   ├── asteroid.py      # IronAsteroid — minable rock with shake/tint on hit
 │   ├── alien.py         # SmallAlienShip — PATROL/PURSUE AI with obstacle avoidance
-│   ├── pickup.py        # IronPickup — collectible ore token with fly-to-ship behaviour
+│   ├── pickup.py        # IronPickup + BlueprintPickup — collectible tokens with fly-to-ship behaviour
 │   ├── shield.py        # ShieldSprite — animated energy bubble with hit flash
 │   ├── explosion.py     # Explosion, HitSpark, FireSpark visual effects
 │   ├── contrail.py      # ContrailParticle — engine exhaust particle effect
@@ -91,6 +92,9 @@ Space Survivalcraft/
 │   ├── test_asteroid.py   # IronAsteroid damage, shake, tint flash
 │   ├── test_alien.py      # SmallAlienShip AI states, damage, collision bump
 │   ├── test_pickup.py     # IronPickup fly-to-ship, collection, lifetime
+│   ├── test_blueprint_pickup.py # BlueprintPickup spinning, module_type, collection
+│   ├── test_modules.py    # MODULE_TYPES constants, apply_modules, sideslip, consolidate, stack limits
+│   ├── test_video_player.py # scan_characters_dir, character_video_path
 │   ├── test_shield.py     # ShieldSprite visibility, hit flash, animation
 │   ├── test_explosion.py  # Explosion, HitSpark, FireSpark lifecycle
 │   ├── test_contrail.py   # ContrailParticle lifecycle and colour interpolation
@@ -198,7 +202,9 @@ sprites/alien.py
 - **Quick-use drag system** — HUD tracks drag state (`_qu_drag_src/type/count/x/y`) for visible pick-up animation; items can be assigned by dragging from inventory, moved between slots, or unassigned by dragging out
 - **Building hover tooltip** — `on_mouse_motion` detects closest building within 40 px using world-coordinate conversion; tooltip drawn in UI camera space
 - **Character video player** — looping 1:1 square character portrait in HUD; uses GPU-side `glBlitFramebuffer` downscale (1440→200px, ~90KB readback vs 8MB); frame conversion throttled to 15fps; seamless loop via pre-built standby player loaded 5s before end-of-file; `draw_in_hud` accepts `aspect` param (1.0 for character, 16/9 for music videos)
-- **Escape menu package** — refactored from 1918-line monolith into `escape_menu/` package; `MenuContext` + `MenuMode` base class pattern; each sub-mode (main, save/load, resolution, video, config, help, songs, video_props) in its own file; orchestrator `__init__.py` delegates all draw/input to active mode
+- **Ship module system** — 6 module types (armor, engine, shield, regen, absorb, broadside) with blueprint drops, crafting, drag-to-equip, stat application via `apply_modules`; broadside auto-fires perpendicular lasers; shield enhancer draws rotating ring; blueprints color-tinted per type
+- **Escape menu package** — refactored from 1918-line monolith into `escape_menu/` package; `MenuContext` + `MenuMode` base class pattern; each sub-mode in its own file; orchestrator delegates all draw/input to active mode
+- **Inventory count cache** — both inventories cache `arcade.Text` objects per count value to avoid `.text` churn (0.375ms per call); station inv draws grid as single background + lines instead of 100 individual cells
 
 ## Game Rules Reference
 

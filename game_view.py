@@ -28,13 +28,15 @@ from constants import (
     REPAIR_RANGE, REPAIR_RATE, REPAIR_SHIELD_BOOST,
     FOG_REVEAL_RADIUS, FOG_CELL_SIZE, FOG_GRID_W, FOG_GRID_H,
     CRAFT_TIME, CRAFT_IRON_COST, CRAFT_RESULT_COUNT, REPAIR_PACK_HEAL,
-    REPAIR_PACK_PNG, REPAIR_PACK_CROP,
-    MINIMAP_Y, MINIMAP_H,
+    REPAIR_PACK_PNG, REPAIR_PACK_CROP, QUICK_USE_SLOTS,
+    MINIMAP_Y, MINIMAP_H, SHIELD_SCALE,
+    BLUEPRINT_PNG, MODULE_TYPES, MODULE_SLOT_COUNT,
+    BROADSIDE_COOLDOWN, BROADSIDE_DAMAGE, BROADSIDE_SPEED, BROADSIDE_RANGE,
 )
 from settings import audio
 from sprites.projectile import Weapon
 from sprites.explosion import Explosion, HitSpark, FireSpark
-from sprites.pickup import IronPickup
+from sprites.pickup import IronPickup, BlueprintPickup
 from sprites.player import PlayerShip
 from sprites.contrail import ContrailParticle
 from sprites.building import (
@@ -67,6 +69,7 @@ from collisions import (
     handle_ship_building_collision,
 )
 from station_info import StationInfo
+from ship_stats import ShipStats
 from station_inventory import StationInventory
 from craft_menu import CraftMenu
 from video_player import VideoPlayer, character_video_path
@@ -113,6 +116,12 @@ class GameView(arcade.View):
         self._shake_timer: float = 0.0
         self._shake_amp: float = 0.0
 
+        # Flash message (centered on play area)
+        self._flash_msg: str = ""
+        self._flash_timer: float = 0.0
+        self._t_flash = arcade.Text("", 0, 0, (255, 100, 100), 12, bold=True,
+                                    anchor_x="center", anchor_y="center")
+
         # Held-key tracking
         self._keys: set[int] = set()
 
@@ -146,6 +155,44 @@ class GameView(arcade.View):
         self.asteroid_list = populate_asteroids()
         self.explosion_list = arcade.SpriteList()
         self.iron_pickup_list = arcade.SpriteList()
+        self.blueprint_pickup_list = arcade.SpriteList()
+        self._blueprint_tex = arcade.load_texture(BLUEPRINT_PNG)
+        # Tinted blueprint textures per module type
+        from PIL import Image as PILImage, ImageEnhance as _IE
+        _bp_colors = {
+            "armor_plate":     (80, 130, 255),    # blue
+            "engine_booster":  (255, 80, 80),     # red
+            "shield_booster":  (180, 80, 255),    # purple
+            "shield_enhancer": (40, 60, 180),     # navy blue
+            "damage_absorber": (255, 140, 200),   # pink
+            "broadside":       (200, 100, 255),   # violet
+        }
+        _bp_pil = PILImage.open(BLUEPRINT_PNG).convert("RGBA")
+        self._blueprint_tinted: dict[str, arcade.Texture] = {}
+        for key, (tr, tg, tb) in _bp_colors.items():
+            tinted = _bp_pil.copy()
+            pixels = tinted.load()
+            for py_ in range(tinted.height):
+                for px_ in range(tinted.width):
+                    r, g, b, a = pixels[px_, py_]
+                    if a > 0:
+                        gray = (r + g + b) // 3
+                        pixels[px_, py_] = (
+                            min(255, gray * tr // 255),
+                            min(255, gray * tg // 255),
+                            min(255, gray * tb // 255),
+                            a,
+                        )
+            self._blueprint_tinted[key] = arcade.Texture(tinted)
+
+        # Module slots
+        self._module_slots: list[str | None] = [None] * MODULE_SLOT_COUNT
+        self._broadside_cd: float = 0.0
+        self._enhancer_angle: float = 0.0  # shield enhancer ring rotation
+        # Broadside laser texture (same as basic laser)
+        from constants import LASER_DIR
+        self._broadside_tex = arcade.load_texture(
+            os.path.join(LASER_DIR, "laserBlue03.png"))
 
         # Alien ships
         self.alien_list, _alien_laser_tex = populate_aliens()
@@ -166,6 +213,13 @@ class GameView(arcade.View):
             iron_icon=self._iron_tex,
             repair_pack_icon=self._repair_pack_tex,
         )
+        # Set up blueprint + module icons and names for ship inventory
+        for key, info in MODULE_TYPES.items():
+            mod_icon = arcade.load_texture(info["icon"])
+            self.inventory.item_icons[f"mod_{key}"] = mod_icon
+            self.inventory.item_icons[f"bp_{key}"] = self._blueprint_tinted.get(key, self._blueprint_tex)
+            self.inventory._item_names[f"bp_{key}"] = f"BP {info['label']}"
+            self.inventory._item_names[f"mod_{key}"] = info["label"]
 
         # Building system
         self.building_list = arcade.SpriteList(use_spatial_hash=True)
@@ -197,15 +251,24 @@ class GameView(arcade.View):
 
         # Station info overlay
         self._station_info = StationInfo()
+        self._ship_stats = ShipStats()
 
         # Station inventory (10×10)
         self._station_inv = StationInventory(
             iron_icon=self._iron_tex,
             repair_pack_icon=self._repair_pack_tex,
         )
+        # Load blueprint + module icons for station inventory display
+        for key, info in MODULE_TYPES.items():
+            mod_icon = arcade.load_texture(info["icon"])
+            self._station_inv.item_icons[f"mod_{key}"] = mod_icon
+            self._station_inv.item_icons[f"bp_{key}"] = self._blueprint_tinted.get(key, self._blueprint_tex)
 
         # Craft menu
         self._craft_menu = CraftMenu()
+        self._craft_menu.repair_pack_icon = self._repair_pack_tex
+        for key, info in MODULE_TYPES.items():
+            self._craft_menu.item_icons[key] = arcade.load_texture(info["icon"])
         self._active_crafter: Optional[BasicCrafter] = None
 
         # Respawn timers (count up toward RESPAWN_INTERVAL)
@@ -226,6 +289,9 @@ class GameView(arcade.View):
         )
         if audio.show_fps:
             self._hud._show_fps = True
+        # Set module icons on HUD
+        for key, info in MODULE_TYPES.items():
+            self._hud._mod_icons[key] = arcade.load_texture(info["icon"])
 
         # Thruster sound
         self._thruster_snd = load_thruster_sound()
@@ -376,6 +442,14 @@ class GameView(arcade.View):
         pickup = IronPickup(self._iron_tex, x, y, amount=amount, lifetime=lifetime)
         self.iron_pickup_list.append(pickup)
 
+    def _spawn_blueprint_pickup(self, x: float, y: float) -> None:
+        """Spawn a random blueprint pickup at world position (x, y)."""
+        mod_type = random.choice(list(MODULE_TYPES.keys()))
+        tex = self._blueprint_tinted.get(mod_type, self._blueprint_tex)
+        bp = BlueprintPickup(tex, x, y, mod_type,
+                             lifetime=WORLD_ITEM_LIFETIME)
+        self.blueprint_pickup_list.append(bp)
+
     def _update_fog(self) -> None:
         """Reveal fog cells around the player's current position."""
         px, py = self.player.center_x, self.player.center_y
@@ -470,6 +544,9 @@ class GameView(arcade.View):
         """Apply damage to the player's shields first, then HP."""
         if self._player_dead:
             return
+        # Damage absorber module reduces incoming damage to shields
+        if self.player.shield_absorb > 0 and self.player.shields > 0:
+            amount = max(1, amount - self.player.shield_absorb)
         if self.player.shields > 0:
             absorbed = min(self.player.shields, amount)
             self.player.shields -= absorbed
@@ -485,6 +562,27 @@ class GameView(arcade.View):
             if self.player.hp <= 0:
                 self._trigger_player_death()
         self._shake_amp = SHAKE_AMPLITUDE
+
+    def _flash_game_msg(self, msg: str, duration: float = 1.5) -> None:
+        """Show a temporary message centered on the play area."""
+        self._flash_msg = msg
+        self._flash_timer = duration
+
+    def _use_repair_pack(self, slot: int) -> None:
+        """Try to use a repair pack from the given quick-use slot."""
+        if self.player.hp >= self.player.max_hp and self.player.shields >= self.player.max_shields:
+            self._flash_game_msg("Already at full HP and shields!")
+            return
+        if self.inventory.count_item("repair_pack") <= 0:
+            return
+        heal = int(self.player.max_hp * REPAIR_PACK_HEAL)
+        self.player.hp = min(self.player.max_hp, self.player.hp + heal)
+        self.inventory.remove_item("repair_pack", 1)
+        remaining = self.inventory.count_item("repair_pack")
+        if remaining > 0:
+            self._hud.set_quick_use(slot, "repair_pack", remaining)
+        else:
+            self._hud.set_quick_use(slot, None, 0)
 
     def _trigger_player_death(self) -> None:
         """Handle player ship destruction."""
@@ -620,11 +718,18 @@ class GameView(arcade.View):
         stats = BUILDING_TYPES[bt]
         cost = stats["cost"]
 
-        # Deduct iron
-        if self.inventory.total_iron < cost:
+        # Deduct iron from ship inventory first, then station inventory
+        total_iron = self.inventory.total_iron + self._station_inv.total_iron
+        if total_iron < cost:
             self._cancel_placement()
             return
-        self.inventory.remove_item("iron", cost)
+        remaining = cost
+        ship_iron = min(remaining, self.inventory.total_iron)
+        if ship_iron > 0:
+            self.inventory.remove_item("iron", ship_iron)
+            remaining -= ship_iron
+        if remaining > 0:
+            self._station_inv.remove_item("iron", remaining)
 
         tex = self._building_textures[bt]
         laser_tex = self._turret_laser_tex if "Turret" in bt else None
@@ -777,6 +882,12 @@ class GameView(arcade.View):
             },
             "fog_grid": self._fog_grid,
             "station_inventory": self._station_inv.to_save_data(),
+            "module_slots": self._module_slots,
+            "quick_use": [
+                {"type": self._hud._qu_slots[i], "count": self._hud._qu_counts[i]}
+                for i in range(QUICK_USE_SLOTS)
+            ],
+            "unlocked_recipes": list(self._craft_menu._unlocked),
         }
 
     def _load_from_dict(self, data: dict) -> None:
@@ -904,6 +1015,27 @@ class GameView(arcade.View):
         if si_data:
             view._station_inv.from_save_data(si_data)
 
+        # Restore module slots
+        saved_mods = data.get("module_slots")
+        if saved_mods and isinstance(saved_mods, list):
+            for i in range(min(len(saved_mods), MODULE_SLOT_COUNT)):
+                view._module_slots[i] = saved_mods[i]
+            view.player.apply_modules(view._module_slots)
+            view._hud._mod_slots = list(view._module_slots)
+
+        # Restore unlocked recipes
+        saved_unlocked = data.get("unlocked_recipes")
+        if saved_unlocked and isinstance(saved_unlocked, list):
+            view._craft_menu._unlocked = set(saved_unlocked)
+
+        # Restore quick-use slots
+        saved_qu = data.get("quick_use")
+        if saved_qu and isinstance(saved_qu, list):
+            for i, slot_data in enumerate(saved_qu):
+                if i < QUICK_USE_SLOTS and isinstance(slot_data, dict):
+                    view._hud.set_quick_use(
+                        i, slot_data.get("type"), slot_data.get("count", 0))
+
     def _load_game(self, slot: int) -> None:
         """Load game state from a numbered save slot and rebuild the view."""
         path = os.path.join(_SAVE_DIR, f"save_slot_{slot + 1:02d}.json")
@@ -986,6 +1118,7 @@ class GameView(arcade.View):
             self._draw_background(cx, cy, hw, hh)
             self.asteroid_list.draw()
             self.iron_pickup_list.draw()
+            self.blueprint_pickup_list.draw()
             self.explosion_list.draw()
             self.building_list.draw()
             self.turret_projectile_list.draw()
@@ -997,6 +1130,34 @@ class GameView(arcade.View):
                 cp.draw()
             self.player_list.draw()
             self.shield_list.draw()
+            # Shield enhancer ring (rotating yellow circle outside shield)
+            if ("shield_enhancer" in self._module_slots
+                    and self.player.shields > 0 and not self._player_dead):
+                import math as _m
+                ex, ey = self.player.center_x, self.player.center_y
+                # Ring radius just outside the shield sprite
+                ring_r = self.shield_sprite.width * SHIELD_SCALE / 2 + 20
+                # Shade shifts between gold and pale yellow
+                t = (_m.sin(self._enhancer_angle * _m.pi / 90) + 1) / 2
+                cr = int(200 + 55 * t)
+                cg = int(180 + 50 * t)
+                cb = int(40 + 80 * (1 - t))
+                # Draw dashed ring (8 arcs with gaps for rotation effect)
+                segments = 8
+                arc_len = 360 / segments * 0.7
+                for i in range(segments):
+                    start = self._enhancer_angle + i * (360 / segments)
+                    a1 = _m.radians(start)
+                    a2 = _m.radians(start + arc_len)
+                    steps = 6
+                    for s in range(steps):
+                        f1 = a1 + (a2 - a1) * s / steps
+                        f2 = a1 + (a2 - a1) * (s + 1) / steps
+                        x1 = ex + _m.cos(f1) * ring_r
+                        y1 = ey + _m.sin(f1) * ring_r
+                        x2 = ex + _m.cos(f2) * ring_r
+                        y2 = ey + _m.sin(f2) * ring_r
+                        arcade.draw_line(x1, y1, x2, y2, (cr, cg, cb, 180), 2)
             for spark in self.hit_sparks:
                 spark.draw()
             for fs in self.fire_sparks:
@@ -1013,6 +1174,7 @@ class GameView(arcade.View):
                 arcade.draw_circle_outline(cx, cy, 12, (255, 60, 60, 180), 2)
 
         with self.ui_cam.activate():
+            menu_open = self._escape_menu.open
             self._hud.draw(
                 weapon_name=self._active_weapon.name,
                 hp=self.player.hp,
@@ -1029,37 +1191,39 @@ class GameView(arcade.View):
                             if self._video_player.active
                             else self._current_track_name),
                 building_list=self.building_list,
-                fog_grid=self._fog_grid,
+                fog_grid=self._fog_grid if not menu_open else None,
                 video_active=self._video_player.active,
                 character_name=audio.character_name,
             )
-            # Character video in HUD (looping portrait)
-            if self._char_video_player.active:
-                cvx, cvy, cvw = self._hud.char_video_rect
-                self._char_video_player.draw_in_hud(cvx, cvy, cvw, aspect=1.0)
-            # Music video frame in status panel (above mini-map)
-            if self._video_player.active:
-                vid_size = STATUS_WIDTH - 20
-                vid_x = 10
-                vid_y = MINIMAP_Y + MINIMAP_H + 20
-                self._video_player.draw_in_hud(vid_x, vid_y, vid_size)
+            # Skip expensive video frame conversions when menu is open;
+            # cached textures still display from last converted frame
+            if not menu_open:
+                if self._char_video_player.active:
+                    cvx, cvy, cvw = self._hud.char_video_rect
+                    self._char_video_player.draw_in_hud(cvx, cvy, cvw, aspect=1.0)
+                if self._video_player.active:
+                    vid_size = STATUS_WIDTH - 20
+                    vid_x = 10
+                    vid_y = MINIMAP_Y + MINIMAP_H + 20
+                    self._video_player.draw_in_hud(vid_x, vid_y, vid_size)
 
             # Draw station grid, then ship inv, then both drag previews on top
             self._station_inv.draw()
             self.inventory.draw()
             self._station_inv.draw_drag_preview()
             self._build_menu.draw(
-                iron=self.inventory.total_iron,
+                iron=self.inventory.total_iron + self._station_inv.total_iron,
                 building_counts=self._building_counts(),
                 modules_used=compute_modules_used(self.building_list),
                 module_capacity=compute_module_capacity(self.building_list),
                 has_home=self._has_home_station(),
             )
             self._station_info.draw()
+            self._ship_stats.draw()
             self._craft_menu.draw(self._station_inv.total_iron)
             # Building hover tooltip
             if (self._hover_building is not None
-                    and not self._escape_menu.open
+                    and not menu_open
                     and not self._death_screen.active
                     and not self._build_menu.open
                     and self._placing_building is None
@@ -1069,7 +1233,6 @@ class GameView(arcade.View):
                 self._t_building_tip.text = label
                 tx = self._hover_screen_x
                 ty = self._hover_screen_y + 20
-                # Keep tooltip inside screen
                 tw = len(label) * 7 + 16
                 th = 18
                 tx0 = max(2, min(self.window.width - tw - 2, tx - tw // 2))
@@ -1085,6 +1248,21 @@ class GameView(arcade.View):
                 self._t_building_tip.x = tx0 + tw // 2
                 self._t_building_tip.y = ty + 2
                 self._t_building_tip.draw()
+            # Flash message (centered on play area)
+            if self._flash_msg:
+                play_cx = STATUS_WIDTH + (self.window.width - STATUS_WIDTH) // 2
+                play_cy = self.window.height // 2
+                self._t_flash.text = self._flash_msg
+                self._t_flash.x = play_cx
+                self._t_flash.y = play_cy
+                tw = len(self._flash_msg) * 8 + 20
+                arcade.draw_rect_filled(
+                    arcade.LBWH(play_cx - tw // 2, play_cy - 12, tw, 24),
+                    (30, 10, 10, 200))
+                arcade.draw_rect_outline(
+                    arcade.LBWH(play_cx - tw // 2, play_cy - 12, tw, 24),
+                    (200, 60, 60), border_width=1)
+                self._t_flash.draw()
             self._escape_menu.draw()
             self._death_screen.draw()
 
@@ -1148,6 +1326,11 @@ class GameView(arcade.View):
         # ── Shake timer tick ────────────────────────────────────────────────
         if self._shake_timer > 0.0:
             self._shake_timer = max(0.0, self._shake_timer - delta_time)
+        # ── Flash message timer ────────────────────────────────────────────
+        if self._flash_timer > 0.0:
+            self._flash_timer = max(0.0, self._flash_timer - delta_time)
+            if self._flash_timer <= 0.0:
+                self._flash_msg = ""
 
         # ── Repair Module: check proximity once for shield/HP/building ───
         has_repair = any(
@@ -1213,7 +1396,13 @@ class GameView(arcade.View):
                 if b.craft_timer >= b.craft_total:
                     b.crafting = False
                     b.craft_timer = 0.0
-                    self._station_inv.add_item("repair_pack", CRAFT_RESULT_COUNT)
+                    target = self._craft_menu._craft_target
+                    if target and target in MODULE_TYPES:
+                        # Produce a module item
+                        self._station_inv.add_item(f"mod_{target}", 1)
+                    else:
+                        # Produce repair packs
+                        self._station_inv.add_item("repair_pack", CRAFT_RESULT_COUNT)
 
         # Update craft menu progress if open
         if self._craft_menu.open and self._active_crafter is not None:
@@ -1227,12 +1416,14 @@ class GameView(arcade.View):
 
         # ── Movement input (suppressed while escape menu is open) ──────────
         if self._escape_menu.open:
-            rl = rr = tf = tb = fire = False
+            rl = rr = tf = tb = sl = sr = fire = False
         else:
             rl = arcade.key.LEFT in self._keys or arcade.key.A in self._keys
             rr = arcade.key.RIGHT in self._keys or arcade.key.D in self._keys
             tf = arcade.key.UP in self._keys or arcade.key.W in self._keys
             tb = arcade.key.DOWN in self._keys or arcade.key.S in self._keys
+            sl = arcade.key.Q in self._keys
+            sr = arcade.key.E in self._keys
             fire = arcade.key.SPACE in self._keys
 
         if self.joystick and not self._escape_menu.open:
@@ -1255,7 +1446,7 @@ class GameView(arcade.View):
                 self.inventory.toggle()
             self._prev_y = y_btn
 
-        self.player.apply_input(delta_time, rl, rr, tf, tb)
+        self.player.apply_input(delta_time, rl, rr, tf, tb, sl, sr)
 
         # ── Shield sprite position + animation (after movement so it tracks exactly) ─
         self.shield_sprite.update_shield(
@@ -1263,6 +1454,9 @@ class GameView(arcade.View):
             self.player.center_x, self.player.center_y,
             self.player.shields,
         )
+        # Shield enhancer ring rotation (opposite direction to shield)
+        from constants import SHIELD_ROT_SPEED
+        self._enhancer_angle = (self._enhancer_angle + SHIELD_ROT_SPEED * delta_time) % 360.0
 
         # ── Thruster sound management ─────────────────────────────────────
         thrusting_now = tf or tb
@@ -1321,6 +1515,24 @@ class GameView(arcade.View):
                 if proj is not None:
                     self.projectile_list.append(proj)
 
+        # ── Broadside module auto-fire ──────────────────────────────────────
+        if "broadside" in self._module_slots and not self._player_dead:
+            self._broadside_cd -= delta_time
+            if self._broadside_cd <= 0.0 and fire:
+                self._broadside_cd = BROADSIDE_COOLDOWN
+                from sprites.projectile import Projectile
+                heading = self.player.heading
+                cx, cy = self.player.center_x, self.player.center_y
+                for angle_offset in (90.0, -90.0):
+                    proj = Projectile(
+                        self._broadside_tex, cx, cy,
+                        heading + angle_offset,
+                        BROADSIDE_SPEED, BROADSIDE_RANGE,
+                        scale=1.0, mines_rock=False,
+                        damage=BROADSIDE_DAMAGE,
+                    )
+                    self.projectile_list.append(proj)
+
         # ── Advance projectiles ─────────────────────────────────────────────
         for proj in list(self.projectile_list):
             proj.update_projectile(delta_time)
@@ -1339,6 +1551,12 @@ class GameView(arcade.View):
             collected = pickup.update_pickup(delta_time, sx, sy, SHIP_RADIUS)
             if collected:
                 self.inventory.add_item("iron", pickup.amount)
+
+        # ── Blueprint pickup: fly toward ship + collect ─────────────────────
+        for bp in list(self.blueprint_pickup_list):
+            collected = bp.update_pickup(delta_time, sx, sy, SHIP_RADIUS)
+            if collected:
+                self.inventory.add_item(bp.item_type, 1)
 
         # ── Alien ship AI + movement ────────────────────────────────────────
         px, py = self.player.center_x, self.player.center_y
@@ -1440,6 +1658,12 @@ class GameView(arcade.View):
             if self._station_inv.open:
                 self._station_inv.open = False
                 return
+            if self._station_info.open:
+                self._station_info.open = False
+                return
+            if self._ship_stats.open:
+                self._ship_stats.open = False
+                return
             if self._destroy_mode:
                 self._exit_destroy_mode()
             elif self._placing_building is not None:
@@ -1490,24 +1714,22 @@ class GameView(arcade.View):
                         asteroid_count=len(self.asteroid_list),
                         alien_count=len(self.alien_list),
                     )
-        # Quick-use keys 1-5
-        elif key in (arcade.key.KEY_1, arcade.key.KEY_2, arcade.key.KEY_3,
-                     arcade.key.KEY_4, arcade.key.KEY_5):
+        elif key == arcade.key.C:
             if not self._escape_menu.open and not self._player_dead:
-                slot = key - arcade.key.KEY_1
+                self._ship_stats.refresh(
+                    self.player, self._faction, self._ship_type,
+                    self._module_slots)
+                self._ship_stats.toggle()
+        # Quick-use keys 1-9 and 0
+        elif key in (arcade.key.KEY_1, arcade.key.KEY_2, arcade.key.KEY_3,
+                     arcade.key.KEY_4, arcade.key.KEY_5, arcade.key.KEY_6,
+                     arcade.key.KEY_7, arcade.key.KEY_8, arcade.key.KEY_9,
+                     arcade.key.KEY_0):
+            if not self._escape_menu.open and not self._player_dead:
+                slot = (key - arcade.key.KEY_1) if key != arcade.key.KEY_0 else 9
                 item = self._hud.get_quick_use(slot)
-                if item == "repair_pack" and self.inventory.count_item("repair_pack") > 0:
-                    # Use repair pack: heal 50% max HP
-                    heal = int(self.player.max_hp * REPAIR_PACK_HEAL)
-                    self.player.hp = min(self.player.max_hp, self.player.hp + heal)
-                    # Remove one from inventory
-                    self.inventory.remove_item("repair_pack", 1)
-                    # Update quick-use slot
-                    remaining = self.inventory.count_item("repair_pack")
-                    if remaining > 0:
-                        self._hud.set_quick_use(slot, "repair_pack", remaining)
-                    else:
-                        self._hud.set_quick_use(slot, None, 0)
+                if item == "repair_pack":
+                    self._use_repair_pack(slot)
 
     def on_key_release(self, key: int, modifiers: int) -> None:
         self._keys.discard(key)
@@ -1536,6 +1758,16 @@ class GameView(arcade.View):
                         self._ghost_sprite.center_y,
                     )
                 return
+            # Module slot click — start drag if slot has a module
+            mod_click = self._hud.module_slot_at(x, y)
+            if mod_click is not None and not self._player_dead:
+                mod = self._hud.get_module_slot(mod_click)
+                if mod is not None:
+                    self._hud._mod_drag_src = mod_click
+                    self._hud._mod_drag_type = mod
+                    self._hud._mod_drag_x = x
+                    self._hud._mod_drag_y = y
+                    return
             # Quick-use slot click — start drag if slot has an item
             qu_slot = self._hud.slot_at(x, y)
             if qu_slot is not None and not self._player_dead:
@@ -1551,7 +1783,7 @@ class GameView(arcade.View):
             if self._build_menu.open:
                 selected = self._build_menu.on_mouse_press(
                     x, y,
-                    iron=self.inventory.total_iron,
+                    iron=self.inventory.total_iron + self._station_inv.total_iron,
                     building_counts=self._building_counts(),
                     modules_used=compute_modules_used(self.building_list),
                     module_capacity=compute_module_capacity(self.building_list),
@@ -1572,11 +1804,32 @@ class GameView(arcade.View):
                 action = self._craft_menu.on_mouse_press(
                     x, y, self._station_inv.total_iron
                 )
-                if action == "craft" and self._active_crafter is not None:
-                    self._station_inv.remove_item("iron", CRAFT_IRON_COST)
-                    self._active_crafter.crafting = True
-                    self._active_crafter.craft_timer = 0.0
-                    self._active_crafter.craft_total = CRAFT_TIME
+                if action is not None and self._active_crafter is not None:
+                    if action == "cancel_craft":
+                        # Return iron and stop crafting
+                        target = self._craft_menu._craft_target
+                        if target and target in MODULE_TYPES:
+                            refund = MODULE_TYPES[target]["craft_cost"]
+                        else:
+                            refund = CRAFT_IRON_COST
+                        self._station_inv.add_item("iron", refund)
+                        self._active_crafter.crafting = False
+                        self._active_crafter.craft_timer = 0.0
+                        self._craft_menu._craft_target = ""
+                    elif action == "craft":
+                        self._station_inv.remove_item("iron", CRAFT_IRON_COST)
+                        self._active_crafter.crafting = True
+                        self._active_crafter.craft_timer = 0.0
+                        self._active_crafter.craft_total = CRAFT_TIME
+                        self._craft_menu._craft_target = ""
+                    elif action.startswith("craft_module:"):
+                        mod_key = action.split(":", 1)[1]
+                        info = MODULE_TYPES[mod_key]
+                        self._station_inv.remove_item("iron", info["craft_cost"])
+                        self._active_crafter.crafting = True
+                        self._active_crafter.craft_timer = 0.0
+                        self._active_crafter.craft_total = CRAFT_TIME
+                        self._craft_menu._craft_target = mod_key
                 if not self._craft_menu.open:
                     self._active_crafter = None
                 return
@@ -1596,6 +1849,7 @@ class GameView(arcade.View):
                                 return
                             if isinstance(b, BasicCrafter) and not b.disabled:
                                 self._active_crafter = b
+                                self._craft_menu.refresh_recipes(self._station_inv)
                                 self._craft_menu.toggle()
                                 self._craft_menu.update(
                                     b.craft_progress, b.crafting,
@@ -1622,6 +1876,9 @@ class GameView(arcade.View):
         if self._hud._qu_drag_src is not None:
             self._hud._qu_drag_x = x
             self._hud._qu_drag_y = y
+        if self._hud._mod_drag_src is not None:
+            self._hud._mod_drag_x = x
+            self._hud._mod_drag_y = y
         self._station_inv.on_mouse_drag(x, y)
         self.inventory.on_mouse_drag(x, y)
 
@@ -1630,6 +1887,28 @@ class GameView(arcade.View):
             self._escape_menu.on_mouse_release(x, y)
             return
         if button == arcade.MOUSE_BUTTON_LEFT:
+            # Module drag release
+            if self._hud._mod_drag_src is not None:
+                src = self._hud._mod_drag_src
+                mod_type = self._hud._mod_drag_type
+                self._hud._mod_drag_src = None
+                self._hud._mod_drag_type = None
+                target = self._hud.module_slot_at(x, y)
+                if target is not None and target != src:
+                    # Swap module slots
+                    other = self._module_slots[target]
+                    self._module_slots[target] = mod_type
+                    self._module_slots[src] = other
+                elif target == src:
+                    # Dropped on same slot — no change
+                    pass
+                else:
+                    # Dropped outside module slots — return to ship inventory
+                    self._module_slots[src] = None
+                    self.inventory.add_item(f"mod_{mod_type}", 1)
+                self.player.apply_modules(self._module_slots)
+                self._hud._mod_slots = list(self._module_slots)
+                return
             # Quick-use drag release
             if self._hud._qu_drag_src is not None:
                 src = self._hud._qu_drag_src
@@ -1647,15 +1926,8 @@ class GameView(arcade.View):
                     self._hud.set_quick_use(src, dst_type, dst_count)
                 elif target == src:
                     # Released on same slot — use the item
-                    if dt == "repair_pack" and self.inventory.count_item("repair_pack") > 0:
-                        heal = int(self.player.max_hp * REPAIR_PACK_HEAL)
-                        self.player.hp = min(self.player.max_hp, self.player.hp + heal)
-                        self.inventory.remove_item("repair_pack", 1)
-                        remaining = self.inventory.count_item("repair_pack")
-                        if remaining > 0:
-                            self._hud.set_quick_use(src, "repair_pack", remaining)
-                        else:
-                            self._hud.set_quick_use(src, None, 0)
+                    if dt == "repair_pack":
+                        self._use_repair_pack(src)
                 else:
                     # Released outside any slot — unassign from quick-use
                     self._hud.set_quick_use(src, None, 0)
@@ -1664,14 +1936,33 @@ class GameView(arcade.View):
             station_drop = self._station_inv.on_mouse_release(x, y)
             if station_drop is not None:
                 item_type, amount = station_drop
+                # Check if dropped on a module slot
+                mod_slot = self._hud.module_slot_at(x, y)
+                is_module = item_type.startswith("mod_") or item_type.startswith("bp_")
+                if mod_slot is not None and is_module:
+                    prefix = "mod_" if item_type.startswith("mod_") else "bp_"
+                    mod_key = item_type[len(prefix):]
+                    if mod_key in self._module_slots:
+                        # Already equipped — return to station
+                        self._station_inv.add_item(item_type, amount)
+                    else:
+                        old = self._module_slots[mod_slot]
+                        if old is not None:
+                            self._station_inv.add_item(f"mod_{old}", 1)
+                        self._module_slots[mod_slot] = mod_key
+                        if amount > 1:
+                            self._station_inv.add_item(item_type, amount - 1)
+                        self.player.apply_modules(self._module_slots)
+                        self._hud._mod_slots = list(self._module_slots)
+                elif mod_slot is not None:
+                    self._station_inv.add_item(item_type, amount)
                 # Check if dropped on a quick-use slot
-                qu_slot = self._hud.slot_at(x, y)
-                if qu_slot is not None and item_type == "repair_pack":
+                elif (qu_slot := self._hud.slot_at(x, y)) is not None and item_type == "repair_pack":
                     # Assign repair pack to quick-use slot; put item into cargo
                     self.inventory.add_item(item_type, amount)
                     total = self.inventory.count_item("repair_pack")
                     # Clear any other slot that already has repair_pack
-                    for s in range(5):
+                    for s in range(QUICK_USE_SLOTS):
                         if s != qu_slot and self._hud.get_quick_use(s) == "repair_pack":
                             self._hud.set_quick_use(s, None, 0)
                     self._hud.set_quick_use(qu_slot, "repair_pack", total)
@@ -1689,7 +1980,7 @@ class GameView(arcade.View):
                             self.inventory.add_item(item_type, amount)
                     # Update quick-use if repair_pack is assigned
                     if item_type == "repair_pack":
-                        for slot in range(5):
+                        for slot in range(QUICK_USE_SLOTS):
                             if self._hud.get_quick_use(slot) == "repair_pack":
                                 self._hud.set_quick_use(
                                     slot, "repair_pack",
@@ -1698,14 +1989,36 @@ class GameView(arcade.View):
             ejected = self.inventory.on_mouse_release(x, y)
             if ejected is not None:
                 item_type, amount = ejected
+                # Check if dropped on a module slot (mod_ or bp_ items)
+                mod_slot = self._hud.module_slot_at(x, y)
+                is_module = item_type.startswith("mod_") or item_type.startswith("bp_")
+                if mod_slot is not None and is_module:
+                    prefix = "mod_" if item_type.startswith("mod_") else "bp_"
+                    mod_key = item_type[len(prefix):]
+                    # Check uniqueness — only 1 of each type allowed
+                    if mod_key in self._module_slots:
+                        self.inventory.add_item(item_type, amount)
+                    else:
+                        # Unequip existing module in this slot (return to inv)
+                        old = self._module_slots[mod_slot]
+                        if old is not None:
+                            self.inventory.add_item(f"mod_{old}", 1)
+                        self._module_slots[mod_slot] = mod_key
+                        # Consume 1 item, return remainder
+                        if amount > 1:
+                            self.inventory.add_item(item_type, amount - 1)
+                        self.player.apply_modules(self._module_slots)
+                        self._hud._mod_slots = list(self._module_slots)
+                elif mod_slot is not None:
+                    # Non-module item dropped on module slot — put it back
+                    self.inventory.add_item(item_type, amount)
                 # Check if dropped on a quick-use slot
-                qu_slot = self._hud.slot_at(x, y)
-                if qu_slot is not None and item_type == "repair_pack":
+                elif (qu_slot := self._hud.slot_at(x, y)) is not None and item_type == "repair_pack":
                     # Assign repair pack to quick-use slot; put item back
                     self.inventory.add_item(item_type, amount)
                     total = self.inventory.count_item("repair_pack")
                     # Clear any other slot that already has repair_pack
-                    for s in range(5):
+                    for s in range(QUICK_USE_SLOTS):
                         if s != qu_slot and self._hud.get_quick_use(s) == "repair_pack":
                             self._hud.set_quick_use(s, None, 0)
                     self._hud.set_quick_use(qu_slot, "repair_pack", total)
@@ -1810,6 +2123,17 @@ class GameView(arcade.View):
             self._ghost_sprite.center_y = wy
         else:
             self.inventory.on_mouse_move(x, y)
+            self._station_inv.on_mouse_motion(x, y)
+            # Module slot hover
+            mod_slot = self._hud.module_slot_at(x, y)
+            self._hud._mod_hover = mod_slot if mod_slot is not None else -1
+            # Quick-use slot hover
+            qu_hover = self._hud.slot_at(x, y)
+            self._hud._qu_hover = qu_hover if qu_hover is not None else -1
+            # Module drag tracking
+            if self._hud._mod_drag_src is not None:
+                self._hud._mod_drag_x = x
+                self._hud._mod_drag_y = y
             # Building hover tooltip — detect building under cursor
             wx = self.world_cam.position[0] - self.window.width / 2 + x
             wy = self.world_cam.position[1] - self.window.height / 2 + y

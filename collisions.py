@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import math
+import random
 from typing import TYPE_CHECKING
 
 import arcade
@@ -12,6 +13,7 @@ from constants import (
     ALIEN_BOUNCE, ALIEN_SPEED, ALIEN_COL_COOLDOWN,
     BUILDING_RADIUS, ALIEN_IRON_DROP,
     BUILDING_TYPES, ALIEN_AGGRO_RANGE,
+    BLUEPRINT_DROP_CHANCE_ALIEN, BLUEPRINT_DROP_CHANCE_ASTEROID,
 )
 from sprites.explosion import HitSpark
 
@@ -48,6 +50,8 @@ def handle_projectile_hits(gv: GameView) -> None:
                     arcade.play_sound(gv._explosion_snd, volume=0.7)
                     asteroid.remove_from_sprite_lists()
                     gv._spawn_iron_pickup(ax, ay)
+                    if random.random() < BLUEPRINT_DROP_CHANCE_ASTEROID:
+                        gv._spawn_blueprint_pickup(ax, ay)
 
         if not consumed and not proj.mines_rock:
             hit_aliens = arcade.check_for_collision_with_list(
@@ -67,6 +71,8 @@ def handle_projectile_hits(gv: GameView) -> None:
                         alien.center_x, alien.center_y,
                         amount=ALIEN_IRON_DROP,
                     )
+                    if random.random() < BLUEPRINT_DROP_CHANCE_ALIEN:
+                        gv._spawn_blueprint_pickup(alien.center_x, alien.center_y)
                     alien.remove_from_sprite_lists()
 
 
@@ -306,4 +312,6 @@ def handle_turret_projectile_hits(gv: GameView) -> None:
                     alien.center_x, alien.center_y,
                     amount=ALIEN_IRON_DROP,
                 )
+                if random.random() < BLUEPRINT_DROP_CHANCE_ALIEN:
+                    gv._spawn_blueprint_pickup(alien.center_x, alien.center_y)
                 alien.remove_from_sprite_lists()

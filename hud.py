@@ -55,7 +55,7 @@ class HUD:
 
         # Character video area (replaces old IRON/ROIDS/ALIEN stats)
         # Video is drawn externally; we just reserve layout space + name label
-        self._char_vid_y = self._sh - 60  # top of video area
+        self._char_vid_y = self._sh - 44  # top of video area (close to STATUS title)
         self._char_vid_h = STATUS_WIDTH - 20  # 1:1 square aspect
         self._t_char_name = arcade.Text(
             "", cx, self._char_vid_y - self._char_vid_h - 10,
@@ -82,8 +82,9 @@ class HUD:
                                        anchor_x="center")
         self._show_fps: bool = False
         self._fps: float = 60.0
-        self._t_fps = arcade.Text("", 10, hp_y - 126,
-                                  arcade.color.YELLOW, 10, bold=True)
+        self._t_fps = arcade.Text("", STATUS_WIDTH - 10, self._sh - 26,
+                                  arcade.color.YELLOW, 9, bold=True,
+                                  anchor_x="right", anchor_y="center")
         self._t_minimap = arcade.Text(
             "MINI-MAP", STATUS_WIDTH // 2,
             MINIMAP_Y + MINIMAP_H + 3,
@@ -93,21 +94,22 @@ class HUD:
         faction_label = faction if faction else "Legacy"
         ship_label = ship_type if ship_type else "Classic"
         self._t_faction = arcade.Text(
-            f"FACTION: {faction_label}",
-            10, hp_y - 146,
+            f"{faction_label}",
+            10, hp_y - 126,
             arcade.color.LIGHT_BLUE, 9, bold=True,
         )
         self._t_ship_type = arcade.Text(
-            f"SHIP: {ship_label}",
-            10, hp_y - 162,
+            f"{ship_label}",
+            STATUS_WIDTH - 10, hp_y - 126,
             arcade.color.LIGHT_GREEN, 9, bold=True,
+            anchor_x="right",
         )
         self._t_music_hdr = arcade.Text(
-            "NOW PLAYING", STATUS_WIDTH // 2, hp_y - 182,
+            "NOW PLAYING", STATUS_WIDTH // 2, hp_y - 146,
             arcade.color.LIGHT_GRAY, 9, anchor_x="center",
         )
         self._t_track_name = arcade.Text(
-            "", STATUS_WIDTH // 2, hp_y - 198,
+            "", STATUS_WIDTH // 2, hp_y - 162,
             arcade.color.KHAKI, 9, bold=True, anchor_x="center",
         )
 
@@ -127,7 +129,7 @@ class HUD:
         self._qu_cell = QUICK_USE_CELL
         self._qu_count = QUICK_USE_SLOTS
         self._repair_pack_icon = repair_pack_icon
-        self._t_qu_label = arcade.Text("QUICK USE", STATUS_WIDTH // 2, 0,
+        self._t_qu_label = arcade.Text("QUICK USE", 0, 0,
                                        arcade.color.LIGHT_GRAY, 8,
                                        anchor_x="center")
         self._t_qu_num = arcade.Text("", 0, 0, arcade.color.WHITE, 8, bold=True,
@@ -140,10 +142,74 @@ class HUD:
         self._qu_drag_x: float = 0.0
         self._qu_drag_y: float = 0.0
 
+        # Module slot state (4 slots above quick-use bar)
+        from constants import MODULE_SLOT_COUNT, MODULE_SLOT_CELL, MODULE_TYPES
+        self._mod_count = MODULE_SLOT_COUNT
+        self._mod_cell = MODULE_SLOT_CELL
+        self._mod_slots: list[str | None] = [None] * MODULE_SLOT_COUNT
+        self._mod_types = MODULE_TYPES
+        self._t_mod_label = arcade.Text("MODULES", 0, 0,
+                                        arcade.color.LIGHT_GRAY, 8,
+                                        anchor_x="center")
+        self._t_mod_text = arcade.Text("", 0, 0, arcade.color.WHITE, 7,
+                                       bold=True,
+                                       anchor_x="center", anchor_y="center")
+        # Module short labels (3-char abbreviations)
+        self._MOD_ABBR = {
+            "armor_plate": "ARM",
+            "engine_booster": "ENG",
+            "shield_booster": "SHD",
+            "shield_enhancer": "REG",
+            "damage_absorber": "ABS",
+            "broadside": "BRD",
+        }
+        # Module icon textures (set by game_view)
+        self._mod_icons: dict[str, arcade.Texture] = {}
+        # Module hover tooltip
+        self._mod_hover: int = -1
+        self._t_mod_tip = arcade.Text("", 0, 0, arcade.color.WHITE, 9, bold=True,
+                                      anchor_x="center", anchor_y="center")
+        # Module drag state
+        self._mod_drag_src: int | None = None
+        self._mod_drag_type: str | None = None
+        self._mod_drag_x: float = 0.0
+        self._mod_drag_y: float = 0.0
+        # Quick-use hover tooltip
+        self._qu_hover: int = -1
+        self._t_qu_tip = arcade.Text("", 0, 0, arcade.color.WHITE, 9, bold=True,
+                                     anchor_x="center", anchor_y="center")
+        self._QU_NAMES: dict[str, str] = {"repair_pack": "Repair Pack"}
+
     @property
     def char_video_rect(self) -> tuple[float, float, float]:
         """Return (x, y, max_w) for drawing the character video in the HUD."""
         return (10, self._char_vid_y - self._char_vid_h, STATUS_WIDTH - 20)
+
+    def set_module_slot(self, slot: int, mod_type: str | None) -> None:
+        if 0 <= slot < self._mod_count:
+            self._mod_slots[slot] = mod_type
+
+    def get_module_slot(self, slot: int) -> str | None:
+        if 0 <= slot < self._mod_count:
+            return self._mod_slots[slot]
+        return None
+
+    def module_slot_at(self, x: float, y: float) -> int | None:
+        """Return module slot index at screen coords, or None."""
+        win = arcade.get_window()
+        mod_total_w = self._mod_count * self._mod_cell + (self._mod_count - 1) * 4
+        play_cx = STATUS_WIDTH + (win.width - STATUS_WIDTH) // 2
+        mod_x = play_cx - mod_total_w // 2
+        qu_total_w = self._qu_count * self._qu_cell + (self._qu_count - 1) * 2
+        qu_y = 10
+        mod_y = qu_y + self._qu_cell + 26
+        if y < mod_y or y > mod_y + self._mod_cell:
+            return None
+        for i in range(self._mod_count):
+            sx = mod_x + i * (self._mod_cell + 4)
+            if sx <= x <= sx + self._mod_cell:
+                return i
+        return None
 
     def set_quick_use(self, slot: int, item_type: str | None, count: int = 0) -> None:
         """Set a quick-use slot (0-indexed)."""
@@ -159,9 +225,11 @@ class HUD:
 
     def slot_at(self, x: float, y: float) -> int | None:
         """Return quick-use slot index (0-based) at screen coords, or None."""
+        win = arcade.get_window()
         qu_total_w = self._qu_count * self._qu_cell + (self._qu_count - 1) * 2
-        qu_x = (STATUS_WIDTH - qu_total_w) // 2
-        qu_y = self._hp_y_offset - 210 - _EQ_MAX_H - self._qu_cell - 20
+        play_cx = STATUS_WIDTH + (win.width - STATUS_WIDTH) // 2
+        qu_x = play_cx - qu_total_w // 2
+        qu_y = 10
         if y < qu_y or y > qu_y + self._qu_cell:
             return None
         for i in range(self._qu_count):
@@ -294,7 +362,7 @@ class HUD:
             eq_total_w = _EQ_BARS * _EQ_BAR_W + (_EQ_BARS - 1) * _EQ_GAP
             eq_x = (STATUS_WIDTH - eq_total_w) // 2
             # Position below the track name text with spacing
-            eq_y = self._hp_y_offset - 210 - _EQ_MAX_H
+            eq_y = self._hp_y_offset - 174 - _EQ_MAX_H
             for i in range(_EQ_BARS):
                 h = int(self._eq_heights[i] * _EQ_MAX_H)
                 if h < 2:
@@ -315,11 +383,90 @@ class HUD:
                     (r, g, b_col, 230),
                 )
 
-        # Quick-use bar (5 slots labeled 1–5)
-        # Position below the equalizer (eq bottom = _sh - 346 - _EQ_MAX_H)
+        # Quick-use bar (10 slots labeled 1–9, 0) — bottom-centre of screen
+        win = arcade.get_window()
+        play_cx = STATUS_WIDTH + (win.width - STATUS_WIDTH) // 2
         qu_total_w = self._qu_count * self._qu_cell + (self._qu_count - 1) * 2
-        qu_x = (STATUS_WIDTH - qu_total_w) // 2
-        qu_y = self._hp_y_offset - 210 - _EQ_MAX_H - self._qu_cell - 20
+        qu_x = play_cx - qu_total_w // 2
+        qu_y = 10
+
+        # Module slots (4 boxes above quick-use bar)
+        mod_total_w = self._mod_count * self._mod_cell + (self._mod_count - 1) * 4
+        mod_x = play_cx - mod_total_w // 2
+        mod_y = qu_y + self._qu_cell + 26
+        self._t_mod_label.x = play_cx
+        self._t_mod_label.y = mod_y + self._mod_cell + 6
+        self._t_mod_label.draw()
+        for i in range(self._mod_count):
+            sx = mod_x + i * (self._mod_cell + 4)
+            mod = self._mod_slots[i]
+            is_drag = (i == self._mod_drag_src)
+            if is_drag:
+                fill = (60, 60, 20, 200)
+                outline = (200, 180, 80)
+            elif mod is not None:
+                fill = (40, 60, 80, 230)
+                outline = (200, 180, 80)
+            else:
+                fill = (20, 20, 40, 200)
+                outline = (80, 80, 120)
+            arcade.draw_rect_filled(
+                arcade.LBWH(sx, mod_y, self._mod_cell, self._mod_cell), fill)
+            arcade.draw_rect_outline(
+                arcade.LBWH(sx, mod_y, self._mod_cell, self._mod_cell),
+                outline, border_width=1)
+            if mod is not None and not is_drag:
+                icon = self._mod_icons.get(mod)
+                if icon:
+                    pad = 4
+                    arcade.draw_texture_rect(
+                        icon,
+                        arcade.LBWH(sx + pad, mod_y + pad,
+                                    self._mod_cell - pad * 2, self._mod_cell - pad * 2))
+                else:
+                    abbr = self._MOD_ABBR.get(mod, mod[:3].upper())
+                    self._t_mod_text.text = abbr
+                    self._t_mod_text.x = sx + self._mod_cell // 2
+                    self._t_mod_text.y = mod_y + self._mod_cell // 2
+                    self._t_mod_text.color = (200, 180, 80)
+                    self._t_mod_text.draw()
+
+        # Module hover tooltip
+        if self._mod_hover >= 0 and self._mod_hover < self._mod_count:
+            mod = self._mod_slots[self._mod_hover]
+            if mod is not None and self._mod_drag_src is None:
+                info = self._mod_types.get(mod)
+                if info:
+                    tip_sx = mod_x + self._mod_hover * (self._mod_cell + 4)
+                    tip_cx = tip_sx + self._mod_cell // 2
+                    tip_y = mod_y + self._mod_cell + 4
+                    self._t_mod_tip.text = info["label"]
+                    tw = len(info["label"]) * 7 + 12
+                    tx0 = max(2, tip_cx - tw // 2)
+                    arcade.draw_rect_filled(arcade.LBWH(tx0, tip_y, tw, 16),
+                                            (20, 20, 50, 230))
+                    arcade.draw_rect_outline(arcade.LBWH(tx0, tip_y, tw, 16),
+                                             (200, 180, 80), border_width=1)
+                    self._t_mod_tip.x = tx0 + tw // 2
+                    self._t_mod_tip.y = tip_y + 8
+                    self._t_mod_tip.draw()
+
+        # Module drag preview
+        if self._mod_drag_src is not None and self._mod_drag_type is not None:
+            cs = self._mod_cell
+            fx = self._mod_drag_x - cs // 2
+            fy = self._mod_drag_y - cs // 2
+            arcade.draw_rect_filled(arcade.LBWH(fx, fy, cs, cs), (70, 90, 40, 180))
+            arcade.draw_rect_outline(arcade.LBWH(fx, fy, cs, cs),
+                                     (200, 180, 80), border_width=2)
+            icon = self._mod_icons.get(self._mod_drag_type)
+            if icon:
+                pad = 4
+                arcade.draw_texture_rect(icon,
+                    arcade.LBWH(fx + pad, fy + pad, cs - pad * 2, cs - pad * 2),
+                    alpha=200)
+
+        self._t_qu_label.x = play_cx
         self._t_qu_label.y = qu_y + self._qu_cell + 8
         self._t_qu_label.draw()
         for i in range(self._qu_count):
@@ -339,8 +486,8 @@ class HUD:
                 arcade.LBWH(sx, qu_y, self._qu_cell, self._qu_cell),
                 (80, 100, 140), border_width=1,
             )
-            # Slot number
-            self._t_qu_num.text = str(i + 1)
+            # Slot number (1-9, then 0 for slot 10)
+            self._t_qu_num.text = str((i + 1) % 10)
             self._t_qu_num.x = sx + self._qu_cell // 2
             self._t_qu_num.y = qu_y + self._qu_cell - 6
             self._t_qu_num.color = (160, 160, 160)
@@ -367,6 +514,26 @@ class HUD:
                     self._t_qu_num.y = qu_y + 4
                     self._t_qu_num.color = arcade.color.ORANGE
                     self._t_qu_num.draw()
+
+        # Quick-use hover tooltip
+        if (self._qu_hover >= 0 and self._qu_hover < self._qu_count
+                and self._qu_drag_src is None):
+            item = self._qu_slots[self._qu_hover]
+            if item is not None:
+                name = self._QU_NAMES.get(item, item)
+                tip_sx = qu_x + self._qu_hover * (self._qu_cell + 2)
+                tip_cx = tip_sx + self._qu_cell // 2
+                tip_y = qu_y + self._qu_cell + 4
+                self._t_qu_tip.text = name
+                tw = len(name) * 7 + 12
+                tx0 = max(2, tip_cx - tw // 2)
+                arcade.draw_rect_filled(arcade.LBWH(tx0, tip_y, tw, 16),
+                                        (20, 20, 50, 230))
+                arcade.draw_rect_outline(arcade.LBWH(tx0, tip_y, tw, 16),
+                                         arcade.color.LIGHT_GRAY, border_width=1)
+                self._t_qu_tip.x = tx0 + tw // 2
+                self._t_qu_tip.y = tip_y + 8
+                self._t_qu_tip.draw()
 
         # Floating drag preview for quick-use
         if self._qu_drag_src is not None and self._qu_drag_type is not None:

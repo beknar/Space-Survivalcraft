@@ -11,11 +11,14 @@ _HELP_LINES = [
     ("L/R  or  A/D", "Rotate"),
     ("Up   or  W", "Thrust"),
     ("Down or  S", "Brake"),
+    ("Q", "Sideslip left"),
+    ("E", "Sideslip right"),
     ("Space", "Fire weapon"),
     ("Tab", "Cycle weapon"),
     ("I", "Inventory"),
     ("B", "Build menu"),
     ("T", "Station info"),
+    ("C", "Ship stats"),
     ("F", "Toggle FPS"),
     ("ESC", "Menu"),
 ]
@@ -29,6 +32,21 @@ _GAMEPAD_LINES = [
 
 class HelpMode(MenuMode):
 
+    def __init__(self, ctx: MenuContext) -> None:
+        super().__init__(ctx)
+        # Pre-build all text objects once to avoid .bold/.text churn per frame
+        self._t_kb_hdr = arcade.Text("KEYBOARD", 0, 0, arcade.color.LIGHT_BLUE, 10,
+                                     bold=True, anchor_x="center")
+        self._t_gp_hdr = arcade.Text("GAMEPAD", 0, 0, arcade.color.LIGHT_GREEN, 10,
+                                     bold=True, anchor_x="center")
+        self._t_keys: list[arcade.Text] = []
+        self._t_actions: list[arcade.Text] = []
+        for lines in (_HELP_LINES, _GAMEPAD_LINES):
+            for key_text, action in lines:
+                self._t_keys.append(arcade.Text(key_text, 0, 0, (180, 180, 180), 10))
+                self._t_actions.append(arcade.Text(action, 0, 0, arcade.color.WHITE, 9,
+                                                   anchor_x="right"))
+
     def draw(self) -> None:
         px, py = self.ctx.recalc()
         cx = px + MENU_W // 2
@@ -39,38 +57,21 @@ class HelpMode(MenuMode):
         self.ctx.t_title.y = py + MENU_H - 30
         self.ctx.t_title.draw()
 
-        t = self.ctx.t_text
-        ti = self.ctx.t_info
         line_y = py + MENU_H - 60
-
-        for section_title, color, lines in [
-            ("KEYBOARD", arcade.color.LIGHT_BLUE, _HELP_LINES),
-            ("GAMEPAD", arcade.color.LIGHT_GREEN, _GAMEPAD_LINES),
+        item_idx = 0
+        for hdr, lines in [
+            (self._t_kb_hdr, _HELP_LINES),
+            (self._t_gp_hdr, _GAMEPAD_LINES),
         ]:
-            t.bold = True
-            t.text = section_title
-            t.x = cx
-            t.y = line_y
-            t.color = color
-            t.anchor_x = "center"
-            t.draw()
-            t.anchor_x = "left"
+            hdr.x = cx; hdr.y = line_y; hdr.draw()
             line_y -= 20
-            for key_text, action in lines:
-                t.text = key_text
-                t.x = px + 16
-                t.y = line_y
-                t.color = (180, 180, 180)
-                t.bold = False
-                t.draw()
-                ti.text = action
-                ti.x = px + MENU_W - 16
-                ti.y = line_y
-                ti.color = arcade.color.WHITE
-                ti.anchor_x = "right"
-                ti.draw()
-                ti.anchor_x = "center"
+            for _ in lines:
+                tk = self._t_keys[item_idx]
+                ta = self._t_actions[item_idx]
+                tk.x = px + 16; tk.y = line_y; tk.draw()
+                ta.x = px + MENU_W - 16; ta.y = line_y; ta.draw()
                 line_y -= 18
+                item_idx += 1
             line_y -= 10
 
         draw_back_button(px, py, self.ctx.t_back)

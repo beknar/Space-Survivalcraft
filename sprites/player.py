@@ -102,11 +102,16 @@ class PlayerShip(arcade.Sprite):
         self.vel_y: float = 0.0
         self.heading: float = 0.0
 
-        # Ship stats
+        # Ship stats (base values stored for module recomputation)
         self.hp: int = hp
         self.max_hp: int = hp
         self.shields: int = shields
         self.max_shields: int = shields
+        self._base_max_hp: int = hp
+        self._base_max_spd: float = self._max_spd
+        self._base_max_shields: int = shields
+        self._base_shield_regen: float = self._shield_regen
+        self.shield_absorb: int = 0  # damage reduction to shields
         self._shield_acc: float = 0.0
         self._collision_cd: float = 0.0
 
@@ -122,6 +127,8 @@ class PlayerShip(arcade.Sprite):
         rotate_right: bool,
         thrust_fwd: bool,
         thrust_bwd: bool,
+        slip_left: bool = False,
+        slip_right: bool = False,
     ) -> None:
         # Rotation
         if rotate_left:
@@ -139,6 +146,14 @@ class PlayerShip(arcade.Sprite):
         if thrust_bwd:
             self.vel_x -= math.sin(rad) * self._brake * dt
             self.vel_y -= math.cos(rad) * self._brake * dt
+
+        # Lateral slip (perpendicular to heading, at brake speed)
+        if slip_left:
+            self.vel_x -= math.cos(rad) * self._brake * dt
+            self.vel_y += math.sin(rad) * self._brake * dt
+        if slip_right:
+            self.vel_x += math.cos(rad) * self._brake * dt
+            self.vel_y -= math.sin(rad) * self._brake * dt
 
         # Speed cap
         spd = math.hypot(self.vel_x, self.vel_y)
@@ -194,6 +209,36 @@ class PlayerShip(arcade.Sprite):
     def nose_y(self) -> float:
         """World Y of the ship's nose tip (projectile spawn point)."""
         return self.center_y + math.cos(math.radians(self.heading)) * NOSE_OFFSET
+
+    def apply_modules(self, modules: list) -> None:
+        """Recompute stats from base values + equipped modules."""
+        from constants import MODULE_TYPES
+        self.max_hp = self._base_max_hp
+        self._max_spd = self._base_max_spd
+        self.max_shields = self._base_max_shields
+        self._shield_regen = self._base_shield_regen
+        self.shield_absorb = 0
+        for mod in modules:
+            if mod is None:
+                continue
+            info = MODULE_TYPES.get(mod)
+            if info is None:
+                continue
+            eff = info["effect"]
+            val = info["value"]
+            if eff == "max_hp":
+                self.max_hp += val
+            elif eff == "max_speed":
+                self._max_spd += val
+            elif eff == "max_shields":
+                self.max_shields += val
+            elif eff == "shield_regen":
+                self._shield_regen += val
+            elif eff == "shield_absorb":
+                self.shield_absorb = val
+        # Clamp current values to new maxes
+        self.hp = min(self.hp, self.max_hp)
+        self.shields = min(self.shields, self.max_shields)
 
     def gun_spawn_points(self) -> list[tuple[float, float]]:
         """Return projectile spawn positions for all gun hardpoints.

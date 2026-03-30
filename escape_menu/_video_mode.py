@@ -20,6 +20,16 @@ class VideoMode(MenuMode):
         self._scroll: int = 0
         self._editing_dir: bool = False
         self._dir_text: str = audio.video_dir
+        # Pre-built text objects (avoids per-frame font regen / bold toggling)
+        self._t_dir = arcade.Text("", 0, 0, arcade.color.WHITE, 10)
+        self._t_items: list[arcade.Text] = [
+            arcade.Text("", 0, 0, arcade.color.WHITE, 10)
+            for _ in range(8)
+        ]
+        self._t_sel_items: list[arcade.Text] = [
+            arcade.Text("", 0, 0, arcade.color.CYAN, 10, bold=True)
+            for _ in range(8)
+        ]
 
     def on_enter(self) -> None:
         self._dir_text = audio.video_dir
@@ -36,9 +46,6 @@ class VideoMode(MenuMode):
         self.ctx.t_title.y = py + MENU_H - 30
         self.ctx.t_title.draw()
 
-        t = self.ctx.t_text
-        ti = self.ctx.t_info
-
         # Directory bar
         dir_y = py + MENU_H - 70
         dir_x, dir_w = px + 10, MENU_W - 20
@@ -48,16 +55,19 @@ class VideoMode(MenuMode):
         arcade.draw_rect_outline(arcade.LBWH(dir_x, dir_y, dir_w, 30), outline, border_width=1)
         dd = self._dir_text or "(click to set video folder)"
         if len(dd) > 30: dd = "..." + dd[-27:]
-        t.text = dd; t.x = dir_x + 4; t.y = dir_y + 15
-        t.color = arcade.color.WHITE if self._dir_text else (120, 120, 120)
-        t.bold = False; t.draw()
+        td = self._t_dir
+        td.text = dd; td.x = dir_x + 4; td.y = dir_y + 15
+        td.color = arcade.color.WHITE if self._dir_text else (120, 120, 120)
+        td.draw()
 
         if not _HAS_FFMPEG:
+            ti = self.ctx.t_info
             ti.text = "No video decoder available"; ti.x = cx; ti.y = py + MENU_H // 2
             ti.color = (200, 80, 80); ti.draw()
         else:
             list_y = dir_y - 40; item_h = 28; max_vis = 8
             if not self._files:
+                ti = self.ctx.t_info
                 ti.text = "No video files found"; ti.x = cx; ti.y = list_y
                 ti.color = (160, 160, 160); ti.draw()
             else:
@@ -68,9 +78,10 @@ class VideoMode(MenuMode):
                     fill = (50, 70, 100, 220) if sel else (30, 30, 50, 180)
                     arcade.draw_rect_filled(arcade.LBWH(px + 10, iy, MENU_W - 20, item_h - 2), fill)
                     dn = fname if len(fname) <= 28 else fname[:25] + "..."
-                    t.text = dn; t.x = px + 16; t.y = iy + item_h // 2
-                    t.color = arcade.color.CYAN if sel else arcade.color.WHITE
-                    t.bold = sel; t.draw()
+                    item = self._t_sel_items[i] if sel else self._t_items[i]
+                    item.text = dn
+                    item.x = px + 16; item.y = iy + item_h // 2
+                    item.draw()
 
         # Stop Video button
         stop_y = py + 50; abx = px + (MENU_W - MENU_BTN_W) // 2

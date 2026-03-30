@@ -4,7 +4,6 @@ from __future__ import annotations
 import arcade
 
 from constants import MENU_W, MENU_H, MENU_BTN_W, MENU_BTN_H
-from settings import audio
 from escape_menu._context import MenuContext, MenuMode
 from escape_menu._ui import draw_panel, draw_back_button, back_button_hit, point_in_rect
 
@@ -16,6 +15,11 @@ class SongsMode(MenuMode):
         self._stop_rect: tuple = (0, 0, 0, 0)
         self._other_rect: tuple = (0, 0, 0, 0)
         self._video_rect: tuple = (0, 0, 0, 0)
+        # Pre-built section headers (avoids .bold toggle on shared text)
+        self._t_ost = arcade.Text("OST Songs", 0, 0, arcade.color.LIGHT_BLUE, 10,
+                                  bold=True, anchor_x="center")
+        self._t_mv = arcade.Text("Music Videos", 0, 0, arcade.color.LIGHT_GREEN, 10,
+                                 bold=True, anchor_x="center")
 
     def draw(self) -> None:
         px, py = self.ctx.recalc()
@@ -29,13 +33,10 @@ class SongsMode(MenuMode):
 
         abx = px + (MENU_W - MENU_BTN_W) // 2
         cur_y = py + MENU_H - 70
-        t = self.ctx.t_text
         tb = self.ctx.t_back
 
         # OST Songs section
-        t.bold = True; t.text = "OST Songs"; t.x = cx; t.y = cur_y
-        t.color = arcade.color.LIGHT_BLUE; t.anchor_x = "center"
-        t.draw(); t.anchor_x = "left"
+        self._t_ost.x = cx; self._t_ost.y = cur_y; self._t_ost.draw()
         cur_y -= 40
 
         for label, rect_attr, bg in [
@@ -52,9 +53,7 @@ class SongsMode(MenuMode):
 
         cur_y -= 15
         # Music Videos section
-        t.bold = True; t.text = "Music Videos"; t.x = cx; t.y = cur_y
-        t.color = arcade.color.LIGHT_GREEN; t.anchor_x = "center"
-        t.draw(); t.anchor_x = "left"
+        self._t_mv.x = cx; self._t_mv.y = cur_y; self._t_mv.draw()
         cur_y -= 40
 
         self._video_rect = (abx, cur_y, MENU_BTN_W, MENU_BTN_H)
@@ -83,8 +82,6 @@ class SongsMode(MenuMode):
         if point_in_rect(x, y, self._other_rect):
             if self.ctx.other_song_fn: self.ctx.other_song_fn(); return
         if point_in_rect(x, y, self._video_rect):
-            if not audio.fullscreen:
-                self.ctx.flash_status("Fullscreen required for video"); return
             self.ctx.set_mode("video")
 
     def on_key_press(self, key: int, modifiers: int = 0) -> None:

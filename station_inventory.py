@@ -8,6 +8,7 @@ import arcade
 from constants import (
     SCREEN_WIDTH, SCREEN_HEIGHT,
     STATION_INV_COLS, STATION_INV_ROWS, STATION_INV_CELL, STATION_INV_PAD,
+    MAX_STACK, MAX_STACK_DEFAULT,
 )
 
 _INV_HEADER = 32
@@ -19,6 +20,9 @@ _INV_H = STATION_INV_ROWS * STATION_INV_CELL + STATION_INV_PAD * 2 + _INV_HEADER
 class StationInventory:
     """10×10 grid for the Home Station, storing named items as (type, count) tuples."""
 
+    # Display names for special item types
+    _ITEM_NAMES: dict[str, str] = {}
+
     def __init__(
         self,
         iron_icon: Optional[arcade.Texture] = None,
@@ -28,6 +32,12 @@ class StationInventory:
         self.open: bool = False
         self._iron_icon = iron_icon
         self._repair_pack_icon = repair_pack_icon
+        # Extra icons for blueprints, modules, etc. (set by game_view)
+        self.item_icons: dict[str, arcade.Texture] = {}
+        # Mouse tracking for tooltip
+        self._mouse_x: float = 0.0
+        self._mouse_y: float = 0.0
+        self._tip_cell: Optional[tuple[int, int]] = None  # cached hover cell
 
         try:
             self._window = arcade.get_window()
@@ -51,11 +61,45 @@ class StationInventory:
             "click to close   drag items to ship inventory", 0, 0,
             (160, 160, 160), 8, anchor_x="center", anchor_y="center",
         )
+        self._t_consolidate = arcade.Text(
+            "Consolidate", 0, 0, arcade.color.WHITE, 8, bold=True,
+            anchor_x="center", anchor_y="center",
+        )
         self._t_label = arcade.Text("", 0, 0, arcade.color.WHITE, 7)
         self._t_count = arcade.Text("", 0, 0, arcade.color.ORANGE, 8, bold=True)
+        # Pre-built count labels to avoid .text churn (0-999)
+        self._count_cache: dict[str, arcade.Text] = {}
+        self._t_tooltip = arcade.Text("", 0, 0, arcade.color.WHITE, 8, bold=True,
+                                      anchor_x="center", anchor_y="center")
+
+        # Build display names from MODULE_TYPES
+        from constants import MODULE_TYPES
+        for key, info in MODULE_TYPES.items():
+            self._ITEM_NAMES[f"bp_{key}"] = f"BP {info['label']}"
+            self._ITEM_NAMES[f"mod_{key}"] = info["label"]
+        self._ITEM_NAMES["iron"] = "Iron"
+        self._ITEM_NAMES["repair_pack"] = "Repair Pack"
 
     def toggle(self) -> None:
         self.open = not self.open
+
+    def consolidate(self) -> None:
+        """Merge stacks of the same item type, respecting max stack sizes."""
+        # Collect all items by type
+        totals: dict[str, int] = {}
+        for (it, ct) in self._items.values():
+            totals[it] = totals.get(it, 0) + ct
+        # Clear and re-fill
+        self._items.clear()
+        cell = 0
+        for it, total in totals.items():
+            max_s = MAX_STACK.get(it, MAX_STACK_DEFAULT)
+            while total > 0 and cell < STATION_INV_ROWS * STATION_INV_COLS:
+                amt = min(total, max_s)
+                r, c = divmod(cell, STATION_INV_COLS)
+                self._items[(r, c)] = (it, amt)
+                total -= amt
+                cell += 1
 
     # ── Public API ────────────────────────────────────────────────────────
 
@@ -159,12 +203,23 @@ class StationInventory:
         ox, oy = self._panel_origin()
         return ox <= x <= ox + _INV_W and oy <= y <= oy + _INV_H
 
+    def on_mouse_motion(self, x: float, y: float) -> None:
+        self._mouse_x = x
+        self._mouse_y = y
+
     # ── Input ────────────────────────────────────────────────────────────
     def on_mouse_press(self, x: float, y: float) -> bool:
         if not self.open:
             return False
         if not self._panel_contains(x, y):
             return False  # click outside — don't close, let caller handle
+        # Consolidate button
+        ox, oy = self._panel_origin()
+        cbx = ox + _INV_W - 70
+        cby = oy + _INV_H - _INV_HEADER + 4
+        if cbx <= x <= cbx + 60 and cby <= y <= cby + 18:
+            self.consolidate()
+            return True
         cell = self._cell_at(x, y)
         if cell is None:
             return False
@@ -253,39 +308,51 @@ class StationInventory:
         self._t_hint.x = ox + _INV_W // 2
         self._t_hint.y = oy + _INV_FOOTER // 2
         self._t_hint.draw()
+        # Consolidate button (top-right corner)
+        cbx = ox + _INV_W - 70
+        cby = oy + _INV_H - _INV_HEADER + 4
+        arcade.draw_rect_filled(arcade.LBWH(cbx, cby, 60, 18), (40, 60, 40, 220))
+        arcade.draw_rect_outline(arcade.LBWH(cbx, cby, 60, 18),
+                                 arcade.color.LIME_GREEN, border_width=1)
+        self._t_consolidate.x = cbx + 30; self._t_consolidate.y = cby + 9
+        self._t_consolidate.draw()
 
         cs = STATION_INV_CELL
-        for r in range(STATION_INV_ROWS):
-            for c in range(STATION_INV_COLS):
-                row_from_bottom = STATION_INV_ROWS - 1 - r
-                cx = gx + c * cs
-                cy = gy + row_from_bottom * cs
-                cell = (r, c)
+        grid_w = STATION_INV_COLS * cs
+        grid_h = STATION_INV_ROWS * cs
+        # Draw grid background in one call (empty cell colour)
+        arcade.draw_rect_filled(arcade.LBWH(gx, gy, grid_w, grid_h), (30, 30, 60, 200))
+        # Grid lines (horizontal + vertical)
+        for i in range(STATION_INV_COLS + 1):
+            lx = gx + i * cs
+            arcade.draw_line(lx, gy, lx, gy + grid_h, (60, 80, 120), 1)
+        for i in range(STATION_INV_ROWS + 1):
+            ly = gy + i * cs
+            arcade.draw_line(gx, ly, gx + grid_w, ly, (60, 80, 120), 1)
 
-                # Cell colour
-                is_item = cell in self._items
-                is_src = (cell == self._drag_src)
-                if is_src:
-                    fill = (70, 90, 40, 200)
-                elif is_item:
-                    fill = (50, 80, 50, 200)
-                else:
-                    fill = (30, 30, 60, 200)
+        # Only draw cells that have items (skip empty cells entirely)
+        for cell, (it, ct) in self._items.items():
+            r, c = cell
+            row_from_bottom = STATION_INV_ROWS - 1 - r
+            cx = gx + c * cs
+            cy = gy + row_from_bottom * cs
+            is_src = (cell == self._drag_src)
 
-                arcade.draw_rect_filled(arcade.LBWH(cx, cy, cs - 1, cs - 1), fill)
-                arcade.draw_rect_outline(
-                    arcade.LBWH(cx, cy, cs - 1, cs - 1),
-                    (60, 80, 120), border_width=1,
-                )
+            if is_src:
+                fill = (70, 90, 40, 200)
+            else:
+                fill = (50, 80, 50, 200)
+            arcade.draw_rect_filled(arcade.LBWH(cx + 1, cy + 1, cs - 2, cs - 2), fill)
 
-                # Draw item
-                if is_item and not is_src:
+            if not is_src:
                     it, ct = self._items[cell]
                     icon = None
                     if it == "iron" and self._iron_icon:
                         icon = self._iron_icon
                     elif it == "repair_pack" and self._repair_pack_icon:
                         icon = self._repair_pack_icon
+                    elif it in self.item_icons:
+                        icon = self.item_icons[it]
 
                     if icon:
                         arcade.draw_texture_rect(
@@ -297,12 +364,46 @@ class StationInventory:
                         self._t_label.x = cx + 3
                         self._t_label.y = cy + cs // 2
                         self._t_label.draw()
-                    self._t_count.text = str(ct)
-                    self._t_count.x = cx + cs - 6
-                    self._t_count.y = cy + 4
-                    self._t_count.anchor_x = "right"
-                    self._t_count.draw()
-                    self._t_count.anchor_x = "left"
+                    ct_str = str(ct)
+                    ct_text = self._count_cache.get(ct_str)
+                    if ct_text is None:
+                        ct_text = arcade.Text(ct_str, 0, 0, arcade.color.ORANGE, 8,
+                                              bold=True, anchor_x="right")
+                        self._count_cache[ct_str] = ct_text
+                    ct_text.x = cx + cs - 6
+                    ct_text.y = cy + 4
+                    ct_text.draw()
+
+        # ── Hover tooltip ──────────────────────────────────────────────
+        if self._drag_type is None:
+            tip_cell = self._cell_at(self._mouse_x, self._mouse_y)
+            if tip_cell is not None:
+                item = self._items.get(tip_cell)
+                if item is not None:
+                    it, ct = item
+                    # Only rebuild tooltip text when cell changes
+                    if tip_cell != self._tip_cell:
+                        self._tip_cell = tip_cell
+                        name = self._ITEM_NAMES.get(it, it)
+                        self._t_tooltip.text = f"{name}  \u00d7{ct}"
+                    row, col = tip_cell
+                    row_from_bottom = STATION_INV_ROWS - 1 - row
+                    tip_cx = gx + col * cs + cs // 2
+                    tip_ty = gy + row_from_bottom * cs + cs + 2
+                    tw = len(self._t_tooltip.text) * 6 + 12
+                    tx0 = max(2, min(self._window.width - tw - 2, tip_cx - tw // 2))
+                    arcade.draw_rect_filled(
+                        arcade.LBWH(tx0, tip_ty, tw, 15), (20, 20, 50, 230))
+                    arcade.draw_rect_outline(
+                        arcade.LBWH(tx0, tip_ty, tw, 15),
+                        arcade.color.LIGHT_GRAY, border_width=1)
+                    self._t_tooltip.x = tx0 + tw // 2
+                    self._t_tooltip.y = tip_ty + 7
+                    self._t_tooltip.draw()
+                else:
+                    self._tip_cell = None
+            else:
+                self._tip_cell = None
 
     def draw_drag_preview(self) -> None:
         """Draw the drag preview separately (call after ship inv to be on top)."""

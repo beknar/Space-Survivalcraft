@@ -286,15 +286,8 @@ class VideoPlayer:
             self._segment_mode = True
             return True
         self._segment_mode = True
-        # Seek once to a random position (startup cost only)
-        import random as _rng
-        max_start = dur - segment_duration
-        start = _rng.uniform(0, max_start)
-        if start > 0.5:
-            try:
-                self._player.seek(start)
-            except Exception:
-                pass
+        # Play from 0:00 — no seek, no startup stall. The video content
+        # varies naturally as it progresses through the file.
         return True
 
     def has_finished(self) -> bool:

@@ -8,6 +8,7 @@ import arcade
 from constants import (
     SCREEN_WIDTH, SCREEN_HEIGHT,
     INV_COLS, INV_ROWS, INV_CELL, INV_PAD, INV_HEADER, INV_FOOTER, INV_W, INV_H,
+    MAX_STACK, MAX_STACK_DEFAULT,
 )
 
 
@@ -33,6 +34,10 @@ class Inventory:
 
         self._iron_icon: Optional[arcade.Texture] = iron_icon
         self._repair_pack_icon: Optional[arcade.Texture] = repair_pack_icon
+        # Extra icons for blueprints, modules, etc. (set by game_view)
+        self.item_icons: dict[str, arcade.Texture] = {}
+        self._item_names: dict[str, str] = {"iron": "Iron", "repair_pack": "Repair Pack"}
+        self._count_cache: dict[str, arcade.Text] = {}
 
         # Drag-and-drop state
         self._drag_type: Optional[str] = None
@@ -68,6 +73,10 @@ class Inventory:
             9,
             anchor_x="center",
             anchor_y="center",
+        )
+        self._t_consolidate = arcade.Text(
+            "Consolidate", 0, 0, arcade.color.WHITE, 8, bold=True,
+            anchor_x="center", anchor_y="center",
         )
         # Count label (reused for all item types)
         self._t_count = arcade.Text("", 0, 0, arcade.color.ORANGE, 9, bold=True)
@@ -134,6 +143,22 @@ class Inventory:
                     break
         return removed
 
+    def consolidate(self) -> None:
+        """Merge stacks of the same item type, respecting max stack sizes."""
+        totals: dict[str, int] = {}
+        for (it, ct) in self._items.values():
+            totals[it] = totals.get(it, 0) + ct
+        self._items.clear()
+        cell = 0
+        for it, total in totals.items():
+            max_s = MAX_STACK.get(it, MAX_STACK_DEFAULT)
+            while total > 0 and cell < INV_ROWS * INV_COLS:
+                amt = min(total, max_s)
+                r, c = divmod(cell, INV_COLS)
+                self._items[(r, c)] = (it, amt)
+                total -= amt
+                cell += 1
+
     def toggle(self) -> None:
         self.open = not self.open
 
@@ -193,6 +218,17 @@ class Inventory:
         """Attempt to pick up the item at (x, y).  Returns True if drag started."""
         if not self.open:
             return False
+        # Consolidate button (above panel)
+        sw = self._window.width if self._window else SCREEN_WIDTH
+        sh = self._window.height if self._window else SCREEN_HEIGHT
+        ox = (sw - INV_W) // 2
+        oy = (sh - INV_H) // 2
+        cbw, cbh = 70, 20
+        cbx = ox + (INV_W - cbw) // 2
+        cby = oy + INV_H + 4
+        if cbx <= x <= cbx + cbw and cby <= y <= cby + cbh:
+            self.consolidate()
+            return True
         cell = self._cell_at(x, y)
         if cell is None:
             return False
@@ -293,6 +329,8 @@ class Inventory:
             icon = self._iron_icon
         elif item_type == "repair_pack" and self._repair_pack_icon is not None:
             icon = self._repair_pack_icon
+        elif item_type in self.item_icons:
+            icon = self.item_icons[item_type]
 
         if icon is not None:
             icon_scale = (INV_CELL - 12) / max(icon.width, icon.height)
@@ -311,11 +349,15 @@ class Inventory:
             self._t_item_label.y = cell_y + INV_CELL // 2 - 5
             self._t_item_label.draw()
 
-        self._t_count.text = str(count)
-        self._t_count.x = cell_x + INV_CELL - 4
-        self._t_count.y = cell_y + 3
-        self._t_count.anchor_x = "right"
-        self._t_count.draw()
+        ct_str = str(count)
+        ct_text = self._count_cache.get(ct_str)
+        if ct_text is None:
+            ct_text = arcade.Text(ct_str, 0, 0, arcade.color.ORANGE, 8,
+                                  bold=True, anchor_x="right")
+            self._count_cache[ct_str] = ct_text
+        ct_text.x = cell_x + INV_CELL - 4
+        ct_text.y = cell_y + 3
+        ct_text.draw()
         self._t_count.anchor_x = "left"
 
     def draw(self) -> None:
@@ -340,6 +382,15 @@ class Inventory:
             arcade.color.STEEL_BLUE,
             border_width=2,
         )
+        # Consolidate button (above panel)
+        cbw, cbh = 70, 20
+        cbx = ox + (INV_W - cbw) // 2
+        cby = oy + INV_H + 4
+        arcade.draw_rect_filled(arcade.LBWH(cbx, cby, cbw, cbh), (40, 60, 40, 220))
+        arcade.draw_rect_outline(arcade.LBWH(cbx, cby, cbw, cbh),
+                                 arcade.color.LIME_GREEN, border_width=1)
+        self._t_consolidate.x = cbx + cbw // 2; self._t_consolidate.y = cby + cbh // 2
+        self._t_consolidate.draw()
 
         self._t_title.draw()
 
@@ -406,7 +457,8 @@ class Inventory:
             item = self._items.get(tip_cell)
             if item is not None:
                 it, ct = item
-                tip_label = f"{it}  \u00d7{ct}"
+                name = self._item_names.get(it, it)
+                tip_label = f"{name}  \u00d7{ct}"
             else:
                 tip_label = None
 
