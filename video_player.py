@@ -102,8 +102,10 @@ class VideoPlayer:
     """
 
     _instance_counter: int = 0
+    _frame_id: int = 0         # incremented each game frame
+    _frame_converted: int = -1  # frame_id of last conversion (any instance)
 
-    def __init__(self) -> None:
+    def __init__(self, convert_fps: float = 15.0) -> None:
         VideoPlayer._instance_counter += 1
         self._tex_hash = f"_vidframe_{VideoPlayer._instance_counter}"
         self._player: Optional[pyglet.media.Player] = None
@@ -114,8 +116,9 @@ class VideoPlayer:
         self.error: str = ""  # last error message for UI display
         self._cached_arc_tex: Optional[arcade.Texture] = None
         self._last_video_time: float = -1.0  # tracks player.time to detect new frames
-        self._convert_interval: float = 1.0 / 15.0  # max 15 texture conversions/sec
+        self._convert_interval: float = 1.0 / convert_fps
         self._convert_cooldown: float = 0.0
+        self._blit_pending: bool = False  # True = blit done, readback next frame
         self._draw_ok_logged: bool = False
         self._draw_err_logged: bool = False
         self._frame_count: int = 0
@@ -322,11 +325,12 @@ class VideoPlayer:
                         self._build_standby()
             # If bg source is loaded, finalize the player on main thread
             if self._standby_source is not None and self._standby_player is None and not self._standby_ready:
+                # Source loaded by bg thread — create player on main thread
+                # but DON'T play() yet to avoid decoder spike
                 try:
                     p = pyglet.media.Player()
                     p.queue(self._standby_source)
                     p.volume = 0.0
-                    p.play()
                     self._standby_player = p
                     self._standby_ready = True
                 except Exception:
@@ -383,7 +387,7 @@ class VideoPlayer:
             new_player = self._standby_player
             new_source = self._standby_source
             new_player.volume = volume
-            # Standby was already playing silently from 0:00
+            new_player.play()
         else:
             # Fallback: synchronous build
             try:
@@ -494,53 +498,35 @@ class VideoPlayer:
         except Exception:
             current_time = self._last_video_time
         new_frame = (current_time != self._last_video_time) or need_first
-        if new_frame:
-            self._last_video_time = current_time
-            self._convert_cooldown = now
+        # Only one VideoPlayer may convert per frame (GPU blit is expensive)
+        if new_frame and VideoPlayer._frame_converted == VideoPlayer._frame_id:
+            new_frame = False
+
+        # Two-frame pipeline: blit on frame N, readback on frame N+1
+        # This avoids GPU pipeline stalls from synchronous glReadPixels
+        if self._blit_pending and VideoPlayer._frame_converted != VideoPlayer._frame_id:
+            # Frame N+1: readback the previously blitted pixels
+            VideoPlayer._frame_converted = VideoPlayer._frame_id
+            self._blit_pending = False
             try:
                 self._ensure_blit_fbo()
-                src_w = pyglet_tex.width
-                src_h = pyglet_tex.height
-
-                # Save current FBO binding
                 prev_fbo = gl.GLint()
                 gl.glGetIntegerv(gl.GL_FRAMEBUFFER_BINDING, ctypes.byref(prev_fbo))
-
-                # Attach video texture to read FBO
-                gl.glBindFramebuffer(gl.GL_READ_FRAMEBUFFER, self._read_fbo)
-                gl.glFramebufferTexture2D(
-                    gl.GL_READ_FRAMEBUFFER, gl.GL_COLOR_ATTACHMENT0,
-                    gl.GL_TEXTURE_2D, pyglet_tex.id, 0)
-
-                # Blit: GPU-side downscale from full-res to small target
-                gl.glBindFramebuffer(gl.GL_DRAW_FRAMEBUFFER, self._draw_fbo)
-                gl.glBlitFramebuffer(
-                    0, 0, src_w, src_h,
-                    0, 0, self._small_w, self._small_h,
-                    gl.GL_COLOR_BUFFER_BIT, gl.GL_LINEAR)
-
-                # Read small pixels (~90 KB)
                 gl.glBindFramebuffer(gl.GL_READ_FRAMEBUFFER, self._draw_fbo)
                 gl.glReadPixels(0, 0, self._small_w, self._small_h,
                                 gl.GL_RGBA, gl.GL_UNSIGNED_BYTE, self._pixel_buf)
-
-                # Restore previous FBO
                 gl.glBindFramebuffer(gl.GL_FRAMEBUFFER, prev_fbo.value)
 
-                # Build arcade texture from small pixel data
                 from PIL import Image as PILImage
                 display_img = PILImage.frombytes(
                     "RGBA", (self._small_w, self._small_h),
                     bytes(self._pixel_buf))
-
                 if self._cached_arc_tex is None:
                     self._cached_arc_tex = arcade.Texture(
-                        display_img,
-                        hit_box_algorithm=None,
-                        hash=self._tex_hash,
-                    )
+                        display_img, hit_box_algorithm=None, hash=self._tex_hash)
                     if not self._draw_ok_logged:
-                        print(f"[VideoPlayer] First frame OK ({src_w}x{src_h} -> {self._small_w}x{self._small_h})")
+                        print(f"[VideoPlayer] First frame OK "
+                              f"({self._small_w}x{self._small_h})")
                         self._draw_ok_logged = True
                 else:
                     self._cached_arc_tex.image = display_img
@@ -551,9 +537,35 @@ class VideoPlayer:
                         pass
             except Exception as e:
                 if not self._draw_err_logged:
-                    print(f"[VideoPlayer] Draw error: {type(e).__name__}: {e}")
+                    print(f"[VideoPlayer] Readback error: {type(e).__name__}: {e}")
                     self._draw_err_logged = True
-                return
+
+        if new_frame:
+            # Frame N: blit only (async GPU operation, no readback stall)
+            self._last_video_time = current_time
+            self._convert_cooldown = now
+            VideoPlayer._frame_converted = VideoPlayer._frame_id
+            try:
+                self._ensure_blit_fbo()
+                src_w = pyglet_tex.width
+                src_h = pyglet_tex.height
+                prev_fbo = gl.GLint()
+                gl.glGetIntegerv(gl.GL_FRAMEBUFFER_BINDING, ctypes.byref(prev_fbo))
+                gl.glBindFramebuffer(gl.GL_READ_FRAMEBUFFER, self._read_fbo)
+                gl.glFramebufferTexture2D(
+                    gl.GL_READ_FRAMEBUFFER, gl.GL_COLOR_ATTACHMENT0,
+                    gl.GL_TEXTURE_2D, pyglet_tex.id, 0)
+                gl.glBindFramebuffer(gl.GL_DRAW_FRAMEBUFFER, self._draw_fbo)
+                gl.glBlitFramebuffer(
+                    0, 0, src_w, src_h,
+                    0, 0, self._small_w, self._small_h,
+                    gl.GL_COLOR_BUFFER_BIT, gl.GL_LINEAR)
+                gl.glBindFramebuffer(gl.GL_FRAMEBUFFER, prev_fbo.value)
+                self._blit_pending = True
+            except Exception as e:
+                if not self._draw_err_logged:
+                    print(f"[VideoPlayer] Blit error: {type(e).__name__}: {e}")
+                    self._draw_err_logged = True
 
         if self._cached_arc_tex is not None:
             draw_w = int(max_w)

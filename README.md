@@ -13,6 +13,19 @@ A top-down space survival game built with Python and the Arcade framework. Pilot
   - **Striker** --- agile high-thrust fighter (300 thrust, lower damping)
   - **Thunderbolt** --- dual-gun weapons platform (2 guns, lower top speed)
 - Ship previews and stat breakdowns shown on the selection screen
+- **Character selection** --- choose from 3 characters with unique progression:
+  - **Debra (Miner)** --- bonus iron from asteroids and enemies at each level
+  - **Ellie (Fighter)** --- laser damage, cooldown, speed, and range bonuses
+  - **Tara (Builder)** --- blueprint drop bonus, reduced build/craft costs, station HP bonus
+- Characters have 5 levels with XP thresholds (0, 100, 300, 600, 1000)
+- XP earned: 10 per asteroid, 25 per alien kill
+- Character thumbnail previews extracted from video files
+- Mouse and keyboard selection across all three phases
+
+### Faction Shields
+- Each faction has a distinct shield color tint:
+  - **Earth** --- red, **Colonial** --- green, **Heavy World** --- brown, **Ascended** --- purple
+- Shield tint persists through hit flash and regen
 
 ### Newtonian Flight Model
 - Realistic thrust-based movement with inertia and space drag
@@ -107,6 +120,22 @@ A top-down space survival game built with Python and the Arcade framework. Pilot
 - All items stored as stackable tuples with icons and count badges
 - Drag items between station and ship inventories
 - **Basic Crafter** --- click a placed crafter to open the craft menu; craft Repair Packs (200 iron for 5 packs) or ship modules (50--200 iron each); recipes unlock permanently when blueprints are deposited; cancel button refunds iron
+
+### Trading Station
+- Spawns automatically when the player builds their first **Repair Module**
+- One trading station per map, positioned far from the player's starting area
+- Click the station (within 300 px) to open the trade menu
+- **Sell items** for credits: iron (1 cr), repair packs (100 cr), blueprints (half craft cost), modules (full craft cost)
+- **Buy consumables** with credits: Repair Pack x5 for 400 credits (2x iron cost)
+- Credits and station position saved/loaded with game state
+- Shown on minimap as a bright yellow square
+- Save slot details show character name
+
+### Save System Extras
+- Save slots display faction, ship type, character name, HP, shields, and module count
+- Overwrite warning when saving to an occupied slot
+- **Delete saves** from the load menu (DEL key + confirm)
+- Quick-use slot assignments persist across save/load
 
 ### Quick Use Bar
 - 10 slots (1--9, 0) displayed at the bottom-centre of the play area
@@ -273,7 +302,9 @@ Space Survivalcraft/
 │  ── UI Overlays ──
 ├── hud.py               # Left status panel (HP/shield bars, character video, weapon, mini-map)
 ├── escape_menu/         # Escape menu package (10 sub-modes, ~157 line orchestrator)
-├── ship_stats.py        # Ship stats overlay (C key) with module modification details
+├── ship_stats.py        # Ship stats overlay with character level/benefits and module details
+├── trade_menu.py        # Trading station overlay (sell/buy with credits)
+├── character_data.py    # Character progression: XP tables, per-character bonuses
 ├── death_screen.py      # "SHIP DESTROYED" overlay with Load/Menu/Exit
 ├── inventory.py         # 5x5 cargo grid with stackable items, drag-and-drop, world ejection
 ├── station_inventory.py # 10x10 Home Station inventory with item transfer

@@ -1,6 +1,7 @@
 """GameView -- core gameplay view for Space Survivalcraft."""
 from __future__ import annotations
 
+import gc
 import math
 import os
 import random
@@ -71,6 +72,7 @@ from station_info import StationInfo
 from ship_stats import ShipStats
 from station_inventory import StationInventory
 from craft_menu import CraftMenu
+from trade_menu import TradeMenu
 from video_player import VideoPlayer
 from game_save import _SAVE_DIR
 
@@ -89,6 +91,11 @@ class GameView(arcade.View):
         self._faction = faction
         self._ship_type = ship_type
 
+        # Character progression
+        from character_data import level_for_xp
+        self._char_xp: int = 0
+        self._char_level: int = 1
+
         # Player
         self.player = PlayerShip(faction=faction, ship_type=ship_type)
         self.player_list = arcade.SpriteList()
@@ -96,7 +103,8 @@ class GameView(arcade.View):
 
         # Shield
         self.shield_sprite, self.shield_list = load_shield(
-            self.player.center_x, self.player.center_y
+            self.player.center_x, self.player.center_y,
+            faction=faction,
         )
 
         # Active projectiles
@@ -139,6 +147,7 @@ class GameView(arcade.View):
         # Weapons
         self._weapons: list[Weapon] = load_weapons(self.player.guns)
         self._weapon_idx: int = 0
+        self._apply_character_weapon_bonuses()
 
         # Explosion assets
         self._explosion_frames, self._explosion_snd = load_explosion_assets()
@@ -194,6 +203,17 @@ class GameView(arcade.View):
 
         # Alien ships
         self.alien_list, _alien_laser_tex = populate_aliens()
+        # Cache respawn textures (avoid reloading from disk every spawn)
+        self._asteroid_tex = arcade.load_texture(
+            os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                         "assets", "Pixel Art Space", "Asteroid.png"))
+        from PIL import Image as PILImage
+        from constants import ALIEN_SHIP_PNG, ALIEN_FX_PNG
+        _pil_ship = PILImage.open(ALIEN_SHIP_PNG).convert("RGBA")
+        self._alien_ship_tex = arcade.Texture(_pil_ship.crop((364, 305, 825, 815)))
+        _pil_fx = PILImage.open(ALIEN_FX_PNG).convert("RGBA")
+        _pil_laser = _pil_fx.crop((4299, 82, 4359, 310))
+        self._alien_laser_tex = arcade.Texture(_pil_laser.rotate(90, expand=True))
         self.alien_projectile_list: arcade.SpriteList = arcade.SpriteList()
         self.hit_sparks: list[HitSpark] = []
         self.fire_sparks: list[FireSpark] = []
@@ -269,6 +289,13 @@ class GameView(arcade.View):
             self._craft_menu.item_icons[key] = arcade.load_texture(info["icon"])
         self._active_crafter: Optional[BasicCrafter] = None
 
+        # Trading station
+        self._trade_menu = TradeMenu()
+        self._trade_station: Optional[arcade.Sprite] = None
+        self._trade_station_tex = arcade.load_texture(
+            os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                         "assets", "ai generated", "space station.PNG"))
+
         # Respawn timers (count up toward RESPAWN_INTERVAL)
         self._asteroid_respawn_timer: float = 0.0
         self._alien_respawn_timer: float = 0.0
@@ -277,6 +304,11 @@ class GameView(arcade.View):
         self._fog_grid: list[list[bool]] = [
             [False] * FOG_GRID_W for _ in range(FOG_GRID_H)
         ]
+        self._fog_revealed: int = 0
+
+        # Disable automatic GC; run once when ESC menu opens
+        gc.disable()
+        self._gc_ran: bool = False
 
         # HUD
         self._hud = HUD(
@@ -306,9 +338,13 @@ class GameView(arcade.View):
 
         # Escape menu
         # Video player (music videos)
-        self._video_player = VideoPlayer()
+        self._video_player = VideoPlayer(convert_fps=12.0)
         # Character video player (looping character portrait in HUD)
-        self._char_video_player = VideoPlayer()
+        # Lower fps + smaller FBO + offset cooldown to minimize GPU cost
+        self._char_video_player = VideoPlayer(convert_fps=10.0)
+        self._char_video_player._small_w = 160
+        self._char_video_player._small_h = 160
+        self._char_video_player._convert_cooldown = 0.06  # stagger by ~1 frame
         self._start_character_video()
 
         self._escape_menu = EscapeMenu(
@@ -362,6 +398,37 @@ class GameView(arcade.View):
         from game_music import other_song; other_song(self)
 
     # ── Helpers ──────────────────────────────────────────────────────────────
+    # ── Character progression ──────────────────────────────────────────────
+    def _apply_character_weapon_bonuses(self) -> None:
+        """Apply Ellie's weapon bonuses to all Basic Laser weapons."""
+        from character_data import (laser_damage_bonus, laser_cooldown_bonus,
+                                    laser_speed_bonus, laser_range_bonus)
+        from settings import audio
+        name = audio.character_name
+        lvl = self._char_level
+        dmg = laser_damage_bonus(name, lvl)
+        cd = laser_cooldown_bonus(name, lvl)
+        spd = laser_speed_bonus(name, lvl)
+        rng = laser_range_bonus(name, lvl)
+        for wpn in self._weapons:
+            if wpn.name == "Basic Laser":
+                wpn.damage += dmg
+                wpn.cooldown = max(0.05, wpn.cooldown - cd)
+                wpn._proj_speed += spd
+                wpn._max_range += rng
+
+    def _add_xp(self, amount: int) -> None:
+        """Add XP and check for level-up; reapply bonuses if leveled."""
+        from character_data import level_for_xp
+        old_level = self._char_level
+        self._char_xp += amount
+        self._char_level = level_for_xp(self._char_xp)
+        if self._char_level > old_level:
+            self._flash_game_msg(f"Level {self._char_level}!", 2.0)
+            # Reapply weapon bonuses at new level
+            self._weapons = load_weapons(self.player.guns)
+            self._apply_character_weapon_bonuses()
+
     @property
     def _active_weapon(self) -> Weapon:
         """Return the first weapon of the currently active weapon group."""
@@ -401,18 +468,17 @@ class GameView(arcade.View):
     def _update_fog(self) -> None:
         """Reveal fog cells around the player's current position."""
         px, py = self.player.center_x, self.player.center_y
-        # Convert player pos to grid cell
         cx = int(px / FOG_CELL_SIZE)
         cy = int(py / FOG_CELL_SIZE)
-        # Reveal radius in cells (FOG_REVEAL_RADIUS / FOG_CELL_SIZE, rounded up)
         r = int(FOG_REVEAL_RADIUS / FOG_CELL_SIZE) + 1
         for gy in range(max(0, cy - r), min(FOG_GRID_H, cy + r + 1)):
             for gx in range(max(0, cx - r), min(FOG_GRID_W, cx + r + 1)):
-                # Check actual pixel distance from player to cell centre
-                cell_cx = (gx + 0.5) * FOG_CELL_SIZE
-                cell_cy = (gy + 0.5) * FOG_CELL_SIZE
-                if math.hypot(px - cell_cx, py - cell_cy) <= FOG_REVEAL_RADIUS:
-                    self._fog_grid[gy][gx] = True
+                if not self._fog_grid[gy][gx]:
+                    cell_cx = (gx + 0.5) * FOG_CELL_SIZE
+                    cell_cy = (gy + 0.5) * FOG_CELL_SIZE
+                    if math.hypot(px - cell_cx, py - cell_cy) <= FOG_REVEAL_RADIUS:
+                        self._fog_grid[gy][gx] = True
+                        self._fog_revealed += 1
 
     def is_revealed(self, wx: float, wy: float) -> bool:
         """Check if a world position has been revealed by the fog of war."""
@@ -442,11 +508,7 @@ class GameView(arcade.View):
             )
             if too_close:
                 continue
-            asteroid_tex = arcade.load_texture(
-                os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                             "assets", "Pixel Art Space", "Asteroid.png")
-            )
-            self.asteroid_list.append(IronAsteroid(asteroid_tex, ax, ay))
+            self.asteroid_list.append(IronAsteroid(self._asteroid_tex, ax, ay))
             self.hit_sparks.append(HitSpark(ax, ay))
             arcade.play_sound(self._bump_snd, volume=0.3)
             return
@@ -456,8 +518,6 @@ class GameView(arcade.View):
         if len(self.alien_list) >= ALIEN_COUNT:
             return
         from sprites.alien import SmallAlienShip
-        from PIL import Image as PILImage
-        from constants import ALIEN_SHIP_PNG, ALIEN_FX_PNG
         margin = 100
         for _ in range(200):
             ax = random.uniform(margin, WORLD_WIDTH - margin)
@@ -472,13 +532,8 @@ class GameView(arcade.View):
             )
             if too_close:
                 continue
-            _pil_ship = PILImage.open(ALIEN_SHIP_PNG).convert("RGBA")
-            alien_ship_tex = arcade.Texture(_pil_ship.crop((364, 305, 825, 815)))
-            _pil_fx = PILImage.open(ALIEN_FX_PNG).convert("RGBA")
-            _pil_laser = _pil_fx.crop((4299, 82, 4359, 310))
-            alien_laser_tex = arcade.Texture(_pil_laser.rotate(90, expand=True))
             self.alien_list.append(
-                SmallAlienShip(alien_ship_tex, alien_laser_tex, ax, ay)
+                SmallAlienShip(self._alien_ship_tex, self._alien_laser_tex, ax, ay)
             )
             self.hit_sparks.append(HitSpark(ax, ay))
             arcade.play_sound(self._bump_snd, volume=0.3)
@@ -568,6 +623,23 @@ class GameView(arcade.View):
         self._death_delay: float = 1.5  # seconds before showing death screen
 
     # ── Building helpers ───────────────────────────────────────────────────
+    def _spawn_trade_station(self) -> None:
+        """Spawn the trading station at a random position far from the player."""
+        if self._trade_station is not None:
+            return
+        margin = 500
+        for _ in range(200):
+            tx = random.uniform(margin, WORLD_WIDTH - margin)
+            ty = random.uniform(margin, WORLD_HEIGHT - margin)
+            # Keep away from player's home area
+            if math.hypot(tx - WORLD_WIDTH / 2, ty - WORLD_HEIGHT / 2) < 1500:
+                continue
+            self._trade_station = arcade.Sprite(
+                path_or_texture=self._trade_station_tex, scale=0.15)
+            self._trade_station.center_x = tx
+            self._trade_station.center_y = ty
+            return
+
     def _building_counts(self) -> dict[str, int]:
         """Return a dict of building_type → count for the current station."""
         counts: dict[str, int] = {}
@@ -664,7 +736,8 @@ class GameView(arcade.View):
         if bt is None:
             return
         stats = BUILDING_TYPES[bt]
-        cost = stats["cost"]
+        from character_data import build_cost_multiplier, station_hp_multiplier
+        cost = int(stats["cost"] * build_cost_multiplier(audio.character_name, self._char_level))
 
         # Deduct iron from ship inventory first, then station inventory
         total_iron = self.inventory.total_iron + self._station_inv.total_iron
@@ -682,6 +755,11 @@ class GameView(arcade.View):
         tex = self._building_textures[bt]
         laser_tex = self._turret_laser_tex if "Turret" in bt else None
         building = create_building(bt, tex, wx, wy, laser_tex=laser_tex, scale=0.5)
+        # Tara's station HP bonus
+        hp_mult = station_hp_multiplier(audio.character_name, self._char_level)
+        if hp_mult != 1.0:
+            building.max_hp = int(building.max_hp * hp_mult)
+            building.hp = building.max_hp
         building.angle = self._ghost_rotation
 
         # Snap to port if connectable — edge-to-edge placement
@@ -741,6 +819,10 @@ class GameView(arcade.View):
 
         self.building_list.append(building)
 
+        # Spawn trading station when first repair module is placed
+        if isinstance(building, RepairModule) and self._trade_station is None:
+            self._spawn_trade_station()
+
         # Post-placement: connect any other adjacent ports (both ends connect)
         for new_port in building.get_unoccupied_ports():
             npx, npy = building.get_port_world_pos(new_port)
@@ -782,6 +864,7 @@ class GameView(arcade.View):
 
     # ── Drawing ──────────────────────────────────────────────────────────────
     def on_draw(self) -> None:
+        VideoPlayer._frame_id += 1
         self.clear()
 
         sw = self.window.width
@@ -807,6 +890,15 @@ class GameView(arcade.View):
             self.blueprint_pickup_list.draw()
             self.explosion_list.draw()
             self.building_list.draw()
+            if self._trade_station is not None:
+                ts = self._trade_station
+                tw = self._trade_station_tex.width * 0.15
+                th = self._trade_station_tex.height * 0.15
+                arcade.draw_texture_rect(
+                    self._trade_station_tex,
+                    arcade.LBWH(ts.center_x - tw / 2,
+                                ts.center_y - th / 2,
+                                tw, th))
             self.turret_projectile_list.draw()
             self.alien_list.draw()
             self.alien_projectile_list.draw()
@@ -877,9 +969,12 @@ class GameView(arcade.View):
                             if self._video_player.active
                             else self._current_track_name),
                 building_list=self.building_list,
-                fog_grid=self._fog_grid if not menu_open else None,
+                fog_grid=self._fog_grid,
+                fog_revealed=self._fog_revealed,
                 video_active=self._video_player.active,
                 character_name=audio.character_name,
+                trade_station_pos=(self._trade_station.center_x, self._trade_station.center_y)
+                    if self._trade_station is not None else None,
             )
             # Skip expensive video frame conversions when menu is open;
             # cached textures still display from last converted frame
@@ -907,6 +1002,7 @@ class GameView(arcade.View):
             self._station_info.draw()
             self._ship_stats.draw()
             self._craft_menu.draw(self._station_inv.total_iron)
+            self._trade_menu.draw()
             # Building hover tooltip
             if (self._hover_building is not None
                     and not menu_open
@@ -952,6 +1048,7 @@ class GameView(arcade.View):
             self._escape_menu.draw()
             self._death_screen.draw()
 
+
     def _draw_background(
         self, cx: float, cy: float, hw: float, hh: float
     ) -> None:
@@ -972,6 +1069,12 @@ class GameView(arcade.View):
 
     # ── Update ───────────────────────────────────────────────────────────────
     def on_update(self, delta_time: float) -> None:
+        # ── Manual GC — run once when ESC menu first opens
+        if self._escape_menu.open and not self._gc_ran:
+            gc.collect()
+            self._gc_ran = True
+        elif not self._escape_menu.open:
+            self._gc_ran = False
         # ── Smoothed FPS ────────────────────────────────────────────────────
         self._hud.update_fps(delta_time)
         # Sync FPS display from config (may change via Config menu)
@@ -1331,12 +1434,16 @@ class GameView(arcade.View):
             fs.update(delta_time)
         self.fire_sparks = [fs for fs in self.fire_sparks if not fs.dead]
 
+
     # ── Input ────────────────────────────────────────────────────────────────
     def on_key_press(self, key: int, modifiers: int) -> None:
         if self._death_screen.active:
             self._death_screen.on_key_press(key)
             return
         if key == arcade.key.ESCAPE:
+            if self._trade_menu.open:
+                self._trade_menu.on_key_press(key)
+                return
             if self._craft_menu.open:
                 self._craft_menu.open = False
                 self._active_crafter = None
@@ -1404,7 +1511,10 @@ class GameView(arcade.View):
             if not self._escape_menu.open and not self._player_dead:
                 self._ship_stats.refresh(
                     self.player, self._faction, self._ship_type,
-                    self._module_slots)
+                    self._module_slots,
+                    char_name=audio.character_name,
+                    char_xp=self._char_xp,
+                    char_level=self._char_level)
                 self._ship_stats.toggle()
         # Quick-use keys 1-9 and 0
         elif key in (arcade.key.KEY_1, arcade.key.KEY_2, arcade.key.KEY_3,
@@ -1493,25 +1603,33 @@ class GameView(arcade.View):
                 if action is not None and self._active_crafter is not None:
                     if action == "cancel_craft":
                         # Return iron and stop crafting
+                        from character_data import craft_cost_multiplier
                         target = self._craft_menu._craft_target
+                        _ccm = craft_cost_multiplier(audio.character_name, self._char_level)
                         if target and target in MODULE_TYPES:
-                            refund = MODULE_TYPES[target]["craft_cost"]
+                            refund = int(MODULE_TYPES[target]["craft_cost"] * _ccm)
                         else:
-                            refund = CRAFT_IRON_COST
+                            refund = int(CRAFT_IRON_COST * _ccm)
                         self._station_inv.add_item("iron", refund)
                         self._active_crafter.crafting = False
                         self._active_crafter.craft_timer = 0.0
                         self._craft_menu._craft_target = ""
                     elif action == "craft":
-                        self._station_inv.remove_item("iron", CRAFT_IRON_COST)
+                        from character_data import craft_cost_multiplier
+                        _craft_cost = int(CRAFT_IRON_COST * craft_cost_multiplier(
+                            audio.character_name, self._char_level))
+                        self._station_inv.remove_item("iron", _craft_cost)
                         self._active_crafter.crafting = True
                         self._active_crafter.craft_timer = 0.0
                         self._active_crafter.craft_total = CRAFT_TIME
                         self._craft_menu._craft_target = ""
                     elif action.startswith("craft_module:"):
+                        from character_data import craft_cost_multiplier
                         mod_key = action.split(":", 1)[1]
                         info = MODULE_TYPES[mod_key]
-                        self._station_inv.remove_item("iron", info["craft_cost"])
+                        _craft_cost = int(info["craft_cost"] * craft_cost_multiplier(
+                            audio.character_name, self._char_level))
+                        self._station_inv.remove_item("iron", _craft_cost)
                         self._active_crafter.crafting = True
                         self._active_crafter.craft_timer = 0.0
                         self._active_crafter.craft_total = CRAFT_TIME
@@ -1519,10 +1637,44 @@ class GameView(arcade.View):
                 if not self._craft_menu.open:
                     self._active_crafter = None
                 return
+            # Trade menu click
+            if self._trade_menu.open:
+                action = self._trade_menu.on_mouse_press(
+                    x, y, inventory=self.inventory, station_inv=self._station_inv)
+                if action is not None:
+                    if action.startswith("sell:"):
+                        _, item_type, amt_str = action.split(":")
+                        amt = int(amt_str)
+                        # Remove from ship inv first, then station
+                        ship_has = self.inventory.count_item(item_type)
+                        if ship_has >= amt:
+                            self.inventory.remove_item(item_type, amt)
+                        else:
+                            if ship_has > 0:
+                                self.inventory.remove_item(item_type, ship_has)
+                            self._station_inv.remove_item(item_type, amt - ship_has)
+                        self._trade_menu._refresh_sell_list(self.inventory, self._station_inv)
+                    elif action.startswith("buy:"):
+                        _, item_type, qty_str = action.split(":")
+                        self.inventory.add_item(item_type, int(qty_str))
+                if not self._trade_menu.open:
+                    pass
+                return
             # Click on world buildings (Home Station → inv, Crafter → craft menu)
             if not self._build_menu.open and not self._player_dead:
                 wx = self.world_cam.position[0] - self.window.width / 2 + x
                 wy = self.world_cam.position[1] - self.window.height / 2 + y
+                # Check trading station click
+                if self._trade_station is not None:
+                    ts = self._trade_station
+                    if math.hypot(wx - ts.center_x, wy - ts.center_y) < 80:
+                        dist = math.hypot(self.player.center_x - ts.center_x,
+                                          self.player.center_y - ts.center_y)
+                        if dist < STATION_INFO_RANGE:
+                            self._trade_menu.toggle(
+                                inventory=self.inventory,
+                                station_inv=self._station_inv)
+                            return
                 for b in self.building_list:
                     if math.hypot(wx - b.center_x, wy - b.center_y) < 40:
                         dist_to_player = math.hypot(

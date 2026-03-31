@@ -65,8 +65,6 @@ def select_character(gv: GameView, name: str) -> None:
 
 def stop_video(gv: GameView) -> None:
     """Stop video playback without resuming music or equalizer."""
-    if not gv._video_player.active:
-        return
     gv._video_player.stop()
     gv._current_track_name = ""
 

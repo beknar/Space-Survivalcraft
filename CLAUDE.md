@@ -60,12 +60,16 @@ Space Survivalcraft/
 ├── inventory.py         # Inventory — 5×5 cargo grid with drag-and-drop, consolidate, module/blueprint icons
 ├── station_inventory.py # StationInventory — 10×10 Home Station inventory with item transfer, consolidate, tooltips
 ├── craft_menu.py        # CraftMenu — crafting UI for Basic Crafter (Repair Pack + module recipes, cancel support)
-├── ship_stats.py        # ShipStats — ship statistics overlay (C key) showing faction, stats, module modifications
+├── ship_stats.py        # ShipStats — ship statistics overlay (C key) showing faction, stats, module modifications, character level/benefits
+├── trade_menu.py        # TradeMenu — trading station overlay (sell items for credits, buy consumables)
 ├── build_menu.py        # BuildMenu — right-side overlay for constructing station modules
 ├── station_info.py      # StationInfo — right-side overlay showing building HP + module stats + world stats (T key)
 │
+│  ── Character system ──
+├── character_data.py    # Character progression: XP/level tables, per-character bonuses (Debra/Ellie/Tara)
+│
 │  ── Game logic ──
-├── collisions.py        # All collision handlers (projectile/asteroid/alien/player/building pairs)
+├── collisions.py        # All collision handlers (projectile/asteroid/alien/player/building pairs) + XP gain + character bonuses
 ├── world_setup.py       # Asset loading helpers + asteroid/alien/building spawning + music collection
 │
 │  ── Sprite classes ──
@@ -205,6 +209,12 @@ sprites/alien.py
 - **Ship module system** — 6 module types (armor, engine, shield, regen, absorb, broadside) with blueprint drops, crafting, drag-to-equip, stat application via `apply_modules`; broadside auto-fires perpendicular lasers; shield enhancer draws rotating ring; blueprints color-tinted per type
 - **Escape menu package** — refactored from 1918-line monolith into `escape_menu/` package; `MenuContext` + `MenuMode` base class pattern; each sub-mode in its own file; orchestrator delegates all draw/input to active mode
 - **Inventory count cache** — both inventories cache `arcade.Text` objects per count value to avoid `.text` churn (0.375ms per call); station inv draws grid as single background + lines instead of 100 individual cells
+- **Character progression** — 3 characters (Debra/Ellie/Tara) with 5-level XP trees; bonuses applied via pure functions in `character_data.py`; weapon stats reloaded on level-up
+- **Faction shield tints** — shield color varies by faction (red/green/brown/purple) via `tint` param on ShieldSprite
+- **Trading station** — spawns on first Repair Module; sell/buy with credits; saved/loaded with game state; shown on minimap as yellow square
+- **GC management** — automatic GC disabled; runs once when ESC menu opens to avoid gameplay stalls
+- **Two-frame video pipeline** — GPU blit and readback split across frames; per-frame conversion lock prevents double conversion; fog minimap uses 4x4 block sampling
+- **Respawn texture caching** — asteroid/alien textures loaded once at init, reused for all respawns
 
 ## Game Rules Reference
 

@@ -22,7 +22,7 @@ class SaveLoadMode(MenuMode):
 
     def __init__(self, ctx: MenuContext) -> None:
         super().__init__(ctx)
-        self._sub: str = "save"  # "save", "load", or "naming"
+        self._sub: str = "save"  # "save", "load", "confirm", "delete_confirm", or "naming"
         self._slots: list[dict] = []
         self._naming_slot: int = -1
         self._naming_text: str = ""
@@ -47,6 +47,14 @@ class SaveLoadMode(MenuMode):
                                     anchor_x="center", anchor_y="center")
         self._t_hint = arcade.Text("ENTER to save  \u00b7  ESC to cancel", 0, 0,
                                    (120, 120, 120), 10, anchor_x="center", anchor_y="center")
+        self._t_confirm = arcade.Text("", 0, 0, arcade.color.YELLOW, 12, bold=True,
+                                      anchor_x="center", anchor_y="center")
+        self._t_confirm_hint = arcade.Text("ENTER to overwrite  \u00b7  ESC to cancel", 0, 0,
+                                           (120, 120, 120), 10,
+                                           anchor_x="center", anchor_y="center")
+        self._t_delete_hint = arcade.Text("ENTER to delete  \u00b7  ESC to cancel", 0, 0,
+                                          (120, 120, 120), 10,
+                                          anchor_x="center", anchor_y="center")
 
     def open_save(self) -> None:
         self._sub = "save"; self._refresh_slots()
@@ -69,6 +77,7 @@ class SaveLoadMode(MenuMode):
                         "exists": True,
                         "faction": data.get("faction", "?"),
                         "ship_type": data.get("ship_type", "?"),
+                        "character": data.get("character_name", ""),
                         "hp": player.get("hp", 0),
                         "shields": player.get("shields", 0),
                         "modules": len(data.get("buildings", [])),
@@ -102,8 +111,8 @@ class SaveLoadMode(MenuMode):
         arcade.draw_rect_outline(arcade.LBWH(px, py, SAVE_MENU_W, SAVE_MENU_H),
                                  arcade.color.STEEL_BLUE, border_width=2)
 
-        is_save = self._sub in ("save", "naming")
-        self._t_title.text = "SAVE GAME" if is_save else "LOAD GAME"
+        is_save = self._sub in ("save", "naming", "confirm")
+        self._t_title.text = "SAVE GAME" if is_save else "LOAD GAME  (DEL to delete)"
         self._t_title.x = px + SAVE_MENU_W // 2
         self._t_title.y = py + SAVE_MENU_H - 30
         self._t_title.draw()
@@ -127,7 +136,9 @@ class SaveLoadMode(MenuMode):
             self._t_slot_labels[i].x = sx + 10; self._t_slot_labels[i].y = sy + sh - 10
             self._t_slot_labels[i].color = text_c; self._t_slot_labels[i].draw()
             if info.get("exists"):
-                detail = (f"{info.get('faction','?')} \u00b7 {info.get('ship_type','?')}"
+                char = info.get("character", "")
+                char_part = f"  \u00b7 {char}" if char else ""
+                detail = (f"{info.get('faction','?')} \u00b7 {info.get('ship_type','?')}{char_part}"
                           f"  |  HP {info.get('hp',0)}  Shields {info.get('shields',0)}")
                 mods = info.get("modules", 0)
                 if mods > 0: detail += f"  |  Modules {mods}"
@@ -154,8 +165,53 @@ class SaveLoadMode(MenuMode):
             self.ctx.t_status.text = self.ctx.status_msg
             self.ctx.t_status.draw()
 
-        if self._sub == "naming":
+        if self._sub == "confirm":
+            self._draw_confirm(px, py)
+        elif self._sub == "delete_confirm":
+            self._draw_delete_confirm(px, py)
+        elif self._sub == "naming":
             self._draw_naming(px, py)
+
+    def _draw_confirm(self, sl_px: int, sl_py: int) -> None:
+        arcade.draw_rect_filled(arcade.LBWH(sl_px, sl_py, SAVE_MENU_W, SAVE_MENU_H), (0, 0, 0, 120))
+        bw, bh = 300, 80
+        bx = (self.ctx.window.width - bw) // 2
+        by = (self.ctx.window.height - bh) // 2
+        arcade.draw_rect_filled(arcade.LBWH(bx, by, bw, bh), (40, 20, 20, 250))
+        arcade.draw_rect_outline(arcade.LBWH(bx, by, bw, bh), (200, 80, 80), border_width=2)
+        cx = bx + bw // 2
+        slot_name = self._slots[self._naming_slot]["name"] if self._naming_slot >= 0 else "?"
+        self._t_confirm.text = f'Overwrite "{slot_name}"?'
+        self._t_confirm.x = cx; self._t_confirm.y = by + bh - 25
+        self._t_confirm.draw()
+        self._t_confirm_hint.x = cx; self._t_confirm_hint.y = by + 18
+        self._t_confirm_hint.draw()
+
+    def _draw_delete_confirm(self, sl_px: int, sl_py: int) -> None:
+        arcade.draw_rect_filled(arcade.LBWH(sl_px, sl_py, SAVE_MENU_W, SAVE_MENU_H), (0, 0, 0, 120))
+        bw, bh = 300, 80
+        bx = (self.ctx.window.width - bw) // 2
+        by = (self.ctx.window.height - bh) // 2
+        arcade.draw_rect_filled(arcade.LBWH(bx, by, bw, bh), (50, 15, 15, 250))
+        arcade.draw_rect_outline(arcade.LBWH(bx, by, bw, bh), (220, 50, 50), border_width=2)
+        cx = bx + bw // 2
+        slot_name = self._slots[self._naming_slot]["name"] if self._naming_slot >= 0 else "?"
+        self._t_confirm.text = f'Delete "{slot_name}"?'
+        self._t_confirm.color = (255, 100, 100)
+        self._t_confirm.x = cx; self._t_confirm.y = by + bh - 25
+        self._t_confirm.draw()
+        self._t_confirm.color = arcade.color.YELLOW
+        self._t_delete_hint.x = cx; self._t_delete_hint.y = by + 18
+        self._t_delete_hint.draw()
+
+    def _delete_slot(self, slot: int) -> None:
+        """Delete a save file and refresh the slot list."""
+        path = os.path.join(self.ctx.save_dir, f"save_slot_{slot + 1:02d}.json")
+        if os.path.exists(path):
+            os.remove(path)
+        self._refresh_slots()
+        self.ctx.flash_status(f"Slot {slot + 1} deleted")
+        self._sub = "load"
 
     def _draw_naming(self, sl_px: int, sl_py: int) -> None:
         arcade.draw_rect_filled(arcade.LBWH(sl_px, sl_py, SAVE_MENU_W, SAVE_MENU_H), (0, 0, 0, 120))
@@ -182,7 +238,7 @@ class SaveLoadMode(MenuMode):
             self.ctx.hover_idx = -1
 
     def on_mouse_press(self, x: int, y: int) -> None:
-        if self._sub == "naming": return
+        if self._sub in ("naming", "confirm", "delete_confirm"): return
         _, _, rects, back = self._layout()
         self.ctx.play_click()
         if point_in_rect(x, y, back):
@@ -191,14 +247,38 @@ class SaveLoadMode(MenuMode):
         if slot < 0: return
         if self._sub == "save":
             self._naming_slot = slot
-            self._naming_text = self._slots[slot]["name"] if self._slots[slot]["exists"] else ""
-            self._sub = "naming"; self._cursor_visible = True; self._cursor_timer = 0.0
+            if self._slots[slot]["exists"]:
+                self._sub = "confirm"
+            else:
+                self._naming_text = ""
+                self._sub = "naming"; self._cursor_visible = True; self._cursor_timer = 0.0
         elif self._sub == "load" and self._slots[slot]["exists"]:
             self.ctx.load_fn(slot)
             self.ctx.flash_status(f"Loaded: {self._slots[slot]['name']}")
             self.ctx.set_mode("main")
 
     def on_key_press(self, key: int, modifiers: int = 0) -> None:
+        if self._sub == "delete_confirm":
+            if key == arcade.key.ESCAPE:
+                self._sub = "load"
+            elif key in (arcade.key.RETURN, arcade.key.ENTER):
+                self._delete_slot(self._naming_slot)
+            return
+        if self._sub == "confirm":
+            if key == arcade.key.ESCAPE:
+                self._sub = "save"
+            elif key in (arcade.key.RETURN, arcade.key.ENTER):
+                self._naming_text = self._slots[self._naming_slot]["name"]
+                self._sub = "naming"; self._cursor_visible = True; self._cursor_timer = 0.0
+            return
+        if self._sub == "load":
+            if key == arcade.key.DELETE:
+                # Delete the currently hovered slot
+                idx = self.ctx.hover_idx
+                if 0 <= idx < len(self._slots) and self._slots[idx]["exists"]:
+                    self._naming_slot = idx
+                    self._sub = "delete_confirm"
+                return
         if self._sub == "naming":
             if key == arcade.key.ESCAPE:
                 self._sub = "save"

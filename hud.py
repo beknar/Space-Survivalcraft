@@ -291,8 +291,10 @@ class HUD:
         track_name: str = "",
         building_list: arcade.SpriteList | None = None,
         fog_grid: list[list[bool]] | None = None,
+        fog_revealed: int = 0,
         video_active: bool = False,
         character_name: str = "",
+        trade_station_pos: tuple[float, float] | None = None,
     ) -> None:
         """Draw the full HUD status panel."""
         # Panel background
@@ -575,6 +577,8 @@ class HUD:
             player_x, player_y, player_heading,
             building_list=building_list,
             fog_grid=fog_grid,
+            fog_revealed=fog_revealed,
+            trade_station_pos=trade_station_pos,
         )
 
     @staticmethod
@@ -598,6 +602,8 @@ class HUD:
         player_heading: float,
         building_list: arcade.SpriteList | None = None,
         fog_grid: list[list[bool]] | None = None,
+        fog_revealed: int = 0,
+        trade_station_pos: tuple[float, float] | None = None,
     ) -> None:
         """Draw a scaled overview of the world inside the status panel."""
         mx, my = MINIMAP_X, MINIMAP_Y
@@ -615,6 +621,88 @@ class HUD:
                 my + (wy / WORLD_HEIGHT) * mh,
             )
 
+        # Draw grey fog overlay using 4x4 block sampling (32x32 blocks)
+        # Each block is fog if ANY cell in the 4x4 group is unrevealed
+        if fog_grid is not None:
+            _BLOCK = 4
+            bw = FOG_GRID_W // _BLOCK  # 32
+            bh = FOG_GRID_H // _BLOCK  # 32
+            block_w = mw / bw
+            block_h = mh / bh
+            fog_colour = (60, 60, 80, 200)
+            total = FOG_GRID_W * FOG_GRID_H
+            if fog_revealed < total // 3:
+                # Mostly fog — draw full fog, clear revealed blocks
+                arcade.draw_rect_filled(
+                    arcade.LBWH(mx, my, mw, mh), fog_colour)
+                clear_colour = (5, 5, 20, 245)
+                for by in range(bh):
+                    run_start = -1
+                    for bx in range(bw):
+                        # Block is clear only if ALL cells in 4x4 are revealed
+                        gy0 = by * _BLOCK
+                        gx0 = bx * _BLOCK
+                        all_clear = True
+                        for dy in range(min(_BLOCK, FOG_GRID_H - gy0)):
+                            row = fog_grid[gy0 + dy]
+                            for dx in range(min(_BLOCK, FOG_GRID_W - gx0)):
+                                if not row[gx0 + dx]:
+                                    all_clear = False
+                                    break
+                            if not all_clear:
+                                break
+                        if all_clear:
+                            if run_start < 0:
+                                run_start = bx
+                        else:
+                            if run_start >= 0:
+                                arcade.draw_rect_filled(
+                                    arcade.LBWH(mx + run_start * block_w,
+                                                my + by * block_h,
+                                                (bx - run_start) * block_w,
+                                                block_h), clear_colour)
+                                run_start = -1
+                    if run_start >= 0:
+                        arcade.draw_rect_filled(
+                            arcade.LBWH(mx + run_start * block_w,
+                                        my + by * block_h,
+                                        (bw - run_start) * block_w,
+                                        block_h), clear_colour)
+            else:
+                # Mostly clear — draw fog blocks for unrevealed runs
+                for by in range(bh):
+                    run_start = -1
+                    for bx in range(bw):
+                        gy0 = by * _BLOCK
+                        gx0 = bx * _BLOCK
+                        any_fog = False
+                        for dy in range(min(_BLOCK, FOG_GRID_H - gy0)):
+                            row = fog_grid[gy0 + dy]
+                            for dx in range(min(_BLOCK, FOG_GRID_W - gx0)):
+                                if not row[gx0 + dx]:
+                                    any_fog = True
+                                    break
+                            if any_fog:
+                                break
+                        if any_fog:
+                            if run_start < 0:
+                                run_start = bx
+                        else:
+                            if run_start >= 0:
+                                arcade.draw_rect_filled(
+                                    arcade.LBWH(mx + run_start * block_w,
+                                                my + by * block_h,
+                                                (bx - run_start) * block_w,
+                                                block_h), fog_colour)
+                                run_start = -1
+                    if run_start >= 0:
+                        arcade.draw_rect_filled(
+                            arcade.LBWH(mx + run_start * block_w,
+                                        my + by * block_h,
+                                        (bw - run_start) * block_w,
+                                        block_h), fog_colour)
+
+        # Draw objects ON TOP of fog overlay so they're visible in revealed areas
         for asteroid in asteroid_list:
             if not self._is_revealed(asteroid.center_x, asteroid.center_y, fog_grid):
                 continue
@@ -624,8 +712,8 @@ class HUD:
         for pickup in iron_pickup_list:
             if not self._is_revealed(pickup.center_x, pickup.center_y, fog_grid):
                 continue
-            px, py = to_map(pickup.center_x, pickup.center_y)
-            arcade.draw_circle_filled(px, py, 2.0, (255, 165, 0))
+            ppx, ppy = to_map(pickup.center_x, pickup.center_y)
+            arcade.draw_circle_filled(ppx, ppy, 2.0, (255, 165, 0))
 
         for alien in alien_list:
             if not self._is_revealed(alien.center_x, alien.center_y, fog_grid):
@@ -637,39 +725,22 @@ class HUD:
             for building in building_list:
                 if not self._is_revealed(building.center_x, building.center_y, fog_grid):
                     continue
-                bx, by = to_map(building.center_x, building.center_y)
-                arcade.draw_circle_filled(bx, by, 2.5, (100, 220, 255))
+                bbx, bby = to_map(building.center_x, building.center_y)
+                arcade.draw_circle_filled(bbx, bby, 2.5, (100, 220, 255))
 
-        # Draw grey fog overlay on unrevealed cells
-        if fog_grid is not None:
-            cell_w = mw / FOG_GRID_W
-            cell_h = mh / FOG_GRID_H
-            fog_colour = (60, 60, 80, 200)
-            for gy in range(FOG_GRID_H):
-                row = fog_grid[gy]
-                run_start = -1
-                for gx in range(FOG_GRID_W):
-                    if not row[gx]:
-                        if run_start < 0:
-                            run_start = gx
-                    else:
-                        if run_start >= 0:
-                            rx = mx + run_start * cell_w
-                            ry = my + gy * cell_h
-                            rw = (gx - run_start) * cell_w
-                            arcade.draw_rect_filled(
-                                arcade.LBWH(rx, ry, rw, cell_h), fog_colour,
-                            )
-                            run_start = -1
-                # Flush remaining run at end of row
-                if run_start >= 0:
-                    rx = mx + run_start * cell_w
-                    ry = my + gy * cell_h
-                    rw = (FOG_GRID_W - run_start) * cell_w
-                    arcade.draw_rect_filled(
-                        arcade.LBWH(rx, ry, rw, cell_h), fog_colour,
-                    )
+        # Trading station (yellow diamond, larger than other markers)
+        if trade_station_pos is not None:
+            tsx, tsy = trade_station_pos
+            if self._is_revealed(tsx, tsy, fog_grid):
+                tmx, tmy = to_map(tsx, tsy)
+                arcade.draw_rect_filled(
+                    arcade.LBWH(tmx - 3, tmy - 3, 6, 6),
+                    (255, 220, 50))
+                arcade.draw_rect_outline(
+                    arcade.LBWH(tmx - 3, tmy - 3, 6, 6),
+                    (255, 255, 150), border_width=1)
 
+        # Player dot (always on top)
         sx, sy = to_map(player_x, player_y)
         rad = math.radians(player_heading)
         lx = sx + math.sin(rad) * 5

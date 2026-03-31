@@ -20,10 +20,13 @@ _SAVE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "saves")
 
 def save_to_dict(gv: GameView, name: str = "") -> dict:
     """Serialize current game state to a dict."""
+    from settings import audio
     return {
         "save_name": name,
         "faction": gv._faction,
         "ship_type": gv._ship_type,
+        "character_name": audio.character_name,
+        "character_xp": gv._char_xp,
         "player": {
             "x": gv.player.center_x,
             "y": gv.player.center_y,
@@ -76,6 +79,11 @@ def save_to_dict(gv: GameView, name: str = "") -> dict:
             for i in range(QUICK_USE_SLOTS)
         ],
         "unlocked_recipes": list(gv._craft_menu._unlocked),
+        "credits": gv._trade_menu.credits,
+        "trade_station": {
+            "x": gv._trade_station.center_x,
+            "y": gv._trade_station.center_y,
+        } if gv._trade_station is not None else None,
     }
 
 
@@ -179,6 +187,9 @@ def restore_state(view: GameView, data: dict) -> None:
             and len(saved_fog) == FOG_GRID_H
             and all(isinstance(r, list) and len(r) == FOG_GRID_W for r in saved_fog)):
         view._fog_grid = saved_fog
+        # Recount revealed cells
+        view._fog_revealed = sum(
+            cell for row in saved_fog for cell in row)
 
     # Station inventory
     si_data = data.get("station_inventory")
@@ -198,6 +209,17 @@ def restore_state(view: GameView, data: dict) -> None:
     if saved_unlocked and isinstance(saved_unlocked, list):
         view._craft_menu._unlocked = set(saved_unlocked)
 
+    # Restore character name
+    from settings import audio
+    saved_char = data.get("character_name", "")
+    if saved_char:
+        audio.character_name = saved_char
+    # Restore character XP
+    from character_data import level_for_xp
+    view._char_xp = data.get("character_xp", 0)
+    view._char_level = level_for_xp(view._char_xp)
+    view._apply_character_weapon_bonuses()
+
     # Quick-use slots
     saved_qu = data.get("quick_use")
     if saved_qu and isinstance(saved_qu, list):
@@ -205,6 +227,21 @@ def restore_state(view: GameView, data: dict) -> None:
             if i < QUICK_USE_SLOTS and isinstance(slot_data, dict):
                 view._hud.set_quick_use(
                     i, slot_data.get("type"), slot_data.get("count", 0))
+
+    # Trading station
+    view._trade_menu.credits = data.get("credits", 0)
+    ts_data = data.get("trade_station")
+    if ts_data and isinstance(ts_data, dict):
+        import arcade as _arc
+        view._trade_station = _arc.Sprite(
+            path_or_texture=view._trade_station_tex, scale=0.15)
+        view._trade_station.center_x = ts_data["x"]
+        view._trade_station.center_y = ts_data["y"]
+    elif ts_data is None:
+        # Old save without trade station data — spawn if repair module exists
+        from sprites.building import RepairModule
+        if any(isinstance(b, RepairModule) for b in view.building_list):
+            view._spawn_trade_station()
 
 
 def load_game(gv: GameView, slot: int) -> None:

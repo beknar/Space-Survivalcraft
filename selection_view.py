@@ -20,6 +20,7 @@ class SelectionView(arcade.View):
 
     _PHASE_FACTION = 0
     _PHASE_SHIP = 1
+    _PHASE_CHARACTER = 2
 
     def __init__(self) -> None:
         super().__init__()
@@ -30,6 +31,20 @@ class SelectionView(arcade.View):
         self._selected_faction: int = 0     # index into _faction_names
         self._selected_ship: int = 0        # index into _ship_names
         self._chosen_faction: str = ""      # set after faction is confirmed
+        self._chosen_ship: str = ""         # set after ship is confirmed
+
+        # Character selection
+        from video_player import scan_characters_dir, character_video_path
+        self._character_names: list[str] = scan_characters_dir()
+        if not self._character_names:
+            self._character_names = ["(none)"]
+        self._selected_char: int = 0
+
+        # Load character thumbnails (first frame from each video)
+        self._char_previews: list[arcade.Texture | None] = []
+        for cname in self._character_names:
+            thumb = self._extract_video_thumbnail(character_video_path(cname) if cname != "(none)" else None)
+            self._char_previews.append(thumb)
 
         # Pre-load one preview frame per faction (first ship, first col)
         # We'll use the Cruiser row (row 7) col 0 as the faction preview
@@ -113,8 +128,10 @@ class SelectionView(arcade.View):
 
         if self._phase == self._PHASE_FACTION:
             self._draw_faction_phase()
-        else:
+        elif self._phase == self._PHASE_SHIP:
             self._draw_ship_phase()
+        elif self._phase == self._PHASE_CHARACTER:
+            self._draw_character_phase()
 
         self._t_hint.draw()
 
@@ -220,7 +237,140 @@ class SelectionView(arcade.View):
         self._t_stats.y = self.window.height // 2 - 80
         self._t_stats.draw()
 
+    @staticmethod
+    def _extract_video_thumbnail(path: str | None) -> arcade.Texture | None:
+        """Extract the first frame from a video file as an arcade Texture."""
+        if path is None or not os.path.isfile(path):
+            return None
+        try:
+            import pyglet.media
+            from pyglet.media.codecs.ffmpeg import FFmpegDecoder
+            source = pyglet.media.load(path, decoder=FFmpegDecoder())
+            if source.video_format is None:
+                source.delete()
+                return None
+            frame = source.get_next_video_frame()
+            if frame is None:
+                source.delete()
+                return None
+            w, h = frame.width, frame.height
+            raw = frame.get_data("RGBA", w * 4)
+            pil_img = PILImage.frombytes("RGBA", (w, h), raw)
+            pil_img = pil_img.resize((150, 150), PILImage.BILINEAR)
+            source.delete()
+            return arcade.Texture(pil_img)
+        except Exception:
+            return None
+
+    def _draw_character_phase(self) -> None:
+        self._t_title.text = "CHOOSE YOUR CHARACTER"
+        self._t_title.draw()
+
+        count = len(self._character_names)
+        spacing = min(220, (self.window.width - 100) // max(count, 1))
+        total_w = (count - 1) * spacing
+        start_x = self.window.width // 2 - total_w // 2
+
+        for i, name in enumerate(self._character_names):
+            cx = start_x + i * spacing
+            cy = self.window.height // 2 + 30
+            selected = (i == self._selected_char)
+
+            if selected:
+                arcade.draw_rect_filled(
+                    arcade.LBWH(cx - 85, cy - 90, 170, 190),
+                    (40, 60, 100, 180),
+                )
+                arcade.draw_rect_outline(
+                    arcade.LBWH(cx - 85, cy - 90, 170, 190),
+                    arcade.color.CYAN, border_width=2,
+                )
+
+            # Character thumbnail
+            if i < len(self._char_previews) and self._char_previews[i] is not None:
+                tex = self._char_previews[i]
+                tw, th = tex.width, tex.height
+                arcade.draw_texture_rect(
+                    tex,
+                    arcade.LBWH(cx - tw / 2, cy - th / 2 + 15, tw, th),
+                )
+
+            # Character name
+            self._t_label.text = name
+            self._t_label.x = cx
+            self._t_label.y = cy - 80
+            color = arcade.color.CYAN if selected else arcade.color.WHITE
+            self._t_label.color = color
+            self._t_label.draw()
+
+    def _item_positions(self, items: list, spacing: int) -> list[int]:
+        """Return center-X positions for a list of items, evenly spaced."""
+        count = len(items)
+        total_w = (count - 1) * spacing
+        start_x = self.window.width // 2 - total_w // 2
+        return [start_x + i * spacing for i in range(count)]
+
+    def _hit_item(self, x: float, y: float, items: list, spacing: int,
+                  cy: float, half_w: float = 70, half_h: float = 80) -> int:
+        """Return the index of the item at (x, y), or -1."""
+        positions = self._item_positions(items, spacing)
+        for i, cx in enumerate(positions):
+            if cx - half_w <= x <= cx + half_w and cy - half_h <= y <= cy + half_h:
+                return i
+        return -1
+
     # ── Input ───────────────────────────────────────────────────────────────
+    def on_mouse_press(self, x: int, y: int, button: int, modifiers: int) -> None:
+        if self._phase == self._PHASE_FACTION:
+            cy = self.window.height // 2 + 30
+            idx = self._hit_item(x, y, self._faction_names, 240, cy)
+            if idx >= 0:
+                self._selected_faction = idx
+                arcade.play_sound(self._confirm_snd, volume=0.6)
+                self._chosen_faction = self._faction_names[idx]
+                self._load_ship_previews(self._chosen_faction)
+                self._selected_ship = 0
+                self._phase = self._PHASE_SHIP
+
+        elif self._phase == self._PHASE_SHIP:
+            cy = self.window.height // 2 + 60
+            idx = self._hit_item(x, y, self._ship_names, 220, cy)
+            if idx >= 0:
+                self._selected_ship = idx
+                arcade.play_sound(self._confirm_snd, volume=0.6)
+                self._chosen_ship = self._ship_names[idx]
+                self._selected_char = 0
+                self._phase = self._PHASE_CHARACTER
+
+        elif self._phase == self._PHASE_CHARACTER:
+            cy = self.window.height // 2 + 30
+            spacing = min(220, (self.window.width - 100) // max(len(self._character_names), 1))
+            idx = self._hit_item(x, y, self._character_names, spacing, cy, 85, 90)
+            if idx >= 0:
+                self._selected_char = idx
+                arcade.play_sound(self._confirm_snd, volume=0.6)
+                self._confirm_selection()
+
+    def on_mouse_motion(self, x: int, y: int, dx: int, dy: int) -> None:
+        if self._phase == self._PHASE_FACTION:
+            cy = self.window.height // 2 + 30
+            idx = self._hit_item(x, y, self._faction_names, 240, cy)
+            if idx >= 0:
+                self._selected_faction = idx
+
+        elif self._phase == self._PHASE_SHIP:
+            cy = self.window.height // 2 + 60
+            idx = self._hit_item(x, y, self._ship_names, 220, cy)
+            if idx >= 0:
+                self._selected_ship = idx
+
+        elif self._phase == self._PHASE_CHARACTER:
+            cy = self.window.height // 2 + 30
+            spacing = min(220, (self.window.width - 100) // max(len(self._character_names), 1))
+            idx = self._hit_item(x, y, self._character_names, spacing, cy, 85, 90)
+            if idx >= 0:
+                self._selected_char = idx
+
     def on_key_press(self, key: int, modifiers: int) -> None:
         if self._phase == self._PHASE_FACTION:
             if key in (arcade.key.LEFT, arcade.key.A):
@@ -248,16 +398,39 @@ class SelectionView(arcade.View):
                 arcade.play_sound(self._switch_snd, volume=0.5)
             elif key in (arcade.key.RETURN, arcade.key.ENTER, arcade.key.SPACE):
                 arcade.play_sound(self._confirm_snd, volume=0.6)
-                self._confirm_selection()
+                self._chosen_ship = self._ship_names[self._selected_ship]
+                self._selected_char = 0
+                self._phase = self._PHASE_CHARACTER
             elif key == arcade.key.ESCAPE:
                 arcade.play_sound(self._switch_snd, volume=0.4)
                 self._phase = self._PHASE_FACTION
 
+        elif self._phase == self._PHASE_CHARACTER:
+            if key in (arcade.key.LEFT, arcade.key.A):
+                self._selected_char = (self._selected_char - 1) % len(self._character_names)
+                arcade.play_sound(self._switch_snd, volume=0.5)
+            elif key in (arcade.key.RIGHT, arcade.key.D):
+                self._selected_char = (self._selected_char + 1) % len(self._character_names)
+                arcade.play_sound(self._switch_snd, volume=0.5)
+            elif key in (arcade.key.RETURN, arcade.key.ENTER, arcade.key.SPACE):
+                arcade.play_sound(self._confirm_snd, volume=0.6)
+                self._confirm_selection()
+            elif key == arcade.key.ESCAPE:
+                arcade.play_sound(self._switch_snd, volume=0.4)
+                self._phase = self._PHASE_SHIP
+
     def _confirm_selection(self) -> None:
-        """Transition to GameView with the chosen faction and ship type."""
+        """Transition to GameView with the chosen faction, ship type, and character."""
         from game_view import GameView
+        from settings import audio
 
         faction = self._chosen_faction
-        ship_type = self._ship_names[self._selected_ship]
+        ship_type = self._chosen_ship
+        # Set character in settings so GameView picks it up
+        char_name = self._character_names[self._selected_char]
+        if char_name != "(none)":
+            audio.character_name = char_name
+        else:
+            audio.character_name = ""
         view = GameView(faction=faction, ship_type=ship_type)
         self.window.show_view(view)

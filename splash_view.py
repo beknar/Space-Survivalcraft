@@ -158,6 +158,7 @@ class SplashView(arcade.View):
                         "exists": True,
                         "faction": data.get("faction", "?"),
                         "ship_type": data.get("ship_type", "?"),
+                        "character": data.get("character_name", ""),
                         "hp": player.get("hp", 0),
                         "shields": player.get("shields", 0),
                     })
@@ -314,7 +315,9 @@ class SplashView(arcade.View):
 
             # Detail line (faction/ship/HP/shields)
             if info["exists"]:
-                detail = (f"{info.get('faction', '?')} \u00b7 {info.get('ship_type', '?')}"
+                char = info.get("character", "")
+                char_part = f"  \u00b7 {char}" if char else ""
+                detail = (f"{info.get('faction', '?')} \u00b7 {info.get('ship_type', '?')}{char_part}"
                           f"  |  HP {info.get('hp', 0)}  Shields {info.get('shields', 0)}")
                 det_c = (140, 200, 240) if hovered else (120, 150, 180)
                 self._t_load_details[i].text = detail

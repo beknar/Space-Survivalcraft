@@ -17,15 +17,17 @@ class ShieldSprite(arcade.Sprite):
       to a semi-transparent normal state.
     """
 
-    def __init__(self, frames: list[arcade.Texture]) -> None:
+    def __init__(self, frames: list[arcade.Texture],
+                 tint: tuple[int, int, int] = (255, 255, 255)) -> None:
         super().__init__(path_or_texture=frames[0], scale=SHIELD_SCALE)
         self._frames = frames
         self._frame_idx: int = 0
         self._anim_timer: float = 0.0
         self._anim_interval: float = 1.0 / SHIELD_ANIM_FPS
         self._hit_timer: float = 0.0
-        # Normal appearance: original cyan texture, slightly transparent
-        self.color = (255, 255, 255, 200)
+        self._tint = tint
+        # Normal appearance: tinted, slightly transparent
+        self.color = (*tint, 200)
 
     def hit_flash(self) -> None:
         """Trigger a short bright flash -- call whenever the shield takes damage."""
@@ -55,8 +57,8 @@ class ShieldSprite(arcade.Sprite):
         # ── Hit flash ───────────────────────────────────────────────────────
         if self._hit_timer > 0.0:
             self._hit_timer = max(0.0, self._hit_timer - dt)
-            t = self._hit_timer / SHIELD_HIT_FLASH   # 1 at hit -> 0 when done
-            a = int(200 + 55 * t)    # alpha: 255 (full) -> 200 (normal)
-            self.color = (255, 255, 255, a)
+            t = self._hit_timer / SHIELD_HIT_FLASH
+            a = int(200 + 55 * t)
+            self.color = (*self._tint, a)
         else:
-            self.color = (255, 255, 255, 200)
+            self.color = (*self._tint, 200)

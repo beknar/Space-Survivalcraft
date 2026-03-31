@@ -6,7 +6,7 @@ import arcade
 from constants import SCREEN_WIDTH, SCREEN_HEIGHT, MODULE_TYPES
 
 _PANEL_W = 320
-_PANEL_H = 300
+_PANEL_H = 420
 
 
 class ShipStats:
@@ -25,13 +25,14 @@ class ShipStats:
                                     anchor_x="center", anchor_y="center")
         self._lines: list[arcade.Text] = [
             arcade.Text("", 0, 0, arcade.color.WHITE, 9)
-            for _ in range(14)
+            for _ in range(22)
         ]
 
     def toggle(self) -> None:
         self.open = not self.open
 
-    def refresh(self, player, faction: str, ship_type: str, modules: list) -> None:
+    def refresh(self, player, faction: str, ship_type: str, modules: list,
+                char_name: str = "", char_xp: int = 0, char_level: int = 1) -> None:
         """Update cached stats from the player ship, showing module modifications."""
         # Build a map of which module affects which stat
         mod_effects: dict[str, tuple[str, int | float]] = {}
@@ -56,11 +57,26 @@ class ShipStats:
         ship_str = ship_type or "Classic"
         base = player
 
+        from character_data import CHARACTERS, xp_for_next_level
+        char_class = ""
+        if char_name and char_name in CHARACTERS:
+            char_class = f" ({CHARACTERS[char_name]['class']})"
+        next_xp = xp_for_next_level(char_xp)
+        xp_str = f"{char_xp}/{next_xp}" if next_xp else f"{char_xp} (MAX)"
+
         data = [
             (f"Faction: {faction_str}", arcade.color.LIGHT_BLUE),
             (f"Ship: {ship_str}", arcade.color.LIGHT_GREEN),
-            (f"Level: 1", arcade.color.YELLOW),
-            ("", (0, 0, 0, 0)),
+            (f"Character: {char_name or 'None'}{char_class}", arcade.color.KHAKI),
+            (f"Level: {char_level}  XP: {xp_str}", arcade.color.YELLOW),
+        ]
+        # Show active character benefits
+        if char_name and char_name in CHARACTERS:
+            benefits = CHARACTERS[char_name]["benefits"]
+            for i in range(min(char_level, len(benefits))):
+                data.append((f"  L{i+1}: {benefits[i]}", (160, 200, 160)))
+        data.append(("", (0, 0, 0, 0)))
+        data += [
             _fmt("HP", base._base_max_hp, base.max_hp, "max_hp",
                  color=arcade.color.LIME_GREEN),
             _fmt("Shields", base._base_max_shields, base.max_shields, "max_shields",

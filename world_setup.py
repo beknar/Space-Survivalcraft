@@ -35,7 +35,16 @@ def load_bg_texture() -> arcade.Texture:
     )
 
 
-def load_shield(player_x: float, player_y: float) -> tuple[ShieldSprite, arcade.SpriteList]:
+_FACTION_SHIELD_TINTS: dict[str, tuple[int, int, int]] = {
+    "Earth":       (255, 120, 120),   # red
+    "Colonial":    (120, 255, 120),   # green
+    "Heavy World": (180, 140, 100),   # brown
+    "Ascended":    (200, 120, 255),   # purple
+}
+
+
+def load_shield(player_x: float, player_y: float,
+                faction: str | None = None) -> tuple[ShieldSprite, arcade.SpriteList]:
     """Load shield frames and create the ShieldSprite + SpriteList."""
     _pil_shield = PILImage.open(SHIELD_PNG).convert("RGBA")
     frames: list[arcade.Texture] = []
@@ -50,7 +59,8 @@ def load_shield(player_x: float, player_y: float) -> tuple[ShieldSprite, arcade.
                                       y0 + SHIELD_FRAME_H))
                 )
             )
-    sprite = ShieldSprite(frames)
+    tint = _FACTION_SHIELD_TINTS.get(faction, (255, 255, 255))
+    sprite = ShieldSprite(frames, tint=tint)
     sprite.center_x = player_x
     sprite.center_y = player_y
     slist = arcade.SpriteList()
