@@ -35,6 +35,7 @@ Space Survivalcraft/
 │
 │  ── Character videos ──
 ├── characters/          # Character video files (Name.mp4), scanned by video_player.scan_characters_dir()
+│   └── portraits/       # Character portrait PNGs (Debra1-4.png, Ellie1-4.png, Tara1-4.png) shown in Ship Stats bio panel
 │
 │  ── Views (each is an arcade.View subclass) ──
 ├── splash_view.py       # SplashView — "CALL OF ORION" title, Play/Load/Options/Exit buttons
@@ -60,7 +61,7 @@ Space Survivalcraft/
 ├── inventory.py         # Inventory — 5×5 cargo grid with drag-and-drop, consolidate, module/blueprint icons
 ├── station_inventory.py # StationInventory — 10×10 Home Station inventory with item transfer, consolidate, tooltips
 ├── craft_menu.py        # CraftMenu — crafting UI for Basic Crafter (Repair Pack + module recipes, cancel support)
-├── ship_stats.py        # ShipStats — ship statistics overlay (C key) showing faction, stats, module modifications, character level/benefits
+├── ship_stats.py        # ShipStats — ship statistics overlay (C key) showing faction, stats, module modifications, character level/benefits + character bio panel with random portrait and backstory
 ├── trade_menu.py        # TradeMenu — trading station overlay (sell items for credits, buy consumables)
 ├── build_menu.py        # BuildMenu — right-side overlay for constructing station modules
 ├── station_info.py      # StationInfo — right-side overlay showing building HP + module stats + world stats (T key)
@@ -215,6 +216,8 @@ sprites/alien.py
 - **GC management** — automatic GC disabled; runs once when ESC menu opens to avoid gameplay stalls
 - **Two-frame video pipeline** — GPU blit and readback split across frames; per-frame conversion lock prevents double conversion; fog minimap uses 4x4 block sampling
 - **Respawn texture caching** — asteroid/alien textures loaded once at init, reused for all respawns
+- **XP hard cap** — XP capped at 1,000 (max level); `_add_xp` short-circuits when cap reached
+- **Character bio panel** — Ship Stats overlay (C key) shows a second panel with a random portrait from `characters/portraits/` and backstory text; portrait chosen fresh each time the panel opens
 
 ## Game Rules Reference
 

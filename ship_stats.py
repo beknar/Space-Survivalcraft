@@ -1,12 +1,46 @@
 """Ship statistics overlay — shows faction, ship type, level, and stats with module mods."""
 from __future__ import annotations
 
+import glob
+import os
+import random
+
 import arcade
 
 from constants import SCREEN_WIDTH, SCREEN_HEIGHT, MODULE_TYPES
 
 _PANEL_W = 320
 _PANEL_H = 420
+
+_BIO_PANEL_W = 340
+_BIO_PANEL_H = 420
+_PORTRAIT_H = 220
+
+_PORTRAITS_DIR = os.path.join("characters", "portraits")
+
+_BACKSTORIES: dict[str, str] = {
+    "Debra": (
+        "Debra's smile hides a sadness that she barely overcomes.  "
+        "She laughs, smiles, tells jokes, whatever she has to do to keep going.  "
+        "The shadow of the Double-Star War looms over her, tainting everything she does.  "
+        "She believes that her light can overcome her past, and she wants you to join her "
+        "on her journey.  Will you help her escape?  Or will you help Debra overcome her "
+        "personal darkness?"
+    ),
+    "Ellie": (
+        "Tara isn't fleeing.  She's chasing vengeance.  Every corner, every doorway could "
+        "reveal a clue to the whereabouts of the villains of the Double-Star War that "
+        "betrayed her and others.  What could these people have done that would cause a "
+        "young woman to give up her life to hunt criminals?"
+    ),
+    "Tara": (
+        "Tara is a treasure hunter looking for the technology of the ancients.  After "
+        "having her work destroyed during the Double-Star War, she now searches for "
+        "vestiges of a past glory that she suspects is greater than the current status quo.  "
+        "A few clues from distant dig sites have led her here.  Is she really looking for "
+        "answers from the past or does she have a hidden motive?"
+    ),
+}
 
 
 class ShipStats:
@@ -26,6 +60,17 @@ class ShipStats:
         self._lines: list[arcade.Text] = [
             arcade.Text("", 0, 0, arcade.color.WHITE, 9)
             for _ in range(22)
+        ]
+
+        # Character bio panel state
+        self._portrait_texture: arcade.Texture | None = None
+        self._bio_title = arcade.Text("", 0, 0, arcade.color.KHAKI, 13,
+                                      bold=True, anchor_x="center",
+                                      anchor_y="center")
+        self._bio_lines: list[arcade.Text] = [
+            arcade.Text("", 0, 0, arcade.color.WHITE, 9,
+                        multiline=True, width=_BIO_PANEL_W - 32)
+            for _ in range(1)
         ]
 
     def toggle(self) -> None:
@@ -110,12 +155,34 @@ class ShipStats:
             else:
                 self._lines[i].text = ""
 
+        # Load a random portrait for the current character
+        self._portrait_texture = None
+        if char_name:
+            pattern = os.path.join(_PORTRAITS_DIR, f"{char_name}*.png")
+            matches = glob.glob(pattern)
+            if matches:
+                chosen = random.choice(matches)
+                self._portrait_texture = arcade.load_texture(chosen)
+            backstory = _BACKSTORIES.get(char_name, "")
+            self._bio_title.text = f"{char_name}'s Backstory"
+            self._bio_lines[0].text = backstory
+        else:
+            self._bio_title.text = ""
+            self._bio_lines[0].text = ""
+
     def draw(self) -> None:
         if not self.open:
             return
         sw = self._window.width if self._window else SCREEN_WIDTH
         sh = self._window.height if self._window else SCREEN_HEIGHT
-        px = (sw - _PANEL_W) // 2
+
+        # Total width of both panels + gap
+        gap = 12
+        total_w = _PANEL_W + gap + _BIO_PANEL_W
+        start_x = (sw - total_w) // 2
+
+        # --- Left panel: ship stats ---
+        px = start_x
         py = (sh - _PANEL_H) // 2
 
         arcade.draw_rect_filled(
@@ -135,3 +202,42 @@ class ShipStats:
                 t.y = line_y
                 t.draw()
             line_y -= 18
+
+        # --- Right panel: character bio ---
+        if self._bio_title.text:
+            bx = start_x + _PANEL_W + gap
+            by = py
+
+            arcade.draw_rect_filled(
+                arcade.LBWH(bx, by, _BIO_PANEL_W, _BIO_PANEL_H),
+                (15, 15, 40, 235))
+            arcade.draw_rect_outline(
+                arcade.LBWH(bx, by, _BIO_PANEL_W, _BIO_PANEL_H),
+                arcade.color.STEEL_BLUE, border_width=2)
+
+            # Portrait
+            if self._portrait_texture:
+                tex = self._portrait_texture
+                # Scale portrait to fit within the panel width and _PORTRAIT_H
+                scale = min((_BIO_PANEL_W - 24) / tex.width,
+                            _PORTRAIT_H / tex.height)
+                draw_w = tex.width * scale
+                draw_h = tex.height * scale
+                img_cx = bx + _BIO_PANEL_W // 2
+                img_cy = by + _BIO_PANEL_H - 10 - int(draw_h // 2)
+                arcade.draw_texture_rect(
+                    tex,
+                    arcade.XYWH(img_cx, img_cy, draw_w, draw_h))
+                title_y = by + _BIO_PANEL_H - 20 - int(draw_h) - 10
+            else:
+                title_y = by + _BIO_PANEL_H - 20
+
+            # Title
+            self._bio_title.x = bx + _BIO_PANEL_W // 2
+            self._bio_title.y = title_y
+            self._bio_title.draw()
+
+            # Backstory text
+            self._bio_lines[0].x = bx + 16
+            self._bio_lines[0].y = title_y - 20
+            self._bio_lines[0].draw()

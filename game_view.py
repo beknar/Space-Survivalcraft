@@ -420,8 +420,10 @@ class GameView(arcade.View):
     def _add_xp(self, amount: int) -> None:
         """Add XP and check for level-up; reapply bonuses if leveled."""
         from character_data import level_for_xp
+        if self._char_xp >= 1000:
+            return
         old_level = self._char_level
-        self._char_xp += amount
+        self._char_xp = min(self._char_xp + amount, 1000)
         self._char_level = level_for_xp(self._char_xp)
         if self._char_level > old_level:
             self._flash_game_msg(f"Level {self._char_level}!", 2.0)

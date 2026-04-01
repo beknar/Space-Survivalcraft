@@ -18,6 +18,7 @@ A top-down space survival game built with Python and the Arcade framework. Pilot
   - **Ellie (Fighter)** --- laser damage, cooldown, speed, and range bonuses
   - **Tara (Builder)** --- blueprint drop bonus, reduced build/craft costs, station HP bonus
 - Characters have 5 levels with XP thresholds (0, 100, 300, 600, 1000)
+- XP hard-capped at 1,000 --- no further XP earned after reaching max level
 - XP earned: 10 per asteroid, 25 per alien kill
 - Character thumbnail previews extracted from video files
 - Mouse and keyboard selection across all three phases
@@ -85,6 +86,7 @@ A top-down space survival game built with Python and the Arcade framework. Pilot
 - **Drag support**: move modules between slots, drag back to inventory to unequip, drag from station inventory directly to slots
 - **Module icons**: each slot shows the module's icon; hover tooltip shows module name
 - **Ship Stats panel** (C key): shows all ship stats with base value, modification, and which module provides it
+- **Character Bio panel**: second panel alongside Ship Stats showing a random character portrait and backstory text; portrait selected randomly from `characters/portraits/` each time the panel opens
 - **Cancel crafting**: click the CRAFT button while crafting to cancel and refund the iron cost
 - Repair packs cannot be used when HP and shields are already full
 
