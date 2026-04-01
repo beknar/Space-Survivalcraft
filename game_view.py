@@ -32,6 +32,9 @@ from constants import (
     MINIMAP_Y, MINIMAP_H, SHIELD_SCALE,
     BLUEPRINT_PNG, MODULE_TYPES, MODULE_SLOT_COUNT,
     BROADSIDE_COOLDOWN, BROADSIDE_DAMAGE, BROADSIDE_SPEED, BROADSIDE_RANGE,
+    BOSS_MONSTER_PNG, BOSS_FRAME_SIZE, BOSS_SHEET_COLS, BOSS_SHEET_ROWS,
+    BOSS_RADIUS, BOSS_COLLISION_DAMAGE, BOSS_COLLISION_COOLDOWN,
+    BOSS_BOUNCE, BOSS_CHARGE_DAMAGE, BOSS_XP_REWARD, BOSS_IRON_DROP,
 )
 from settings import audio
 from sprites.projectile import Weapon
@@ -56,6 +59,7 @@ from world_setup import (
     collect_music_tracks,
     load_building_textures, load_turret_laser,
 )
+from sprites.boss import BossAlienShip
 from collisions import (
     handle_projectile_hits,
     handle_ship_asteroid_collision,
@@ -67,6 +71,11 @@ from collisions import (
     handle_alien_building_collision,
     handle_turret_projectile_hits,
     handle_ship_building_collision,
+    handle_boss_projectile_hits,
+    handle_boss_player_collision,
+    handle_boss_laser_hits,
+    handle_boss_building_hits,
+    handle_boss_charge_hit,
 )
 from station_info import StationInfo
 from ship_stats import ShipStats
@@ -127,6 +136,15 @@ class GameView(arcade.View):
         self._flash_timer: float = 0.0
         self._t_flash = arcade.Text("", 0, 0, (255, 100, 100), 12, bold=True,
                                     anchor_x="center", anchor_y="center")
+
+        # Boss announcement (large dramatic text)
+        self._boss_announce_timer: float = 0.0
+        self._t_boss_announce = arcade.Text(
+            "", 0, 0, (255, 60, 60), 36, bold=True,
+            anchor_x="center", anchor_y="center")
+        self._t_boss_subtitle = arcade.Text(
+            "", 0, 0, (255, 180, 180), 16, bold=True,
+            anchor_x="center", anchor_y="center")
 
         # Held-key tracking
         self._keys: set[int] = set()
@@ -217,6 +235,24 @@ class GameView(arcade.View):
         self.alien_projectile_list: arcade.SpriteList = arcade.SpriteList()
         self.hit_sparks: list[HitSpark] = []
         self.fire_sparks: list[FireSpark] = []
+
+        # Boss encounter state
+        self._boss: Optional[BossAlienShip] = None
+        self._boss_spawned: bool = False
+        self._boss_defeated: bool = False
+        self._boss_list: arcade.SpriteList = arcade.SpriteList()
+        self._boss_projectile_list: arcade.SpriteList = arcade.SpriteList()
+        # Pre-load boss textures (pick random row from first column)
+        from PIL import Image as PILImage
+        _pil_boss = PILImage.open(BOSS_MONSTER_PNG).convert("RGBA")
+        boss_row = random.randint(0, BOSS_SHEET_ROWS - 1)
+        _boss_frame = _pil_boss.crop((
+            0, boss_row * BOSS_FRAME_SIZE,
+            BOSS_FRAME_SIZE, (boss_row + 1) * BOSS_FRAME_SIZE,
+        ))
+        _boss_frame = _boss_frame.rotate(90, expand=True)
+        self._boss_tex = arcade.Texture(_boss_frame)
+        self._boss_laser_tex = self._alien_laser_tex  # reuse alien laser
 
         # Repair pack texture
         from PIL import Image as PILImage
@@ -540,6 +576,54 @@ class GameView(arcade.View):
             self.hit_sparks.append(HitSpark(ax, ay))
             arcade.play_sound(self._bump_snd, volume=0.3)
             return
+
+    def _check_boss_spawn(self) -> None:
+        """Check if boss spawn conditions are met and spawn if so."""
+        if self._boss_spawned or self._boss_defeated or self._boss is not None:
+            return
+        # Condition 1: max level (5)
+        if self._char_level < 5:
+            return
+        # Condition 2: all 4 module slots filled
+        if any(m is None for m in self._module_slots):
+            return
+        # Condition 3: at least 5 repair packs (ship + station combined)
+        rp_count = self.inventory.count_item("repair_pack")
+        rp_count += self._station_inv.count_item("repair_pack")
+        if rp_count < 5:
+            return
+        # Condition 4: must have a Home Station
+        home = None
+        for b in self.building_list:
+            if isinstance(b, HomeStation) and not b.disabled:
+                home = b
+                break
+        if home is None:
+            return
+        self._spawn_boss(home.center_x, home.center_y)
+
+    def _spawn_boss(self, station_x: float, station_y: float) -> None:
+        """Spawn the boss as far as possible from the station."""
+        # Pick the world corner farthest from the station
+        corners = [
+            (100.0, 100.0),
+            (WORLD_WIDTH - 100.0, 100.0),
+            (100.0, WORLD_HEIGHT - 100.0),
+            (WORLD_WIDTH - 100.0, WORLD_HEIGHT - 100.0),
+        ]
+        best_corner = max(
+            corners,
+            key=lambda c: math.hypot(c[0] - station_x, c[1] - station_y),
+        )
+        self._boss = BossAlienShip(
+            self._boss_tex, self._boss_laser_tex,
+            best_corner[0], best_corner[1],
+            station_x, station_y,
+        )
+        self._boss_list.clear()
+        self._boss_list.append(self._boss)
+        self._boss_spawned = True
+        self._boss_announce_timer = 5.0
 
     def _trigger_shake(self) -> None:
         """Start a brief camera shake."""
@@ -904,6 +988,10 @@ class GameView(arcade.View):
             self.turret_projectile_list.draw()
             self.alien_list.draw()
             self.alien_projectile_list.draw()
+            # Boss
+            if self._boss is not None and self._boss.hp > 0:
+                self._boss_list.draw()
+                self._boss_projectile_list.draw()
             self.projectile_list.draw()
             # Contrail drawn behind the player ship
             for cp in self._contrail:
@@ -977,6 +1065,8 @@ class GameView(arcade.View):
                 character_name=audio.character_name,
                 trade_station_pos=(self._trade_station.center_x, self._trade_station.center_y)
                     if self._trade_station is not None else None,
+                boss_pos=(self._boss.center_x, self._boss.center_y)
+                    if self._boss is not None and self._boss.hp > 0 else None,
             )
             # Skip expensive video frame conversions when menu is open;
             # cached textures still display from last converted frame
@@ -1032,6 +1122,43 @@ class GameView(arcade.View):
                 self._t_building_tip.x = tx0 + tw // 2
                 self._t_building_tip.y = ty + 2
                 self._t_building_tip.draw()
+            # Boss HP bar (top of play area)
+            if self._boss is not None and self._boss.hp > 0:
+                bar_w = 400
+                bar_h = 16
+                bar_x = STATUS_WIDTH + (self.window.width - STATUS_WIDTH - bar_w) // 2
+                bar_y = self.window.height - 40
+                # Background
+                arcade.draw_rect_filled(
+                    arcade.LBWH(bar_x, bar_y, bar_w, bar_h), (30, 10, 10, 220))
+                # Shield bar (cyan, on top portion)
+                if self._boss.shields > 0:
+                    sw = int(bar_w * self._boss.shields / self._boss.max_shields)
+                    arcade.draw_rect_filled(
+                        arcade.LBWH(bar_x, bar_y + bar_h // 2, sw, bar_h // 2),
+                        (80, 200, 255, 200))
+                # HP bar (red)
+                hw = int(bar_w * self._boss.hp / self._boss.max_hp)
+                arcade.draw_rect_filled(
+                    arcade.LBWH(bar_x, bar_y, hw, bar_h // 2),
+                    (220, 50, 50, 220))
+                arcade.draw_rect_outline(
+                    arcade.LBWH(bar_x, bar_y, bar_w, bar_h),
+                    (200, 60, 60), border_width=1)
+                # Label
+                phase_str = f"Phase {self._boss.phase}"
+                if not hasattr(self, '_t_boss_label'):
+                    self._t_boss_label = arcade.Text(
+                        "", 0, 0, arcade.color.WHITE, 10, bold=True,
+                        anchor_x="center", anchor_y="center")
+                self._t_boss_label.text = (
+                    f"BOSS  HP {self._boss.hp}/{self._boss.max_hp}  "
+                    f"Shield {int(self._boss.shields)}/{self._boss.max_shields}  "
+                    f"[{phase_str}]"
+                )
+                self._t_boss_label.x = bar_x + bar_w // 2
+                self._t_boss_label.y = bar_y + bar_h + 10
+                self._t_boss_label.draw()
             # Flash message (centered on play area)
             if self._flash_msg:
                 play_cx = STATUS_WIDTH + (self.window.width - STATUS_WIDTH) // 2
@@ -1047,6 +1174,31 @@ class GameView(arcade.View):
                     arcade.LBWH(play_cx - tw // 2, play_cy - 12, tw, 24),
                     (200, 60, 60), border_width=1)
                 self._t_flash.draw()
+            # Boss spawn announcement (large dramatic text)
+            if self._boss_announce_timer > 0.0:
+                play_cx = STATUS_WIDTH + (self.window.width - STATUS_WIDTH) // 2
+                play_cy = self.window.height // 2 + 40
+                # Pulsing alpha based on timer
+                pulse = abs(math.sin(self._boss_announce_timer * 3.0))
+                alpha = int(180 + 75 * pulse)
+                # Dark overlay band
+                band_h = 120
+                arcade.draw_rect_filled(
+                    arcade.LBWH(STATUS_WIDTH, play_cy - band_h // 2,
+                                self.window.width - STATUS_WIDTH, band_h),
+                    (10, 0, 0, 180))
+                # Main title
+                self._t_boss_announce.text = "WARNING: BOSS INCOMING"
+                self._t_boss_announce.color = (255, 60, 60, alpha)
+                self._t_boss_announce.x = play_cx
+                self._t_boss_announce.y = play_cy + 10
+                self._t_boss_announce.draw()
+                # Subtitle
+                self._t_boss_subtitle.text = "A massive enemy approaches your station!"
+                self._t_boss_subtitle.color = (255, 180, 180, alpha)
+                self._t_boss_subtitle.x = play_cx
+                self._t_boss_subtitle.y = play_cy - 30
+                self._t_boss_subtitle.draw()
             self._escape_menu.draw()
             self._death_screen.draw()
 
@@ -1122,6 +1274,8 @@ class GameView(arcade.View):
             self._flash_timer = max(0.0, self._flash_timer - delta_time)
             if self._flash_timer <= 0.0:
                 self._flash_msg = ""
+        if self._boss_announce_timer > 0.0:
+            self._boss_announce_timer = max(0.0, self._boss_announce_timer - delta_time)
 
         # ── Repair Module: check proximity once for shield/HP/building ───
         has_repair = any(
@@ -1421,6 +1575,34 @@ class GameView(arcade.View):
         if self._alien_respawn_timer >= RESPAWN_INTERVAL:
             self._alien_respawn_timer = 0.0
             self._try_respawn_aliens()
+
+        # ── Boss encounter ──────────────────────────────────────────────────
+        self._check_boss_spawn()
+        if self._boss is not None and self._boss.hp > 0:
+            # Find station target
+            station_x, station_y = WORLD_WIDTH / 2, WORLD_HEIGHT / 2
+            for b in self.building_list:
+                if isinstance(b, HomeStation) and not b.disabled:
+                    station_x, station_y = b.center_x, b.center_y
+                    break
+            projs = self._boss.update_boss(
+                delta_time,
+                self.player.center_x, self.player.center_y,
+                station_x, station_y,
+                self.asteroid_list,
+            )
+            for p in projs:
+                self._boss_projectile_list.append(p)
+            # Advance boss projectiles
+            for proj in list(self._boss_projectile_list):
+                proj.update_projectile(delta_time)
+            # Boss collision handlers
+            handle_boss_projectile_hits(self)
+            handle_boss_laser_hits(self)
+            handle_boss_player_collision(self)
+            handle_boss_building_hits(self)
+            if self._boss._charging and self._boss._charge_windup <= 0.0:
+                handle_boss_charge_hit(self)
 
         # ── Advance explosion animations ────────────────────────────────────
         for exp in list(self.explosion_list):

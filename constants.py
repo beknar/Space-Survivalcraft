@@ -396,3 +396,56 @@ BUILD_MENU_W: int = 280
 BUILD_MENU_H: int = 420
 BUILD_MENU_ITEM_H: int = 48
 BUILD_MENU_PAD: int = 10
+
+# ── Boss encounter constants ────────────────────────────────────────────────
+BOSS_MONSTER_PNG = os.path.join(
+    _HERE, "assets", "256Spacemonsters", "faction_6_monsters_128x128.png",
+)
+BOSS_FRAME_SIZE: int = 128
+BOSS_SHEET_COLS: int = 8
+BOSS_SHEET_ROWS: int = 8
+
+BOSS_HP: int = 2000
+BOSS_SHIELDS: int = 500
+BOSS_SHIELD_REGEN: float = 5.0          # shields/s (Phase 1)
+BOSS_SHIELD_REGEN_P2: float = 10.0      # shields/s (Phase 2)
+BOSS_SPEED: float = 180.0               # px/s
+BOSS_SPEED_P2: float = 220.0            # px/s (Phase 2+)
+BOSS_ROT_SPEED: float = 60.0            # deg/s
+BOSS_SCALE: float = 0.60                # 128*0.6 ≈ 77 px displayed
+BOSS_RADIUS: float = 38.0               # collision radius in px
+BOSS_DETECT_RANGE: float = 800.0        # px — aggro range
+
+# Boss main cannon
+BOSS_CANNON_DAMAGE: float = 40.0
+BOSS_CANNON_COOLDOWN: float = 1.0       # seconds (halved in Phase 3)
+BOSS_CANNON_SPEED: float = 550.0        # px/s
+BOSS_CANNON_RANGE: float = 700.0        # px
+
+# Boss spread shot (3 projectiles in a 30° cone)
+BOSS_SPREAD_DAMAGE: float = 15.0
+BOSS_SPREAD_COOLDOWN: float = 3.0       # seconds (halved in Phase 3)
+BOSS_SPREAD_SPEED: float = 500.0
+BOSS_SPREAD_RANGE: float = 600.0
+BOSS_SPREAD_COUNT: int = 3
+BOSS_SPREAD_ARC: float = 30.0           # degrees total arc
+
+# Boss charge attack (Phase 2+)
+BOSS_CHARGE_DAMAGE: float = 60.0
+BOSS_CHARGE_SPEED: float = 600.0        # px/s during dash
+BOSS_CHARGE_WINDUP: float = 2.0         # seconds telegraph
+BOSS_CHARGE_DURATION: float = 0.8       # seconds of dash
+BOSS_CHARGE_COOLDOWN: float = 8.0       # seconds between charges
+
+# Boss collision
+BOSS_COLLISION_DAMAGE: int = 25
+BOSS_COLLISION_COOLDOWN: float = 0.5
+BOSS_BOUNCE: float = 0.3                # heavy boss barely bounces
+
+# Boss phase thresholds (fraction of max HP)
+BOSS_PHASE2_HP: float = 0.50            # 50% HP → Phase 2
+BOSS_PHASE3_HP: float = 0.25            # 25% HP → Phase 3
+
+# Boss XP reward
+BOSS_XP_REWARD: int = 500
+BOSS_IRON_DROP: int = 200

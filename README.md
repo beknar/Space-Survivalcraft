@@ -54,6 +54,25 @@ A top-down space survival game built with Python and the Arcade framework. Pilot
 - Destroyed aliens drop **5 iron ore** that can be collected by the player
 - Alien ships respawn every 1 minute (not within 300 px of player structures) until 30 again
 
+### Boss Encounter
+- **Spawn conditions**: reach character level 5, equip all 4 ship module slots, have 5+ repair packs (ship + station combined), and a functioning Home Station
+- Spawns at the **farthest world corner** from the Home Station and heads toward it
+- **Large dramatic announcement** with pulsing 36pt text and dark overlay band on spawn
+- Boss appears as a **large red marker** on the minimap
+- **Boss HP bar** displayed at top of screen showing HP, shields, and current phase
+- **2,000 HP** and **500 shields** --- a serious threat requiring full preparation
+- **3-phase AI**:
+  - **Phase 1** (100%--50% HP): Main cannon (40 dmg, 1s cooldown) + spread shot (15 dmg x3, 30-degree cone, 3s cooldown); 5/s shield regen; 180 px/s speed
+  - **Phase 2** (50%--25% HP): Adds **charge attack** (60 dmg, 2s telegraph windup, 600 px/s dash); speed increases to 220 px/s; shield regen doubles to 10/s
+  - **Phase 3** (below 25% HP): **Enraged** --- all weapon cooldowns halved; shield regen stops; permanent red tint
+- **Charge attack** telegraphed by rapid white/blue pulsing during 2s windup, then a fast red dash; delivers 60 damage + heavy knockback on hit
+- Boss targets the station but engages the player within 800 px detection range
+- **25 collision damage** on body contact (5x normal asteroid bump)
+- Boss projectiles damage both the player and station buildings
+- Drops **200 iron** and **500 XP** on defeat with victory message
+- Boss state fully **saved and loaded** (HP, shields, position, velocity, phase)
+- Boss does not respawn once defeated
+
 ### Mining & Resources
 - 75 iron asteroids scattered across the world, each with 100 HP
 - Only the Mining Beam can damage asteroids; Basic Laser has no effect
@@ -325,6 +344,7 @@ Space Survivalcraft/
 │   ├── projectile.py    # Projectile + Weapon (fire cooldown, sound throttle)
 │   ├── asteroid.py      # IronAsteroid --- minable rock with shake/tint on hit
 │   ├── alien.py         # SmallAlienShip --- PATROL/PURSUE AI with obstacle avoidance
+│   ├── boss.py          # BossAlienShip --- 3-phase boss with cannon, spread, charge attack
 │   ├── pickup.py        # IronPickup --- collectible ore token with fly-to-ship behaviour
 │   ├── shield.py        # ShieldSprite --- animated energy bubble with hit flash
 │   ├── explosion.py     # Explosion, HitSpark, FireSpark visual effects
@@ -345,7 +365,6 @@ Space Survivalcraft/
 
 ## Future Features
 
-- **Boss end fights** --- large-scale boss encounters at the end of each region or story arc
 - **New space biomes** --- visually distinct sectors with unique asteroid types, backgrounds, and resources
 - **Hazardous zones**
   - Radiation clouds --- passive damage over time while inside

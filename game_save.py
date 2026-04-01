@@ -10,6 +10,7 @@ import arcade
 from constants import (
     FOG_GRID_W, FOG_GRID_H,
     MODULE_SLOT_COUNT, QUICK_USE_SLOTS,
+    WORLD_WIDTH, WORLD_HEIGHT,
 )
 
 if TYPE_CHECKING:
@@ -84,6 +85,20 @@ def save_to_dict(gv: GameView, name: str = "") -> dict:
             "x": gv._trade_station.center_x,
             "y": gv._trade_station.center_y,
         } if gv._trade_station is not None else None,
+        "boss_spawned": gv._boss_spawned,
+        "boss_defeated": gv._boss_defeated,
+        "boss": {
+            "x": gv._boss.center_x,
+            "y": gv._boss.center_y,
+            "hp": gv._boss.hp,
+            "shields": gv._boss.shields,
+            "heading": gv._boss._heading,
+            "vel_x": gv._boss.vel_x,
+            "vel_y": gv._boss.vel_y,
+            "phase": gv._boss._phase,
+            "target_x": gv._boss._target_x,
+            "target_y": gv._boss._target_y,
+        } if gv._boss is not None else None,
     }
 
 
@@ -242,6 +257,31 @@ def restore_state(view: GameView, data: dict) -> None:
         from sprites.building import RepairModule
         if any(isinstance(b, RepairModule) for b in view.building_list):
             view._spawn_trade_station()
+
+    # Boss encounter
+    view._boss_spawned = data.get("boss_spawned", False)
+    view._boss_defeated = data.get("boss_defeated", False)
+    boss_data = data.get("boss")
+    if boss_data and isinstance(boss_data, dict):
+        from sprites.boss import BossAlienShip
+        view._boss = BossAlienShip(
+            view._boss_tex, view._boss_laser_tex,
+            boss_data["x"], boss_data["y"],
+            boss_data.get("target_x", WORLD_WIDTH / 2),
+            boss_data.get("target_y", WORLD_HEIGHT / 2),
+        )
+        view._boss.hp = boss_data["hp"]
+        view._boss.shields = boss_data.get("shields", 0)
+        view._boss._heading = boss_data.get("heading", 0.0)
+        view._boss.angle = view._boss._heading
+        view._boss.vel_x = boss_data.get("vel_x", 0.0)
+        view._boss.vel_y = boss_data.get("vel_y", 0.0)
+        view._boss._phase = boss_data.get("phase", 1)
+        view._boss_list.clear()
+        view._boss_list.append(view._boss)
+    else:
+        view._boss = None
+        view._boss_list.clear()
 
 
 def load_game(gv: GameView, slot: int) -> None:

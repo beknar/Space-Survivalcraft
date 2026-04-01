@@ -70,7 +70,7 @@ Space Survivalcraft/
 ├── character_data.py    # Character progression: XP/level tables, per-character bonuses (Debra/Ellie/Tara)
 │
 │  ── Game logic ──
-├── collisions.py        # All collision handlers (projectile/asteroid/alien/player/building pairs) + XP gain + character bonuses
+├── collisions.py        # All collision handlers (projectile/asteroid/alien/player/building/boss pairs) + XP gain + character bonuses
 ├── world_setup.py       # Asset loading helpers + asteroid/alien/building spawning + music collection
 │
 │  ── Sprite classes ──
@@ -80,6 +80,7 @@ Space Survivalcraft/
 │   ├── projectile.py    # Projectile + Weapon (fire cooldown, sound throttle)
 │   ├── asteroid.py      # IronAsteroid — minable rock with shake/tint on hit
 │   ├── alien.py         # SmallAlienShip — PATROL/PURSUE AI with obstacle avoidance
+│   ├── boss.py          # BossAlienShip — 3-phase boss with main cannon, spread shot, charge attack; targets station
 │   ├── pickup.py        # IronPickup + BlueprintPickup — collectible tokens with fly-to-ship behaviour
 │   ├── shield.py        # ShieldSprite — animated energy bubble with hit flash
 │   ├── explosion.py     # Explosion, HitSpark, FireSpark visual effects
@@ -163,7 +164,7 @@ constants.py ◀── nearly everything (central config)
 settings.py  ◀── splash_view, options_view, game_view, death_screen (audio singleton)
 
 game_view.py
-  ├── sprites/* (PlayerShip, Weapon, Explosion, HitSpark, FireSpark, IronPickup, ContrailParticle, Building*)
+  ├── sprites/* (PlayerShip, Weapon, Explosion, HitSpark, FireSpark, IronPickup, ContrailParticle, Building*, BossAlienShip)
   ├── collisions.py (all collision handlers called from on_update)
   ├── world_setup.py (asset loading, asteroid/alien/building population, music tracks)
   ├── hud.py, escape_menu/, death_screen.py, inventory.py, build_menu.py, station_info.py (UI overlays)
@@ -218,6 +219,7 @@ sprites/alien.py
 - **Respawn texture caching** — asteroid/alien textures loaded once at init, reused for all respawns
 - **XP hard cap** — XP capped at 1,000 (max level); `_add_xp` short-circuits when cap reached
 - **Character bio panel** — Ship Stats overlay (C key) shows a second panel with a random portrait from `characters/portraits/` and backstory text; portrait chosen fresh each time the panel opens
+- **Boss encounter** — spawns when player reaches level 5, all 4 modules equipped, 5+ repair packs, and Home Station built; BossAlienShip has 2000 HP + 500 shields, 3-phase AI (main cannon + spread → adds charge attack → enraged with halved cooldowns); spawns at farthest world corner from station and heads toward it; full save/load support; HP bar with phase indicator; large dramatic announcement on spawn; red minimap marker
 
 ## Game Rules Reference
 

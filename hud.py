@@ -295,6 +295,7 @@ class HUD:
         video_active: bool = False,
         character_name: str = "",
         trade_station_pos: tuple[float, float] | None = None,
+        boss_pos: tuple[float, float] | None = None,
     ) -> None:
         """Draw the full HUD status panel."""
         # Panel background
@@ -579,6 +580,7 @@ class HUD:
             fog_grid=fog_grid,
             fog_revealed=fog_revealed,
             trade_station_pos=trade_station_pos,
+            boss_pos=boss_pos,
         )
 
     @staticmethod
@@ -604,6 +606,7 @@ class HUD:
         fog_grid: list[list[bool]] | None = None,
         fog_revealed: int = 0,
         trade_station_pos: tuple[float, float] | None = None,
+        boss_pos: tuple[float, float] | None = None,
     ) -> None:
         """Draw a scaled overview of the world inside the status panel."""
         mx, my = MINIMAP_X, MINIMAP_Y
@@ -739,6 +742,14 @@ class HUD:
                 arcade.draw_rect_outline(
                     arcade.LBWH(tmx - 3, tmy - 3, 6, 6),
                     (255, 255, 150), border_width=1)
+
+        # Boss marker (large pulsing red diamond)
+        if boss_pos is not None:
+            bpx, bpy = boss_pos
+            if self._is_revealed(bpx, bpy, fog_grid):
+                bmx, bmy = to_map(bpx, bpy)
+                arcade.draw_circle_filled(bmx, bmy, 4.0, (255, 50, 50))
+                arcade.draw_circle_outline(bmx, bmy, 5.5, (255, 100, 100), 1)
 
         # Player dot (always on top)
         sx, sy = to_map(player_x, player_y)

@@ -14,6 +14,8 @@ from constants import (
     BUILDING_RADIUS, ALIEN_IRON_DROP,
     BUILDING_TYPES, ALIEN_AGGRO_RANGE,
     BLUEPRINT_DROP_CHANCE_ALIEN, BLUEPRINT_DROP_CHANCE_ASTEROID,
+    BOSS_RADIUS, BOSS_COLLISION_DAMAGE, BOSS_COLLISION_COOLDOWN,
+    BOSS_BOUNCE, BOSS_CHARGE_DAMAGE, BOSS_XP_REWARD, BOSS_IRON_DROP,
 )
 from character_data import (
     bonus_iron_asteroid, bonus_iron_enemy, blueprint_drop_bonus,
@@ -343,3 +345,147 @@ def handle_turret_projectile_hits(gv: GameView) -> None:
                     gv._spawn_blueprint_pickup(alien.center_x, alien.center_y)
                 gv._add_xp(25)
                 alien.remove_from_sprite_lists()
+
+
+# ── Boss encounter collision handlers ──────────────────────────────────────
+
+
+def _boss_death(gv: GameView) -> None:
+    """Handle boss death: explosion, loot, victory message."""
+    boss = gv._boss
+    gv._spawn_explosion(boss.center_x, boss.center_y)
+    arcade.play_sound(gv._explosion_snd, volume=1.0)
+    gv._spawn_iron_pickup(boss.center_x, boss.center_y, amount=BOSS_IRON_DROP)
+    gv._add_xp(BOSS_XP_REWARD)
+    gv._boss = None
+    gv._boss_defeated = True
+    gv._boss_list.clear()
+    gv._boss_projectile_list.clear()
+    gv._flash_game_msg("BOSS DEFEATED!", 4.0)
+
+
+def handle_boss_projectile_hits(gv: GameView) -> None:
+    """Player projectiles hitting the boss."""
+    boss = gv._boss
+    if boss is None or boss.hp <= 0:
+        return
+    for proj in list(gv.projectile_list):
+        if proj.mines_rock:
+            continue  # mining beam doesn't hurt the boss
+        dx = proj.center_x - boss.center_x
+        dy = proj.center_y - boss.center_y
+        if math.hypot(dx, dy) <= BOSS_RADIUS + 10.0:
+            gv.hit_sparks.append(HitSpark(proj.center_x, proj.center_y))
+            gv._trigger_shake()
+            proj.remove_from_sprite_lists()
+            boss.take_damage(int(proj.damage))
+            if boss.hp <= 0:
+                _boss_death(gv)
+                return
+    # Also check turret projectiles
+    for proj in list(gv.turret_projectile_list):
+        if boss is None or boss.hp <= 0:
+            return
+        dx = proj.center_x - boss.center_x
+        dy = proj.center_y - boss.center_y
+        if math.hypot(dx, dy) <= BOSS_RADIUS + 10.0:
+            gv.hit_sparks.append(HitSpark(proj.center_x, proj.center_y))
+            proj.remove_from_sprite_lists()
+            boss.take_damage(int(proj.damage))
+            if boss.hp <= 0:
+                _boss_death(gv)
+                return
+
+
+def handle_boss_laser_hits(gv: GameView) -> None:
+    """Boss projectiles hitting the player."""
+    for proj in list(gv._boss_projectile_list):
+        dx = proj.center_x - gv.player.center_x
+        dy = proj.center_y - gv.player.center_y
+        if math.hypot(dx, dy) <= SHIP_RADIUS + 8.0:
+            proj.remove_from_sprite_lists()
+            gv._apply_damage_to_player(int(proj.damage))
+            gv._trigger_shake()
+            arcade.play_sound(gv._bump_snd, volume=0.5)
+
+
+def handle_boss_player_collision(gv: GameView) -> None:
+    """Boss ship vs player: heavy push-apart and damage."""
+    boss = gv._boss
+    if boss is None or boss.hp <= 0:
+        return
+    dx = boss.center_x - gv.player.center_x
+    dy = boss.center_y - gv.player.center_y
+    dist = math.hypot(dx, dy)
+    combined_r = BOSS_RADIUS + SHIP_RADIUS
+    if dist >= combined_r or dist <= 0.0:
+        return
+    nx, ny = dx / dist, dy / dist
+    overlap = combined_r - dist
+    # Push: boss barely moves, player gets most of the push
+    boss.center_x += nx * overlap * 0.2
+    boss.center_y += ny * overlap * 0.2
+    gv.player.center_x -= nx * overlap * 0.8
+    gv.player.center_y -= ny * overlap * 0.8
+    # Bounce player away
+    dot = gv.player.vel_x * (-nx) + gv.player.vel_y * (-ny)
+    if dot < 0.0:
+        j = (1.0 + BOSS_BOUNCE) * dot
+        gv.player.vel_x -= j * (-nx) * 0.8
+        gv.player.vel_y -= j * (-ny) * 0.8
+    # Damage
+    if boss._col_cd <= 0.0:
+        boss._col_cd = BOSS_COLLISION_COOLDOWN
+        boss.collision_bump()
+    if gv.player._collision_cd <= 0.0:
+        gv._apply_damage_to_player(BOSS_COLLISION_DAMAGE)
+        gv.player._collision_cd = SHIP_COLLISION_COOLDOWN
+        arcade.play_sound(gv._bump_snd, volume=0.6)
+        gv._trigger_shake()
+
+
+def handle_boss_building_hits(gv: GameView) -> None:
+    """Boss projectiles hitting station buildings."""
+    from sprites.building import HomeStation
+    for proj in list(gv._boss_projectile_list):
+        for building in list(gv.building_list):
+            dx = proj.center_x - building.center_x
+            dy = proj.center_y - building.center_y
+            if math.hypot(dx, dy) <= BUILDING_RADIUS + 8.0:
+                gv.hit_sparks.append(HitSpark(proj.center_x, proj.center_y))
+                proj.remove_from_sprite_lists()
+                building.take_damage(int(proj.damage))
+                if building.hp <= 0:
+                    gv._disconnect_ports(building)
+                    cost = BUILDING_TYPES[building.building_type]["cost"]
+                    gv._spawn_iron_pickup(
+                        building.center_x, building.center_y, amount=cost)
+                    if isinstance(building, HomeStation):
+                        for b in gv.building_list:
+                            b.disabled = True
+                            b.color = (128, 128, 128, 255)
+                    gv._spawn_explosion(building.center_x, building.center_y)
+                    arcade.play_sound(gv._explosion_snd, volume=0.7)
+                    building.remove_from_sprite_lists()
+                break  # projectile consumed
+
+
+def handle_boss_charge_hit(gv: GameView) -> None:
+    """Boss charge attack hitting the player (during dash phase only)."""
+    boss = gv._boss
+    if boss is None or boss.hp <= 0:
+        return
+    dx = boss.center_x - gv.player.center_x
+    dy = boss.center_y - gv.player.center_y
+    dist = math.hypot(dx, dy)
+    if dist < BOSS_RADIUS + SHIP_RADIUS:
+        if gv.player._collision_cd <= 0.0:
+            gv._apply_damage_to_player(int(BOSS_CHARGE_DAMAGE))
+            gv.player._collision_cd = SHIP_COLLISION_COOLDOWN
+            # Knock player back hard
+            if dist > 0.0:
+                nx, ny = -dx / dist, -dy / dist
+                gv.player.vel_x += nx * 400.0
+                gv.player.vel_y += ny * 400.0
+            arcade.play_sound(gv._bump_snd, volume=0.8)
+            gv._trigger_shake()
