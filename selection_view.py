@@ -77,6 +77,10 @@ class SelectionView(arcade.View):
         )
 
         # Pre-built text objects
+        self._init_text_objects()
+
+    def _init_text_objects(self) -> None:
+        """Create pre-built arcade.Text objects for all selection phases."""
         self._t_title = arcade.Text(
             "CHOOSE YOUR FACTION",
             self.window.width // 2, self.window.height - 60,
@@ -220,7 +224,17 @@ class SelectionView(arcade.View):
             self._t_label.draw()
 
         # Stats panel for the selected ship
-        stats = SHIP_TYPES[self._ship_names[self._selected_ship]]
+        ship_type = self._ship_names[self._selected_ship]
+        stats = SHIP_TYPES[ship_type]
+        self._draw_ship_stats(
+            stats, ship_type,
+            self.window.width // 2 - 200,
+            self.window.height // 2 - 80,
+        )
+
+    def _draw_ship_stats(self, stats: dict, ship_type: str,
+                         x: int, y: int) -> None:
+        """Draw the stats panel for a ship type at the given position."""
         lines = [
             f"HP: {stats['hp']}",
             f"Shields: {stats['shields']}",
@@ -233,8 +247,8 @@ class SelectionView(arcade.View):
             f"Guns: {stats['guns']}",
         ]
         self._t_stats.text = "\n".join(lines)
-        self._t_stats.x = self.window.width // 2 - 200
-        self._t_stats.y = self.window.height // 2 - 80
+        self._t_stats.x = x
+        self._t_stats.y = y
         self._t_stats.draw()
 
     @staticmethod

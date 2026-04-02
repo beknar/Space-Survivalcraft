@@ -10,6 +10,7 @@ from constants import (
     STATION_INV_COLS, STATION_INV_ROWS, STATION_INV_CELL, STATION_INV_PAD,
     MAX_STACK, MAX_STACK_DEFAULT,
 )
+from base_inventory import BaseInventoryData
 
 _INV_HEADER = 32
 _INV_FOOTER = 20
@@ -17,7 +18,7 @@ _INV_W = STATION_INV_COLS * STATION_INV_CELL + STATION_INV_PAD * 2
 _INV_H = STATION_INV_ROWS * STATION_INV_CELL + STATION_INV_PAD * 2 + _INV_HEADER + _INV_FOOTER
 
 
-class StationInventory:
+class StationInventory(BaseInventoryData):
     """10×10 grid for the Home Station, storing named items as (type, count) tuples."""
 
     # Display names for special item types
@@ -29,6 +30,8 @@ class StationInventory:
         repair_pack_icon: Optional[arcade.Texture] = None,
     ) -> None:
         self._items: dict[tuple[int, int], tuple[str, int]] = {}
+        self._rows = STATION_INV_ROWS
+        self._cols = STATION_INV_COLS
         self.open: bool = False
         self._iron_icon = iron_icon
         self._repair_pack_icon = repair_pack_icon
@@ -79,77 +82,6 @@ class StationInventory:
             self._ITEM_NAMES[f"mod_{key}"] = info["label"]
         self._ITEM_NAMES["iron"] = "Iron"
         self._ITEM_NAMES["repair_pack"] = "Repair Pack"
-
-    def toggle(self) -> None:
-        self.open = not self.open
-
-    def consolidate(self) -> None:
-        """Merge stacks of the same item type, respecting max stack sizes."""
-        # Collect all items by type
-        totals: dict[str, int] = {}
-        for (it, ct) in self._items.values():
-            totals[it] = totals.get(it, 0) + ct
-        # Clear and re-fill
-        self._items.clear()
-        cell = 0
-        for it, total in totals.items():
-            max_s = MAX_STACK.get(it, MAX_STACK_DEFAULT)
-            while total > 0 and cell < STATION_INV_ROWS * STATION_INV_COLS:
-                amt = min(total, max_s)
-                r, c = divmod(cell, STATION_INV_COLS)
-                self._items[(r, c)] = (it, amt)
-                total -= amt
-                cell += 1
-
-    # ── Public API ────────────────────────────────────────────────────────
-
-    @property
-    def total_iron(self) -> int:
-        """Total iron across all cells."""
-        return self.count_item("iron")
-
-    # Backward-compat alias
-    @property
-    def iron(self) -> int:
-        return self.total_iron
-
-    def add_item(self, item_type: str, count: int = 1) -> None:
-        """Add items to the first available cell or stack on existing."""
-        # Try to stack on existing cell of same type
-        for cell, (it, ct) in list(self._items.items()):
-            if it == item_type:
-                self._items[cell] = (it, ct + count)
-                return
-        # Find first empty cell
-        for r in range(STATION_INV_ROWS):
-            for c in range(STATION_INV_COLS):
-                if (r, c) not in self._items:
-                    self._items[(r, c)] = (item_type, count)
-                    return
-
-    def remove_item(self, item_type: str, count: int = 1) -> int:
-        """Remove up to *count* items of the given type. Returns amount removed."""
-        removed = 0
-        for cell, (it, ct) in list(self._items.items()):
-            if it == item_type:
-                take = min(ct, count - removed)
-                remaining = ct - take
-                removed += take
-                if remaining <= 0:
-                    del self._items[cell]
-                else:
-                    self._items[cell] = (it, remaining)
-                if removed >= count:
-                    break
-        return removed
-
-    def count_item(self, item_type: str) -> int:
-        """Count total items of the given type."""
-        total = 0
-        for (it, ct) in self._items.values():
-            if it == item_type:
-                total += ct
-        return total
 
     # ── Geometry ─────────────────────────────────────────────────────────
     def _panel_origin(self) -> tuple[int, int]:

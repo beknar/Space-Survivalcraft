@@ -219,34 +219,48 @@ class TradeMenu:
                 return None
 
         elif self._mode == "sell":
-            # Back button
-            bx = px + (_PANEL_W - 100) // 2; by = py + 30
-            if bx <= x <= bx + 100 and by <= y <= by + 28:
-                self._mode = "main"; return None
-            # Item list
-            list_y = py + _PANEL_H - 85; max_vis = 10
-            for i in range(min(max_vis, len(self._sell_items) - self._sell_scroll)):
-                idx = self._sell_scroll + i
-                iy = list_y - i * _ITEM_H
-                if px + 10 <= x <= px + _PANEL_W - 10 and iy <= y <= iy + _ITEM_H:
-                    it, name, price, count = self._sell_items[idx]
-                    # Sell 1 unit
-                    self._credits += price
-                    return f"sell:{it}:1"
+            return self._handle_sell_click(x, y, px, py)
 
         elif self._mode == "buy":
-            bx = px + (_PANEL_W - 100) // 2; by = py + 30
-            if bx <= x <= bx + 100 and by <= y <= by + 28:
-                self._mode = "main"; return None
-            list_y = py + _PANEL_H - 85
-            for i, (it, name, cost, qty) in enumerate(BUY_CATALOG):
-                iy = list_y - i * _ITEM_H
-                if (px + 10 <= x <= px + _PANEL_W - 10
-                        and iy <= y <= iy + _ITEM_H
-                        and self._credits >= cost):
-                    self._credits -= cost
-                    return f"buy:{it}:{qty}"
+            return self._handle_buy_click(x, y, px, py)
 
+        return None
+
+    def _handle_sell_click(self, x: float, y: float,
+                           px: int, py: int) -> Optional[str]:
+        """Process a click in sell mode (back button or item list)."""
+        # Back button
+        bx = px + (_PANEL_W - 100) // 2; by = py + 30
+        if bx <= x <= bx + 100 and by <= y <= by + 28:
+            self._mode = "main"
+            return None
+        # Item list
+        list_y = py + _PANEL_H - 85; max_vis = 10
+        for i in range(min(max_vis, len(self._sell_items) - self._sell_scroll)):
+            idx = self._sell_scroll + i
+            iy = list_y - i * _ITEM_H
+            if px + 10 <= x <= px + _PANEL_W - 10 and iy <= y <= iy + _ITEM_H:
+                it, name, price, count = self._sell_items[idx]
+                # Sell 1 unit
+                self._credits += price
+                return f"sell:{it}:1"
+        return None
+
+    def _handle_buy_click(self, x: float, y: float,
+                          px: int, py: int) -> Optional[str]:
+        """Process a click in buy mode (back button or catalog item)."""
+        bx = px + (_PANEL_W - 100) // 2; by = py + 30
+        if bx <= x <= bx + 100 and by <= y <= by + 28:
+            self._mode = "main"
+            return None
+        list_y = py + _PANEL_H - 85
+        for i, (it, name, cost, qty) in enumerate(BUY_CATALOG):
+            iy = list_y - i * _ITEM_H
+            if (px + 10 <= x <= px + _PANEL_W - 10
+                    and iy <= y <= iy + _ITEM_H
+                    and self._credits >= cost):
+                self._credits -= cost
+                return f"buy:{it}:{qty}"
         return None
 
     def on_key_press(self, key: int) -> None:

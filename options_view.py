@@ -205,39 +205,40 @@ class OptionsView(arcade.View):
 
     def on_draw(self) -> None:
         self.clear()
-
-        # Dark background
         arcade.draw_rect_filled(
             arcade.LBWH(0, 0, self.window.width, self.window.height),
             (8, 8, 24),
         )
-
         self._t_title.draw()
+        self._draw_sliders()
+        self._draw_resolution()
+        self._draw_buttons()
+        if self._show_help:
+            self._draw_help_overlay()
+        if self._show_config:
+            self._draw_config_overlay()
 
-        # Music slider
+    def _draw_sliders(self) -> None:
+        """Draw the music and SFX volume sliders."""
         self._t_music_label.draw()
         self._draw_slider(self._music_y, audio.music_volume)
         self._t_music_val.text = f"{int(audio.music_volume * 100)}%"
         self._t_music_val.draw()
-
-        # SFX slider
         self._t_sfx_label.draw()
         self._draw_slider(self._sfx_y, audio.sfx_volume)
         self._t_sfx_val.text = f"{int(audio.sfx_volume * 100)}%"
         self._t_sfx_val.draw()
 
-        # Resolution selector
+    def _draw_resolution(self) -> None:
+        """Draw the resolution selector and fullscreen toggle."""
         self._t_res_label.draw()
         w, h = RESOLUTION_PRESETS[self._res_idx]
         self._t_res_val.text = f"{w} x {h}"
         self._t_res_val.draw()
-        # Left/right arrows
         self._t_arrow_left.color = arcade.color.CYAN if self._hover_res_left else (160, 160, 160)
         self._t_arrow_left.draw()
         self._t_arrow_right.color = arcade.color.CYAN if self._hover_res_right else (160, 160, 160)
         self._t_arrow_right.draw()
-
-        # Fullscreen toggle
         fx, fy, fw, fh = self._fs_rect
         fs_bg = (50, 80, 140, 255) if self._hover_fs else (25, 35, 70, 230)
         arcade.draw_rect_filled(arcade.LBWH(fx, fy, fw, fh), fs_bg)
@@ -250,290 +251,225 @@ class OptionsView(arcade.View):
         self._t_fs.color = arcade.color.CYAN if audio.fullscreen else arcade.color.WHITE
         self._t_fs.draw()
 
-        # Main Menu button
-        bx, by, bw, bh = self._back_rect
-        bg = (50, 80, 140, 255) if self._hover_back else (25, 35, 70, 230)
+    def _draw_btn(self, rect, hover, t_label) -> None:
+        """Draw a single button with hover highlight."""
+        bx, by, bw, bh = rect
+        bg = (50, 80, 140, 255) if hover else (25, 35, 70, 230)
         arcade.draw_rect_filled(arcade.LBWH(bx, by, bw, bh), bg)
-        outline = arcade.color.CYAN if self._hover_back else arcade.color.STEEL_BLUE
+        outline = arcade.color.CYAN if hover else arcade.color.STEEL_BLUE
+        arcade.draw_rect_outline(arcade.LBWH(bx, by, bw, bh), outline, border_width=2)
+        t_label.color = arcade.color.CYAN if hover else arcade.color.WHITE
+        t_label.draw()
+
+    def _draw_buttons(self) -> None:
+        """Draw all main buttons."""
+        self._draw_btn(self._back_rect, self._hover_back, self._t_back)
+        self._draw_btn(self._help_rect, self._hover_help, self._t_help)
+        self._draw_btn(self._config_rect, self._hover_config, self._t_config)
+        self._draw_btn(self._exit_rect, self._hover_exit, self._t_exit)
+
+    def _draw_help_overlay(self) -> None:
+        """Draw the help controls overlay panel."""
+        sw, sh = self.window.width, self.window.height
+        panel_w, panel_h = 340, 380
+        px = (sw - panel_w) // 2
+        py = (sh - panel_h) // 2
+        arcade.draw_rect_filled(
+            arcade.LBWH(px, py, panel_w, panel_h), (15, 15, 40, 240))
         arcade.draw_rect_outline(
-            arcade.LBWH(bx, by, bw, bh), outline, border_width=2,
-        )
-        self._t_back.color = (
-            arcade.color.CYAN if self._hover_back else arcade.color.WHITE
-        )
-        self._t_back.draw()
-
-        # Help button
-        hx, hy, hw, hh = self._help_rect
-        bg_h = (50, 80, 140, 255) if self._hover_help else (25, 35, 70, 230)
-        arcade.draw_rect_filled(arcade.LBWH(hx, hy, hw, hh), bg_h)
-        outline_h = arcade.color.CYAN if self._hover_help else arcade.color.STEEL_BLUE
-        arcade.draw_rect_outline(
-            arcade.LBWH(hx, hy, hw, hh), outline_h, border_width=2,
-        )
-        self._t_help.color = (
-            arcade.color.CYAN if self._hover_help else arcade.color.WHITE
-        )
-        self._t_help.draw()
-
-        # Config button
-        cx2, cy2, cw2, ch2 = self._config_rect
-        bg_c = (50, 80, 140, 255) if self._hover_config else (25, 35, 70, 230)
-        arcade.draw_rect_filled(arcade.LBWH(cx2, cy2, cw2, ch2), bg_c)
-        outline_c = arcade.color.CYAN if self._hover_config else arcade.color.STEEL_BLUE
-        arcade.draw_rect_outline(
-            arcade.LBWH(cx2, cy2, cw2, ch2), outline_c, border_width=2,
-        )
-        self._t_config.color = (
-            arcade.color.CYAN if self._hover_config else arcade.color.WHITE
-        )
-        self._t_config.draw()
-
-        # Exit Game button
-        ex, ey, ew, eh = self._exit_rect
-        bg_e = (50, 80, 140, 255) if self._hover_exit else (25, 35, 70, 230)
-        arcade.draw_rect_filled(arcade.LBWH(ex, ey, ew, eh), bg_e)
-        outline_e = arcade.color.CYAN if self._hover_exit else arcade.color.STEEL_BLUE
-        arcade.draw_rect_outline(
-            arcade.LBWH(ex, ey, ew, eh), outline_e, border_width=2,
-        )
-        self._t_exit.color = (
-            arcade.color.CYAN if self._hover_exit else arcade.color.WHITE
-        )
-        self._t_exit.draw()
-
-        # Help overlay
-        if self._show_help:
-            sw, sh = self.window.width, self.window.height
-            panel_w, panel_h = 340, 380
-            px = (sw - panel_w) // 2
-            py = (sh - panel_h) // 2
-            arcade.draw_rect_filled(
-                arcade.LBWH(px, py, panel_w, panel_h), (15, 15, 40, 240),
-            )
-            arcade.draw_rect_outline(
-                arcade.LBWH(px, py, panel_w, panel_h),
-                arcade.color.STEEL_BLUE, border_width=2,
-            )
-            cx = px + panel_w // 2
-            self._t_help_line.text = "CONTROLS"
-            self._t_help_line.x = cx
-            self._t_help_line.y = py + panel_h - 24
-            self._t_help_line.color = arcade.color.LIGHT_BLUE
-            self._t_help_line.bold = True
-            self._t_help_line.font_size = 14
-            self._t_help_line.anchor_x = "center"
-            self._t_help_line.draw()
-            self._t_help_line.font_size = 11
-            self._t_help_line.anchor_x = "left"
-
-            _HELP = [
-                ("L/R  or  A/D", "Rotate"),
-                ("Up   or  W", "Thrust"),
-                ("Down or  S", "Brake"),
-                ("Space", "Fire weapon"),
-                ("Tab", "Cycle weapon"),
-                ("I", "Inventory"),
-                ("B", "Build menu"),
-                ("T", "Station info"),
-                ("F", "Toggle FPS"),
-                ("ESC", "Menu"),
-                ("", ""),
-                ("GAMEPAD", ""),
-                ("Left stick", "Move / Rotate"),
-                ("A button", "Fire"),
-                ("RB", "Cycle weapon"),
-                ("Y button", "Inventory"),
-            ]
-            line_y = py + panel_h - 52
-            for key_text, action in _HELP:
-                if key_text == "GAMEPAD":
-                    self._t_help_line.text = "GAMEPAD"
-                    self._t_help_line.x = cx
-                    self._t_help_line.color = arcade.color.LIGHT_GREEN
-                    self._t_help_line.bold = True
-                    self._t_help_line.anchor_x = "center"
-                    self._t_help_line.y = line_y
-                    self._t_help_line.draw()
-                    self._t_help_line.anchor_x = "left"
-                    line_y -= 18
-                    continue
-                if not key_text:
-                    line_y -= 8
-                    continue
-                self._t_help_line.text = key_text
-                self._t_help_line.x = px + 20
+            arcade.LBWH(px, py, panel_w, panel_h),
+            arcade.color.STEEL_BLUE, border_width=2)
+        cx = px + panel_w // 2
+        self._t_help_line.text = "CONTROLS"
+        self._t_help_line.x = cx
+        self._t_help_line.y = py + panel_h - 24
+        self._t_help_line.color = arcade.color.LIGHT_BLUE
+        self._t_help_line.bold = True
+        self._t_help_line.font_size = 14
+        self._t_help_line.anchor_x = "center"
+        self._t_help_line.draw()
+        self._t_help_line.font_size = 11
+        self._t_help_line.anchor_x = "left"
+        _HELP = [
+            ("L/R  or  A/D", "Rotate"),
+            ("Up   or  W", "Thrust"),
+            ("Down or  S", "Brake"),
+            ("Space", "Fire weapon"),
+            ("Tab", "Cycle weapon"),
+            ("I", "Inventory"),
+            ("B", "Build menu"),
+            ("T", "Station info"),
+            ("F", "Toggle FPS"),
+            ("ESC", "Menu"),
+            ("", ""),
+            ("GAMEPAD", ""),
+            ("Left stick", "Move / Rotate"),
+            ("A button", "Fire"),
+            ("RB", "Cycle weapon"),
+            ("Y button", "Inventory"),
+        ]
+        line_y = py + panel_h - 52
+        for key_text, action in _HELP:
+            if key_text == "GAMEPAD":
+                self._t_help_line.text = "GAMEPAD"
+                self._t_help_line.x = cx
+                self._t_help_line.color = arcade.color.LIGHT_GREEN
+                self._t_help_line.bold = True
+                self._t_help_line.anchor_x = "center"
                 self._t_help_line.y = line_y
-                self._t_help_line.color = (180, 180, 180)
-                self._t_help_line.bold = False
-                self._t_help_line.draw()
-                self._t_help_line.text = action
-                self._t_help_line.x = px + panel_w - 20
-                self._t_help_line.anchor_x = "right"
-                self._t_help_line.color = arcade.color.WHITE
                 self._t_help_line.draw()
                 self._t_help_line.anchor_x = "left"
                 line_y -= 18
-
-            # Close hint
-            self._t_help_line.text = "Click anywhere to close"
-            self._t_help_line.x = cx
-            self._t_help_line.y = py + 12
-            self._t_help_line.color = (120, 120, 120)
-            self._t_help_line.anchor_x = "center"
+                continue
+            if not key_text:
+                line_y -= 8
+                continue
+            self._t_help_line.text = key_text
+            self._t_help_line.x = px + 20
+            self._t_help_line.y = line_y
+            self._t_help_line.color = (180, 180, 180)
+            self._t_help_line.bold = False
+            self._t_help_line.draw()
+            self._t_help_line.text = action
+            self._t_help_line.x = px + panel_w - 20
+            self._t_help_line.anchor_x = "right"
+            self._t_help_line.color = arcade.color.WHITE
             self._t_help_line.draw()
             self._t_help_line.anchor_x = "left"
+            line_y -= 18
+        self._t_help_line.text = "Click anywhere to close"
+        self._t_help_line.x = cx
+        self._t_help_line.y = py + 12
+        self._t_help_line.color = (120, 120, 120)
+        self._t_help_line.anchor_x = "center"
+        self._t_help_line.draw()
+        self._t_help_line.anchor_x = "left"
 
-        # Config panel overlay
-        if self._show_config:
-            sw, sh = self.window.width, self.window.height
-            panel_w, panel_h = 380, 420
-            px = (sw - panel_w) // 2
-            py = (sh - panel_h) // 2
-            arcade.draw_rect_filled(
-                arcade.LBWH(px, py, panel_w, panel_h), (15, 15, 40, 245),
-            )
-            arcade.draw_rect_outline(
-                arcade.LBWH(px, py, panel_w, panel_h),
-                arcade.color.STEEL_BLUE, border_width=2,
-            )
-            cx = px + panel_w // 2
-
-            # Title
-            self._t_cfg_title.x = cx
-            self._t_cfg_title.y = py + panel_h - 24
-            self._t_cfg_title.draw()
-
-            cur_y = py + panel_h - 60
-
-            # Music Volume slider
-            self._t_cfg_label.text = "Music Volume"
-            self._t_cfg_label.x = px + 16
-            self._t_cfg_label.y = cur_y + 12
-            self._t_cfg_label.color = arcade.color.WHITE
-            self._t_cfg_label.draw()
-            slider_x = px + 16
-            slider_w = panel_w - 32
-            arcade.draw_rect_filled(
-                arcade.LBWH(slider_x, cur_y, slider_w, 8), (50, 50, 70),
-            )
-            fill_w = int(slider_w * audio.music_volume)
-            arcade.draw_rect_filled(
-                arcade.LBWH(slider_x, cur_y, fill_w, 8), arcade.color.CYAN,
-            )
-            knob_x = slider_x + fill_w
-            arcade.draw_circle_filled(knob_x, cur_y + 4, 8, arcade.color.WHITE)
-            self._t_cfg_val.text = f"{int(audio.music_volume * 100)}%"
-            self._t_cfg_val.x = px + panel_w - 16
-            self._t_cfg_val.y = cur_y + 12
-            self._t_cfg_val.draw()
-            self._cfg_music_slider = (slider_x, cur_y, slider_w, 8)
-            cur_y -= 50
-
-            # SFX Volume slider
-            self._t_cfg_label.text = "SFX Volume"
-            self._t_cfg_label.x = px + 16
-            self._t_cfg_label.y = cur_y + 12
-            self._t_cfg_label.draw()
-            arcade.draw_rect_filled(
-                arcade.LBWH(slider_x, cur_y, slider_w, 8), (50, 50, 70),
-            )
-            fill_w = int(slider_w * audio.sfx_volume)
-            arcade.draw_rect_filled(
-                arcade.LBWH(slider_x, cur_y, fill_w, 8), arcade.color.CYAN,
-            )
-            knob_x = slider_x + fill_w
-            arcade.draw_circle_filled(knob_x, cur_y + 4, 8, arcade.color.WHITE)
-            self._t_cfg_val.text = f"{int(audio.sfx_volume * 100)}%"
-            self._t_cfg_val.x = px + panel_w - 16
-            self._t_cfg_val.y = cur_y + 12
-            self._t_cfg_val.draw()
-            self._cfg_sfx_slider = (slider_x, cur_y, slider_w, 8)
-            cur_y -= 50
-
-            # Video directory text field
-            self._t_cfg_label.text = "Videos Directory"
-            self._t_cfg_label.x = px + 16
-            self._t_cfg_label.y = cur_y + 16
-            self._t_cfg_label.draw()
-            cur_y -= 14
-            dir_bg = (40, 60, 80) if self._config_editing_dir else (30, 30, 50)
-            arcade.draw_rect_filled(
-                arcade.LBWH(px + 12, cur_y, panel_w - 24, 24), dir_bg,
-            )
-            arcade.draw_rect_outline(
-                arcade.LBWH(px + 12, cur_y, panel_w - 24, 24),
-                arcade.color.STEEL_BLUE, border_width=1,
-            )
-            display_text = self._config_dir_text or "(click to set)"
-            if self._config_editing_dir:
-                display_text = self._config_dir_text + "|"
-            self._t_cfg_val.anchor_x = "left"
-            self._t_cfg_val.text = display_text[:40]
-            self._t_cfg_val.x = px + 16
-            self._t_cfg_val.y = cur_y + 12
-            self._t_cfg_val.color = arcade.color.KHAKI if self._config_editing_dir else (150, 150, 150)
-            self._t_cfg_val.draw()
-            self._t_cfg_val.anchor_x = "right"
-            self._t_cfg_val.color = arcade.color.CYAN
-            self._cfg_dir_rect = (px + 12, cur_y, panel_w - 24, 24)
-            cur_y -= 45
-
-            # Autoplay OST toggle
-            self._t_cfg_label.text = "Autoplay OST on Start"
-            self._t_cfg_label.x = px + 16
-            self._t_cfg_label.y = cur_y + 6
-            self._t_cfg_label.draw()
-            toggle_x = px + panel_w - 60
-            toggle_text = "ON" if audio.autoplay_ost else "OFF"
-            toggle_color = arcade.color.LIME_GREEN if audio.autoplay_ost else (180, 60, 60)
-            arcade.draw_rect_filled(
-                arcade.LBWH(toggle_x, cur_y - 4, 40, 24), (40, 40, 60),
-            )
-            arcade.draw_rect_outline(
-                arcade.LBWH(toggle_x, cur_y - 4, 40, 24), toggle_color, border_width=2,
-            )
-            self._t_cfg_btn.text = toggle_text
-            self._t_cfg_btn.x = toggle_x + 20
-            self._t_cfg_btn.y = cur_y + 8
-            self._t_cfg_btn.color = toggle_color
-            self._t_cfg_btn.font_size = 10
-            self._t_cfg_btn.draw()
-            self._t_cfg_btn.font_size = 12
-            self._cfg_ost_rect = (toggle_x, cur_y - 4, 40, 24)
-            cur_y -= 50
-
-            # Save Config button
-            btn_w, btn_h = 160, 38
-            btn_x = cx - btn_w // 2
-            arcade.draw_rect_filled(
-                arcade.LBWH(btn_x, cur_y, btn_w, btn_h), (30, 60, 30, 220),
-            )
-            arcade.draw_rect_outline(
-                arcade.LBWH(btn_x, cur_y, btn_w, btn_h),
-                arcade.color.LIME_GREEN, border_width=1,
-            )
-            self._t_cfg_btn.text = "Save Config"
-            self._t_cfg_btn.x = btn_x + btn_w // 2
-            self._t_cfg_btn.y = cur_y + btn_h // 2
-            self._t_cfg_btn.color = arcade.color.WHITE
-            self._t_cfg_btn.draw()
-            self._cfg_save_rect = (btn_x, cur_y, btn_w, btn_h)
-            cur_y -= btn_h + 12
-
-            # Back button
-            arcade.draw_rect_filled(
-                arcade.LBWH(btn_x, cur_y, btn_w, btn_h), (40, 40, 70, 220),
-            )
-            arcade.draw_rect_outline(
-                arcade.LBWH(btn_x, cur_y, btn_w, btn_h),
-                arcade.color.STEEL_BLUE, border_width=1,
-            )
-            self._t_cfg_btn.text = "Back"
-            self._t_cfg_btn.x = btn_x + btn_w // 2
-            self._t_cfg_btn.y = cur_y + btn_h // 2
-            self._t_cfg_btn.draw()
-            self._cfg_back_rect = (btn_x, cur_y, btn_w, btn_h)
+    def _draw_config_overlay(self) -> None:
+        """Draw the configuration panel overlay."""
+        sw, sh = self.window.width, self.window.height
+        panel_w, panel_h = 380, 420
+        px = (sw - panel_w) // 2
+        py = (sh - panel_h) // 2
+        arcade.draw_rect_filled(
+            arcade.LBWH(px, py, panel_w, panel_h), (15, 15, 40, 245))
+        arcade.draw_rect_outline(
+            arcade.LBWH(px, py, panel_w, panel_h),
+            arcade.color.STEEL_BLUE, border_width=2)
+        cx = px + panel_w // 2
+        self._t_cfg_title.x = cx
+        self._t_cfg_title.y = py + panel_h - 24
+        self._t_cfg_title.draw()
+        cur_y = py + panel_h - 60
+        slider_x = px + 16
+        slider_w = panel_w - 32
+        # Music Volume slider
+        self._t_cfg_label.text = "Music Volume"
+        self._t_cfg_label.x = px + 16
+        self._t_cfg_label.y = cur_y + 12
+        self._t_cfg_label.color = arcade.color.WHITE
+        self._t_cfg_label.draw()
+        arcade.draw_rect_filled(
+            arcade.LBWH(slider_x, cur_y, slider_w, 8), (50, 50, 70))
+        fill_w = int(slider_w * audio.music_volume)
+        arcade.draw_rect_filled(
+            arcade.LBWH(slider_x, cur_y, fill_w, 8), arcade.color.CYAN)
+        arcade.draw_circle_filled(slider_x + fill_w, cur_y + 4, 8, arcade.color.WHITE)
+        self._t_cfg_val.text = f"{int(audio.music_volume * 100)}%"
+        self._t_cfg_val.x = px + panel_w - 16
+        self._t_cfg_val.y = cur_y + 12
+        self._t_cfg_val.draw()
+        self._cfg_music_slider = (slider_x, cur_y, slider_w, 8)
+        cur_y -= 50
+        # SFX Volume slider
+        self._t_cfg_label.text = "SFX Volume"
+        self._t_cfg_label.x = px + 16
+        self._t_cfg_label.y = cur_y + 12
+        self._t_cfg_label.draw()
+        arcade.draw_rect_filled(
+            arcade.LBWH(slider_x, cur_y, slider_w, 8), (50, 50, 70))
+        fill_w = int(slider_w * audio.sfx_volume)
+        arcade.draw_rect_filled(
+            arcade.LBWH(slider_x, cur_y, fill_w, 8), arcade.color.CYAN)
+        arcade.draw_circle_filled(slider_x + fill_w, cur_y + 4, 8, arcade.color.WHITE)
+        self._t_cfg_val.text = f"{int(audio.sfx_volume * 100)}%"
+        self._t_cfg_val.x = px + panel_w - 16
+        self._t_cfg_val.y = cur_y + 12
+        self._t_cfg_val.draw()
+        self._cfg_sfx_slider = (slider_x, cur_y, slider_w, 8)
+        cur_y -= 50
+        # Video directory text field
+        self._t_cfg_label.text = "Videos Directory"
+        self._t_cfg_label.x = px + 16
+        self._t_cfg_label.y = cur_y + 16
+        self._t_cfg_label.draw()
+        cur_y -= 14
+        dir_bg = (40, 60, 80) if self._config_editing_dir else (30, 30, 50)
+        arcade.draw_rect_filled(
+            arcade.LBWH(px + 12, cur_y, panel_w - 24, 24), dir_bg)
+        arcade.draw_rect_outline(
+            arcade.LBWH(px + 12, cur_y, panel_w - 24, 24),
+            arcade.color.STEEL_BLUE, border_width=1)
+        display_text = self._config_dir_text or "(click to set)"
+        if self._config_editing_dir:
+            display_text = self._config_dir_text + "|"
+        self._t_cfg_val.anchor_x = "left"
+        self._t_cfg_val.text = display_text[:40]
+        self._t_cfg_val.x = px + 16
+        self._t_cfg_val.y = cur_y + 12
+        self._t_cfg_val.color = arcade.color.KHAKI if self._config_editing_dir else (150, 150, 150)
+        self._t_cfg_val.draw()
+        self._t_cfg_val.anchor_x = "right"
+        self._t_cfg_val.color = arcade.color.CYAN
+        self._cfg_dir_rect = (px + 12, cur_y, panel_w - 24, 24)
+        cur_y -= 45
+        # Autoplay OST toggle
+        self._t_cfg_label.text = "Autoplay OST on Start"
+        self._t_cfg_label.x = px + 16
+        self._t_cfg_label.y = cur_y + 6
+        self._t_cfg_label.draw()
+        toggle_x = px + panel_w - 60
+        toggle_text = "ON" if audio.autoplay_ost else "OFF"
+        toggle_color = arcade.color.LIME_GREEN if audio.autoplay_ost else (180, 60, 60)
+        arcade.draw_rect_filled(
+            arcade.LBWH(toggle_x, cur_y - 4, 40, 24), (40, 40, 60))
+        arcade.draw_rect_outline(
+            arcade.LBWH(toggle_x, cur_y - 4, 40, 24), toggle_color, border_width=2)
+        self._t_cfg_btn.text = toggle_text
+        self._t_cfg_btn.x = toggle_x + 20
+        self._t_cfg_btn.y = cur_y + 8
+        self._t_cfg_btn.color = toggle_color
+        self._t_cfg_btn.font_size = 10
+        self._t_cfg_btn.draw()
+        self._t_cfg_btn.font_size = 12
+        self._cfg_ost_rect = (toggle_x, cur_y - 4, 40, 24)
+        cur_y -= 50
+        # Save Config button
+        btn_w, btn_h = 160, 38
+        btn_x = cx - btn_w // 2
+        arcade.draw_rect_filled(
+            arcade.LBWH(btn_x, cur_y, btn_w, btn_h), (30, 60, 30, 220))
+        arcade.draw_rect_outline(
+            arcade.LBWH(btn_x, cur_y, btn_w, btn_h),
+            arcade.color.LIME_GREEN, border_width=1)
+        self._t_cfg_btn.text = "Save Config"
+        self._t_cfg_btn.x = btn_x + btn_w // 2
+        self._t_cfg_btn.y = cur_y + btn_h // 2
+        self._t_cfg_btn.color = arcade.color.WHITE
+        self._t_cfg_btn.draw()
+        self._cfg_save_rect = (btn_x, cur_y, btn_w, btn_h)
+        cur_y -= btn_h + 12
+        # Back button
+        arcade.draw_rect_filled(
+            arcade.LBWH(btn_x, cur_y, btn_w, btn_h), (40, 40, 70, 220))
+        arcade.draw_rect_outline(
+            arcade.LBWH(btn_x, cur_y, btn_w, btn_h),
+            arcade.color.STEEL_BLUE, border_width=1)
+        self._t_cfg_btn.text = "Back"
+        self._t_cfg_btn.x = btn_x + btn_w // 2
+        self._t_cfg_btn.y = cur_y + btn_h // 2
+        self._t_cfg_btn.draw()
+        self._cfg_back_rect = (btn_x, cur_y, btn_w, btn_h)
 
     def _draw_slider(self, y: int, value: float) -> None:
         """Draw a horizontal slider track + knob at the given y position."""

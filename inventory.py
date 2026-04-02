@@ -10,9 +10,10 @@ from constants import (
     INV_COLS, INV_ROWS, INV_CELL, INV_PAD, INV_HEADER, INV_FOOTER, INV_W, INV_H,
     MAX_STACK, MAX_STACK_DEFAULT,
 )
+from base_inventory import BaseInventoryData
 
 
-class Inventory:
+class Inventory(BaseInventoryData):
     """5x5 cargo hold grid drawn as a modal overlay.
 
     All items (iron, repair_pack, etc.) are stored as (type, count) tuples
@@ -26,6 +27,8 @@ class Inventory:
     ) -> None:
         # items: dict[(row, col)] -> (item_type, count); absent key = empty slot
         self._items: dict[tuple[int, int], tuple[str, int]] = {}
+        self._rows = INV_ROWS
+        self._cols = INV_COLS
         self.open: bool = False
         try:
             self._window = arcade.get_window()
@@ -90,77 +93,9 @@ class Inventory:
 
     # ── Public API ──────────────────────────────────────────────────────────
 
-    @property
-    def total_iron(self) -> int:
-        """Total iron across all cells."""
-        return self.count_item("iron")
-
-    # Backward-compat alias so existing code using `inventory.iron` keeps working
-    # during migration. Reads sum from cells; writes not supported (use add_item).
-    @property
-    def iron(self) -> int:
-        return self.total_iron
-
     def add_iron(self, amount: int) -> None:
         """Backward-compat helper — delegates to add_item."""
         self.add_item("iron", amount)
-
-    def add_item(self, item_type: str, count: int = 1) -> None:
-        """Add items to the first available cell or stack on existing."""
-        # Try to stack on existing cell of same type
-        for cell, (it, ct) in list(self._items.items()):
-            if it == item_type:
-                self._items[cell] = (it, ct + count)
-                return
-        # Find first empty cell
-        for r in range(INV_ROWS):
-            for c in range(INV_COLS):
-                if (r, c) not in self._items:
-                    self._items[(r, c)] = (item_type, count)
-                    return
-
-    def count_item(self, item_type: str) -> int:
-        """Count total items of the given type across all cells."""
-        total = 0
-        for (it, ct) in self._items.values():
-            if it == item_type:
-                total += ct
-        return total
-
-    def remove_item(self, item_type: str, count: int = 1) -> int:
-        """Remove up to *count* items of the given type. Returns amount removed."""
-        removed = 0
-        for cell, (it, ct) in list(self._items.items()):
-            if it == item_type:
-                take = min(ct, count - removed)
-                remaining = ct - take
-                removed += take
-                if remaining <= 0:
-                    del self._items[cell]
-                else:
-                    self._items[cell] = (it, remaining)
-                if removed >= count:
-                    break
-        return removed
-
-    def consolidate(self) -> None:
-        """Merge stacks of the same item type, respecting max stack sizes."""
-        totals: dict[str, int] = {}
-        for (it, ct) in self._items.values():
-            totals[it] = totals.get(it, 0) + ct
-        self._items.clear()
-        cell = 0
-        for it, total in totals.items():
-            max_s = MAX_STACK.get(it, MAX_STACK_DEFAULT)
-            while total > 0 and cell < INV_ROWS * INV_COLS:
-                amt = min(total, max_s)
-                r, c = divmod(cell, INV_COLS)
-                self._items[(r, c)] = (it, amt)
-                total -= amt
-                cell += 1
-
-    def toggle(self) -> None:
-        self.open = not self.open
 
     # ── Mouse helpers ───────────────────────────────────────────────────────
     def _grid_origin(self) -> tuple[int, int]:

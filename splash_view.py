@@ -100,6 +100,10 @@ class SplashView(arcade.View):
         )
 
         # ── Load-game sub-screen state ─────────────────────────────────
+        self._init_load_screen(sw)
+
+    def _init_load_screen(self, sw: int) -> None:
+        """Initialise load-game sub-screen state and text objects."""
         self._show_load: bool = False
         self._load_hover: int = -1
         self._load_slots: list[dict] = []
@@ -281,50 +285,7 @@ class SplashView(arcade.View):
         self._t_load_title.draw()
 
         for i in range(SAVE_SLOT_COUNT):
-            sx, sy, sw, sh = slot_rects[i]
-            info = self._load_slots[i] if i < len(self._load_slots) else {"name": "", "exists": False}
-            hovered = (i == self._load_hover)
-
-            if not info["exists"]:
-                bg = (20, 20, 40, 255)
-                outline_c = (60, 60, 80)
-                text_c = (80, 80, 100)
-            elif hovered:
-                bg = (50, 80, 140, 255)
-                outline_c = arcade.color.CYAN
-                text_c = arcade.color.CYAN
-            else:
-                bg = (30, 40, 80, 255)
-                outline_c = arcade.color.STEEL_BLUE
-                text_c = arcade.color.WHITE
-
-            arcade.draw_rect_filled(arcade.LBWH(sx, sy, sw, sh), bg)
-            arcade.draw_rect_outline(
-                arcade.LBWH(sx, sy, sw, sh), outline_c, border_width=1,
-            )
-
-            if info["exists"]:
-                label = f"Slot {i + 1}: {info['name']}"
-            else:
-                label = f"Slot {i + 1}: \u2014 Empty \u2014"
-            self._t_load_labels[i].text = label
-            self._t_load_labels[i].x = sx + 10
-            self._t_load_labels[i].y = sy + sh - 10
-            self._t_load_labels[i].color = text_c
-            self._t_load_labels[i].draw()
-
-            # Detail line (faction/ship/HP/shields)
-            if info["exists"]:
-                char = info.get("character", "")
-                char_part = f"  \u00b7 {char}" if char else ""
-                detail = (f"{info.get('faction', '?')} \u00b7 {info.get('ship_type', '?')}{char_part}"
-                          f"  |  HP {info.get('hp', 0)}  Shields {info.get('shields', 0)}")
-                det_c = (140, 200, 240) if hovered else (120, 150, 180)
-                self._t_load_details[i].text = detail
-                self._t_load_details[i].x = sx + 10
-                self._t_load_details[i].y = sy + 10
-                self._t_load_details[i].color = det_c
-                self._t_load_details[i].draw()
+            self._draw_load_slot(i, slot_rects)
 
         # Back button
         bbx, bby, bbw, bbh = self._load_back_rect()
@@ -340,6 +301,54 @@ class SplashView(arcade.View):
             arcade.color.CYAN if back_hovered else arcade.color.WHITE
         )
         self._t_load_back.draw()
+
+    def _draw_load_slot(self, i: int,
+                        slot_rects: list[tuple[int, int, int, int]]) -> None:
+        """Draw a single save-slot row in the load sub-screen."""
+        sx, sy, sw, sh = slot_rects[i]
+        info = self._load_slots[i] if i < len(self._load_slots) else {"name": "", "exists": False}
+        hovered = (i == self._load_hover)
+
+        if not info["exists"]:
+            bg = (20, 20, 40, 255)
+            outline_c = (60, 60, 80)
+            text_c = (80, 80, 100)
+        elif hovered:
+            bg = (50, 80, 140, 255)
+            outline_c = arcade.color.CYAN
+            text_c = arcade.color.CYAN
+        else:
+            bg = (30, 40, 80, 255)
+            outline_c = arcade.color.STEEL_BLUE
+            text_c = arcade.color.WHITE
+
+        arcade.draw_rect_filled(arcade.LBWH(sx, sy, sw, sh), bg)
+        arcade.draw_rect_outline(
+            arcade.LBWH(sx, sy, sw, sh), outline_c, border_width=1,
+        )
+
+        if info["exists"]:
+            label = f"Slot {i + 1}: {info['name']}"
+        else:
+            label = f"Slot {i + 1}: \u2014 Empty \u2014"
+        self._t_load_labels[i].text = label
+        self._t_load_labels[i].x = sx + 10
+        self._t_load_labels[i].y = sy + sh - 10
+        self._t_load_labels[i].color = text_c
+        self._t_load_labels[i].draw()
+
+        # Detail line (faction/ship/HP/shields)
+        if info["exists"]:
+            char = info.get("character", "")
+            char_part = f"  \u00b7 {char}" if char else ""
+            detail = (f"{info.get('faction', '?')} \u00b7 {info.get('ship_type', '?')}{char_part}"
+                      f"  |  HP {info.get('hp', 0)}  Shields {info.get('shields', 0)}")
+            det_c = (140, 200, 240) if hovered else (120, 150, 180)
+            self._t_load_details[i].text = detail
+            self._t_load_details[i].x = sx + 10
+            self._t_load_details[i].y = sy + 10
+            self._t_load_details[i].color = det_c
+            self._t_load_details[i].draw()
 
     # ── Update ─────────────────────────────────────────────────────────
 

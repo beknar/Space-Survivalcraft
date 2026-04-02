@@ -239,26 +239,8 @@ class BossAlienShip(arcade.Sprite):
         dist_player = math.hypot(dx_p, dy_p)
 
         # ── Charge attack (Phase 2+) ──
-        if self._charging:
-            if self._charge_windup > 0.0:
-                # Windup: boss flashes white, not moving
-                self._charge_windup -= dt
-                # Visual telegraph: rapid color pulse
-                pulse = int(abs(math.sin(self._charge_windup * 8.0)) * 200) + 55
-                self.color = (pulse, pulse, 255, 255)
-                return fired
-            else:
-                # Dashing
-                self._charge_timer -= dt
-                self.center_x += self._charge_dir_x * BOSS_CHARGE_SPEED * dt
-                self.center_y += self._charge_dir_y * BOSS_CHARGE_SPEED * dt
-                self.center_x = max(50.0, min(WORLD_WIDTH - 50.0, self.center_x))
-                self.center_y = max(50.0, min(WORLD_HEIGHT - 50.0, self.center_y))
-                self.color = (255, 100, 100, 255)
-                if self._charge_timer <= 0.0:
-                    self._charging = False
-                    self._charge_cd = BOSS_CHARGE_COOLDOWN
-                return fired
+        if self._update_charge(dt):
+            return fired
 
         # ── Movement: head toward station, but engage player if close ──
         if dist_player <= BOSS_DETECT_RANGE:
@@ -287,10 +269,48 @@ class BossAlienShip(arcade.Sprite):
                 self._charge_dir_y = math.cos(rad)
             return fired
 
+        # ── Fire weapons ──
+        fired.extend(self._try_fire_weapons(dist_player))
+
+        # ── Colour tint ──
+        self._update_color_tint(dt)
+
+        return fired
+
+    def _update_charge(self, dt: float) -> bool:
+        """Handle charge attack state (windup + dash). Returns True if charging."""
+        if not self._charging:
+            return False
+
+        if self._charge_windup > 0.0:
+            # Windup: boss flashes white, not moving
+            self._charge_windup -= dt
+            # Visual telegraph: rapid color pulse
+            pulse = int(abs(math.sin(self._charge_windup * 8.0)) * 200) + 55
+            self.color = (pulse, pulse, 255, 255)
+        else:
+            # Dashing
+            self._charge_timer -= dt
+            self.center_x += self._charge_dir_x * BOSS_CHARGE_SPEED * dt
+            self.center_y += self._charge_dir_y * BOSS_CHARGE_SPEED * dt
+            self.center_x = max(50.0, min(WORLD_WIDTH - 50.0, self.center_x))
+            self.center_y = max(50.0, min(WORLD_HEIGHT - 50.0, self.center_y))
+            self.color = (255, 100, 100, 255)
+            if self._charge_timer <= 0.0:
+                self._charging = False
+                self._charge_cd = BOSS_CHARGE_COOLDOWN
+        return True
+
+    def _try_fire_weapons(
+        self, dist_player: float,
+    ) -> list[Projectile]:
+        """Fire main cannon and spread shot if cooldowns allow. Returns new projectiles."""
+        result: list[Projectile] = []
+
         # ── Fire main cannon ──
         if self._cannon_cd <= 0.0 and dist_player <= BOSS_CANNON_RANGE:
             self._cannon_cd = self._cannon_cooldown()
-            fired.append(Projectile(
+            result.append(Projectile(
                 self._laser_tex,
                 self.center_x, self.center_y,
                 self._heading,
@@ -305,7 +325,7 @@ class BossAlienShip(arcade.Sprite):
             half_arc = BOSS_SPREAD_ARC / 2.0
             for i in range(BOSS_SPREAD_COUNT):
                 offset = -half_arc + (BOSS_SPREAD_ARC / max(1, BOSS_SPREAD_COUNT - 1)) * i
-                fired.append(Projectile(
+                result.append(Projectile(
                     self._laser_tex,
                     self.center_x, self.center_y,
                     self._heading + offset,
@@ -314,7 +334,10 @@ class BossAlienShip(arcade.Sprite):
                     damage=BOSS_SPREAD_DAMAGE,
                 ))
 
-        # ── Colour tint ──
+        return result
+
+    def _update_color_tint(self, dt: float) -> None:
+        """Update hit/bump flashes and phase-based color tinting."""
         if self._hit_timer > 0.0:
             self._hit_timer = max(0.0, self._hit_timer - dt)
             self.color = (255, 80, 80, 255) if self._hit_timer > 0.0 else (255, 255, 255, 255)
@@ -329,5 +352,3 @@ class BossAlienShip(arcade.Sprite):
                 self.color = (220, 200, 255, 255)
             else:
                 self.color = (255, 255, 255, 255)
-
-        return fired

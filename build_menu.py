@@ -250,6 +250,19 @@ class BuildMenu:
         self._t_name.anchor_x = "left"
         self._t_name.bold = True
 
+        self._draw_menu_items(iron, building_counts, modules_used,
+                              module_capacity, has_home)
+        self._draw_destroy_button(has_home)
+
+    def _draw_menu_items(
+        self,
+        iron: int,
+        building_counts: dict[str, int],
+        modules_used: int,
+        module_capacity: int,
+        has_home: bool,
+    ) -> None:
+        """Draw the list of buildable module rows."""
         for i, name in enumerate(_MENU_ORDER):
             ix, iy, iw, ih = self._item_rect(i)
             avail, reason = self._check_availability(
@@ -308,7 +321,8 @@ class BuildMenu:
                 self._t_reason.draw()
                 self._t_reason.anchor_x = "left"
 
-        # Destroy button
+    def _draw_destroy_button(self, has_home: bool) -> None:
+        """Draw the destroy-mode button at the bottom of the menu."""
         dx, dy, dw, dh = self._destroy_rect()
         destroy_fill = (80, 30, 30, 220) if self._hover_destroy else (50, 20, 20, 200)
         if not has_home:

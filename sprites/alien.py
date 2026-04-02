@@ -194,6 +194,27 @@ class SmallAlienShip(arcade.Sprite):
                 self._pick_patrol_target()
 
         # ── Movement ────────────────────────────────────────────────────────
+        self._update_movement(dt, player_x, player_y, asteroid_list, alien_list)
+
+        # ── Stuck detection ────────────────────────────────────────────────
+        self._update_stuck_detection(dt, asteroid_list)
+
+        # ── Colour tint (weapon hit = red, collision bump = orange) ─────────
+        self._update_color_tint(dt)
+
+        # ── Fire ────────────────────────────────────────────────────────────
+        self._fire_cd = max(0.0, self._fire_cd - dt)
+        return self._try_fire(dist)
+
+    def _update_movement(
+        self,
+        dt: float,
+        player_x: float,
+        player_y: float,
+        asteroid_list: arcade.SpriteList,
+        alien_list: arcade.SpriteList,
+    ) -> None:
+        """Handle PATROL and PURSUE movement with obstacle avoidance."""
         if self._state == self._STATE_PATROL:
             tdx = self._tgt_x - self.center_x
             tdy = self._tgt_y - self.center_y
@@ -217,6 +238,9 @@ class SmallAlienShip(arcade.Sprite):
                     self.angle = self._heading
 
         else:  # PURSUE -- steer toward player with obstacle avoidance
+            dx = player_x - self.center_x
+            dy = player_y - self.center_y
+            dist = math.hypot(dx, dy)
             if dist > 1.0:
                 base_x = dx / dist
                 base_y = dy / dist
@@ -235,7 +259,10 @@ class SmallAlienShip(arcade.Sprite):
                     ) % 360.0
                     self.angle = self._heading
 
-        # ── Stuck detection ────────────────────────────────────────────────
+    def _update_stuck_detection(
+        self, dt: float, asteroid_list: arcade.SpriteList,
+    ) -> None:
+        """Check if alien is stuck and pick an escape target if so."""
         self._stuck_timer += dt
         if self._stuck_timer >= ALIEN_STUCK_TIME:
             moved = math.hypot(self.center_x - self._stuck_check_x,
@@ -246,7 +273,8 @@ class SmallAlienShip(arcade.Sprite):
             self._stuck_check_y = self.center_y
             self._stuck_timer = 0.0
 
-        # ── Colour tint (weapon hit = red, collision bump = orange) ─────────
+    def _update_color_tint(self, dt: float) -> None:
+        """Update weapon-hit (red) and collision-bump (orange) color tints."""
         if self._hit_timer > 0.0:
             self._hit_timer = max(0.0, self._hit_timer - dt)
             self.color = (
@@ -261,8 +289,8 @@ class SmallAlienShip(arcade.Sprite):
                 else (255, 255, 255, 255)
             )
 
-        # ── Fire ────────────────────────────────────────────────────────────
-        self._fire_cd = max(0.0, self._fire_cd - dt)
+    def _try_fire(self, dist: float) -> Optional[Projectile]:
+        """Attempt to fire a laser at the player. Returns Projectile or None."""
         if (
             self._state == self._STATE_PURSUE
             and dist <= ALIEN_LASER_RANGE

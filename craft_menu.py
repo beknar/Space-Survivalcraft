@@ -171,6 +171,14 @@ class CraftMenu:
         self._t_title.y = py + _PANEL_H - 20
         self._t_title.draw()
 
+        self._draw_recipe_list(px, py, station_iron)
+        self._draw_craft_button(px, py, station_iron)
+
+        self._t_close.x = px + _PANEL_W // 2; self._t_close.y = py + 10
+        self._t_close.draw()
+
+    def _draw_recipe_list(self, px: int, py: int, station_iron: int) -> None:
+        """Draw the scrollable recipe list and selected recipe detail."""
         list_y = py + _PANEL_H - 55
 
         # Draw recipe list using pre-built text objects
@@ -216,7 +224,8 @@ class CraftMenu:
         self._t_detail.x = px + 16 + icon_w; self._t_detail.y = detail_y
         self._t_detail.draw()
 
-        # Craft button
+    def _draw_craft_button(self, px: int, py: int, station_iron: int) -> None:
+        """Draw the craft/cancel button and progress bar."""
         bx, by, bw, bh = self._craft_btn_rect()
         if self._crafting:
             btn_fill = (40, 40, 60, 220)
@@ -257,9 +266,6 @@ class CraftMenu:
                 self._t_status.text = f"{pct}%"
             self._t_status.x = px + _PANEL_W // 2; self._t_status.y = bar_y + 6
             self._t_status.draw()
-
-        self._t_close.x = px + _PANEL_W // 2; self._t_close.y = py + 10
-        self._t_close.draw()
 
 
 def _effect_desc(info: dict) -> str:

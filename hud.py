@@ -12,24 +12,8 @@ from constants import (
     MINIMAP_PAD, MINIMAP_W, MINIMAP_H, MINIMAP_X, MINIMAP_Y,
     FOG_CELL_SIZE, FOG_GRID_W, FOG_GRID_H,
 )
-
-# Equalizer visualizer constants
-_EQ_BARS = 16          # number of frequency bars
-_EQ_BAR_W = 8          # bar width in px
-_EQ_GAP = 3            # gap between bars
-_EQ_MAX_H = 40         # max bar height in px
-
-# Colour palette for cascading bars (8 colours cycling)
-_EQ_COLOURS = [
-    (0, 200, 255),    # cyan
-    (50, 180, 255),   # light blue
-    (100, 120, 255),  # blue-purple
-    (180, 80, 255),   # purple
-    (255, 60, 200),   # magenta
-    (255, 80, 100),   # red-pink
-    (255, 160, 50),   # orange
-    (255, 220, 50),   # yellow
-]
+from hud_equalizer import EqualizerState, EQ_MAX_H
+from hud_minimap import draw_minimap
 
 
 class HUD:
@@ -113,14 +97,8 @@ class HUD:
             arcade.color.KHAKI, 9, bold=True, anchor_x="center",
         )
 
-        # Equalizer visualizer state
-        self._eq_heights: list[float] = [0.0] * _EQ_BARS
-        self._eq_timer: float = 0.0
-        self._eq_phase: list[float] = [random.uniform(0, math.tau) for _ in range(_EQ_BARS)]
-        self._eq_speed: list[float] = [random.uniform(2.0, 5.0) for _ in range(_EQ_BARS)]
-        self._eq_colour_offset: float = 0.0       # cascading colour phase
-        self._eq_cascade_dir: int = 1              # +1 = left-to-right, -1 = right-to-left
-        self._eq_next_dir_change: float = 0.0      # timer for next random direction flip
+        # Equalizer visualizer state (extracted to hud_equalizer.py)
+        self._eq = EqualizerState()
 
         # Quick-use bar state (5 slots, each holds item_type or None)
         from constants import QUICK_USE_SLOTS, QUICK_USE_CELL
@@ -248,32 +226,8 @@ class HUD:
     def update_fps(self, delta_time: float) -> None:
         if delta_time > 0:
             self._fps = 0.9 * self._fps + 0.1 * (1.0 / delta_time)
-        # Update equalizer animation
-        self._eq_timer += delta_time
         from settings import audio
-        vol = audio.music_volume
-        # Advance cascading colour offset
-        self._eq_colour_offset += delta_time * 3.0 * self._eq_cascade_dir
-        # Randomly flip cascade direction every 2-5 seconds
-        self._eq_next_dir_change -= delta_time
-        if self._eq_next_dir_change <= 0:
-            self._eq_cascade_dir = random.choice([-1, 1])
-            self._eq_next_dir_change = random.uniform(2.0, 5.0)
-        for i in range(_EQ_BARS):
-            # Each bar oscillates at its own frequency with volume scaling
-            target = (0.3 + 0.7 * abs(math.sin(
-                self._eq_timer * self._eq_speed[i] + self._eq_phase[i]
-            ))) * vol
-            # Bass and treble bars are typically higher
-            if i < 3 or i > _EQ_BARS - 3:
-                target *= 0.6
-            else:
-                target *= 0.8 + 0.4 * abs(math.sin(self._eq_timer * 1.5 + i))
-            # Smooth interpolation (fast rise, slow fall)
-            if target > self._eq_heights[i]:
-                self._eq_heights[i] += (target - self._eq_heights[i]) * min(1.0, delta_time * 12)
-            else:
-                self._eq_heights[i] += (target - self._eq_heights[i]) * min(1.0, delta_time * 4)
+        self._eq.update(delta_time, audio.music_volume)
 
     def draw(
         self,
@@ -362,29 +316,8 @@ class HUD:
 
         # Equalizer visualizer (only when music is playing, not video)
         if track_name and not video_active:
-            eq_total_w = _EQ_BARS * _EQ_BAR_W + (_EQ_BARS - 1) * _EQ_GAP
-            eq_x = (STATUS_WIDTH - eq_total_w) // 2
-            # Position below the track name text with spacing
-            eq_y = self._hp_y_offset - 174 - _EQ_MAX_H
-            for i in range(_EQ_BARS):
-                h = int(self._eq_heights[i] * _EQ_MAX_H)
-                if h < 2:
-                    h = 2
-                bx = eq_x + i * (_EQ_BAR_W + _EQ_GAP)
-                # Cascading colour: each bar picks from palette based on
-                # position + time offset, creating a wave of colour
-                colour_idx = (self._eq_colour_offset + i * 0.5) % len(_EQ_COLOURS)
-                idx_a = int(colour_idx) % len(_EQ_COLOURS)
-                idx_b = (idx_a + 1) % len(_EQ_COLOURS)
-                frac = colour_idx - int(colour_idx)
-                ca, cb = _EQ_COLOURS[idx_a], _EQ_COLOURS[idx_b]
-                r = int(ca[0] + (cb[0] - ca[0]) * frac)
-                g = int(ca[1] + (cb[1] - ca[1]) * frac)
-                b_col = int(ca[2] + (cb[2] - ca[2]) * frac)
-                arcade.draw_rect_filled(
-                    arcade.LBWH(bx, eq_y, _EQ_BAR_W, h),
-                    (r, g, b_col, 230),
-                )
+            eq_y = self._hp_y_offset - 174 - EQ_MAX_H
+            self._eq.draw(eq_y)
 
         # Quick-use bar (10 slots labeled 1–9, 0) — bottom-centre of screen
         win = arcade.get_window()
@@ -573,7 +506,8 @@ class HUD:
                 self._t_qu_num.color = arcade.color.ORANGE
                 self._t_qu_num.draw()
 
-        self._draw_minimap(
+        draw_minimap(
+            self._t_minimap,
             asteroid_list, iron_pickup_list, alien_list,
             player_x, player_y, player_heading,
             building_list=building_list,
@@ -582,179 +516,3 @@ class HUD:
             trade_station_pos=trade_station_pos,
             boss_pos=boss_pos,
         )
-
-    @staticmethod
-    def _is_revealed(wx: float, wy: float, fog_grid: list[list[bool]] | None) -> bool:
-        """Check if a world position has been revealed in the fog grid."""
-        if fog_grid is None:
-            return True
-        gx = int(wx / FOG_CELL_SIZE)
-        gy = int(wy / FOG_CELL_SIZE)
-        if 0 <= gx < FOG_GRID_W and 0 <= gy < FOG_GRID_H:
-            return fog_grid[gy][gx]
-        return False
-
-    def _draw_minimap(
-        self,
-        asteroid_list: arcade.SpriteList,
-        iron_pickup_list: arcade.SpriteList,
-        alien_list: arcade.SpriteList,
-        player_x: float,
-        player_y: float,
-        player_heading: float,
-        building_list: arcade.SpriteList | None = None,
-        fog_grid: list[list[bool]] | None = None,
-        fog_revealed: int = 0,
-        trade_station_pos: tuple[float, float] | None = None,
-        boss_pos: tuple[float, float] | None = None,
-    ) -> None:
-        """Draw a scaled overview of the world inside the status panel."""
-        mx, my = MINIMAP_X, MINIMAP_Y
-        mw, mh = MINIMAP_W, MINIMAP_H
-
-        arcade.draw_rect_filled(arcade.LBWH(mx, my, mw, mh), (5, 5, 20, 245))
-        arcade.draw_rect_outline(
-            arcade.LBWH(mx, my, mw, mh), arcade.color.STEEL_BLUE, border_width=1,
-        )
-        self._t_minimap.draw()
-
-        def to_map(wx: float, wy: float) -> tuple[float, float]:
-            return (
-                mx + (wx / WORLD_WIDTH) * mw,
-                my + (wy / WORLD_HEIGHT) * mh,
-            )
-
-        # Draw grey fog overlay using 4x4 block sampling (32x32 blocks)
-        # Each block is fog if ANY cell in the 4x4 group is unrevealed
-        if fog_grid is not None:
-            _BLOCK = 4
-            bw = FOG_GRID_W // _BLOCK  # 32
-            bh = FOG_GRID_H // _BLOCK  # 32
-            block_w = mw / bw
-            block_h = mh / bh
-            fog_colour = (60, 60, 80, 200)
-            total = FOG_GRID_W * FOG_GRID_H
-            if fog_revealed < total // 3:
-                # Mostly fog — draw full fog, clear revealed blocks
-                arcade.draw_rect_filled(
-                    arcade.LBWH(mx, my, mw, mh), fog_colour)
-                clear_colour = (5, 5, 20, 245)
-                for by in range(bh):
-                    run_start = -1
-                    for bx in range(bw):
-                        # Block is clear only if ALL cells in 4x4 are revealed
-                        gy0 = by * _BLOCK
-                        gx0 = bx * _BLOCK
-                        all_clear = True
-                        for dy in range(min(_BLOCK, FOG_GRID_H - gy0)):
-                            row = fog_grid[gy0 + dy]
-                            for dx in range(min(_BLOCK, FOG_GRID_W - gx0)):
-                                if not row[gx0 + dx]:
-                                    all_clear = False
-                                    break
-                            if not all_clear:
-                                break
-                        if all_clear:
-                            if run_start < 0:
-                                run_start = bx
-                        else:
-                            if run_start >= 0:
-                                arcade.draw_rect_filled(
-                                    arcade.LBWH(mx + run_start * block_w,
-                                                my + by * block_h,
-                                                (bx - run_start) * block_w,
-                                                block_h), clear_colour)
-                                run_start = -1
-                    if run_start >= 0:
-                        arcade.draw_rect_filled(
-                            arcade.LBWH(mx + run_start * block_w,
-                                        my + by * block_h,
-                                        (bw - run_start) * block_w,
-                                        block_h), clear_colour)
-            else:
-                # Mostly clear — draw fog blocks for unrevealed runs
-                for by in range(bh):
-                    run_start = -1
-                    for bx in range(bw):
-                        gy0 = by * _BLOCK
-                        gx0 = bx * _BLOCK
-                        any_fog = False
-                        for dy in range(min(_BLOCK, FOG_GRID_H - gy0)):
-                            row = fog_grid[gy0 + dy]
-                            for dx in range(min(_BLOCK, FOG_GRID_W - gx0)):
-                                if not row[gx0 + dx]:
-                                    any_fog = True
-                                    break
-                            if any_fog:
-                                break
-                        if any_fog:
-                            if run_start < 0:
-                                run_start = bx
-                        else:
-                            if run_start >= 0:
-                                arcade.draw_rect_filled(
-                                    arcade.LBWH(mx + run_start * block_w,
-                                                my + by * block_h,
-                                                (bx - run_start) * block_w,
-                                                block_h), fog_colour)
-                                run_start = -1
-                    if run_start >= 0:
-                        arcade.draw_rect_filled(
-                            arcade.LBWH(mx + run_start * block_w,
-                                        my + by * block_h,
-                                        (bw - run_start) * block_w,
-                                        block_h), fog_colour)
-
-        # Draw objects ON TOP of fog overlay so they're visible in revealed areas
-        for asteroid in asteroid_list:
-            if not self._is_revealed(asteroid.center_x, asteroid.center_y, fog_grid):
-                continue
-            ax, ay = to_map(asteroid.center_x, asteroid.center_y)
-            arcade.draw_circle_filled(ax, ay, 2.0, (150, 150, 150))
-
-        for pickup in iron_pickup_list:
-            if not self._is_revealed(pickup.center_x, pickup.center_y, fog_grid):
-                continue
-            ppx, ppy = to_map(pickup.center_x, pickup.center_y)
-            arcade.draw_circle_filled(ppx, ppy, 2.0, (255, 165, 0))
-
-        for alien in alien_list:
-            if not self._is_revealed(alien.center_x, alien.center_y, fog_grid):
-                continue
-            amx, amy = to_map(alien.center_x, alien.center_y)
-            arcade.draw_circle_filled(amx, amy, 2.0, (220, 50, 50))
-
-        if building_list is not None:
-            for building in building_list:
-                if not self._is_revealed(building.center_x, building.center_y, fog_grid):
-                    continue
-                bbx, bby = to_map(building.center_x, building.center_y)
-                arcade.draw_circle_filled(bbx, bby, 2.5, (100, 220, 255))
-
-        # Trading station (yellow diamond, larger than other markers)
-        if trade_station_pos is not None:
-            tsx, tsy = trade_station_pos
-            if self._is_revealed(tsx, tsy, fog_grid):
-                tmx, tmy = to_map(tsx, tsy)
-                arcade.draw_rect_filled(
-                    arcade.LBWH(tmx - 3, tmy - 3, 6, 6),
-                    (255, 220, 50))
-                arcade.draw_rect_outline(
-                    arcade.LBWH(tmx - 3, tmy - 3, 6, 6),
-                    (255, 255, 150), border_width=1)
-
-        # Boss marker (large pulsing red diamond)
-        if boss_pos is not None:
-            bpx, bpy = boss_pos
-            if self._is_revealed(bpx, bpy, fog_grid):
-                bmx, bmy = to_map(bpx, bpy)
-                arcade.draw_circle_filled(bmx, bmy, 4.0, (255, 50, 50))
-                arcade.draw_circle_outline(bmx, bmy, 5.5, (255, 100, 100), 1)
-
-        # Player dot (always on top)
-        sx, sy = to_map(player_x, player_y)
-        rad = math.radians(player_heading)
-        lx = sx + math.sin(rad) * 5
-        ly = sy + math.cos(rad) * 5
-        arcade.draw_line(sx, sy, lx, ly, arcade.color.CYAN, 1)
-        arcade.draw_circle_filled(sx, sy, 3.0, arcade.color.WHITE)
