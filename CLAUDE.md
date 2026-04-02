@@ -41,10 +41,20 @@ Space Survivalcraft/
 ├── splash_view.py       # SplashView — "CALL OF ORION" title, Play/Load/Options/Exit buttons
 ├── options_view.py      # OptionsView — volume sliders, resolution selector, fullscreen toggle, Config save
 ├── selection_view.py    # SelectionView — two-phase faction then ship-type picker
-├── game_view.py         # GameView — core gameplay loop, cameras, input, music, death logic
+├── game_view.py         # GameView — thin dispatcher (~620 lines); delegates to extracted modules
+├── combat_helpers.py    # Combat, spawning, respawn, XP, boss spawn (extracted from GameView)
+├── building_manager.py  # Building placement, destruction, ports, trade station (extracted from GameView)
+├── draw_logic.py        # draw_world() and draw_ui() (extracted from GameView.on_draw)
+├── update_logic.py      # 11 update sub-functions (extracted from GameView.on_update)
+├── input_handlers.py    # All keyboard/mouse event handling (extracted from GameView)
+├── game_save.py         # Save/load serialization (extracted from GameView)
+├── game_music.py        # Music/video playback management (extracted from GameView)
 │
 │  ── UI overlays (drawn by GameView, not separate Views) ──
-├── hud.py               # HUD — left status panel (HP/shield bars, character video, weapon, fog-filtered mini-map, equalizer visualizer)
+├── hud.py               # HUD — left status panel (HP/shield bars, character video, weapon); delegates minimap and equalizer
+├── hud_minimap.py       # Minimap drawing with fog overlay (extracted from HUD)
+├── hud_equalizer.py     # Equalizer visualizer state and drawing (extracted from HUD)
+├── base_inventory.py    # BaseInventoryData — shared item storage logic for both inventories
 ├── escape_menu/         # EscapeMenu package — overlay with save/load/quit, audio sliders, song controls, video/character picker, help
 │   ├── __init__.py      # EscapeMenu orchestrator — delegates draw/input to active mode (~157 lines)
 │   ├── _context.py      # MenuContext (shared state) + MenuMode base class
@@ -163,13 +173,19 @@ GameView overlays:
 constants.py ◀── nearly everything (central config)
 settings.py  ◀── splash_view, options_view, game_view, death_screen (audio singleton)
 
-game_view.py
+game_view.py (thin dispatcher)
+  ├── combat_helpers.py (damage, death, spawning, respawn, XP, boss)
+  ├── building_manager.py (placement, destruction, ports, trade station)
+  ├── draw_logic.py (world + UI rendering)
+  ├── update_logic.py (11 update phases)
+  ├── input_handlers.py (keyboard + mouse events)
+  ├── game_save.py, game_music.py (save/load, music/video)
   ├── sprites/* (PlayerShip, Weapon, Explosion, HitSpark, FireSpark, IronPickup, ContrailParticle, Building*, BossAlienShip)
-  ├── collisions.py (all collision handlers called from on_update)
+  ├── collisions.py (all collision handlers called from update_logic)
   ├── world_setup.py (asset loading, asteroid/alien/building population, music tracks)
-  ├── hud.py, escape_menu/, death_screen.py, inventory.py, build_menu.py, station_info.py (UI overlays)
-  ├── video_player.py (character video + music video playback)
-  └── settings.py (audio volume)
+  ├── hud.py → hud_minimap.py, hud_equalizer.py (UI overlays)
+  ├── inventory.py, station_inventory.py → base_inventory.py (shared item logic)
+  └── escape_menu/, death_screen.py, build_menu.py, craft_menu.py, trade_menu.py, station_info.py
 
 collisions.py
   ├── constants.py (radii, damage values, bounce factors)
@@ -219,6 +235,8 @@ sprites/alien.py
 - **Respawn texture caching** — asteroid/alien textures loaded once at init, reused for all respawns
 - **XP hard cap** — XP capped at 1,000 (max level); `_add_xp` short-circuits when cap reached
 - **Character bio panel** — Ship Stats overlay (C key) shows a second panel with a random portrait from `characters/portraits/` and backstory text; portrait chosen fresh each time the panel opens
+- **GameView extraction pattern** — all extracted modules (combat_helpers, building_manager, draw_logic, update_logic, input_handlers) use free functions receiving `gv: GameView` with `TYPE_CHECKING` to avoid circular imports; GameView keeps thin one-liner delegates so external callers (collisions.py, game_save.py) continue to work via `gv._method()`
+- **BaseInventoryData mixin** — shared item storage (add/remove/count/consolidate/toggle) inherited by both Inventory and StationInventory; subclasses set `_rows`/`_cols` for grid dimensions
 - **Boss encounter** — spawns when player reaches level 5, all 4 modules equipped, 5+ repair packs, and Home Station built; BossAlienShip has 2000 HP + 500 shields, 3-phase AI (main cannon + spread → adds charge attack → enraged with halved cooldowns); spawns at farthest world corner from station and heads toward it; full save/load support; HP bar with phase indicator; large dramatic announcement on spawn; red minimap marker
 
 ## Game Rules Reference

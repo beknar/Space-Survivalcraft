@@ -80,31 +80,48 @@ Space Survivalcraft/
 ├── main.py              # Entry point
 ├── constants.py         # All game constants
 ├── settings.py          # Audio settings singleton
-├── game_view.py         # Core gameplay loop
-├── game_save.py         # Save/load logic
+│
+│  ── Core gameplay (GameView + extracted modules) ──
+├── game_view.py         # GameView thin dispatcher (~620 lines)
+├── combat_helpers.py    # Damage, spawning, respawn, XP, boss spawn
+├── building_manager.py  # Building placement, destruction, ports
+├── draw_logic.py        # World and UI rendering
+├── update_logic.py      # 11 update sub-functions
+├── input_handlers.py    # Keyboard and mouse event handling
+├── game_save.py         # Save/load serialization
+├── game_music.py        # Music and video playback management
+├── collisions.py        # All collision handlers
+├── world_setup.py       # Asset loading and world population
+│
+│  ── Views ──
 ├── splash_view.py       # Title screen
 ├── selection_view.py    # Faction/ship/character picker
 ├── options_view.py      # Volume and resolution settings
-├── hud.py               # HUD status panel and minimap
-├── escape_menu/         # Escape menu package (10 sub-modes)
-├── ship_stats.py        # Ship stats + character bio overlay
+│
+│  ── UI overlays ──
+├── hud.py               # HUD status panel
+├── hud_minimap.py       # Minimap with fog overlay
+├── hud_equalizer.py     # Equalizer visualizer
+├── base_inventory.py    # Shared inventory data logic (BaseInventoryData)
 ├── inventory.py         # 5x5 cargo grid
 ├── station_inventory.py # 10x10 station grid
+├── escape_menu/         # Escape menu package (10 sub-modes)
+├── ship_stats.py        # Ship stats + character bio overlay
 ├── build_menu.py        # Station building overlay
 ├── craft_menu.py        # Crafting UI
 ├── trade_menu.py        # Trading station overlay
 ├── station_info.py      # Station info overlay (T key)
 ├── death_screen.py      # Death screen overlay
 ├── character_data.py    # Character XP/level/bonuses
-├── collisions.py        # All collision handlers
-├── world_setup.py       # Asset loading and world population
 ├── video_player.py      # FFmpeg video playback
-├── sprites/             # All sprite classes
+│
+│  ── Sprites ──
+├── sprites/
 │   ├── player.py        # PlayerShip
 │   ├── projectile.py    # Projectile + Weapon
 │   ├── asteroid.py      # IronAsteroid
-│   ├── alien.py         # SmallAlienShip
-│   ├── boss.py          # BossAlienShip
+│   ├── alien.py         # SmallAlienShip (4 AI sub-methods)
+│   ├── boss.py          # BossAlienShip (3 AI sub-methods)
 │   ├── pickup.py        # IronPickup + BlueprintPickup
 │   ├── shield.py        # ShieldSprite
 │   ├── explosion.py     # Explosion, HitSpark, FireSpark
