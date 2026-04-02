@@ -11,7 +11,7 @@ from constants import (
     WORLD_WIDTH, WORLD_HEIGHT, SHAKE_DURATION, SHAKE_AMPLITUDE,
     ASTEROID_IRON_YIELD, ASTEROID_COUNT, ASTEROID_MIN_DIST,
     ALIEN_COUNT, ALIEN_MIN_DIST,
-    RESPAWN_INTERVAL, RESPAWN_EXCLUSION_RADIUS,
+    RESPAWN_INTERVAL, RESPAWN_EXCLUSION_RADIUS, SHIELD_RECHARGE_HEAL,
     REPAIR_PACK_HEAL, WORLD_ITEM_LIFETIME,
     MODULE_TYPES, MODULE_SLOT_COUNT,
 )
@@ -58,8 +58,8 @@ def flash_game_msg(gv: GameView, msg: str, duration: float = 1.5) -> None:
 
 def use_repair_pack(gv: GameView, slot: int) -> None:
     """Try to use a repair pack from the given quick-use slot."""
-    if gv.player.hp >= gv.player.max_hp and gv.player.shields >= gv.player.max_shields:
-        flash_game_msg(gv, "Already at full HP and shields!")
+    if gv.player.hp >= gv.player.max_hp:
+        flash_game_msg(gv, "Already at full HP!")
         return
     if gv.inventory.count_item("repair_pack") <= 0:
         return
@@ -71,6 +71,29 @@ def use_repair_pack(gv: GameView, slot: int) -> None:
         gv._hud.set_quick_use(slot, "repair_pack", remaining)
     else:
         gv._hud.set_quick_use(slot, None, 0)
+    # Brief red glow
+    gv._use_glow = (255, 80, 80, 160)
+    gv._use_glow_timer = 0.4
+
+
+def use_shield_recharge(gv: GameView, slot: int) -> None:
+    """Try to use a shield recharge from the given quick-use slot."""
+    if gv.player.shields >= gv.player.max_shields:
+        flash_game_msg(gv, "Shields already full!")
+        return
+    if gv.inventory.count_item("shield_recharge") <= 0:
+        return
+    recharge = int(gv.player.max_shields * SHIELD_RECHARGE_HEAL)
+    gv.player.shields = min(gv.player.max_shields, gv.player.shields + recharge)
+    gv.inventory.remove_item("shield_recharge", 1)
+    remaining = gv.inventory.count_item("shield_recharge")
+    if remaining > 0:
+        gv._hud.set_quick_use(slot, "shield_recharge", remaining)
+    else:
+        gv._hud.set_quick_use(slot, None, 0)
+    # Brief blue glow
+    gv._use_glow = (80, 160, 255, 160)
+    gv._use_glow_timer = 0.4
 
 
 def trigger_player_death(gv: GameView) -> None:
@@ -235,3 +258,5 @@ def spawn_boss(gv: GameView, station_x: float, station_y: float) -> None:
     gv._boss_list.append(gv._boss)
     gv._boss_spawned = True
     gv._boss_announce_timer = 5.0
+    gv._t_boss_announce.text = "WARNING: BOSS INCOMING"
+    gv._t_boss_subtitle.text = "A massive enemy approaches your station!"

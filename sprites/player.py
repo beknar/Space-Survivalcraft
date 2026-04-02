@@ -81,6 +81,7 @@ class PlayerShip(arcade.Sprite):
             # points UP at angle=0, matching Arcade's CW-positive convention
             # and our sin(heading)/cos(heading) physics.
             frame = frame.rotate(90, expand=True)
+            pil_img.close()
             tex = arcade.Texture(frame)
             super().__init__(path_or_texture=tex, scale=0.75)
 

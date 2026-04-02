@@ -24,6 +24,7 @@ class Inventory(BaseInventoryData):
         self,
         iron_icon: Optional[arcade.Texture] = None,
         repair_pack_icon: Optional[arcade.Texture] = None,
+        shield_recharge_icon: Optional[arcade.Texture] = None,
     ) -> None:
         # items: dict[(row, col)] -> (item_type, count); absent key = empty slot
         self._items: dict[tuple[int, int], tuple[str, int]] = {}
@@ -37,9 +38,10 @@ class Inventory(BaseInventoryData):
 
         self._iron_icon: Optional[arcade.Texture] = iron_icon
         self._repair_pack_icon: Optional[arcade.Texture] = repair_pack_icon
+        self._shield_recharge_icon: Optional[arcade.Texture] = shield_recharge_icon
         # Extra icons for blueprints, modules, etc. (set by game_view)
         self.item_icons: dict[str, arcade.Texture] = {}
-        self._item_names: dict[str, str] = {"iron": "Iron", "repair_pack": "Repair Pack"}
+        self._item_names: dict[str, str] = {"iron": "Iron", "repair_pack": "Repair Pack", "shield_recharge": "Shield Recharge"}
         self._count_cache: dict[str, arcade.Text] = {}
 
         # Drag-and-drop state
@@ -264,6 +266,8 @@ class Inventory(BaseInventoryData):
             icon = self._iron_icon
         elif item_type == "repair_pack" and self._repair_pack_icon is not None:
             icon = self._repair_pack_icon
+        elif item_type == "shield_recharge" and self._shield_recharge_icon is not None:
+            icon = self._shield_recharge_icon
         elif item_type in self.item_icons:
             icon = self.item_icons[item_type]
 

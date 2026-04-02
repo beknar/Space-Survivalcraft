@@ -59,6 +59,7 @@ def load_shield(player_x: float, player_y: float,
                                       y0 + SHIELD_FRAME_H))
                 )
             )
+    _pil_shield.close()
     tint = _FACTION_SHIELD_TINTS.get(faction, (255, 255, 255))
     sprite = ShieldSprite(frames, tint=tint)
     sprite.center_x = player_x
@@ -214,10 +215,12 @@ def populate_aliens() -> tuple[arcade.SpriteList, arcade.Texture]:
     """Spawn alien ships randomly across the world. Returns (alien_list, alien_laser_tex)."""
     _pil_ship = PILImage.open(ALIEN_SHIP_PNG).convert("RGBA")
     alien_ship_tex = arcade.Texture(_pil_ship.crop((364, 305, 825, 815)))
+    _pil_ship.close()
 
     _pil_fx = PILImage.open(ALIEN_FX_PNG).convert("RGBA")
     _pil_laser = _pil_fx.crop((4299, 82, 4359, 310))
     alien_laser_tex = arcade.Texture(_pil_laser.rotate(90, expand=True))
+    _pil_fx.close()
 
     slist = arcade.SpriteList(use_spatial_hash=True)
     cx_world, cy_world = WORLD_WIDTH / 2, WORLD_HEIGHT / 2

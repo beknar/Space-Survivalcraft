@@ -112,6 +112,8 @@ def handle_key_press(gv: GameView, key: int, modifiers: int) -> None:
             item = gv._hud.get_quick_use(slot)
             if item == "repair_pack":
                 gv._use_repair_pack(slot)
+            elif item == "shield_recharge":
+                gv._use_shield_recharge(slot)
 
 
 def handle_mouse_press(gv: GameView, x: int, y: int, button: int, modifiers: int) -> None:
@@ -206,7 +208,7 @@ def handle_mouse_press(gv: GameView, x: int, y: int, button: int, modifiers: int
                 gv._active_crafter.crafting = True
                 gv._active_crafter.craft_timer = 0.0
                 gv._active_crafter.craft_total = CRAFT_TIME
-                gv._craft_menu._craft_target = ""
+                # _craft_target already set by craft_menu.on_mouse_press
             elif action.startswith("craft_module:"):
                 from character_data import craft_cost_multiplier
                 mod_key = action.split(":", 1)[1]
@@ -345,6 +347,8 @@ def handle_mouse_release(gv: GameView, x: int, y: int, button: int, modifiers: i
         elif target == src:
             if dt == "repair_pack":
                 gv._use_repair_pack(src)
+            elif dt == "shield_recharge":
+                gv._use_shield_recharge(src)
         else:
             gv._hud.set_quick_use(src, None, 0)
         return
@@ -380,13 +384,13 @@ def _handle_station_drop(
             gv._hud._mod_slots = list(gv._module_slots)
     elif mod_slot is not None:
         gv._station_inv.add_item(item_type, amount)
-    elif (qu_slot := gv._hud.slot_at(x, y)) is not None and item_type == "repair_pack":
+    elif (qu_slot := gv._hud.slot_at(x, y)) is not None and item_type in ("repair_pack", "shield_recharge"):
         gv.inventory.add_item(item_type, amount)
-        total = gv.inventory.count_item("repair_pack")
+        total = gv.inventory.count_item(item_type)
         for s in range(QUICK_USE_SLOTS):
-            if s != qu_slot and gv._hud.get_quick_use(s) == "repair_pack":
+            if s != qu_slot and gv._hud.get_quick_use(s) == item_type:
                 gv._hud.set_quick_use(s, None, 0)
-        gv._hud.set_quick_use(qu_slot, "repair_pack", total)
+        gv._hud.set_quick_use(qu_slot, item_type, total)
     else:
         target_cell = gv.inventory._cell_at(x, y)
         if (target_cell is not None
@@ -398,12 +402,12 @@ def _handle_station_drop(
                 gv.inventory._items[nearest] = (item_type, amount)
             else:
                 gv.inventory.add_item(item_type, amount)
-        if item_type == "repair_pack":
+        if item_type in ("repair_pack", "shield_recharge"):
             for slot in range(QUICK_USE_SLOTS):
-                if gv._hud.get_quick_use(slot) == "repair_pack":
+                if gv._hud.get_quick_use(slot) == item_type:
                     gv._hud.set_quick_use(
-                        slot, "repair_pack",
-                        gv.inventory.count_item("repair_pack"),
+                        slot, item_type,
+                        gv.inventory.count_item(item_type),
                     )
 
 
@@ -430,13 +434,13 @@ def _handle_inventory_eject(
             gv._hud._mod_slots = list(gv._module_slots)
     elif mod_slot is not None:
         gv.inventory.add_item(item_type, amount)
-    elif (qu_slot := gv._hud.slot_at(x, y)) is not None and item_type == "repair_pack":
+    elif (qu_slot := gv._hud.slot_at(x, y)) is not None and item_type in ("repair_pack", "shield_recharge"):
         gv.inventory.add_item(item_type, amount)
-        total = gv.inventory.count_item("repair_pack")
+        total = gv.inventory.count_item(item_type)
         for s in range(QUICK_USE_SLOTS):
-            if s != qu_slot and gv._hud.get_quick_use(s) == "repair_pack":
+            if s != qu_slot and gv._hud.get_quick_use(s) == item_type:
                 gv._hud.set_quick_use(s, None, 0)
-        gv._hud.set_quick_use(qu_slot, "repair_pack", total)
+        gv._hud.set_quick_use(qu_slot, item_type, total)
     elif qu_slot is not None:
         gv.inventory.add_item(item_type, amount)
     elif gv._station_inv.open and gv._station_inv._panel_contains(x, y):

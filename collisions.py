@@ -351,17 +351,23 @@ def handle_turret_projectile_hits(gv: GameView) -> None:
 
 
 def _boss_death(gv: GameView) -> None:
-    """Handle boss death: explosion, loot, victory message."""
+    """Handle boss death: explosion, loot, wormholes, victory message."""
     boss = gv._boss
     gv._spawn_explosion(boss.center_x, boss.center_y)
     arcade.play_sound(gv._explosion_snd, volume=1.0)
+    arcade.play_sound(gv._victory_snd, volume=0.8)
     gv._spawn_iron_pickup(boss.center_x, boss.center_y, amount=BOSS_IRON_DROP)
     gv._add_xp(BOSS_XP_REWARD)
     gv._boss = None
     gv._boss_defeated = True
     gv._boss_list.clear()
     gv._boss_projectile_list.clear()
-    gv._flash_game_msg("BOSS DEFEATED!", 4.0)
+    # Spawn 4 wormholes in the corners
+    gv._spawn_wormholes()
+    # Large victory announcement
+    gv._boss_announce_timer = 5.0
+    gv._t_boss_announce.text = "Double Star Boss KILLED"
+    gv._t_boss_subtitle.text = "Wormholes have appeared at the edges of the sector!"
 
 
 def handle_boss_projectile_hits(gv: GameView) -> None:

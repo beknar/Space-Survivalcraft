@@ -99,6 +99,10 @@ def save_to_dict(gv: GameView, name: str = "") -> dict:
             "target_x": gv._boss._target_x,
             "target_y": gv._boss._target_y,
         } if gv._boss is not None else None,
+        "wormholes": [
+            {"x": wh.center_x, "y": wh.center_y}
+            for wh in gv._wormholes
+        ],
     }
 
 
@@ -156,9 +160,11 @@ def restore_state(view: GameView, data: dict) -> None:
     from constants import ALIEN_SHIP_PNG, ALIEN_FX_PNG
     _pil_ship = PILImage.open(ALIEN_SHIP_PNG).convert("RGBA")
     alien_ship_tex = arcade.Texture(_pil_ship.crop((364, 305, 825, 815)))
+    _pil_ship.close()
     _pil_fx = PILImage.open(ALIEN_FX_PNG).convert("RGBA")
     _pil_laser = _pil_fx.crop((4299, 82, 4359, 310))
     alien_laser_tex = arcade.Texture(_pil_laser.rotate(90, expand=True))
+    _pil_fx.close()
     from sprites.alien import SmallAlienShip
     for ald in data.get("aliens", []):
         al = SmallAlienShip(alien_ship_tex, alien_laser_tex, ald["x"], ald["y"])
@@ -283,6 +289,15 @@ def restore_state(view: GameView, data: dict) -> None:
         view._boss = None
         view._boss_list.clear()
 
+    # Wormholes
+    view._wormholes.clear()
+    view._wormhole_list.clear()
+    for whd in data.get("wormholes", []):
+        from sprites.wormhole import Wormhole
+        wh = Wormhole(whd["x"], whd["y"])
+        view._wormholes.append(wh)
+        view._wormhole_list.append(wh)
+
 
 def load_game(gv: GameView, slot: int) -> None:
     """Load game state from a numbered save slot and rebuild the view."""
@@ -292,11 +307,10 @@ def load_game(gv: GameView, slot: int) -> None:
         return
     with open(path, "r") as f:
         data = json.load(f)
-    # Stop sounds before rebuilding
-    if gv._thruster_player is not None:
-        arcade.stop_sound(gv._thruster_player)
-        gv._thruster_player = None
-    gv._stop_music()
+    # Clean up old view resources before rebuilding
+    import gc
+    gv._cleanup()
+    gc.collect()
     from game_view import GameView as GV
     view = GV(faction=data.get("faction"), ship_type=data.get("ship_type"))
     restore_state(view, data)

@@ -12,7 +12,7 @@ from constants import (
 )
 
 _PANEL_W = 300
-_PANEL_H = 380
+_PANEL_H = 420
 _RECIPE_H = 28
 
 
@@ -23,7 +23,7 @@ class CraftMenu:
         self.open: bool = False
         self._crafting: bool = False
         self._progress: float = 0.0
-        self._craft_target: str = ""  # "" = repair pack, or module key
+        self._craft_target: str = ""  # "" = repair pack, "shield_recharge", or module key
 
         try:
             self._window = arcade.get_window()
@@ -59,6 +59,7 @@ class CraftMenu:
         # Item icons (set by game_view)
         self.item_icons: dict[str, arcade.Texture] = {}
         self.repair_pack_icon: Optional[arcade.Texture] = None
+        self.shield_recharge_icon: Optional[arcade.Texture] = None
 
     def refresh_recipes(self, station_inv) -> None:
         """Scan station inventory for blueprints and build recipe list.
@@ -81,10 +82,12 @@ class CraftMenu:
                 })
         self._selected = 0
         self._scroll = 0
-        # Pre-build recipe text objects
+        # Pre-build recipe text objects (index 0 = repair pack, 1 = shield recharge, then modules)
         self._t_recipes = [
             arcade.Text(f"Repair Pack x{CRAFT_RESULT_COUNT}  —  {CRAFT_IRON_COST} iron",
-                        0, 0, arcade.color.WHITE, 9)
+                        0, 0, arcade.color.WHITE, 9),
+            arcade.Text(f"Shield Recharge x{CRAFT_RESULT_COUNT}  —  {CRAFT_IRON_COST} iron",
+                        0, 0, arcade.color.WHITE, 9),
         ]
         for recipe in self._recipes:
             self._t_recipes.append(
@@ -118,18 +121,13 @@ class CraftMenu:
             self.open = False
             return None
 
-        # Recipe list clicks
+        # Recipe list clicks (0=repair pack, 1=shield recharge, 2+=modules)
         list_y = py + _PANEL_H - 55
-        # Repair pack entry
-        ry = list_y
-        if px + 10 <= x <= px + _PANEL_W - 10 and ry <= y <= ry + _RECIPE_H:
-            self._selected = 0
-            return None
-        # Module recipe entries
-        for i, recipe in enumerate(self._recipes):
-            ry = list_y - (i + 1) * _RECIPE_H
+        total_recipes = 2 + len(self._recipes)  # 2 consumables + modules
+        for i in range(total_recipes):
+            ry = list_y - i * _RECIPE_H
             if px + 10 <= x <= px + _PANEL_W - 10 and ry <= y <= ry + _RECIPE_H:
-                self._selected = i + 1
+                self._selected = i
                 return None
 
         # Craft button
@@ -142,9 +140,14 @@ class CraftMenu:
                 if station_iron >= CRAFT_IRON_COST:
                     self._craft_target = ""
                     return "craft"
+            elif self._selected == 1:
+                # Shield Recharge
+                if station_iron >= CRAFT_IRON_COST:
+                    self._craft_target = "shield_recharge"
+                    return "craft"
             else:
                 # Module recipe
-                idx = self._selected - 1
+                idx = self._selected - 2
                 if idx < len(self._recipes):
                     recipe = self._recipes[idx]
                     if station_iron >= recipe["cost"]:
@@ -182,7 +185,8 @@ class CraftMenu:
         list_y = py + _PANEL_H - 55
 
         # Draw recipe list using pre-built text objects
-        costs = [CRAFT_IRON_COST] + [r["cost"] for r in self._recipes]
+        # Costs: index 0=repair pack, 1=shield recharge, 2+=modules
+        costs = [CRAFT_IRON_COST, CRAFT_IRON_COST] + [r["cost"] for r in self._recipes]
         for i, tr in enumerate(self._t_recipes):
             ry = list_y - i * _RECIPE_H
             sel = (self._selected == i)
@@ -196,8 +200,12 @@ class CraftMenu:
                 arcade.draw_texture_rect(self.repair_pack_icon,
                     arcade.LBWH(px + 14, ry + 2, _RECIPE_H - 6, _RECIPE_H - 6))
                 icon_w = _RECIPE_H - 2
-            elif i > 0 and i - 1 < len(self._recipes):
-                ricon = self.item_icons.get(self._recipes[i - 1]["key"])
+            elif i == 1 and self.shield_recharge_icon:
+                arcade.draw_texture_rect(self.shield_recharge_icon,
+                    arcade.LBWH(px + 14, ry + 2, _RECIPE_H - 6, _RECIPE_H - 6))
+                icon_w = _RECIPE_H - 2
+            elif i >= 2 and i - 2 < len(self._recipes):
+                ricon = self.item_icons.get(self._recipes[i - 2]["key"])
                 if ricon:
                     arcade.draw_texture_rect(ricon,
                         arcade.LBWH(px + 14, ry + 2, _RECIPE_H - 6, _RECIPE_H - 6))
@@ -211,8 +219,11 @@ class CraftMenu:
         if self._selected == 0:
             self._t_detail.text = f"Produces {CRAFT_RESULT_COUNT}x Repair Pack ({int(CRAFT_TIME)}s)"
             icon = self.repair_pack_icon
-        elif self._selected - 1 < len(self._recipes):
-            recipe = self._recipes[self._selected - 1]
+        elif self._selected == 1:
+            self._t_detail.text = f"Produces {CRAFT_RESULT_COUNT}x Shield Recharge ({int(CRAFT_TIME)}s)"
+            icon = self.shield_recharge_icon
+        elif self._selected - 2 < len(self._recipes):
+            recipe = self._recipes[self._selected - 2]
             info = MODULE_TYPES[recipe["key"]]
             self._t_detail.text = f"{info['label']}: {_effect_desc(info)} ({int(CRAFT_TIME)}s)"
             icon = self.item_icons.get(recipe["key"])
@@ -229,10 +240,10 @@ class CraftMenu:
         bx, by, bw, bh = self._craft_btn_rect()
         if self._crafting:
             btn_fill = (40, 40, 60, 220)
-        elif self._selected == 0 and station_iron >= CRAFT_IRON_COST:
+        elif self._selected <= 1 and station_iron >= CRAFT_IRON_COST:
             btn_fill = (30, 80, 30, 220)
-        elif self._selected > 0 and self._selected - 1 < len(self._recipes):
-            cost = self._recipes[self._selected - 1]["cost"]
+        elif self._selected >= 2 and self._selected - 2 < len(self._recipes):
+            cost = self._recipes[self._selected - 2]["cost"]
             btn_fill = (30, 80, 30, 220) if station_iron >= cost else (60, 30, 30, 220)
         else:
             btn_fill = (60, 30, 30, 220)
@@ -243,18 +254,15 @@ class CraftMenu:
         self._t_btn.x = bx + bw // 2; self._t_btn.y = by + bh // 2
         self._t_btn.draw()
 
-        # Progress bar + crafting label
+        # Progress bar + crafting label (below craft button)
         if self._crafting:
-            # Show what's being crafted
             if self._craft_target and self._craft_target in MODULE_TYPES:
                 crafting_name = MODULE_TYPES[self._craft_target]["label"]
+            elif self._craft_target == "shield_recharge":
+                crafting_name = "Shield Recharge"
             else:
                 crafting_name = "Repair Pack"
-            self._t_detail.text = f"Crafting: {crafting_name}"
-            self._t_detail.color = arcade.color.YELLOW
-            self._t_detail.x = px + 16; self._t_detail.y = py + 108
-            self._t_detail.draw()
-            bar_w = _PANEL_W - 32; bar_x = px + 16; bar_y = py + 84
+            bar_w = _PANEL_W - 32; bar_x = px + 16; bar_y = by - 22
             arcade.draw_rect_filled(arcade.LBWH(bar_x, bar_y, bar_w, 12), (30, 30, 50))
             arcade.draw_rect_filled(
                 arcade.LBWH(bar_x, bar_y, int(bar_w * self._progress), 12), (50, 180, 50))
@@ -266,6 +274,10 @@ class CraftMenu:
                 self._t_status.text = f"{pct}%"
             self._t_status.x = px + _PANEL_W // 2; self._t_status.y = bar_y + 6
             self._t_status.draw()
+            self._t_detail.text = f"Crafting: {crafting_name}"
+            self._t_detail.color = arcade.color.YELLOW
+            self._t_detail.x = px + 16; self._t_detail.y = bar_y - 14
+            self._t_detail.draw()
 
 
 def _effect_desc(info: dict) -> str:

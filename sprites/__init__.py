@@ -6,6 +6,7 @@ from sprites.pickup import IronPickup
 from sprites.asteroid import IronAsteroid
 from sprites.alien import SmallAlienShip
 from sprites.boss import BossAlienShip
+from sprites.wormhole import Wormhole
 from sprites.player import PlayerShip
 from sprites.contrail import ContrailParticle
 from sprites.building import (
@@ -24,6 +25,7 @@ __all__ = [
     "IronAsteroid",
     "SmallAlienShip",
     "BossAlienShip",
+    "Wormhole",
     "PlayerShip",
     "ContrailParticle",
     "StationModule",

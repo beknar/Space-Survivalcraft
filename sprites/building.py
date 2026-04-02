@@ -192,14 +192,15 @@ class Turret(StationModule):
         dt: float,
         alien_list: arcade.SpriteList,
         projectile_list: arcade.SpriteList,
+        boss=None,
     ) -> None:
-        """Find nearest alien in range and fire if off cooldown."""
+        """Find nearest enemy (alien or boss) in range and fire if off cooldown."""
         if self.disabled:
             return
 
         self._fire_cd = max(0.0, self._fire_cd - dt)
 
-        # Find nearest alien
+        # Find nearest enemy (aliens + boss)
         best_dist = TURRET_RANGE + 1.0
         target = None
         for alien in alien_list:
@@ -209,6 +210,14 @@ class Turret(StationModule):
             if d < best_dist:
                 best_dist = d
                 target = alien
+        # Also consider the boss as a target
+        if boss is not None and boss.hp > 0:
+            dx = boss.center_x - self.center_x
+            dy = boss.center_y - self.center_y
+            d = math.hypot(dx, dy)
+            if d < best_dist:
+                best_dist = d
+                target = boss
 
         if target is None or best_dist > TURRET_RANGE:
             return

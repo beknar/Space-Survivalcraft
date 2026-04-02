@@ -47,6 +47,11 @@ def draw_world(gv: GameView, cx: float, cy: float, hw: float, hh: float) -> None
     gv.blueprint_pickup_list.draw()
     gv.explosion_list.draw()
     gv.building_list.draw()
+    # Wormholes (cloud texture + spiral overlays)
+    if gv._wormholes:
+        gv._wormhole_list.draw()
+        for wh in gv._wormholes:
+            wh.draw_spirals()
     if gv._trade_station is not None:
         ts = gv._trade_station
         tw = gv._trade_station_tex.width * 0.15
@@ -94,6 +99,15 @@ def draw_world(gv: GameView, cx: float, cy: float, hw: float, hh: float) -> None
                 x2 = ex + _m.cos(f2) * ring_r
                 y2 = ey + _m.sin(f2) * ring_r
                 arcade.draw_line(x1, y1, x2, y2, (cr, cg, cb, 180), 2)
+    # Consumable use glow effect (brief coloured circle around ship)
+    if gv._use_glow_timer > 0.0 and not gv._player_dead:
+        frac = gv._use_glow_timer / 0.4
+        r, g, b, a = gv._use_glow
+        alpha = int(a * frac)
+        radius = 60 + 20 * (1.0 - frac)
+        arcade.draw_circle_filled(
+            gv.player.center_x, gv.player.center_y,
+            radius, (r, g, b, alpha))
     for spark in gv.hit_sparks:
         spark.draw()
     for fs in gv.fire_sparks:
@@ -139,6 +153,7 @@ def draw_ui(gv: GameView) -> None:
             if gv._trade_station is not None else None,
         boss_pos=(gv._boss.center_x, gv._boss.center_y)
             if gv._boss is not None and gv._boss.hp > 0 else None,
+        wormhole_positions=[(wh.center_x, wh.center_y) for wh in gv._wormholes],
     )
     # Video frame draws (skip when menu open)
     if not menu_open:
@@ -256,12 +271,10 @@ def draw_ui(gv: GameView) -> None:
             arcade.LBWH(STATUS_WIDTH, play_cy - band_h // 2,
                         gv.window.width - STATUS_WIDTH, band_h),
             (10, 0, 0, 180))
-        gv._t_boss_announce.text = "WARNING: BOSS INCOMING"
         gv._t_boss_announce.color = (255, 60, 60, alpha)
         gv._t_boss_announce.x = play_cx
         gv._t_boss_announce.y = play_cy + 10
         gv._t_boss_announce.draw()
-        gv._t_boss_subtitle.text = "A massive enemy approaches your station!"
         gv._t_boss_subtitle.color = (255, 180, 180, alpha)
         gv._t_boss_subtitle.x = play_cx
         gv._t_boss_subtitle.y = play_cy - 30

@@ -316,6 +316,7 @@ CRAFT_TIME: float = 60.0              # seconds to craft one Repair Pack batch
 CRAFT_IRON_COST: int = 200            # iron needed from station inventory
 CRAFT_RESULT_COUNT: int = 5           # number of Repair Packs produced per craft
 REPAIR_PACK_HEAL: float = 0.50       # fraction of max_hp healed per Repair Pack use
+SHIELD_RECHARGE_HEAL: float = 0.50   # fraction of max_shields recharged per Shield Recharge use
 
 # Station inventory constants
 STATION_INV_COLS: int = 10
@@ -327,6 +328,7 @@ STATION_INV_PAD: int = 10
 MAX_STACK: dict[str, int] = {
     "iron": 999,
     "repair_pack": 99,
+    "shield_recharge": 99,
 }
 MAX_STACK_DEFAULT: int = 10  # for blueprints, modules, etc.
 
@@ -340,6 +342,11 @@ REPAIR_PACK_PNG = os.path.join(
     "alien spaceship creation kit", "png", "items.png",
 )
 REPAIR_PACK_CROP = (198, 0, 396, 198)  # (x0, y0, x1, y1) for PIL crop
+
+SHIELD_RECHARGE_PNG = os.path.join(
+    _HERE, "assets", "kenney space combat assets",
+    "Space Shooter Redux", "PNG", "Power-ups", "powerupBlue_bolt.png",
+)
 
 # ── Ship Module System ────────────────────────────────────────────────────────
 MODULE_SLOT_COUNT: int = 4

@@ -95,6 +95,8 @@ def update_timers(gv: GameView, dt: float) -> None:
             gv._flash_msg = ""
     if gv._boss_announce_timer > 0.0:
         gv._boss_announce_timer = max(0.0, gv._boss_announce_timer - dt)
+    if gv._use_glow_timer > 0.0:
+        gv._use_glow_timer = max(0.0, gv._use_glow_timer - dt)
 
 
 def update_repair_and_shields(gv: GameView, dt: float) -> None:
@@ -165,6 +167,8 @@ def update_crafting(gv: GameView, dt: float) -> None:
                 target = gv._craft_menu._craft_target
                 if target and target in MODULE_TYPES:
                     gv._station_inv.add_item(f"mod_{target}", 1)
+                elif target == "shield_recharge":
+                    gv._station_inv.add_item("shield_recharge", CRAFT_RESULT_COUNT)
                 else:
                     gv._station_inv.add_item("repair_pack", CRAFT_RESULT_COUNT)
 
@@ -350,7 +354,8 @@ def update_buildings(gv: GameView, dt: float) -> None:
         b.update_building(dt)
         if isinstance(b, Turret):
             b.update_turret(dt, gv.alien_list,
-                            gv.turret_projectile_list)
+                            gv.turret_projectile_list,
+                            boss=gv._boss)
 
     for proj in list(gv.turret_projectile_list):
         proj.update_projectile(dt)
@@ -413,8 +418,14 @@ def update_boss(gv: GameView, dt: float) -> None:
         handle_boss_laser_hits(gv)
         handle_boss_player_collision(gv)
         handle_boss_building_hits(gv)
-        if gv._boss._charging and gv._boss._charge_windup <= 0.0:
+        if gv._boss is not None and gv._boss._charging and gv._boss._charge_windup <= 0.0:
             handle_boss_charge_hit(gv)
+
+
+def update_wormholes(gv: GameView, dt: float) -> None:
+    """Update wormhole spiral animations."""
+    for wh in gv._wormholes:
+        wh.update_wormhole(dt)
 
 
 def update_effects(gv: GameView, dt: float) -> None:

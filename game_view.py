@@ -28,7 +28,7 @@ from constants import (
     REPAIR_RANGE, REPAIR_RATE, REPAIR_SHIELD_BOOST,
     FOG_REVEAL_RADIUS, FOG_CELL_SIZE, FOG_GRID_W, FOG_GRID_H,
     CRAFT_TIME, CRAFT_IRON_COST, CRAFT_RESULT_COUNT, REPAIR_PACK_HEAL,
-    REPAIR_PACK_PNG, REPAIR_PACK_CROP, QUICK_USE_SLOTS,
+    REPAIR_PACK_PNG, REPAIR_PACK_CROP, SHIELD_RECHARGE_PNG, QUICK_USE_SLOTS,
     MINIMAP_Y, MINIMAP_H, SHIELD_SCALE,
     BLUEPRINT_PNG, MODULE_TYPES, MODULE_SLOT_COUNT,
     BROADSIDE_COOLDOWN, BROADSIDE_DAMAGE, BROADSIDE_SPEED, BROADSIDE_RANGE,
@@ -48,6 +48,7 @@ from sprites.building import (
     DockingPort,
 )
 from sprites.boss import BossAlienShip
+from sprites.wormhole import Wormhole
 from inventory import Inventory
 from hud import HUD
 from escape_menu import EscapeMenu
@@ -121,6 +122,10 @@ class GameView(arcade.View):
         self._shake_timer: float = 0.0
         self._shake_amp: float = 0.0
 
+        # Consumable use glow effect (colour + timer)
+        self._use_glow: tuple[int, int, int, int] = (0, 0, 0, 0)
+        self._use_glow_timer: float = 0.0
+
         # Flash message (centered on play area)
         self._flash_msg: str = ""
         self._flash_timer: float = 0.0
@@ -162,6 +167,11 @@ class GameView(arcade.View):
 
         # Collision bump sound
         self._bump_snd = load_bump_sound()
+        # Victory sound (for boss kill)
+        from constants import SFX_INTERFACE_DIR
+        self._victory_snd = arcade.load_sound(
+            os.path.join(SFX_INTERFACE_DIR,
+                         "Game Futuristic Item Collection 1.wav"))
 
         # Iron texture
         self._iron_tex = load_iron_texture()
@@ -199,6 +209,7 @@ class GameView(arcade.View):
                             a,
                         )
             self._blueprint_tinted[key] = arcade.Texture(tinted)
+        _bp_pil.close()
 
         # Module slots
         self._module_slots: list[str | None] = [None] * MODULE_SLOT_COUNT
@@ -217,9 +228,11 @@ class GameView(arcade.View):
         from constants import ALIEN_SHIP_PNG, ALIEN_FX_PNG
         _pil_ship = PILImage.open(ALIEN_SHIP_PNG).convert("RGBA")
         self._alien_ship_tex = arcade.Texture(_pil_ship.crop((364, 305, 825, 815)))
+        _pil_ship.close()
         _pil_fx = PILImage.open(ALIEN_FX_PNG).convert("RGBA")
         _pil_laser = _pil_fx.crop((4299, 82, 4359, 310))
         self._alien_laser_tex = arcade.Texture(_pil_laser.rotate(90, expand=True))
+        _pil_fx.close()
         self.alien_projectile_list: arcade.SpriteList = arcade.SpriteList()
         self.hit_sparks: list[HitSpark] = []
         self.fire_sparks: list[FireSpark] = []
@@ -240,6 +253,11 @@ class GameView(arcade.View):
         _boss_frame = _boss_frame.rotate(90, expand=True)
         self._boss_tex = arcade.Texture(_boss_frame)
         self._boss_laser_tex = self._alien_laser_tex
+        _pil_boss.close()
+
+        # Wormholes (spawned when boss is defeated)
+        self._wormholes: list[Wormhole] = []
+        self._wormhole_list: arcade.SpriteList = arcade.SpriteList()
 
         # Repair pack texture
         from PIL import Image as PILImage
@@ -248,11 +266,16 @@ class GameView(arcade.View):
         self._repair_pack_tex = arcade.Texture(
             _pil_items.crop((x0, y0, x1, y1))
         )
+        _pil_items.close()
+
+        # Shield Recharge texture
+        self._shield_recharge_tex = arcade.load_texture(SHIELD_RECHARGE_PNG)
 
         # Inventory
         self.inventory = Inventory(
             iron_icon=self._iron_tex,
             repair_pack_icon=self._repair_pack_tex,
+            shield_recharge_icon=self._shield_recharge_tex,
         )
         for key, info in MODULE_TYPES.items():
             mod_icon = arcade.load_texture(info["icon"])
@@ -293,6 +316,7 @@ class GameView(arcade.View):
         self._station_inv = StationInventory(
             iron_icon=self._iron_tex,
             repair_pack_icon=self._repair_pack_tex,
+            shield_recharge_icon=self._shield_recharge_tex,
         )
         for key, info in MODULE_TYPES.items():
             mod_icon = arcade.load_texture(info["icon"])
@@ -302,6 +326,7 @@ class GameView(arcade.View):
         # Craft menu
         self._craft_menu = CraftMenu()
         self._craft_menu.repair_pack_icon = self._repair_pack_tex
+        self._craft_menu.shield_recharge_icon = self._shield_recharge_tex
         for key, info in MODULE_TYPES.items():
             self._craft_menu.item_icons[key] = arcade.load_texture(info["icon"])
         self._active_crafter: Optional[BasicCrafter] = None
@@ -332,6 +357,7 @@ class GameView(arcade.View):
             faction=faction,
             ship_type=ship_type,
             repair_pack_icon=self._repair_pack_tex,
+            shield_recharge_icon=self._shield_recharge_tex,
         )
         if audio.show_fps:
             self._hud._show_fps = True
@@ -471,6 +497,9 @@ class GameView(arcade.View):
     def _use_repair_pack(self, slot: int) -> None:
         _ch.use_repair_pack(self, slot)
 
+    def _use_shield_recharge(self, slot: int) -> None:
+        _ch.use_shield_recharge(self, slot)
+
     def _spawn_explosion(self, x: float, y: float) -> None:
         _ch.spawn_explosion(self, x, y)
 
@@ -493,6 +522,20 @@ class GameView(arcade.View):
 
     def _check_boss_spawn(self) -> None:
         _ch.check_boss_spawn(self)
+
+    def _spawn_wormholes(self) -> None:
+        """Spawn 4 wormholes in the corners of the map."""
+        margin = 200.0
+        corners = [
+            (margin, margin),
+            (WORLD_WIDTH - margin, margin),
+            (margin, WORLD_HEIGHT - margin),
+            (WORLD_WIDTH - margin, WORLD_HEIGHT - margin),
+        ]
+        for cx, cy in corners:
+            wh = Wormhole(cx, cy)
+            self._wormholes.append(wh)
+            self._wormhole_list.append(wh)
 
     # ── Building helpers (delegates to building_manager module) ─────────────
     def _spawn_trade_station(self) -> None:
@@ -528,6 +571,36 @@ class GameView(arcade.View):
 
     def _place_building(self, wx: float, wy: float) -> None:
         _bm.place_building(self, wx, wy)
+
+    # ── Cleanup ────────────────────────────────────────────────────────────
+    def _cleanup(self) -> None:
+        """Release resources before this view is replaced (e.g. on load game)."""
+        # Stop audio
+        if self._thruster_player is not None:
+            arcade.stop_sound(self._thruster_player)
+            self._thruster_player = None
+        self._stop_music()
+        self._stop_video()
+        # Stop character video
+        if self._char_video_player.active:
+            self._char_video_player.stop()
+        # Clear sprite lists to drop texture references
+        self.asteroid_list.clear()
+        self.alien_list.clear()
+        self.building_list.clear()
+        self.explosion_list.clear()
+        self.iron_pickup_list.clear()
+        self.blueprint_pickup_list.clear()
+        self.projectile_list.clear()
+        self.alien_projectile_list.clear()
+        self.turret_projectile_list.clear()
+        self._boss_list.clear()
+        self._boss_projectile_list.clear()
+        self._boss = None
+        self._wormholes.clear()
+        self._wormhole_list.clear()
+        # Re-enable GC so old view can be collected
+        gc.enable()
 
     # ── Save / Load / Menu delegates ──────────────────────────────────────
     def _save_to_dict(self, name: str = "") -> dict:
@@ -588,6 +661,7 @@ class GameView(arcade.View):
         _ul.update_buildings(self, delta_time)
         _ul.update_respawns(self, delta_time)
         _ul.update_boss(self, delta_time)
+        _ul.update_wormholes(self, delta_time)
         _ul.update_effects(self, delta_time)
 
     # ── Input ────────────────────────────────────────────────────────────────

@@ -36,6 +36,7 @@ def draw_minimap(
     fog_revealed: int = 0,
     trade_station_pos: tuple[float, float] | None = None,
     boss_pos: tuple[float, float] | None = None,
+    wormhole_positions: list[tuple[float, float]] | None = None,
 ) -> None:
     """Draw a scaled overview of the world inside the status panel."""
     mx, my = MINIMAP_X, MINIMAP_Y
@@ -175,6 +176,14 @@ def draw_minimap(
             bmx, bmy = to_map(bpx, bpy)
             arcade.draw_circle_filled(bmx, bmy, 4.0, (255, 50, 50))
             arcade.draw_circle_outline(bmx, bmy, 5.5, (255, 100, 100), 1)
+
+    # Wormholes (purple pulsing circles)
+    if wormhole_positions:
+        for wpx, wpy in wormhole_positions:
+            if is_revealed(wpx, wpy, fog_grid):
+                wmx, wmy = to_map(wpx, wpy)
+                arcade.draw_circle_filled(wmx, wmy, 4.0, (160, 80, 255))
+                arcade.draw_circle_outline(wmx, wmy, 5.5, (200, 140, 255), 1)
 
     # Player dot
     sx, sy = to_map(player_x, player_y)

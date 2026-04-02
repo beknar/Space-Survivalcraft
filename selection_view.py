@@ -62,6 +62,7 @@ class SelectionView(arcade.View):
             preview_px = int(SHIP_FRAME_SIZE * self._preview_scale)
             frame = frame.resize((preview_px, preview_px), PILImage.NEAREST)
             self._faction_previews.append(arcade.Texture(frame))
+            pil_img.close()
 
         # Ship previews will be loaded once a faction is chosen
         self._ship_previews: list[arcade.Texture] = []
@@ -119,6 +120,7 @@ class SelectionView(arcade.View):
             frame = pil_img.crop((x0, y0, x0 + SHIP_FRAME_SIZE, y0 + SHIP_FRAME_SIZE))
             frame = frame.resize((preview_px, preview_px), PILImage.NEAREST)
             self._ship_previews.append(arcade.Texture(frame))
+        pil_img.close()
 
     # ── Drawing ─────────────────────────────────────────────────────────────
     def on_draw(self) -> None:

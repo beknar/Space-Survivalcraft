@@ -28,6 +28,7 @@ class StationInventory(BaseInventoryData):
         self,
         iron_icon: Optional[arcade.Texture] = None,
         repair_pack_icon: Optional[arcade.Texture] = None,
+        shield_recharge_icon: Optional[arcade.Texture] = None,
     ) -> None:
         self._items: dict[tuple[int, int], tuple[str, int]] = {}
         self._rows = STATION_INV_ROWS
@@ -35,6 +36,7 @@ class StationInventory(BaseInventoryData):
         self.open: bool = False
         self._iron_icon = iron_icon
         self._repair_pack_icon = repair_pack_icon
+        self._shield_recharge_icon = shield_recharge_icon
         # Extra icons for blueprints, modules, etc. (set by game_view)
         self.item_icons: dict[str, arcade.Texture] = {}
         # Mouse tracking for tooltip
@@ -82,6 +84,7 @@ class StationInventory(BaseInventoryData):
             self._ITEM_NAMES[f"mod_{key}"] = info["label"]
         self._ITEM_NAMES["iron"] = "Iron"
         self._ITEM_NAMES["repair_pack"] = "Repair Pack"
+        self._ITEM_NAMES["shield_recharge"] = "Shield Recharge"
 
     # ── Geometry ─────────────────────────────────────────────────────────
     def _panel_origin(self) -> tuple[int, int]:
@@ -283,6 +286,8 @@ class StationInventory(BaseInventoryData):
                         icon = self._iron_icon
                     elif it == "repair_pack" and self._repair_pack_icon:
                         icon = self._repair_pack_icon
+                    elif it == "shield_recharge" and self._shield_recharge_icon:
+                        icon = self._shield_recharge_icon
                     elif it in self.item_icons:
                         icon = self.item_icons[it]
 

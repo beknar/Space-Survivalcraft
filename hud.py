@@ -25,6 +25,7 @@ class HUD:
         faction: str | None = None,
         ship_type: str | None = None,
         repair_pack_icon: arcade.Texture | None = None,
+        shield_recharge_icon: arcade.Texture | None = None,
     ) -> None:
         # Store the current screen height so draw() uses the right value
         # (SCREEN_HEIGHT gets updated at runtime by apply_resolution, but
@@ -107,6 +108,7 @@ class HUD:
         self._qu_cell = QUICK_USE_CELL
         self._qu_count = QUICK_USE_SLOTS
         self._repair_pack_icon = repair_pack_icon
+        self._shield_recharge_icon = shield_recharge_icon
         self._t_qu_label = arcade.Text("QUICK USE", 0, 0,
                                        arcade.color.LIGHT_GRAY, 8,
                                        anchor_x="center")
@@ -156,7 +158,7 @@ class HUD:
         self._qu_hover: int = -1
         self._t_qu_tip = arcade.Text("", 0, 0, arcade.color.WHITE, 9, bold=True,
                                      anchor_x="center", anchor_y="center")
-        self._QU_NAMES: dict[str, str] = {"repair_pack": "Repair Pack"}
+        self._QU_NAMES: dict[str, str] = {"repair_pack": "Repair Pack", "shield_recharge": "Shield Recharge"}
 
     @property
     def char_video_rect(self) -> tuple[float, float, float]:
@@ -250,6 +252,7 @@ class HUD:
         character_name: str = "",
         trade_station_pos: tuple[float, float] | None = None,
         boss_pos: tuple[float, float] | None = None,
+        wormhole_positions: list[tuple[float, float]] | None = None,
     ) -> None:
         """Draw the full HUD status panel."""
         # Panel background
@@ -430,8 +433,12 @@ class HUD:
             self._t_qu_num.draw()
             # Item icon/label (skip source slot during drag)
             if self._qu_slots[i] is not None and not is_drag_src:
+                icon = None
                 if self._qu_slots[i] == "repair_pack" and self._repair_pack_icon is not None:
                     icon = self._repair_pack_icon
+                elif self._qu_slots[i] == "shield_recharge" and self._shield_recharge_icon is not None:
+                    icon = self._shield_recharge_icon
+                if icon is not None:
                     icon_pad = 4
                     icon_size = self._qu_cell - icon_pad * 2
                     arcade.draw_texture_rect(
@@ -483,8 +490,12 @@ class HUD:
                 arcade.LBWH(fx, fy, cs, cs),
                 arcade.color.YELLOW, border_width=2,
             )
+            icon = None
             if self._qu_drag_type == "repair_pack" and self._repair_pack_icon is not None:
                 icon = self._repair_pack_icon
+            elif self._qu_drag_type == "shield_recharge" and self._shield_recharge_icon is not None:
+                icon = self._shield_recharge_icon
+            if icon is not None:
                 icon_pad = 4
                 icon_size = cs - icon_pad * 2
                 arcade.draw_texture_rect(
@@ -515,4 +526,5 @@ class HUD:
             fog_revealed=fog_revealed,
             trade_station_pos=trade_station_pos,
             boss_pos=boss_pos,
+            wormhole_positions=wormhole_positions,
         )

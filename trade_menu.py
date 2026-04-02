@@ -15,6 +15,7 @@ _ITEM_H = 26
 SELL_PRICES: dict[str, int] = {
     "iron": 1,
     "repair_pack": 100,
+    "shield_recharge": 100,
 }
 # Add blueprint sell prices (half the module craft cost)
 for _k, _info in MODULE_TYPES.items():
@@ -24,12 +25,14 @@ for _k, _info in MODULE_TYPES.items():
 # Buy catalog: item_type → (label, credit cost, stack produced)
 BUY_CATALOG: list[tuple[str, str, int, int]] = [
     ("repair_pack", "Repair Pack", CRAFT_IRON_COST * 2, CRAFT_RESULT_COUNT),
+    ("shield_recharge", "Shield Recharge", CRAFT_IRON_COST * 2, CRAFT_RESULT_COUNT),
 ]
 
 # Display names
 _ITEM_NAMES: dict[str, str] = {
     "iron": "Iron",
     "repair_pack": "Repair Pack",
+    "shield_recharge": "Shield Recharge",
 }
 for _k, _info in MODULE_TYPES.items():
     _ITEM_NAMES[f"bp_{_k}"] = f"BP {_info['label']}"
