@@ -203,6 +203,47 @@ All ships start at world centre. Ships rendered at 0.75x scale (96 px in-game). 
 
 ---
 
+## Music Video Player
+
+| Property | Value |
+|---|---|
+| Supported formats | MP4, AVI, WMV, M4V, 3GP, ASF, MKV, WebM, MOV, FLV, OGV |
+| Decoder | FFmpeg (bundled DLLs in project root, ~220 MB, gitignored) |
+| Display location | HUD status panel, above minimap, 16:9 aspect ratio |
+| Availability | Fullscreen or borderless mode only |
+| Frame downscale | 200 px wide (GPU blit + PIL conversion) |
+| Conversion rate | ~24--30 new frames/s from video source |
+| Required DLLs | avcodec-62, avformat-62, avutil-60, swresample-6, swscale-9, avfilter-11, avdevice-62 |
+
+---
+
+## Character Video Player
+
+| Property | Value |
+|---|---|
+| Display location | HUD status panel, 1:1 square aspect |
+| Downscale method | GPU-side `glBlitFramebuffer` (1440 to 200 px) |
+| Readback size | ~90 KB per frame (vs ~8 MB unscaled) |
+| Conversion rate | 15 fps (throttled) |
+| Loop method | Pre-built standby player loaded 5s before end-of-file |
+| Source directory | `characters/` (scanned for `Name.mp4` files) |
+
+---
+
+## Persistent Configuration
+
+Settings stored in `config.json` (gitignored):
+
+| Setting | Description | Default |
+|---|---|---|
+| `music_volume` | Music volume | 0.35 |
+| `sfx_volume` | Sound effects volume | 0.60 |
+| `video_dir` | Video file directory path | (empty) |
+| `show_fps` | FPS counter visibility | false |
+| `autoplay_ost` | Auto-play OST on game start | true |
+
+---
+
 ## Item Stack Limits
 
 | Item | Max Stack |

@@ -126,14 +126,38 @@
 ## Character Video Player
 
 - Looping 1:1 square character video portrait in the HUD
-- GPU-side downscale for high performance
-- Choose character via Video Properties in the ESC menu
+- GPU-side downscale via `glBlitFramebuffer` for high performance (~90 KB readback vs ~8 MB)
+- Frame conversion throttled to 15 fps to maintain 50+ game FPS
+- Choose character via **Video Properties** in the ESC menu
+- Characters are video files (`Name.mp4`) in the `characters/` directory
+- Video starts at a random position and loops seamlessly with a pre-built standby player
+
+## Music Video Player
+
+- Play video files in place of the background music soundtrack
+- Video frame displayed as a small 16:9 panel in the HUD status panel, above the minimap
+- **Supported formats**: MP4, AVI, WMV, M4V, 3GP, ASF, MKV, WebM, MOV, FLV, OGV
+- **Requires FFmpeg** --- bundled DLLs in the project root (gitignored, ~220 MB)
+- **Fullscreen or borderless mode required** --- Video button shows error in windowed mode
+- **How to use**: ESC menu > Songs > Music Videos > configure a video directory, browse and select files
+- Alternatively: ESC menu > Video to access the dedicated video file browser with scrollable list
+- Click a video file to start playback (replaces background music); click **Stop Video** to stop
+- Video loops automatically when it reaches the end
+- Volume controlled by the Music volume slider
+- Starting a video stops OST music and the equalizer visualizer
+- Changing resolution preserves video playback state (video restarts automatically)
+- Performance optimised: video frame cached and downscaled to 200 px wide; old GL textures removed from atlas to prevent VRAM accumulation
+- `main.py` patches pyglet's clock to handle FFmpeg scheduling conflicts with Arcade
 
 ## Escape Menu
 
 - Resume, Save/Load, Video Properties, Help, Songs, Main Menu
 - Music/SFX volume sliders, resolution selector
 - 10 save slots with naming overlay
+- **Video Properties** --- resolution selector + character picker for the HUD video portrait
+- **Songs** --- Stop Song, Other Song (random OST track), Music Videos (opens video browser)
+- **Help** --- keyboard and gamepad controls display
+- **Config** --- FPS toggle, volume sliders, video directory, autoplay OST toggle, Save Config
 
 ## Death & Respawn
 
