@@ -37,6 +37,8 @@ def draw_minimap(
     trade_station_pos: tuple[float, float] | None = None,
     boss_pos: tuple[float, float] | None = None,
     wormhole_positions: list[tuple[float, float]] | None = None,
+    zone_width: float = WORLD_WIDTH,
+    zone_height: float = WORLD_HEIGHT,
 ) -> None:
     """Draw a scaled overview of the world inside the status panel."""
     mx, my = MINIMAP_X, MINIMAP_Y
@@ -50,8 +52,8 @@ def draw_minimap(
 
     def to_map(wx: float, wy: float) -> tuple[float, float]:
         return (
-            mx + (wx / WORLD_WIDTH) * mw,
-            my + (wy / WORLD_HEIGHT) * mh,
+            mx + (wx / zone_width) * mw,
+            my + (wy / zone_height) * mh,
         )
 
     # Draw grey fog overlay using 4x4 block sampling

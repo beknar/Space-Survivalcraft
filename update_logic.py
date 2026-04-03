@@ -423,9 +423,17 @@ def update_boss(gv: GameView, dt: float) -> None:
 
 
 def update_wormholes(gv: GameView, dt: float) -> None:
-    """Update wormhole spiral animations."""
+    """Update wormhole spiral animations and check player collision."""
     for wh in gv._wormholes:
         wh.update_wormhole(dt)
+    # Check player entering a wormhole
+    px, py = gv.player.center_x, gv.player.center_y
+    for wh in gv._wormholes:
+        if wh.zone_target is not None:
+            dist = math.hypot(px - wh.center_x, py - wh.center_y)
+            if dist < 64:
+                gv._transition_zone(wh.zone_target, entry_side="bottom")
+                return
 
 
 def update_effects(gv: GameView, dt: float) -> None:

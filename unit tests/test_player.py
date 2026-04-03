@@ -43,6 +43,8 @@ def ship(dummy_texture):
     s.guns = 1
     s.center_x = WORLD_WIDTH / 2
     s.center_y = WORLD_HEIGHT / 2
+    s.world_width = WORLD_WIDTH
+    s.world_height = WORLD_HEIGHT
     s.vel_x = 0.0
     s.vel_y = 0.0
     s.heading = 0.0

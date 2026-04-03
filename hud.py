@@ -253,6 +253,8 @@ class HUD:
         trade_station_pos: tuple[float, float] | None = None,
         boss_pos: tuple[float, float] | None = None,
         wormhole_positions: list[tuple[float, float]] | None = None,
+        zone_width: float = 6400,
+        zone_height: float = 6400,
     ) -> None:
         """Draw the full HUD status panel."""
         # Panel background
@@ -527,4 +529,6 @@ class HUD:
             trade_station_pos=trade_station_pos,
             boss_pos=boss_pos,
             wormhole_positions=wormhole_positions,
+            zone_width=zone_width,
+            zone_height=zone_height,
         )

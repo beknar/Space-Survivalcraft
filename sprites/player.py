@@ -99,6 +99,10 @@ class PlayerShip(arcade.Sprite):
         self.center_x = WORLD_WIDTH / 2
         self.center_y = WORLD_HEIGHT / 2
 
+        # World bounds (updated on zone transitions)
+        self.world_width: float = WORLD_WIDTH
+        self.world_height: float = WORLD_HEIGHT
+
         self.vel_x: float = 0.0
         self.vel_y: float = 0.0
         self.heading: float = 0.0
@@ -169,9 +173,9 @@ class PlayerShip(arcade.Sprite):
 
         # Integrate position, clamped to world bounds
         hw, hh = self.width / 2, self.height / 2
-        self.center_x = max(hw, min(WORLD_WIDTH - hw,
+        self.center_x = max(hw, min(self.world_width - hw,
                                     self.center_x + self.vel_x * dt))
-        self.center_y = max(hh, min(WORLD_HEIGHT - hh,
+        self.center_y = max(hh, min(self.world_height - hh,
                                     self.center_y + self.vel_y * dt))
 
         # ── Collision cooldown tick ────────────────────────────────────────

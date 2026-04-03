@@ -85,6 +85,7 @@ def save_to_dict(gv: GameView, name: str = "") -> dict:
             "x": gv._trade_station.center_x,
             "y": gv._trade_station.center_y,
         } if gv._trade_station is not None else None,
+        "zone_id": gv._zone.zone_id.name,
         "boss_spawned": gv._boss_spawned,
         "boss_defeated": gv._boss_defeated,
         "boss": {
@@ -265,6 +266,17 @@ def restore_state(view: GameView, data: dict) -> None:
             view._spawn_trade_station()
 
     # Boss encounter
+    # Restore zone (only save while in main zone for now)
+    saved_zone = data.get("zone_id", "MAIN")
+    if saved_zone != "MAIN":
+        from zones import ZoneID, create_zone
+        zid = ZoneID[saved_zone]
+        view._zone.teardown(view)
+        view._zone = create_zone(zid)
+        view._zone.setup(view)
+        view.player.world_width = view._zone.world_width
+        view.player.world_height = view._zone.world_height
+
     view._boss_spawned = data.get("boss_spawned", False)
     view._boss_defeated = data.get("boss_defeated", False)
     boss_data = data.get("boss")

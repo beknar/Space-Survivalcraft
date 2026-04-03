@@ -86,6 +86,7 @@ class Wormhole(arcade.Sprite):
         self.center_x = x
         self.center_y = y
         self.angle = random.uniform(0, 360)
+        self.zone_target = None  # ZoneID set by spawner
 
     def update_wormhole(self, dt: float) -> None:
         """Rotate the entire sprite for the spiral animation."""

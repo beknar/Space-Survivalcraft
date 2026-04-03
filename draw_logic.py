@@ -42,30 +42,37 @@ def draw_background(
 def draw_world(gv: GameView, cx: float, cy: float, hw: float, hh: float) -> None:
     """Draw all world-space entities (called inside world_cam.activate)."""
     draw_background(gv, cx, cy, hw, hh)
-    gv.asteroid_list.draw()
-    gv.iron_pickup_list.draw()
-    gv.blueprint_pickup_list.draw()
-    gv.explosion_list.draw()
-    gv.building_list.draw()
-    # Wormholes
-    if gv._wormholes:
-        gv._wormhole_list.draw()
-    if gv._trade_station is not None:
-        ts = gv._trade_station
-        tw = gv._trade_station_tex.width * 0.15
-        th = gv._trade_station_tex.height * 0.15
-        arcade.draw_texture_rect(
-            gv._trade_station_tex,
-            arcade.LBWH(ts.center_x - tw / 2,
-                        ts.center_y - th / 2,
-                        tw, th))
-    gv.turret_projectile_list.draw()
-    gv.alien_list.draw()
-    gv.alien_projectile_list.draw()
-    # Boss
-    if gv._boss is not None and gv._boss.hp > 0:
-        gv._boss_list.draw()
-        gv._boss_projectile_list.draw()
+
+    # Zone-specific world entities
+    from zones import ZoneID
+    if gv._zone.zone_id == ZoneID.MAIN:
+        gv.asteroid_list.draw()
+        gv.iron_pickup_list.draw()
+        gv.blueprint_pickup_list.draw()
+        gv.explosion_list.draw()
+        gv.building_list.draw()
+        if gv._wormholes:
+            gv._wormhole_list.draw()
+        if gv._trade_station is not None:
+            ts = gv._trade_station
+            tw = gv._trade_station_tex.width * 0.15
+            th = gv._trade_station_tex.height * 0.15
+            arcade.draw_texture_rect(
+                gv._trade_station_tex,
+                arcade.LBWH(ts.center_x - tw / 2,
+                            ts.center_y - th / 2,
+                            tw, th))
+        gv.turret_projectile_list.draw()
+        gv.alien_list.draw()
+        gv.alien_projectile_list.draw()
+        if gv._boss is not None and gv._boss.hp > 0:
+            gv._boss_list.draw()
+            gv._boss_projectile_list.draw()
+    else:
+        gv.explosion_list.draw()
+        gv._zone.draw_world(gv, cx, cy, hw, hh)
+
+    # Shared world entities (always drawn)
     gv.projectile_list.draw()
     # Contrail drawn behind the player ship
     for cp in gv._contrail:
@@ -152,6 +159,8 @@ def draw_ui(gv: GameView) -> None:
         boss_pos=(gv._boss.center_x, gv._boss.center_y)
             if gv._boss is not None and gv._boss.hp > 0 else None,
         wormhole_positions=[(wh.center_x, wh.center_y) for wh in gv._wormholes],
+        zone_width=gv._zone.world_width,
+        zone_height=gv._zone.world_height,
     )
     # Video frame draws (skip when menu open)
     if not menu_open:

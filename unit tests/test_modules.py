@@ -46,6 +46,8 @@ def ship(dummy_texture):
     s.guns = 1
     s.center_x = WORLD_WIDTH / 2
     s.center_y = WORLD_HEIGHT / 2
+    s.world_width = WORLD_WIDTH
+    s.world_height = WORLD_HEIGHT
     s.vel_x = 0.0
     s.vel_y = 0.0
     s.heading = 0.0
@@ -179,7 +181,8 @@ class TestSideslip:
                      '_base_max_hp', '_base_max_spd', '_base_max_shields',
                      '_base_shield_regen', '_shield_regen', 'shield_absorb',
                      '_shield_acc', '_collision_cd', 'guns', 'vel_x', 'vel_y',
-                     'heading', '_intensity', '_anim_timer', '_anim_col']:
+                     'heading', '_intensity', '_anim_timer', '_anim_col',
+                     'world_width', 'world_height']:
             setattr(s1, attr, getattr(ship, attr))
         s1.center_x = ship.center_x
         s1.center_y = ship.center_y

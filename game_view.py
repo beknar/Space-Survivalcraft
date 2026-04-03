@@ -410,6 +410,34 @@ class GameView(arcade.View):
         if self._music_tracks and not self._skip_music and audio.autoplay_ost:
             self._play_next_track()
 
+        # Zone state machine
+        from zones.zone1_main import MainZone
+        self._zone = MainZone()
+        self._zone.setup(self)
+
+    # ── Zone transitions ──────────────────────────────────────────────────
+    def _transition_zone(self, target_zone_id, entry_side: str = "bottom") -> None:
+        """Tear down current zone, set up target zone, reposition player."""
+        from zones import create_zone
+        # Store player position for return
+        if hasattr(self._zone, '_stash'):
+            self._zone._stash["_player_pos"] = (
+                self.player.center_x, self.player.center_y)
+        elif hasattr(self._zone, '_return_pos'):
+            pass  # warp zones track this in setup()
+        self._zone.teardown(self)
+        self._zone = create_zone(target_zone_id)
+        self._zone.setup(self)
+        # Update player world bounds
+        self.player.world_width = self._zone.world_width
+        self.player.world_height = self._zone.world_height
+        # Reposition player
+        px, py = self._zone.get_player_spawn(entry_side)
+        self.player.center_x = px
+        self.player.center_y = py
+        self.player.vel_x = 0.0
+        self.player.vel_y = 0.0
+
     # ── Music delegates (game_music module) ────────────────────────────────
     def _play_next_track(self) -> None:
         from game_music import play_next_track; play_next_track(self)
@@ -532,8 +560,12 @@ class GameView(arcade.View):
             (margin, WORLD_HEIGHT - margin),
             (WORLD_WIDTH - margin, WORLD_HEIGHT - margin),
         ]
-        for cx, cy in corners:
+        from zones import ZoneID
+        targets = [ZoneID.WARP_METEOR, ZoneID.WARP_LIGHTNING,
+                   ZoneID.WARP_GAS, ZoneID.WARP_ENEMY]
+        for (cx, cy), target in zip(corners, targets):
             wh = Wormhole(cx, cy)
+            wh.zone_target = target
             self._wormholes.append(wh)
             self._wormhole_list.append(wh)
 
@@ -630,8 +662,10 @@ class GameView(arcade.View):
         sh = self.window.height
         hw = sw / 2
         hh = sh / 2
-        cx = max(hw - STATUS_WIDTH, min(WORLD_WIDTH - hw, self.player.center_x))
-        cy = max(hh, min(WORLD_HEIGHT - hh, self.player.center_y))
+        zw = self._zone.world_width
+        zh = self._zone.world_height
+        cx = max(hw - STATUS_WIDTH, min(zw - hw, self.player.center_x))
+        cy = max(hh, min(zh - hh, self.player.center_y))
         shake_x = shake_y = 0.0
         if self._shake_timer > 0.0:
             frac = self._shake_timer / SHAKE_DURATION
@@ -653,15 +687,20 @@ class GameView(arcade.View):
         _ul.update_timers(self, delta_time)
         _ul.update_repair_and_shields(self, delta_time)
         _ul.update_crafting(self, delta_time)
-        self._update_fog()
         fire = _ul.update_movement(self, delta_time)
         _ul.update_contrail(self, delta_time)
         _ul.update_weapons(self, delta_time, fire)
-        _ul.update_entities(self, delta_time)
-        _ul.update_buildings(self, delta_time)
-        _ul.update_respawns(self, delta_time)
-        _ul.update_boss(self, delta_time)
-        _ul.update_wormholes(self, delta_time)
+        # Zone-specific updates
+        from zones import ZoneID
+        if self._zone.zone_id == ZoneID.MAIN:
+            self._update_fog()
+            _ul.update_entities(self, delta_time)
+            _ul.update_buildings(self, delta_time)
+            _ul.update_respawns(self, delta_time)
+            _ul.update_boss(self, delta_time)
+            _ul.update_wormholes(self, delta_time)
+        else:
+            self._zone.update(self, delta_time)
         _ul.update_effects(self, delta_time)
 
     # ── Input ────────────────────────────────────────────────────────────────
