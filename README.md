@@ -5,14 +5,19 @@ A top-down space survival game built with Python and the Arcade framework. Pilot
 ## Highlights
 
 - **4 factions** and **5 ship types** with unique stats and contrail colours
-- **3 playable characters** (Debra, Ellie, Tara) with 5-level progression trees
+- **3 playable characters** (Debra, Ellie, Tara) with 10-level progression trees
 - **Newtonian flight model** with thrust, inertia, sideslip, and gamepad support
 - **Combat** with Basic Laser, Mining Beam, and ship module weapons (broadside lasers)
 - **Boss encounter** --- 3-phase AI boss with 2,000 HP, spread shots, and charge attacks
+- **4 warp zones** --- meteor, lightning, gas cloud, and enemy spawner transition zones
+- **Zone 2 (Nebula)** --- second biome with copper, gas hazards, magnetic asteroids, and 4 new alien types
+- **Homing missiles** --- consumable weapon with homing AI, craftable at Advanced Crafter
+- **Advanced modules** --- Misty Step teleport, Force Wall barrier, Death Blossom missile barrage
+- **Special ability meter** --- powers advanced module abilities
 - **30 alien scouts** with patrol/pursue AI and obstacle avoidance
-- **75 minable asteroids** that drop iron ore for crafting
+- **75 minable asteroids** that drop iron and copper ore for crafting
 - **Modular space station** with 8 building types, turrets, repair module, and crafter
-- **6 ship modules** crafted from blueprint drops (armor, engine, shield, absorber, broadside)
+- **12 ship modules** crafted from blueprint drops (armor, engine, shield, absorber, broadside, and advanced modules)
 - **5x5 cargo inventory** and **10x10 station inventory** with drag-and-drop
 - **Trading station** for buying and selling items with credits
 - **10 named save slots** preserving full game state including fog of war and boss
@@ -127,7 +132,15 @@ Space Survivalcraft/
 │   ├── shield.py        # ShieldSprite
 │   ├── explosion.py     # Explosion, HitSpark, FireSpark
 │   ├── contrail.py      # ContrailParticle
-│   └── building.py      # Station modules
+│   ├── building.py      # Station modules
+│   ├── copper_asteroid.py # CopperAsteroid
+│   ├── wandering_asteroid.py # WanderingAsteroid
+│   ├── gas_area.py      # GasArea
+│   ├── zone2_aliens.py  # ShieldedAlien, FastAlien, GunnerAlien, RammerAlien
+│   ├── missile.py       # HomingMissile
+│   ├── force_wall.py    # ForceWall
+│   └── wormhole.py      # Wormhole
+├── zones/               # Zone state machine (8 zone files)
 ├── unit tests/          # 319 tests across 17 files
 ├── docs/                # Full game documentation
 ├── characters/          # Character videos and portraits

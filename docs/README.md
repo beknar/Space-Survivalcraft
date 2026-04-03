@@ -49,6 +49,10 @@ Welcome to the full documentation for **Call of Orion**, a top-down space surviv
 
 - Kenney All-in-1: https://kenney.itch.io/kenney-game-assets
 
+## Zone 2 (The Nebula)
+
+Zone 2 is the second biome, accessed through warp zones that appear when the boss is defeated. It features copper asteroids, toxic gas clouds, wandering magnetic asteroids, and 4 new alien types. See [Features](features.md) and [Statistics](statistics.md) for full details.
+
 ### Music and Sound Effects Licensing
 
 - Bought from Humble Bundle

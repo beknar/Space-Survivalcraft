@@ -66,6 +66,12 @@ All ships start at world centre. Ships rendered at 0.75x scale (96 px in-game). 
 | Shield Enhancer | +3 shield regen/s | 125 iron |
 | Damage Absorber | -3 damage to shields | 150 iron |
 | Broadside Module | Auto-fires perpendicular lasers | 200 iron |
+| Misty Step | Double-tap WASD to teleport 100 px | 150 iron + 50 copper |
+| Force Wall | Deploy 100 px barrier (G key) | 200 iron + 75 copper |
+| Death Blossom | Fire all missiles radially (X key) | 250 iron + 100 copper |
+| Missile Rack | +100 missile capacity | 100 iron + 50 copper |
+| Ability Capacitor | +25 max ability points | 175 iron + 75 copper |
+| Hull Reinforcement | +30 max HP | 200 iron + 50 copper |
 
 - 4 module slots on the ship
 - Only 1 of each type can be equipped
@@ -141,6 +147,61 @@ All ships start at world centre. Ships rendered at 0.75x scale (96 px in-game). 
 
 ---
 
+## Warp Zone Dimensions
+
+| Property | Value |
+|---|---|
+| Zone size | 3,200 x 6,400 px |
+| Entry | Bottom (from Zone 1 after boss defeat) |
+| Exit to Zone 2 | Top |
+| Safe return | Bottom exit back to Zone 1 |
+| Red wall damage | Drains shields on contact |
+
+---
+
+## Zone 2 Asteroids
+
+| Type | Count | HP | Yield | Notes |
+|---|---|---|---|---|
+| Iron Asteroid | 75 | 100 | 10 iron | Same as Zone 1 |
+| Double Iron Asteroid | 15 | 200 | 20 iron | Tougher, double yield |
+| Copper Asteroid | 75 | 100 | 10 copper | New resource type |
+
+---
+
+## Zone 2 Aliens
+
+| Type | HP | Shields | Speed | XP Reward | Special |
+|---|---|---|---|---|---|
+| Shielded Alien | 50 | 50 | 120 px/s | 50 | Extra shield durability |
+| Fast Alien | 50 | 0 | 160 px/s | 60 | High speed |
+| Gunner Alien | 50 | 0 | 120 px/s | 70 | 2 guns, double firepower |
+| Rammer Alien | 100 | 50 | 120 px/s | 80 | Charges toward player |
+
+---
+
+## Homing Missile Stats
+
+| Property | Value |
+|---|---|
+| Damage | 50 |
+| Tracking | Homing AI (nearest enemy) |
+| Type | Consumable ammunition |
+| Crafted at | Advanced Crafter |
+
+---
+
+## Special Ability Meter
+
+| Property | Value |
+|---|---|
+| Maximum | 100 |
+| Regen rate | 5 pts/s |
+| Misty Step cost | 20 |
+| Force Wall cost | 30 |
+
+---
+
 ## Station Buildings
 
 | Type | HP | Iron Cost | Max Count | Capacity Slots | Notes |
@@ -178,6 +239,18 @@ All ships start at world centre. Ships rendered at 0.75x scale (96 px in-game). 
 | Recipe | Iron Cost | Time | Output |
 |---|---|---|---|
 | Repair Pack | 200 | 60 s | 5 packs |
+
+---
+
+## New Buildings (Zone 2)
+
+| Type | HP | Iron Cost | Copper Cost | Max Count | Notes |
+|---|---|---|---|---|---|
+| Advanced Crafter | 100 | 200 | 50 | 1 | Crafts advanced modules and missiles |
+| Fission Generator | 150 | 300 | 100 | 1 | Powers Zone 2 buildings |
+| Advanced Ship | 125 | 250 | 75 | 1 | Unlocks advanced module slots |
+| Shield Generator | 100 | 200 | 50 | 1 | Area shield for station buildings |
+| Missile Array | 100 | 150 | 50 | 2 | Auto-fires homing missiles at enemies |
 
 ---
 
@@ -230,6 +303,14 @@ All ships start at world centre. Ships rendered at 0.75x scale (96 px in-game). 
 
 ---
 
+## Character Progression
+
+- XP thresholds: 0, 100, 300, 600, 1000, 2500, 3600, 4700, 5800, 7000
+- XP hard-capped at 7,000 (max level 10)
+- XP earned: 10 per asteroid, 25 per alien kill, 500 for boss defeat
+
+---
+
 ## Persistent Configuration
 
 Settings stored in `config.json` (gitignored):
@@ -249,5 +330,7 @@ Settings stored in `config.json` (gitignored):
 | Item | Max Stack |
 |---|---|
 | Iron | 999 |
+| Copper | 999 |
 | Repair Pack | 99 |
+| Missile | 500 |
 | Blueprints/Modules | 10 |

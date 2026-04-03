@@ -5,7 +5,7 @@
 - Choose from 4 factions: **Earth**, **Colonial**, **Heavy World**, and **Ascended**
 - Select from 5 ship types: Cruiser, Bastion, Aegis, Striker, Thunderbolt
 - Ship previews and stat breakdowns shown on the selection screen
-- Character selection with 3 unique characters (Debra, Ellie, Tara)
+- Character selection with 3 unique characters (Debra, Ellie, Tara), each with 10 levels of progression
 - Mouse and keyboard selection across all three phases
 
 ## Newtonian Flight Model
@@ -48,6 +48,45 @@
 - Drops 200 iron and 500 XP on defeat; does not respawn once defeated
 - Full save/load support; appears as a large red marker on the minimap
 
+## Warp Zones
+
+- 4 warp zone types: **Meteor**, **Lightning**, **Gas**, and **Enemy Spawner**
+- Appear after the boss is defeated, providing access to Zone 2
+- Red walls line the warp zone boundaries and drain shields on contact
+- Bottom exit provides a safe return to Zone 1
+- Top exit transitions the player into Zone 2 (The Nebula)
+
+## Zone 2 --- The Nebula
+
+- New biome with a nebula-themed starfield background
+- **Copper asteroids** --- new resource type, mineable with the Mining Beam
+- **Double iron asteroids** --- tougher asteroids that yield twice the iron
+- **Toxic gas clouds** --- environmental hazards that damage and slow the player on contact
+- **Wandering magnetic asteroids** --- asteroids that drift through space and attract nearby ships
+- 4 new alien types with unique abilities:
+  - **Shielded Alien** --- comes with 50 shields for extra durability
+  - **Fast Alien** --- moves at 160 px/s, harder to hit and outrun
+  - **Gunner Alien** --- equipped with 2 guns for double the firepower
+  - **Rammer Alien** --- 100 HP + 50 shields, charges toward the player on contact
+
+## Advanced Modules
+
+- **Misty Step** --- double-tap WASD to teleport 100 px in that direction; costs 20 ability points
+- **Force Wall** --- press G to deploy a 100 px barrier in front of the ship; costs 30 ability points
+- **Death Blossom** --- press X to fire all homing missiles in a radial burst
+
+## Homing Missiles
+
+- Consumable ammunition with homing AI that tracks the nearest enemy
+- Deals 50 damage per missile on impact
+- Craftable at the Advanced Crafter
+
+## Special Ability Meter
+
+- Maximum capacity of 100 ability points
+- Regenerates at 5 points per second
+- Powers the advanced modules (Misty Step, Force Wall, Death Blossom)
+
 ## Mining & Resources
 
 - 75 iron asteroids scattered across the world
@@ -67,7 +106,7 @@
 ## Ship Module System
 
 - 4 module slots displayed above the quick-use bar
-- 6 module types: Armor Plate, Engine Booster, Shield Booster, Shield Enhancer, Damage Absorber, Broadside Module
+- 12 module types: Armor Plate, Engine Booster, Shield Booster, Shield Enhancer, Damage Absorber, Broadside Module, Misty Step, Force Wall, Death Blossom, Missile Rack, Ability Capacitor, Hull Reinforcement
 - Blueprint drops from aliens (50%) and asteroids (25%)
 - Craft modules at the Basic Crafter after depositing blueprints
 - Drag-to-equip with module slot management

@@ -17,6 +17,9 @@
 | Open/close build menu | B |
 | Ship stats / character bio | C |
 | Station info panel | T (when near station) |
+| Deploy Force Wall | G |
+| Activate Death Blossom | X |
+| Misty Step teleport | Double-tap W/A/S/D |
 | Toggle FPS display | F |
 | Escape menu | Escape |
 

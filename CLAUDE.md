@@ -95,7 +95,14 @@ Space Survivalcraft/
 │   ├── shield.py        # ShieldSprite — animated energy bubble with hit flash
 │   ├── explosion.py     # Explosion, HitSpark, FireSpark visual effects
 │   ├── contrail.py      # ContrailParticle — engine exhaust particle effect
-│   └── building.py      # StationModule, HomeStation, ServiceModule, Turret, RepairModule, BasicCrafter, DockingPort, etc.
+│   ├── building.py      # StationModule, HomeStation, ServiceModule, Turret, RepairModule, BasicCrafter, DockingPort, etc.
+│   ├── copper_asteroid.py # CopperAsteroid — minable copper ore
+│   ├── wandering_asteroid.py # WanderingAsteroid — magnetic wanderer attracted to player
+│   ├── gas_area.py      # GasArea — toxic gaseous hazard with procedural texture
+│   ├── zone2_aliens.py  # Zone 2 aliens: ShieldedAlien, FastAlien, GunnerAlien, RammerAlien
+│   ├── missile.py       # HomingMissile — homing projectile with turn rate
+│   ├── force_wall.py    # ForceWall — temporary shimmering barrier
+│   └── wormhole.py      # Wormhole — rotating blue cloud with red spirals
 │
 │  ── Unit tests ──
 ├── unit tests/
@@ -118,6 +125,17 @@ Space Survivalcraft/
 │   ├── test_damage.py     # Damage routing (shields → HP), death triggering
 │   ├── test_building.py   # StationModule, Turret, RepairModule, DockingPort, capacity, snap, collision, port disconnect
 │   └── test_respawn.py    # Respawn position logic, timer logic, alien iron drop, fog of war constants/grid
+│
+│  ── Zones ──
+├── zones/
+│   ├── __init__.py      # ZoneID enum, ZoneState base class, create_zone() factory
+│   ├── zone1_main.py    # MainZone — wraps existing 6400x6400 Double Star gameplay
+│   ├── zone_warp_base.py # WarpZoneBase — shared warp zone logic (red walls, exits)
+│   ├── zone_warp_meteor.py # MeteorWarpZone — fast meteors from top
+│   ├── zone_warp_lightning.py # LightningWarpZone — periodic lightning volleys
+│   ├── zone_warp_gas.py # GasCloudWarpZone — maze of damaging gas clouds
+│   ├── zone_warp_enemy.py # EnemySpawnerWarpZone — 4 spawner stations
+│   └── zone2.py         # Zone 2 (Nebula) — copper, gas hazards, new aliens
 │
 ├── assets/              # Art, sound, music (gitignored — not in repo)
 ├── saves/               # Save slot JSON files (gitignored)
@@ -238,6 +256,12 @@ sprites/alien.py
 - **GameView extraction pattern** — all extracted modules (combat_helpers, building_manager, draw_logic, update_logic, input_handlers) use free functions receiving `gv: GameView` with `TYPE_CHECKING` to avoid circular imports; GameView keeps thin one-liner delegates so external callers (collisions.py, game_save.py) continue to work via `gv._method()`
 - **BaseInventoryData mixin** — shared item storage (add/remove/count/consolidate/toggle) inherited by both Inventory and StationInventory; subclasses set `_rows`/`_cols` for grid dimensions
 - **Boss encounter** — spawns when player reaches level 5, all 4 modules equipped, 5+ repair packs, and Home Station built; BossAlienShip has 2000 HP + 500 shields, 3-phase AI (main cannon + spread → adds charge attack → enraged with halved cooldowns); spawns at farthest world corner from station and heads toward it; full save/load support; HP bar with phase indicator; large dramatic announcement on spawn; red minimap marker
+- **Multi-zone system** — ZoneState base class with zone-specific setup/teardown/update/draw; MainZone stashes zone 1 state during warp zone visits; player world bounds parameterized for different zone sizes
+- **Warp zones** — 4 transition zones (meteor, lightning, gas, enemy spawner) with shared WarpZoneBase handling red walls, exits, and safe returns
+- **Zone 2 (Nebula)** — second biome with copper asteroids, double iron, gas hazards, wandering magnetic asteroids, and 4 new alien types (shielded, fast, gunner, rammer)
+- **10-level character progression** — XP thresholds 0-7000; Debra gets copper bonuses at L6+, Ellie gets advanced laser upgrades, Tara gets copper cost reductions
+- **Special ability meter** — 100 max, 5/s regen; powers Misty Step (teleport), Force Wall (barrier), Death Blossom (missile barrage)
+- **Homing missiles** — consumable quick-use item; 50 dmg, 400 px/s, 180 deg/s turn rate, 1500px range
 
 ## Game Rules Reference
 

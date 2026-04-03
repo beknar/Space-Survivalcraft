@@ -48,6 +48,11 @@ Debra's smile hides a sadness that she barely overcomes. She laughs, smiles, tel
 | 3 | +15 iron from asteroids |
 | 4 | +15 iron from enemies |
 | 5 | +20 iron from all sources |
+| 6 | +5 copper from copper asteroids |
+| 7 | +10 copper from copper asteroids |
+| 8 | +25 iron from all sources |
+| 9 | +15 copper from copper asteroids |
+| 10 | +30 iron and +20 copper from all sources |
 
 ---
 
@@ -65,6 +70,11 @@ Ellie isn't fleeing. She's chasing vengeance. Every corner, every doorway could 
 | 3 | +50 px/s laser speed |
 | 4 | +100 px laser range |
 | 5 | +15 laser damage |
+| 6 | -0.05s laser cooldown |
+| 7 | +75 px/s laser speed |
+| 8 | +20 laser damage |
+| 9 | +150 px laser range |
+| 10 | +25 laser damage and -0.10s cooldown |
 
 ---
 
@@ -82,12 +92,18 @@ Tara is a treasure hunter looking for the technology of the ancients. After havi
 | 3 | -10% craft iron cost |
 | 4 | -20% build iron cost |
 | 5 | +10% station HP |
+| 6 | -10% copper build cost |
+| 7 | -15% craft iron cost |
+| 8 | -25% build iron cost |
+| 9 | +20% station HP |
+| 10 | -30% all build costs and +25% station HP |
 
 ---
 
 ## Character Progression
 
-- All characters share the same XP thresholds: 0, 100, 300, 600, 1000
-- XP is hard-capped at 1,000 --- no further XP earned after max level
+- All characters share the same XP thresholds: 0, 100, 300, 600, 1000, 2500, 3600, 4700, 5800, 7000
+- 10 levels of progression per character
+- XP is hard-capped at 7,000 --- no further XP earned after max level
 - XP earned: 10 per asteroid destroyed, 25 per alien kill, 500 for defeating the boss
 - Character portraits are displayed in the Ship Stats panel (C key), chosen randomly from `characters/portraits/`
