@@ -639,6 +639,16 @@ Stored in memory via the `AudioSettings` singleton in `settings.py`. Not persist
 | Shield sprite sheet | `assets/gamedevmarket assets/asteroids crusher/Weapons/PNG/shield_frames.png` (6 frames, 3 cols x 2 rows, 280 x 280 px each) |
 | Small Alien ship | `assets/gamedevmarket assets/alien spaceship creation kit/png/Ship.png` (PIL crop: x=364, y=305, w=461, h=510) |
 | Alien laser bolt | `assets/gamedevmarket assets/alien spaceship creation kit/png/Effects.png` (PIL crop: x=4299, y=82, w=60, h=228; rotated 90 deg CCW) |
+| Boss monster sprite sheet | `assets/256Spacemonsters/faction_6_monsters_128x128.png` (8x8 grid, 128x128 frames; random first-column row) |
+| Repair Pack icon | `assets/gamedevmarket assets/alien spaceship creation kit/png/items.png` (PIL crop: 198, 0, 396, 198) |
+| Shield Recharge icon | `assets/kenney space combat assets/Space Shooter Redux/PNG/Power-ups/powerupBlue_bolt.png` |
+| Blueprint pickup | `assets/kenney space combat assets/Simple Space/PNG/Retina/satellite_D.png` |
+| Trading station | `assets/ai generated/space station.PNG` |
+| Ship module icons | `assets/gamedevmarket assets/alien spaceship creation kit/png/Separate/Items/` (Blank.png, Energy.png, Shield.png, Freeze.png, Nuke.png, Poison.png) |
+| Building sprites | `assets/kenney space combat assets/Space Shooter Extension/PNG/Sprites X2/Building/` (spaceBuilding_003 through _024) |
+| Character portraits | `characters/portraits/` (Debra1-4.png, Ellie1-4.png, Tara1-4.png) |
+| Character videos | `characters/` (Debra.mp4, Ellie.mp4, Tara.mp4) |
+| Wormhole texture | Procedurally generated (PIL: blue gaseous cloud with red spirals, 128x128 px) |
 
 ### Sound Effects
 
@@ -652,6 +662,8 @@ Stored in memory via the `AudioSettings` singleton in `settings.py`. Not persist
 | UI click / confirm | `assets/Sci Fi Sound Effects Bundle/Stormwave Audio Sci-Fi Sound Effects Bundle/Interface/Other Interface/Sci-Fi Interface Simple Notification 2.wav` |
 | UI navigation ping | `assets/Sci Fi Sound Effects Bundle/Stormwave Audio Sci-Fi Sound Effects Bundle/Interface/Other Interface/Sci-Fi Interface Simple Notification 1.wav` |
 | Escape menu click | `assets/Sci Fi Sound Effects Bundle/Stormwave Audio Sci-Fi Sound Effects Bundle/Interface/Other Interface/Sci-Fi Spaceship Interface Mechanical Switch 1.wav` |
+| Victory (boss kill) | `assets/Sci Fi Sound Effects Bundle/Stormwave Audio Sci-Fi Sound Effects Bundle/Interface/Other Interface/Game Futuristic Item Collection 1.wav` |
+| Turret laser fire | `assets/Sci Fi Sound Effects Bundle/Stormwave Audio Sci-Fi Sound Effects Bundle/Weapons/Energy Weapons/Small Laser Weapon Shot 1.wav` (shared with Basic Laser) |
 
 ### Music
 
@@ -669,6 +681,9 @@ Stored in memory via the `AudioSettings` singleton in `settings.py`. Not persist
 | Engine Contrail | Fading, shrinking coloured particles behind ship; drawn with `arcade.draw_circle_filled` |
 | Mini-map | Coloured dots for objects + heading line; drawn with arcade primitives |
 | HUD bars | HP and shield bars; drawn with `arcade.draw_rect_filled` |
+| Consumable glow | Brief coloured circle around ship on item use (red for Repair Pack, blue for Shield Recharge); drawn with `arcade.draw_circle_filled` |
+| Boss HP bar | Top-of-screen HP/shield bar with phase label; drawn with `arcade.draw_rect_filled` |
+| Boss announcement | Large pulsing text with dark overlay band; drawn with `arcade.Text` + `arcade.draw_rect_filled` |
 
 ---
 

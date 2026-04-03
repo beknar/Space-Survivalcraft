@@ -27,6 +27,7 @@ Full game documentation is in the [docs/](docs/README.md) directory:
 - [Controls](docs/controls.md) --- keyboard and gamepad reference
 - [Rules & Mechanics](docs/rules.md) --- collision, damage, AI, and placement rules
 - [Lore & Characters](docs/lore.md) --- factions, backstories, and character progression
+- [Game Rules Reference](docs/game-rules.md) --- comprehensive rules with asset paths and technical details
 
 ## Requirements
 
@@ -130,7 +131,7 @@ Space Survivalcraft/
 ├── unit tests/          # 319 tests across 17 files
 ├── docs/                # Full game documentation
 ├── characters/          # Character videos and portraits
-├── game-rules.md        # Comprehensive rules reference
+├── docs/game-rules.md   # Comprehensive rules reference
 └── CLAUDE.md            # Dev reference
 ```
 

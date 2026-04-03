@@ -24,7 +24,7 @@
 ```
 Space Survivalcraft/
 ├── CLAUDE.md            # This file — project overview and dev reference
-├── game-rules.md        # Comprehensive game rules, features, stats, and asset reference
+├── docs/game-rules.md   # Comprehensive game rules, features, stats, and asset reference
 ├── requirements.txt     # pip dependencies (arcade, pillow, pyglet, etc.)
 ├── .gitignore
 │
@@ -241,7 +241,7 @@ sprites/alien.py
 
 ## Game Rules Reference
 
-Full game rules, statistics tables, and asset paths are documented in `game-rules.md`.
+Full game rules, statistics tables, and asset paths are documented in `docs/game-rules.md`.
 
 ## Asset Sources
 
