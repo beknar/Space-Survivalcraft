@@ -105,6 +105,10 @@ class Zone2(ZoneState):
         gv._wormhole_list.clear()
         gv._wormhole_list.append(wh)
 
+        # Spawn a trader station in Zone 2
+        if gv._trade_station is None:
+            gv._spawn_trade_station()
+
     def teardown(self, gv: GameView) -> None:
         self._iron_asteroids.clear()
         self._double_iron.clear()
@@ -355,9 +359,13 @@ class Zone2(ZoneState):
                             gv._spawn_explosion(a.center_x, a.center_y)
                             # Spawn copper pickup
                             from sprites.pickup import IronPickup
+                            from character_data import bonus_copper_asteroid
+                            from settings import audio
+                            base = COPPER_YIELD
+                            extra = bonus_copper_asteroid(audio.character_name, gv._char_level)
                             pickup = IronPickup(self._copper_pickup_tex,
                                                 a.center_x, a.center_y,
-                                                amount=COPPER_YIELD)
+                                                amount=base + extra)
                             pickup.item_type = "copper"
                             gv.iron_pickup_list.append(pickup)
                             gv._add_xp(COPPER_XP)
@@ -395,11 +403,21 @@ class Zone2(ZoneState):
                         if alien.hp <= 0:
                             gv._spawn_explosion(alien.center_x, alien.center_y)
                             gv._spawn_iron_pickup(alien.center_x, alien.center_y, amount=5)
+                            # Copper bonus from Debra
+                            from character_data import bonus_copper_enemy
+                            from settings import audio
+                            copper_extra = bonus_copper_enemy(audio.character_name, gv._char_level)
+                            if copper_extra > 0:
+                                from sprites.pickup import IronPickup
+                                cp = IronPickup(self._copper_pickup_tex,
+                                                alien.center_x, alien.center_y,
+                                                amount=copper_extra)
+                                cp.item_type = "copper"
+                                gv.iron_pickup_list.append(cp)
                             # XP based on type
                             xp = self._xp_for_alien(alien)
                             gv._add_xp(xp)
                             # Blueprint drop
-                            from settings import audio
                             from character_data import blueprint_drop_bonus
                             bp_chance = BLUEPRINT_DROP_CHANCE_ALIEN + blueprint_drop_bonus(
                                 audio.character_name, gv._char_level)

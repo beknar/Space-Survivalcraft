@@ -149,6 +149,9 @@ class GameView(arcade.View):
         # Rear turret cooldown
         self._rear_turret_cd: float = 0.0
 
+        # Ship level (increases with Advanced Ship building)
+        self._ship_level: int = 1
+
         # Flash message (centered on play area)
         self._flash_msg: str = ""
         self._flash_timer: float = 0.0
@@ -191,10 +194,14 @@ class GameView(arcade.View):
         # Collision bump sound
         self._bump_snd = load_bump_sound()
         # Victory sound (for boss kill)
-        from constants import SFX_INTERFACE_DIR
+        from constants import SFX_INTERFACE_DIR, SFX_MISSILE_LAUNCH, SFX_MISSILE_IMPACT, SFX_MISTY_STEP, SFX_FORCE_WALL
         self._victory_snd = arcade.load_sound(
             os.path.join(SFX_INTERFACE_DIR,
                          "Game Futuristic Item Collection 1.wav"))
+        self._missile_launch_snd = arcade.load_sound(SFX_MISSILE_LAUNCH)
+        self._missile_impact_snd = arcade.load_sound(SFX_MISSILE_IMPACT)
+        self._misty_step_snd = arcade.load_sound(SFX_MISTY_STEP)
+        self._force_wall_snd = arcade.load_sound(SFX_FORCE_WALL)
 
         # Iron texture
         self._iron_tex = load_iron_texture()
@@ -312,6 +319,7 @@ class GameView(arcade.View):
             self.inventory._item_names[f"bp_{key}"] = f"BP {info['label']}"
             self.inventory._item_names[f"mod_{key}"] = info["label"]
         self.inventory.item_icons["copper"] = self._copper_tex
+        self.inventory.item_icons["missile"] = self._missile_tex
 
         # Building system
         self.building_list = arcade.SpriteList(use_spatial_hash=True)
@@ -352,6 +360,7 @@ class GameView(arcade.View):
             self._station_inv.item_icons[f"mod_{key}"] = mod_icon
             self._station_inv.item_icons[f"bp_{key}"] = self._blueprint_tinted.get(key, self._blueprint_tex)
         self._station_inv.item_icons["copper"] = self._copper_tex
+        self._station_inv.item_icons["missile"] = self._missile_tex
 
         # Craft menu
         self._craft_menu = CraftMenu()
@@ -393,6 +402,7 @@ class GameView(arcade.View):
             self._hud._show_fps = True
         for key, info in MODULE_TYPES.items():
             self._hud._mod_icons[key] = arcade.load_texture(info["icon"])
+        self._hud._missile_icon = self._missile_tex
 
         # Thruster sound
         self._thruster_snd = load_thruster_sound()
@@ -557,6 +567,9 @@ class GameView(arcade.View):
 
     def _use_shield_recharge(self, slot: int) -> None:
         _ch.use_shield_recharge(self, slot)
+
+    def _fire_missile(self, slot: int) -> None:
+        _ch.fire_missile(self, slot)
 
     def _spawn_explosion(self, x: float, y: float) -> None:
         _ch.spawn_explosion(self, x, y)

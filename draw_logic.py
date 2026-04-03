@@ -165,6 +165,8 @@ def draw_ui(gv: GameView) -> None:
         wormhole_positions=[(wh.center_x, wh.center_y) for wh in gv._wormholes],
         zone_width=gv._zone.world_width,
         zone_height=gv._zone.world_height,
+        ability_meter=gv._ability_meter,
+        ability_meter_max=gv._ability_meter_max,
     )
     # Video frame draws (skip when menu open)
     if not menu_open:

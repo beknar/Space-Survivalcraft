@@ -296,9 +296,27 @@ BUILDING_TYPES = {
     "Basic Crafter":   {"png": "spaceBuilding_008.png", "hp":  75, "cost": 150,
                         "max": 1,    "module_slots": 0, "connectable": True,
                         "free_place": False, "slots_used": 1},
-    "Advanced Crafter": {"png": "spaceBuilding_020.png", "hp": 100, "cost": 300,
-                        "max": 1,    "module_slots": 0, "connectable": True,
+    "Advanced Crafter": {"png": "spaceBuilding_001.png", "hp": 150, "cost": 1000,
+                        "cost_copper": 500,
+                        "max": None, "module_slots": 0, "connectable": True,
+                        "free_place": False, "slots_used": 2,
+                        "requires_blueprint": "advanced_crafter"},
+    "Fission Generator": {"png": "spaceBuilding_005.png", "hp": 200, "cost": 1000,
+                        "cost_copper": 500,
+                        "max": 2,    "module_slots": 12, "connectable": True,
                         "free_place": False, "slots_used": 2},
+    "Advanced Ship":   {"png": "spaceBuilding_006.png", "hp": 100, "cost": 1000,
+                        "cost_copper": 500,
+                        "max": 1,    "module_slots": 0, "connectable": True,
+                        "free_place": False, "slots_used": 1},
+    "Shield Generator": {"png": "spaceBuilding_002.png", "hp": 150, "cost": 800,
+                        "cost_copper": 400,
+                        "max": 1,    "module_slots": 0, "connectable": True,
+                        "free_place": False, "slots_used": 3},
+    "Missile Array":   {"png": "spaceBuilding_022.png", "hp": 150, "cost": 600,
+                        "cost_copper": 300,
+                        "max": None, "module_slots": 0, "connectable": False,
+                        "free_place": True,  "slots_used": 2},
 }
 
 # Turret combat constants
@@ -333,7 +351,7 @@ MAX_STACK: dict[str, int] = {
     "repair_pack": 99,
     "shield_recharge": 99,
     "copper": 999,
-    "missile": 99,
+    "missile": 500,
 }
 MAX_STACK_DEFAULT: int = 10  # for blueprints, modules, etc.
 
@@ -393,10 +411,11 @@ MODULE_TYPES: dict[str, dict] = {
                         "craft_cost": 200, "icon": os.path.join(_MODULE_ITEMS_DIR, "Poison.png"),
                         "advanced": True},
     "homing_missile":  {"label": "Homing Missiles",   "effect": "homing",        "value": 1,
-                        "craft_cost": 500, "craft_cost_copper": 300,
-                        "icon": MISSILE_PNG, "advanced": True},
+                        "craft_cost": 50, "craft_cost_copper": 25,
+                        "icon": MISSILE_PNG, "advanced": True,
+                        "consumable": True, "craft_time": 30.0, "craft_count": 1},
     "misty_step":      {"label": "Misty Step",        "effect": "misty_step",    "value": 1,
-                        "craft_cost": 300, "craft_cost_copper": 200,
+                        "craft_cost": 400, "craft_cost_copper": 200,
                         "icon": os.path.join(_MODULE_ITEMS_DIR, "Energy.png"),
                         "advanced": True},
     "force_wall":      {"label": "Force Wall",        "effect": "force_wall",    "value": 1,
@@ -496,12 +515,35 @@ Z2_RAMMER_SHIELD: int = 50
 Z2_RAMMER_XP: int = 80
 
 # Homing missile
-MISSILE_COST_IRON: int = 500
-MISSILE_COST_COPPER: int = 300
+MISSILE_COST_IRON: int = 50
+MISSILE_COST_COPPER: int = 25
+MISSILE_CRAFT_TIME: float = 30.0
+MISSILE_FIRE_RATE: float = 0.3
 MISSILE_DAMAGE: float = 50.0
 MISSILE_SPEED: float = 400.0
 MISSILE_RANGE: float = 1500.0
 MISSILE_TURN_RATE: float = 180.0    # deg/s homing turn rate
+
+SFX_MISSILE_LAUNCH = os.path.join(
+    _HERE, "assets", "Sci Fi Sound Effects Bundle",
+    "Stormwave Audio Sci-Fi Sound Effects Bundle", "Weapons", "Misc Weapons",
+    "Sci-Fi Missile Flyby 1.wav",
+)
+SFX_MISSILE_IMPACT = os.path.join(
+    _HERE, "assets", "Sci Fi Sound Effects Bundle",
+    "Stormwave Audio Sci-Fi Sound Effects Bundle", "Weapons", "Explosions",
+    "Sci-Fi Missile Impact Explosion 1.wav",
+)
+SFX_MISTY_STEP = os.path.join(
+    _HERE, "assets", "Sci Fi Sound Effects Bundle",
+    "Stormwave Audio Sci-Fi Sound Effects Bundle", "Energy",
+    "Sci-Fi Eerie Crystalline Radiation Loop 1.wav",
+)
+SFX_FORCE_WALL = os.path.join(
+    _HERE, "assets", "Sci Fi Sound Effects Bundle",
+    "Stormwave Audio Sci-Fi Sound Effects Bundle", "Energy",
+    "Sci-Fi Energy Pulse 1.wav",
+)
 
 # Special ability meter
 ABILITY_METER_MAX: float = 100.0

@@ -28,6 +28,7 @@ for _k, _info in MODULE_TYPES.items():
 BUY_CATALOG: list[tuple[str, str, int, int]] = [
     ("repair_pack", "Repair Pack", CRAFT_IRON_COST * 2, CRAFT_RESULT_COUNT),
     ("shield_recharge", "Shield Recharge", CRAFT_IRON_COST * 2, CRAFT_RESULT_COUNT),
+    ("missile", "Homing Missile x10", 500, 10),
 ]
 
 # Display names

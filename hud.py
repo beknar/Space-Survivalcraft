@@ -59,10 +59,14 @@ class HUD:
                                      arcade.color.CYAN, 10, bold=True)
         self._t_shield_val = arcade.Text("", 10, hp_y - 72,
                                          arcade.color.WHITE, 9)
-        self._t_wpn_hdr = arcade.Text("WEAPON", cx, hp_y - 90,
+        self._t_ability = arcade.Text("ABILITY", 10, hp_y - 88,
+                                      (220, 200, 50), 10, bold=True)
+        self._t_ability_val = arcade.Text("", 10, hp_y - 116,
+                                          arcade.color.WHITE, 9)
+        self._t_wpn_hdr = arcade.Text("WEAPON", cx, hp_y - 134,
                                       arcade.color.LIGHT_GRAY, 9,
                                       anchor_x="center")
-        self._t_wpn_name = arcade.Text("", cx, hp_y - 106,
+        self._t_wpn_name = arcade.Text("", cx, hp_y - 150,
                                        arcade.color.YELLOW, 10, bold=True,
                                        anchor_x="center")
         self._show_fps: bool = False
@@ -80,21 +84,21 @@ class HUD:
         ship_label = ship_type if ship_type else "Classic"
         self._t_faction = arcade.Text(
             f"{faction_label}",
-            10, hp_y - 126,
+            10, hp_y - 170,
             arcade.color.LIGHT_BLUE, 9, bold=True,
         )
         self._t_ship_type = arcade.Text(
             f"{ship_label}",
-            STATUS_WIDTH - 10, hp_y - 126,
+            STATUS_WIDTH - 10, hp_y - 170,
             arcade.color.LIGHT_GREEN, 9, bold=True,
             anchor_x="right",
         )
         self._t_music_hdr = arcade.Text(
-            "NOW PLAYING", STATUS_WIDTH // 2, hp_y - 146,
+            "NOW PLAYING", STATUS_WIDTH // 2, hp_y - 190,
             arcade.color.LIGHT_GRAY, 9, anchor_x="center",
         )
         self._t_track_name = arcade.Text(
-            "", STATUS_WIDTH // 2, hp_y - 162,
+            "", STATUS_WIDTH // 2, hp_y - 206,
             arcade.color.KHAKI, 9, bold=True, anchor_x="center",
         )
 
@@ -109,6 +113,7 @@ class HUD:
         self._qu_count = QUICK_USE_SLOTS
         self._repair_pack_icon = repair_pack_icon
         self._shield_recharge_icon = shield_recharge_icon
+        self._missile_icon: arcade.Texture | None = None  # set by game_view
         self._t_qu_label = arcade.Text("QUICK USE", 0, 0,
                                        arcade.color.LIGHT_GRAY, 8,
                                        anchor_x="center")
@@ -158,7 +163,7 @@ class HUD:
         self._qu_hover: int = -1
         self._t_qu_tip = arcade.Text("", 0, 0, arcade.color.WHITE, 9, bold=True,
                                      anchor_x="center", anchor_y="center")
-        self._QU_NAMES: dict[str, str] = {"repair_pack": "Repair Pack", "shield_recharge": "Shield Recharge"}
+        self._QU_NAMES: dict[str, str] = {"repair_pack": "Repair Pack", "shield_recharge": "Shield Recharge", "missile": "Homing Missile"}
 
     @property
     def char_video_rect(self) -> tuple[float, float, float]:
@@ -255,6 +260,8 @@ class HUD:
         wormhole_positions: list[tuple[float, float]] | None = None,
         zone_width: float = 6400,
         zone_height: float = 6400,
+        ability_meter: float = 0.0,
+        ability_meter_max: float = 100.0,
     ) -> None:
         """Draw the full HUD status panel."""
         # Panel background
@@ -310,6 +317,17 @@ class HUD:
         self._t_shield_val.text = f"{shields} / {max_shields}"
         self._t_shield_val.draw()
 
+        # Ability meter bar (yellow)
+        if ability_meter_max > 0:
+            self._t_ability.draw()
+            ability_frac = max(0.0, ability_meter / ability_meter_max)
+            arcade.draw_rect_filled(
+                arcade.LBWH(10, hp_y - 104, int(190 * ability_frac), 10),
+                (220, 200, 50),
+            )
+            self._t_ability_val.text = f"{int(ability_meter)} / {int(ability_meter_max)}"
+            self._t_ability_val.draw()
+
         self._t_faction.draw()
         self._t_ship_type.draw()
 
@@ -321,7 +339,7 @@ class HUD:
 
         # Equalizer visualizer (only when music is playing, not video)
         if track_name and not video_active:
-            eq_y = self._hp_y_offset - 174 - EQ_MAX_H
+            eq_y = self._hp_y_offset - 218 - EQ_MAX_H
             self._eq.draw(eq_y)
 
         # Quick-use bar (10 slots labeled 1–9, 0) — bottom-centre of screen
@@ -440,6 +458,8 @@ class HUD:
                     icon = self._repair_pack_icon
                 elif self._qu_slots[i] == "shield_recharge" and self._shield_recharge_icon is not None:
                     icon = self._shield_recharge_icon
+                elif self._qu_slots[i] == "missile" and self._missile_icon is not None:
+                    icon = self._missile_icon
                 if icon is not None:
                     icon_pad = 4
                     icon_size = self._qu_cell - icon_pad * 2
@@ -497,6 +517,8 @@ class HUD:
                 icon = self._repair_pack_icon
             elif self._qu_drag_type == "shield_recharge" and self._shield_recharge_icon is not None:
                 icon = self._shield_recharge_icon
+            elif self._qu_drag_type == "missile" and self._missile_icon is not None:
+                icon = self._missile_icon
             if icon is not None:
                 icon_pad = 4
                 icon_size = cs - icon_pad * 2

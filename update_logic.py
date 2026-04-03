@@ -463,6 +463,8 @@ def update_ability_meter(gv: GameView, dt: float) -> None:
         gv._misty_step_cd = max(0.0, gv._misty_step_cd - dt)
     if gv._rear_turret_cd > 0:
         gv._rear_turret_cd = max(0.0, gv._rear_turret_cd - dt)
+    if hasattr(gv, '_missile_fire_cd') and gv._missile_fire_cd > 0:
+        gv._missile_fire_cd = max(0.0, gv._missile_fire_cd - dt)
 
 
 def update_force_walls(gv: GameView, dt: float) -> None:

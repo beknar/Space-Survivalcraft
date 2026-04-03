@@ -268,6 +268,8 @@ class Inventory(BaseInventoryData):
             icon = self._repair_pack_icon
         elif item_type == "shield_recharge" and self._shield_recharge_icon is not None:
             icon = self._shield_recharge_icon
+        elif item_type == "missile" and "missile" in self.item_icons:
+            icon = self.item_icons["missile"]
         elif item_type in self.item_icons:
             icon = self.item_icons[item_type]
 

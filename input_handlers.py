@@ -114,6 +114,8 @@ def handle_key_press(gv: GameView, key: int, modifiers: int) -> None:
                 gv._use_repair_pack(slot)
             elif item == "shield_recharge":
                 gv._use_shield_recharge(slot)
+            elif item == "missile":
+                gv._fire_missile(slot)
     # Force wall (G key)
     elif key == arcade.key.G:
         if (not gv._escape_menu.open and not gv._player_dead
@@ -127,6 +129,7 @@ def handle_key_press(gv: GameView, key: int, modifiers: int) -> None:
                 behind_x = gv.player.center_x - math.sin(rad) * 60
                 behind_y = gv.player.center_y - math.cos(rad) * 60
                 gv._force_walls.append(ForceWall(behind_x, behind_y, gv.player.heading))
+                arcade.play_sound(gv._force_wall_snd, volume=0.5)
     # Death blossom (X key)
     elif key == arcade.key.X:
         if (not gv._escape_menu.open and not gv._player_dead
@@ -165,6 +168,7 @@ def handle_key_press(gv: GameView, key: int, modifiers: int) -> None:
                 gv.player.center_y += dy * MISTY_STEP_DISTANCE
                 gv._use_glow = (160, 80, 255, 160)
                 gv._use_glow_timer = 0.3
+                arcade.play_sound(gv._misty_step_snd, volume=0.4)
                 gv._misty_last_tap[key] = 0
             else:
                 gv._misty_last_tap[key] = now
@@ -403,6 +407,8 @@ def handle_mouse_release(gv: GameView, x: int, y: int, button: int, modifiers: i
                 gv._use_repair_pack(src)
             elif dt == "shield_recharge":
                 gv._use_shield_recharge(src)
+            elif dt == "missile":
+                gv._fire_missile(src)
         else:
             gv._hud.set_quick_use(src, None, 0)
         return
@@ -438,7 +444,7 @@ def _handle_station_drop(
             gv._hud._mod_slots = list(gv._module_slots)
     elif mod_slot is not None:
         gv._station_inv.add_item(item_type, amount)
-    elif (qu_slot := gv._hud.slot_at(x, y)) is not None and item_type in ("repair_pack", "shield_recharge"):
+    elif (qu_slot := gv._hud.slot_at(x, y)) is not None and item_type in ("repair_pack", "shield_recharge", "missile"):
         gv.inventory.add_item(item_type, amount)
         total = gv.inventory.count_item(item_type)
         for s in range(QUICK_USE_SLOTS):
@@ -456,7 +462,7 @@ def _handle_station_drop(
                 gv.inventory._items[nearest] = (item_type, amount)
             else:
                 gv.inventory.add_item(item_type, amount)
-        if item_type in ("repair_pack", "shield_recharge"):
+        if item_type in ("repair_pack", "shield_recharge", "missile"):
             for slot in range(QUICK_USE_SLOTS):
                 if gv._hud.get_quick_use(slot) == item_type:
                     gv._hud.set_quick_use(
@@ -488,7 +494,7 @@ def _handle_inventory_eject(
             gv._hud._mod_slots = list(gv._module_slots)
     elif mod_slot is not None:
         gv.inventory.add_item(item_type, amount)
-    elif (qu_slot := gv._hud.slot_at(x, y)) is not None and item_type in ("repair_pack", "shield_recharge"):
+    elif (qu_slot := gv._hud.slot_at(x, y)) is not None and item_type in ("repair_pack", "shield_recharge", "missile"):
         gv.inventory.add_item(item_type, amount)
         total = gv.inventory.count_item(item_type)
         for s in range(QUICK_USE_SLOTS):

@@ -96,6 +96,28 @@ def use_shield_recharge(gv: GameView, slot: int) -> None:
     gv._use_glow_timer = 0.4
 
 
+def fire_missile(gv: GameView, slot: int) -> None:
+    """Fire a homing missile from the given quick-use slot."""
+    from constants import MISSILE_FIRE_RATE
+    from sprites.missile import HomingMissile
+    if gv.inventory.count_item("missile") <= 0:
+        return
+    if hasattr(gv, '_missile_fire_cd') and gv._missile_fire_cd > 0:
+        return
+    gv._missile_fire_cd = MISSILE_FIRE_RATE
+    gv.inventory.remove_item("missile", 1)
+    remaining = gv.inventory.count_item("missile")
+    if remaining > 0:
+        gv._hud.set_quick_use(slot, "missile", remaining)
+    else:
+        gv._hud.set_quick_use(slot, None, 0)
+    m = HomingMissile(gv._missile_tex,
+                      gv.player.center_x, gv.player.center_y,
+                      gv.player.heading)
+    gv._missile_list.append(m)
+    arcade.play_sound(gv._missile_launch_snd, volume=0.4)
+
+
 def trigger_player_death(gv: GameView) -> None:
     """Handle player ship destruction."""
     gv._player_dead = True
@@ -151,10 +173,11 @@ def add_xp(gv: GameView, amount: int) -> None:
     """Add XP and check for level-up; reapply bonuses if leveled."""
     from character_data import level_for_xp
     from world_setup import load_weapons
-    if gv._char_xp >= 1000:
+    from character_data import MAX_XP
+    if gv._char_xp >= MAX_XP:
         return
     old_level = gv._char_level
-    gv._char_xp = min(gv._char_xp + amount, 1000)
+    gv._char_xp = min(gv._char_xp + amount, MAX_XP)
     gv._char_level = level_for_xp(gv._char_xp)
     if gv._char_level > old_level:
         flash_game_msg(gv, f"Level {gv._char_level}!", 2.0)
