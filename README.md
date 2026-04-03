@@ -149,4 +149,6 @@ Space Survivalcraft/
 
 ## License
 
-TBD
+This project is licensed under the [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0).
+
+Game assets (art, sound, music) are licensed separately from their respective creators — see the Asset Sources section in [CLAUDE.md](CLAUDE.md) for details.

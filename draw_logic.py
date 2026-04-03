@@ -47,11 +47,9 @@ def draw_world(gv: GameView, cx: float, cy: float, hw: float, hh: float) -> None
     gv.blueprint_pickup_list.draw()
     gv.explosion_list.draw()
     gv.building_list.draw()
-    # Wormholes (cloud texture + spiral overlays)
+    # Wormholes
     if gv._wormholes:
         gv._wormhole_list.draw()
-        for wh in gv._wormholes:
-            wh.draw_spirals()
     if gv._trade_station is not None:
         ts = gv._trade_station
         tw = gv._trade_station_tex.width * 0.15
