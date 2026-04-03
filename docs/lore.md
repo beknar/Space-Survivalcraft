@@ -107,3 +107,13 @@ Tara is a treasure hunter looking for the technology of the ancients. After havi
 - XP is hard-capped at 7,000 --- no further XP earned after max level
 - XP earned: 10 per asteroid destroyed, 25 per alien kill, 500 for defeating the boss
 - Character portraits are displayed in the Ship Stats panel (C key), chosen randomly from `characters/portraits/`
+
+---
+
+## The Nebula
+
+Beyond the warp zones lies the Nebula, a volatile region of space where the remnants of an ancient conflict still churn. Toxic gas clouds drift through corridors of shattered asteroids, and the alien presence here is far more aggressive and varied than anything in the home sector.
+
+The Nebula is rich in copper, a resource unknown in the core systems. Legends suggest that the copper deposits are the scattered remains of a vast alien infrastructure, destroyed during a war that predates even the Double-Star War. Scavengers who brave the Nebula's hazards --- magnetic asteroid fields that drag ships off course, and four distinct alien species adapted to the harsh environment --- return with materials capable of forging technology far beyond standard issue.
+
+For Debra, the Nebula's copper veins promise wealth enough to leave the past behind. For Ellie, the alien strongholds may hold clues to the betrayers she hunts. For Tara, the ancient technology buried here could be the discovery of a lifetime.

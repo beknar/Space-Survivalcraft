@@ -188,3 +188,94 @@ Triggered when player enters 500 px, or player weapon fires within 160 px (4x sh
 - Objects hidden on minimap until their cell is revealed
 - Once revealed, a cell stays revealed permanently (persists across saves)
 - Player position always shown regardless of fog
+
+---
+
+## Warp Zone Rules
+
+- Warp zones appear after the boss is defeated
+- 4 types: Meteor, Lightning, Gas, Enemy Spawner --- each with unique hazards
+- **Red walls** line warp zone boundaries; contact drains shields continuously
+- **Bottom exit** provides a safe return to Zone 1 (home sector)
+- **Top exit** transitions the player into Zone 2 (The Nebula)
+- Player position and inventory are preserved across zone transitions
+
+---
+
+## Zone 2 Hazard Rules
+
+### Toxic Gas Clouds
+- Contact deals continuous damage (shields first, then HP)
+- Reduces player movement speed by 50% while inside the cloud
+- Gas clouds are stationary environmental hazards
+
+### Wandering Magnetic Asteroids
+- Drift through space on fixed paths
+- Exert a magnetic pull on nearby ships within 200 px
+- Pull strength increases as distance decreases
+- Can be destroyed with the Mining Beam but yield no resources
+
+---
+
+## Zone 2 Alien Collision Rules
+
+### Shielded Alien
+- Same collision rules as standard aliens
+- Shields absorb damage before HP (50 shield points)
+
+### Fast Alien
+- Same collision rules as standard aliens
+- Higher speed (160 px/s) means stronger collision impulse
+
+### Gunner Alien
+- Same collision rules as standard aliens
+- Fires from 2 guns simultaneously (double projectile output)
+
+### Rammer Alien
+- Initiates a charge when player is within 300 px
+- Charge collision deals 25 damage (5x normal alien collision)
+- 100 HP + 50 shields makes it the toughest standard alien
+
+---
+
+## Special Ability Meter Mechanics
+
+- Maximum capacity: 100 ability points
+- Regenerates at 5 points per second passively
+- Meter is displayed on the HUD alongside HP and shields
+- Abilities cannot be used if insufficient ability points remain
+- Meter persists across save/load
+
+---
+
+## Misty Step Mechanics
+
+- Activated by double-tapping W, A, S, or D (within 0.3s)
+- Teleports the player 100 px in the tapped direction
+- Costs 20 ability points per use
+- Requires the Misty Step module to be equipped
+- Brief invincibility during the teleport (0.1s)
+- Cannot teleport through world boundaries
+
+---
+
+## Force Wall Mechanics
+
+- Activated by pressing G
+- Deploys a 100 px-wide barrier in front of the ship
+- Costs 30 ability points per use
+- Requires the Force Wall module to be equipped
+- Barrier blocks enemy projectiles and alien movement
+- Barrier lasts 5 seconds before dissipating
+- Only one Force Wall can be active at a time
+
+---
+
+## Death Blossom Mechanics
+
+- Activated by pressing X
+- Fires all currently held homing missiles in a radial burst pattern
+- Requires the Death Blossom module to be equipped
+- Each missile deals 50 damage with homing AI
+- Missiles spread evenly in a 360-degree pattern
+- No ability point cost --- consumes missile ammunition instead

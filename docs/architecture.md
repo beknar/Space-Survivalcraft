@@ -19,6 +19,7 @@ The codebase follows a modular extraction pattern where the central `GameView` c
 | `game_save.py` | — | Save/load serialization |
 | `game_music.py` | — | Music playlist, video playback management |
 | `collisions.py` | — | All collision handlers (projectile, asteroid, alien, boss, building) |
+| `zones/` | — | Zone state management, warp zone logic, Zone 2 setup and hazards |
 
 ### Extraction Pattern
 
@@ -64,6 +65,15 @@ def _spawn_explosion(self, x, y):
 |---|---|---|
 | `sprites/alien.py` | ~308 | `update_alien` dispatches to `_update_movement`, `_update_stuck_detection`, `_update_color_tint`, `_try_fire` |
 | `sprites/boss.py` | ~354 | `update_boss` dispatches to `_update_charge`, `_try_fire_weapons`, `_update_color_tint` |
+| `sprites/shielded_alien.py` | — | ShieldedAlien --- alien with 50-point shield |
+| `sprites/fast_alien.py` | — | FastAlien --- 160 px/s high-speed alien |
+| `sprites/gunner_alien.py` | — | GunnerAlien --- dual-gun alien |
+| `sprites/rammer_alien.py` | — | RammerAlien --- charging alien with 100 HP + 50 shields |
+| `sprites/copper_asteroid.py` | — | CopperAsteroid --- minable copper resource |
+| `sprites/gas_cloud.py` | — | GasCloud --- toxic environmental hazard |
+| `sprites/wandering_asteroid.py` | — | WanderingAsteroid --- drifting magnetic asteroid |
+| `sprites/missile.py` | — | HomingMissile --- consumable homing projectile |
+| `sprites/force_wall.py` | — | ForceWall --- deployable barrier sprite |
 
 ## Dependency Graph
 
@@ -84,6 +94,7 @@ game_view.py (thin dispatcher)
   +-- sprites/*
   +-- world_setup.py
   +-- escape_menu/
+  +-- zones/ (zone state machine, warp zones, Zone 2)
 
 collisions.py
   +-- constants.py (radii, damage, bounce)
@@ -101,6 +112,7 @@ collisions.py
 - **EqualizerState class** --- encapsulates equalizer animation with `update(dt, volume)` and `draw(y)`
 - **MenuContext + MenuMode** --- escape menu sub-mode pattern with shared state and per-mode draw/input
 - **TYPE_CHECKING imports** --- all extracted modules avoid circular imports at runtime
+- **Zone state machine** --- `zones/` package manages transitions between Zone 1, warp zones, and Zone 2; each zone has its own asteroid/alien populations, hazard rules, and background; GameView delegates zone-specific setup and update logic to the active zone state
 
 ## View Flow
 
