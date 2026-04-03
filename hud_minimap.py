@@ -18,7 +18,9 @@ def is_revealed(wx: float, wy: float, fog_grid: list[list[bool]] | None) -> bool
         return True
     gx = int(wx / FOG_CELL_SIZE)
     gy = int(wy / FOG_CELL_SIZE)
-    if 0 <= gx < FOG_GRID_W and 0 <= gy < FOG_GRID_H:
+    _fh = len(fog_grid)
+    _fw = len(fog_grid[0]) if _fh > 0 else 0
+    if 0 <= gx < _fw and 0 <= gy < _fh:
         return fog_grid[gy][gx]
     return False
 
@@ -59,12 +61,15 @@ def draw_minimap(
     # Draw grey fog overlay using 4x4 block sampling
     if fog_grid is not None:
         _BLOCK = 4
-        bw = FOG_GRID_W // _BLOCK
-        bh = FOG_GRID_H // _BLOCK
+        # Derive grid dims from actual fog_grid (may differ per zone)
+        _fog_h = len(fog_grid)
+        _fog_w = len(fog_grid[0]) if _fog_h > 0 else 0
+        bw = max(1, _fog_w // _BLOCK)
+        bh = max(1, _fog_h // _BLOCK)
         block_w = mw / bw
         block_h = mh / bh
         fog_colour = (60, 60, 80, 200)
-        total = FOG_GRID_W * FOG_GRID_H
+        total = _fog_w * _fog_h
         if fog_revealed < total // 3:
             arcade.draw_rect_filled(
                 arcade.LBWH(mx, my, mw, mh), fog_colour)
@@ -75,9 +80,9 @@ def draw_minimap(
                     gy0 = by * _BLOCK
                     gx0 = bx * _BLOCK
                     all_clear = True
-                    for dy in range(min(_BLOCK, FOG_GRID_H - gy0)):
+                    for dy in range(min(_BLOCK, _fog_h - gy0)):
                         row = fog_grid[gy0 + dy]
-                        for dx in range(min(_BLOCK, FOG_GRID_W - gx0)):
+                        for dx in range(min(_BLOCK, _fog_w - gx0)):
                             if not row[gx0 + dx]:
                                 all_clear = False
                                 break
@@ -107,9 +112,9 @@ def draw_minimap(
                     gy0 = by * _BLOCK
                     gx0 = bx * _BLOCK
                     any_fog = False
-                    for dy in range(min(_BLOCK, FOG_GRID_H - gy0)):
+                    for dy in range(min(_BLOCK, _fog_h - gy0)):
                         row = fog_grid[gy0 + dy]
-                        for dx in range(min(_BLOCK, FOG_GRID_W - gx0)):
+                        for dx in range(min(_BLOCK, _fog_w - gx0)):
                             if not row[gx0 + dx]:
                                 any_fog = True
                                 break

@@ -121,6 +121,19 @@ class Zone2(ZoneState):
         gv._wormhole_list.clear()
 
     def get_player_spawn(self, entry_side: str) -> tuple[float, float]:
+        # Find a safe position near centre, not inside any gas cloud
+        cx, cy = self.world_width / 2, self.world_height / 2 - 200
+        for _ in range(50):
+            safe = True
+            for g in self._gas_areas:
+                if g.contains_point(cx, cy):
+                    safe = False
+                    break
+            if safe:
+                return cx, cy
+            # Try a random nearby position
+            cx = self.world_width / 2 + random.uniform(-300, 300)
+            cy = self.world_height / 2 - 200 + random.uniform(-300, 300)
         return self.world_width / 2, self.world_height / 2 - 200
 
     # ── Population ─────────────────────────────────────────────────────────
@@ -150,14 +163,16 @@ class Zone2(ZoneState):
 
     def _populate_gas_areas(self) -> None:
         from sprites.gas_area import GasArea, generate_gas_texture
-        # Pre-generate a few texture sizes for variety
         textures = {}
+        sizes = [64, 128, 192, 256, 384]
         for _ in range(GAS_AREA_COUNT):
-            size = random.choice([128, 256, 384, 512, 768, 1024])
+            size = random.choice(sizes)
             if size not in textures:
                 textures[size] = generate_gas_texture(size)
             x, y = self._rand_pos(200)
-            self._gas_areas.append(GasArea(textures[size], x, y, size))
+            self._gas_areas.append(GasArea(textures[size], x, y, size,
+                                           world_w=self.world_width,
+                                           world_h=self.world_height))
 
     def _populate_wanderers(self) -> None:
         from sprites.wandering_asteroid import WanderingAsteroid
@@ -209,10 +224,15 @@ class Zone2(ZoneState):
         # Wormhole animation + collision
         for wh in gv._wormholes:
             wh.update_wormhole(dt)
-            if wh.zone_target is not None:
-                if math.hypot(px - wh.center_x, py - wh.center_y) < 64:
-                    gv._transition_zone(wh.zone_target, entry_side="wormhole_return")
-                    return
+            if math.hypot(px - wh.center_x, py - wh.center_y) < 100:
+                gv._use_glow = (100, 180, 255, 200)
+                gv._use_glow_timer = 0.5
+                import arcade
+                arcade.play_sound(gv._victory_snd, volume=0.6)
+                gv._flash_game_msg("Returning through wormhole...", 1.5)
+                target = wh.zone_target if wh.zone_target is not None else ZoneID.MAIN
+                gv._transition_zone(target, entry_side="wormhole_return")
+                return
 
         # Update asteroids
         for a in self._iron_asteroids:
@@ -251,13 +271,60 @@ class Zone2(ZoneState):
         # Player projectile hits
         self._handle_projectile_hits(gv)
 
-        # Alien-player collision
+        # Player-asteroid collision (iron, double iron, copper)
+        from constants import ASTEROID_RADIUS, SHIP_COLLISION_DAMAGE, SHIP_BOUNCE
+        for alist in (self._iron_asteroids, self._double_iron, self._copper_asteroids):
+            for a in alist:
+                ddx = gv.player.center_x - a.center_x
+                ddy = gv.player.center_y - a.center_y
+                ddist = math.hypot(ddx, ddy)
+                # Use half the sprite width as radius for copper (larger)
+                a_radius = max(ASTEROID_RADIUS, a.width * a.scale / 2 * 0.8)
+                combined = a_radius + SHIP_RADIUS
+                if ddist < combined and ddist > 0 and gv.player._collision_cd <= 0.0:
+                    # Push apart
+                    nx, ny = ddx / ddist, ddy / ddist
+                    overlap = combined - ddist
+                    gv.player.center_x += nx * overlap
+                    gv.player.center_y += ny * overlap
+                    # Bounce
+                    dot = gv.player.vel_x * nx + gv.player.vel_y * ny
+                    if dot < 0:
+                        gv.player.vel_x -= (1 + SHIP_BOUNCE) * dot * nx
+                        gv.player.vel_y -= (1 + SHIP_BOUNCE) * dot * ny
+                    gv._apply_damage_to_player(SHIP_COLLISION_DAMAGE)
+                    gv.player._collision_cd = SHIP_COLLISION_COOLDOWN
+                    gv._trigger_shake()
+                    arcade.play_sound(gv._bump_snd, volume=0.4)
+
+        # Alien-player collision (with push-apart so they don't stick)
+        from constants import ALIEN_RADIUS, ALIEN_BOUNCE
         for alien in list(self._aliens):
-            dist = math.hypot(alien.center_x - px, alien.center_y - py)
-            if dist < 20 + SHIP_RADIUS and gv.player._collision_cd <= 0.0:
-                gv._apply_damage_to_player(5)
-                gv.player._collision_cd = SHIP_COLLISION_COOLDOWN
-                gv._trigger_shake()
+            ddx = alien.center_x - gv.player.center_x
+            ddy = alien.center_y - gv.player.center_y
+            ddist = math.hypot(ddx, ddy)
+            combined = 20 + SHIP_RADIUS
+            if ddist < combined and ddist > 0:
+                # Push apart
+                nx, ny = ddx / ddist, ddy / ddist
+                overlap = combined - ddist
+                alien.center_x += nx * overlap * 0.5
+                alien.center_y += ny * overlap * 0.5
+                gv.player.center_x -= nx * overlap * 0.5
+                gv.player.center_y -= ny * overlap * 0.5
+                # Bounce alien away
+                alien.vel_x += nx * 150
+                alien.vel_y += ny * 150
+                # Bounce player
+                dot = gv.player.vel_x * (-nx) + gv.player.vel_y * (-ny)
+                if dot < 0:
+                    gv.player.vel_x -= (1 + ALIEN_BOUNCE) * dot * (-nx) * 0.4
+                    gv.player.vel_y -= (1 + ALIEN_BOUNCE) * dot * (-ny) * 0.4
+                if gv.player._collision_cd <= 0.0:
+                    gv._apply_damage_to_player(5)
+                    gv.player._collision_cd = SHIP_COLLISION_COOLDOWN
+                    gv._trigger_shake()
+                    arcade.play_sound(gv._bump_snd, volume=0.3)
 
         # Respawn timer
         self._respawn_timer += dt
@@ -350,7 +417,7 @@ class Zone2(ZoneState):
                 # Copper asteroids
                 for a in list(self._copper_asteroids):
                     if math.hypot(proj.center_x - a.center_x,
-                                  proj.center_y - a.center_y) < 36:
+                                  proj.center_y - a.center_y) < 96:
                         gv.hit_sparks.append(HitSpark(proj.center_x, proj.center_y))
                         proj.remove_from_sprite_lists()
                         consumed = True

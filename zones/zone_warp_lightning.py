@@ -14,11 +14,11 @@ if TYPE_CHECKING:
     from game_view import GameView
 
 _BOLT_SPEED = 650.0        # px/s (same as alien laser)
-_BOLT_DAMAGE = 10
-_BOLT_INTERVAL_MIN = 1.0   # seconds between volleys
-_BOLT_INTERVAL_MAX = 3.0
-_BOLTS_PER_VOLLEY_MIN = 5
-_BOLTS_PER_VOLLEY_MAX = 10
+_BOLT_DAMAGE = 20
+_BOLT_INTERVAL_MIN = 0.5   # seconds between volleys
+_BOLT_INTERVAL_MAX = 2.0
+_BOLTS_PER_VOLLEY_MIN = 8
+_BOLTS_PER_VOLLEY_MAX = 15
 _BOLT_WIDTH = 3.0
 _BOLT_LIFETIME = 1.5       # seconds before despawn
 
@@ -80,6 +80,9 @@ class LightningWarpZone(WarpZoneBase):
         super().__init__()
         self._bolts: list[LightningBolt] = []
         self._volley_timer: float = random.uniform(_BOLT_INTERVAL_MIN, _BOLT_INTERVAL_MAX)
+        self._warning_lines: list[tuple[float, float, float, float]] = []
+        self._warning_timer: float = 0.0
+        self._pending_bolts: list[tuple[float, float, float, float]] = []
 
     def setup(self, gv: GameView) -> None:
         super().setup(gv)
@@ -93,14 +96,25 @@ class LightningWarpZone(WarpZoneBase):
     def _update_hazards(self, gv: GameView, dt: float) -> None:
         from constants import SHIP_RADIUS
 
+        # Warning phase: show faint lines before bolts arrive
+        if self._warning_timer > 0:
+            self._warning_timer -= dt
+            if self._warning_timer <= 0:
+                # Warning expired — fire the pending bolts
+                for sx, sy, dx, dy in self._pending_bolts:
+                    self._bolts.append(LightningBolt(sx, sy, dx, dy))
+                self._pending_bolts.clear()
+                self._warning_lines.clear()
+
         # Spawn volleys
         self._volley_timer -= dt
-        if self._volley_timer <= 0:
+        if self._volley_timer <= 0 and self._warning_timer <= 0:
             self._volley_timer = random.uniform(_BOLT_INTERVAL_MIN, _BOLT_INTERVAL_MAX)
             count = random.randint(_BOLTS_PER_VOLLEY_MIN, _BOLTS_PER_VOLLEY_MAX)
             px, py = gv.player.center_x, gv.player.center_y
+            self._pending_bolts.clear()
+            self._warning_lines.clear()
             for _ in range(count):
-                # Spawn from random edge, aimed roughly at player
                 edge = random.choice(["top", "bottom", "left", "right"])
                 if edge == "top":
                     sx = random.uniform(0, WARP_ZONE_WIDTH)
@@ -114,14 +128,16 @@ class LightningWarpZone(WarpZoneBase):
                 else:
                     sx = WARP_ZONE_WIDTH + 50
                     sy = random.uniform(0, WARP_ZONE_HEIGHT)
-                # Aim toward player with some spread
                 dx = px - sx + random.uniform(-200, 200)
                 dy = py - sy + random.uniform(-200, 200)
                 dist = math.hypot(dx, dy)
                 if dist > 0:
                     dx /= dist
                     dy /= dist
-                self._bolts.append(LightningBolt(sx, sy, dx, dy))
+                self._pending_bolts.append((sx, sy, dx, dy))
+                # Warning line from source toward player
+                self._warning_lines.append((sx, sy, sx + dx * 300, sy + dy * 300))
+            self._warning_timer = 0.5  # 0.5s warning
 
         # Update bolts and check player hits
         for bolt in self._bolts:
@@ -138,5 +154,11 @@ class LightningWarpZone(WarpZoneBase):
 
     def _draw_hazards(self, gv: GameView, cx: float, cy: float,
                       hw: float, hh: float) -> None:
+        # Warning lines (faint pulsing before strike)
+        if self._warning_timer > 0:
+            pulse = abs(math.sin(self._warning_timer * 12.0))
+            alpha = int(60 + 80 * pulse)
+            for x1, y1, x2, y2 in self._warning_lines:
+                arcade.draw_line(x1, y1, x2, y2, (255, 255, 100, alpha), 2)
         for bolt in self._bolts:
             bolt.draw()

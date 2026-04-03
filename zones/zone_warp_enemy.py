@@ -15,15 +15,17 @@ from constants import (
 )
 from zones import ZoneID
 from zones.zone_warp_base import WarpZoneBase, WARP_ZONE_WIDTH, WARP_ZONE_HEIGHT
+from sprites.projectile import Projectile
 
 if TYPE_CHECKING:
     from game_view import GameView
 
 _SPAWNER_HP = ALIEN_HP * 2          # 100 HP
 _SPAWNER_RADIUS = 30.0
-_SPAWN_INTERVAL = 30.0              # seconds between waves
-_SHIPS_PER_WAVE = 4                 # ships per spawner per wave
+_SPAWN_INTERVAL = 15.0              # seconds between waves (was 30)
+_SHIPS_PER_WAVE = 6                 # ships per spawner per wave (was 4)
 _MINI_ALIEN_HP = ALIEN_HP // 2      # 25 HP
+_MINI_FIRE_CD = 0.8                 # aggressive fire cooldown (was 1.5)
 
 
 class EnemySpawnerWarpZone(WarpZoneBase):
@@ -38,7 +40,8 @@ class EnemySpawnerWarpZone(WarpZoneBase):
         self._spawner_tex: arcade.Texture | None = None
         self._alien_tex: arcade.Texture | None = None
         self._alien_laser_tex: arcade.Texture | None = None
-        self._spawn_timer: float = 5.0  # first wave after 5s
+        self._spawn_timer: float = 2.0  # first wave after 2s (immediate pressure)
+        self._spawner_fire_cd: list[float] = [0.0, 0.0, 0.0, 0.0]
 
     def setup(self, gv: GameView) -> None:
         super().setup(gv)
@@ -95,8 +98,27 @@ class EnemySpawnerWarpZone(WarpZoneBase):
                     alien = _MiniAlien(self._alien_tex, self._alien_laser_tex, ax, ay)
                     self._aliens.append(alien)
 
-        # Update mini aliens (simple pursue-only AI)
+        # Spawner turret fire (each spawner shoots at the player)
         px, py = gv.player.center_x, gv.player.center_y
+        for i, spawner in enumerate(self._spawners):
+            if self._spawner_hps[i] <= 0:
+                continue
+            self._spawner_fire_cd[i] = max(0.0, self._spawner_fire_cd[i] - dt)
+            dist = math.hypot(px - spawner.center_x, py - spawner.center_y)
+            if dist < 600 and self._spawner_fire_cd[i] <= 0.0:
+                self._spawner_fire_cd[i] = 2.0
+                dx = px - spawner.center_x
+                dy = py - spawner.center_y
+                if dist > 0:
+                    heading = math.degrees(math.atan2(dx / dist, dy / dist)) % 360
+                    self._alien_projectiles.append(Projectile(
+                        self._alien_laser_tex,
+                        spawner.center_x, spawner.center_y,
+                        heading, ALIEN_LASER_SPEED, ALIEN_LASER_RANGE,
+                        scale=0.6, damage=ALIEN_LASER_DAMAGE,
+                    ))
+
+        # Update mini aliens (aggressive pursue AI)
         for alien in list(self._aliens):
             proj = alien.update_mini(dt, px, py)
             if proj is not None:
@@ -154,6 +176,9 @@ class EnemySpawnerWarpZone(WarpZoneBase):
                 gv.player._collision_cd = SHIP_COLLISION_COOLDOWN
                 gv._trigger_shake()
 
+    def get_minimap_objects(self):
+        return self._spawners, self._aliens
+
     def _draw_hazards(self, gv: GameView, cx: float, cy: float,
                       hw: float, hh: float) -> None:
         self._spawners.draw()
@@ -171,7 +196,7 @@ class _MiniAlien(arcade.Sprite):
         self.center_y = y
         self.hp: int = _MINI_ALIEN_HP
         self._laser_tex = laser_tex
-        self._fire_cd: float = random.uniform(0, ALIEN_FIRE_COOLDOWN)
+        self._fire_cd: float = random.uniform(0, _MINI_FIRE_CD)
         self._heading: float = random.uniform(0, 360)
 
     def update_mini(self, dt: float, px: float, py: float):
@@ -191,7 +216,7 @@ class _MiniAlien(arcade.Sprite):
 
         self._fire_cd = max(0.0, self._fire_cd - dt)
         if self._fire_cd <= 0.0 and dist <= ALIEN_LASER_RANGE:
-            self._fire_cd = ALIEN_FIRE_COOLDOWN
+            self._fire_cd = _MINI_FIRE_CD
             return Projectile(
                 self._laser_tex,
                 self.center_x, self.center_y,

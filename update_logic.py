@@ -318,11 +318,10 @@ def update_weapons(gv: GameView, dt: float, fire: bool) -> None:
 
 
 def update_entities(gv: GameView, dt: float) -> None:
-    """Advance projectiles, pickups, asteroids, and aliens."""
-    # Player projectiles
-    for proj in list(gv.projectile_list):
-        proj.update_projectile(dt)
+    """Advance pickups, asteroids, aliens, and handle collisions.
 
+    Note: player projectiles are advanced in game_view.on_update (shared).
+    """
     # Collisions
     handle_projectile_hits(gv)
     handle_ship_asteroid_collision(gv)
@@ -441,16 +440,32 @@ def update_boss(gv: GameView, dt: float) -> None:
 
 def update_wormholes(gv: GameView, dt: float) -> None:
     """Update wormhole spiral animations and check player collision."""
+    import arcade
     for wh in gv._wormholes:
         wh.update_wormhole(dt)
-    # Check player entering a wormhole
+    # Check player entering a wormhole (100px detection = visual overlap)
     px, py = gv.player.center_x, gv.player.center_y
     for wh in gv._wormholes:
-        if wh.zone_target is not None:
-            dist = math.hypot(px - wh.center_x, py - wh.center_y)
-            if dist < 64:
-                gv._transition_zone(wh.zone_target, entry_side="bottom")
-                return
+        dist = math.hypot(px - wh.center_x, py - wh.center_y)
+        if dist < 100:
+            # Visual effect: bright flash glow
+            gv._use_glow = (100, 180, 255, 200)
+            gv._use_glow_timer = 0.5
+            # Play victory sound as warp sound
+            arcade.play_sound(gv._victory_snd, volume=0.6)
+            # Determine destination
+            if wh.zone_target is not None:
+                target = wh.zone_target
+            else:
+                # Random warp zone
+                from zones import ZoneID
+                target = random.choice([
+                    ZoneID.WARP_METEOR, ZoneID.WARP_LIGHTNING,
+                    ZoneID.WARP_GAS, ZoneID.WARP_ENEMY,
+                ])
+            gv._flash_game_msg("Entering wormhole...", 1.5)
+            gv._transition_zone(target, entry_side="bottom")
+            return
 
 
 def update_ability_meter(gv: GameView, dt: float) -> None:

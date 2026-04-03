@@ -44,16 +44,51 @@ class GasArea(arcade.Sprite):
     """A toxic gaseous cloud that damages and slows the player."""
 
     def __init__(self, texture: arcade.Texture, x: float, y: float,
-                 size: int = 256) -> None:
+                 size: int = 256, world_w: float = 6400, world_h: float = 6400,
+                 mobile: bool = False) -> None:
         scale = size / texture.width if texture.width > 0 else 1.0
         super().__init__(path_or_texture=texture, scale=scale)
         self.center_x = x
         self.center_y = y
         self.radius: float = size / 2.0
         self._rot_speed: float = random.uniform(-5.0, 5.0)
+        self._mobile: bool = mobile
+        # Brownian motion: speed = half of small alien (120/2 = 60 px/s)
+        self._drift_speed: float = 60.0 if mobile else 0.0
+        angle = random.uniform(0, math.tau)
+        self._drift_x: float = math.cos(angle) * self._drift_speed
+        self._drift_y: float = math.sin(angle) * self._drift_speed
+        self._brownian_timer: float = random.uniform(0.3, 1.0)
+        self._world_w = world_w
+        self._world_h = world_h
 
     def update_gas(self, dt: float) -> None:
         self.angle = (self.angle + self._rot_speed * dt) % 360
+        if not self._mobile:
+            return
+        # Brownian motion: randomly change direction at intervals
+        self._brownian_timer -= dt
+        if self._brownian_timer <= 0:
+            self._brownian_timer = random.uniform(0.3, 1.0)
+            angle = random.uniform(0, math.tau)
+            self._drift_x = math.cos(angle) * self._drift_speed
+            self._drift_y = math.sin(angle) * self._drift_speed
+        self.center_x += self._drift_x * dt
+        self.center_y += self._drift_y * dt
+        # Bounce off world edges
+        margin = self.radius
+        if self.center_x < margin:
+            self.center_x = margin
+            self._drift_x = abs(self._drift_x)
+        elif self.center_x > self._world_w - margin:
+            self.center_x = self._world_w - margin
+            self._drift_x = -abs(self._drift_x)
+        if self.center_y < margin:
+            self.center_y = margin
+            self._drift_y = abs(self._drift_y)
+        elif self.center_y > self._world_h - margin:
+            self.center_y = self._world_h - margin
+            self._drift_y = -abs(self._drift_y)
 
     def contains_point(self, px: float, py: float) -> bool:
         return math.hypot(px - self.center_x, py - self.center_y) < self.radius

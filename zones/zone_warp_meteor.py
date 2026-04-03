@@ -13,24 +13,29 @@ from zones.zone_warp_base import WarpZoneBase, WARP_ZONE_WIDTH, WARP_ZONE_HEIGHT
 if TYPE_CHECKING:
     from game_view import GameView
 
-_METEOR_SPEED = 240.0      # px/s downward
+_METEOR_SPEED = 350.0      # px/s
 _METEOR_HP = 200           # 2x iron asteroid HP
-_METEOR_DAMAGE = 15        # collision damage to player
-_METEOR_SPAWN_RATE = 0.4   # seconds between spawns
+_METEOR_DAMAGE = 25        # collision damage to player
+_METEOR_SPAWN_RATE = 0.15  # seconds between spawns (rapid)
 _METEOR_RADIUS = 30.0
+_NEAR_MISS_DIST = 100.0    # screen shake on close pass
 
 
 class Meteor(arcade.Sprite):
-    def __init__(self, texture: arcade.Texture, x: float, y: float) -> None:
+    def __init__(self, texture: arcade.Texture, x: float, y: float,
+                 vx: float = 0.0, vy: float = -_METEOR_SPEED) -> None:
         super().__init__(path_or_texture=texture, scale=0.8)
         self.center_x = x
         self.center_y = y
         self.hp: int = _METEOR_HP
         self.angle = random.uniform(0, 360)
         self._spin: float = random.uniform(-60, 60)
+        self._vx: float = vx
+        self._vy: float = vy
 
     def update_meteor(self, dt: float) -> None:
-        self.center_y -= _METEOR_SPEED * dt
+        self.center_x += self._vx * dt
+        self.center_y += self._vy * dt
         self.angle = (self.angle + self._spin * dt) % 360
 
     def take_damage(self, amount: int) -> None:
@@ -66,18 +71,39 @@ class MeteorWarpZone(WarpZoneBase):
         from sprites.explosion import HitSpark
         from constants import SHIP_RADIUS, SHIP_COLLISION_COOLDOWN
 
-        # Spawn new meteors from the top
+        # Spawn meteors from multiple directions
         self._spawn_timer += dt
         if self._spawn_timer >= _METEOR_SPAWN_RATE:
             self._spawn_timer -= _METEOR_SPAWN_RATE
-            x = random.uniform(100, WARP_ZONE_WIDTH - 100)
-            m = Meteor(self._meteor_tex, x, WARP_ZONE_HEIGHT + 40)
-            self._meteors.append(m)
+            edge = random.choices(["top", "left", "right", "bottom"],
+                                  weights=[60, 15, 15, 10])[0]
+            if edge == "top":
+                x = random.uniform(100, WARP_ZONE_WIDTH - 100)
+                y = WARP_ZONE_HEIGHT + 40
+                vx = random.uniform(-40, 40)
+                vy = -_METEOR_SPEED
+            elif edge == "left":
+                x = -40
+                y = random.uniform(100, WARP_ZONE_HEIGHT - 100)
+                vx = _METEOR_SPEED
+                vy = random.uniform(-60, 60)
+            elif edge == "right":
+                x = WARP_ZONE_WIDTH + 40
+                y = random.uniform(100, WARP_ZONE_HEIGHT - 100)
+                vx = -_METEOR_SPEED
+                vy = random.uniform(-60, 60)
+            else:  # bottom
+                x = random.uniform(100, WARP_ZONE_WIDTH - 100)
+                y = -40
+                vx = random.uniform(-40, 40)
+                vy = _METEOR_SPEED
+            self._meteors.append(Meteor(self._meteor_tex, x, y, vx, vy))
 
         # Update meteors
         for m in list(self._meteors):
             m.update_meteor(dt)
-            if m.center_y < -60:
+            if (m.center_y < -80 or m.center_y > WARP_ZONE_HEIGHT + 80 or
+                    m.center_x < -80 or m.center_x > WARP_ZONE_WIDTH + 80):
                 m.remove_from_sprite_lists()
                 continue
             # Player collision
@@ -88,6 +114,10 @@ class MeteorWarpZone(WarpZoneBase):
                     gv._apply_damage_to_player(_METEOR_DAMAGE)
                     gv.player._collision_cd = SHIP_COLLISION_COOLDOWN
                     gv._trigger_shake()
+            # Near-miss shake (close pass without hit)
+            elif dist < _NEAR_MISS_DIST and gv.player._collision_cd <= 0.0:
+                gv._shake_amp = 3.0
+                gv._shake_timer = 0.1
 
         # Player projectile hits (mining beam only)
         for proj in list(gv.projectile_list):
@@ -104,6 +134,9 @@ class MeteorWarpZone(WarpZoneBase):
                         gv._spawn_explosion(m.center_x, m.center_y)
                         m.remove_from_sprite_lists()
                     break
+
+    def get_minimap_objects(self):
+        return self._meteors, arcade.SpriteList()
 
     def _draw_hazards(self, gv: GameView, cx: float, cy: float,
                       hw: float, hh: float) -> None:

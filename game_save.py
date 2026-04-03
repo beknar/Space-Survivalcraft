@@ -101,7 +101,8 @@ def save_to_dict(gv: GameView, name: str = "") -> dict:
             "target_y": gv._boss._target_y,
         } if gv._boss is not None else None,
         "wormholes": [
-            {"x": wh.center_x, "y": wh.center_y}
+            {"x": wh.center_x, "y": wh.center_y,
+             "zone_target": wh.zone_target.name if wh.zone_target else None}
             for wh in gv._wormholes
         ],
     }
@@ -306,7 +307,11 @@ def restore_state(view: GameView, data: dict) -> None:
     view._wormhole_list.clear()
     for whd in data.get("wormholes", []):
         from sprites.wormhole import Wormhole
+        from zones import ZoneID
         wh = Wormhole(whd["x"], whd["y"])
+        zt = whd.get("zone_target")
+        if zt and isinstance(zt, str):
+            wh.zone_target = ZoneID[zt]
         view._wormholes.append(wh)
         view._wormhole_list.append(wh)
 

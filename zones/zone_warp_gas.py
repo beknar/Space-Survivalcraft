@@ -14,11 +14,12 @@ from zones.zone_warp_base import WarpZoneBase, WARP_ZONE_WIDTH, WARP_ZONE_HEIGHT
 if TYPE_CHECKING:
     from game_view import GameView
 
-_CLOUD_DAMAGE = 30
-_CLOUD_COOLDOWN = 1.0      # seconds between damage ticks
-_CLOUD_RADIUS = 80.0       # collision radius
+_CLOUD_DAMAGE = 15          # damage per tick (but ticks faster)
+_CLOUD_COOLDOWN = 0.5       # seconds between damage ticks
+_CLOUD_RADIUS = 80.0        # collision radius
 _CLOUD_COUNT = 40           # number of clouds in the maze
 _CLOUD_SIZE = 160           # texture size
+_EXTRA_LARGE_COUNT = 3      # huge clouds that are hard to avoid
 
 
 def _generate_cloud_texture() -> arcade.Texture:
@@ -44,11 +45,7 @@ def _generate_cloud_texture() -> arcade.Texture:
     return arcade.Texture(img)
 
 
-class GasCloud(arcade.Sprite):
-    def __init__(self, texture: arcade.Texture, x: float, y: float) -> None:
-        super().__init__(path_or_texture=texture, scale=1.0)
-        self.center_x = x
-        self.center_y = y
+from sprites.gas_area import GasArea as GasCloud
 
 
 class GasCloudWarpZone(WarpZoneBase):
@@ -66,6 +63,7 @@ class GasCloudWarpZone(WarpZoneBase):
             self._cloud_tex = _generate_cloud_texture()
         self._clouds = arcade.SpriteList()
         self._damage_cd = 0.0
+        self._in_gas: bool = False  # for screen darkening
         # Generate maze-like cloud layout (grid with gaps)
         margin = 150
         cols = 5
@@ -74,14 +72,23 @@ class GasCloudWarpZone(WarpZoneBase):
         spacing_y = (WARP_ZONE_HEIGHT - margin * 2) / rows
         for row in range(rows):
             for col in range(cols):
-                # Leave gaps for navigation (skip ~40% of positions)
                 if random.random() < 0.4:
                     continue
                 x = margin + col * spacing_x + random.uniform(-30, 30)
                 y = margin + row * spacing_y + random.uniform(-30, 30)
                 x = max(100, min(WARP_ZONE_WIDTH - 100, x))
                 y = max(100, min(WARP_ZONE_HEIGHT - 100, y))
-                self._clouds.append(GasCloud(self._cloud_tex, x, y))
+                self._clouds.append(GasCloud(self._cloud_tex, x, y,
+                                            world_w=WARP_ZONE_WIDTH, world_h=WARP_ZONE_HEIGHT,
+                                            mobile=True))
+        # Extra-large clouds that are hard to avoid
+        _large_tex = _generate_cloud_texture()
+        for _ in range(_EXTRA_LARGE_COUNT):
+            lx = random.uniform(400, WARP_ZONE_WIDTH - 400)
+            ly = random.uniform(1000, WARP_ZONE_HEIGHT - 1000)
+            self._clouds.append(GasCloud(_large_tex, lx, ly, size=1500,
+                                         world_w=WARP_ZONE_WIDTH, world_h=WARP_ZONE_HEIGHT,
+                                         mobile=True))
 
     def teardown(self, gv: GameView) -> None:
         super().teardown(gv)
@@ -89,19 +96,29 @@ class GasCloudWarpZone(WarpZoneBase):
 
     def _update_hazards(self, gv: GameView, dt: float) -> None:
         self._damage_cd = max(0.0, self._damage_cd - dt)
-        if self._damage_cd > 0.0:
-            return
-        # Check if player is inside any cloud
         px, py = gv.player.center_x, gv.player.center_y
+        self._in_gas = False
         for cloud in self._clouds:
-            dist = math.hypot(px - cloud.center_x, py - cloud.center_y)
-            if dist < _CLOUD_RADIUS:
-                gv._apply_damage_to_player(_CLOUD_DAMAGE)
-                gv._trigger_shake()
-                gv._flash_game_msg("Toxic gas! -30 damage", 1.0)
-                self._damage_cd = _CLOUD_COOLDOWN
+            if cloud.contains_point(px, py):
+                self._in_gas = True
+                # Slow the player while in gas
+                gv.player.vel_x *= 0.97
+                gv.player.vel_y *= 0.97
+                if self._damage_cd <= 0.0:
+                    gv._apply_damage_to_player(int(_CLOUD_DAMAGE))
+                    gv._trigger_shake()
+                    gv._flash_game_msg("Toxic gas!", 0.5)
+                    self._damage_cd = _CLOUD_COOLDOWN
                 break
+
+    def get_minimap_objects(self):
+        return self._clouds, arcade.SpriteList()
 
     def _draw_hazards(self, gv: GameView, cx: float, cy: float,
                       hw: float, hh: float) -> None:
         self._clouds.draw()
+        # Screen darkening when inside gas
+        if self._in_gas:
+            arcade.draw_rect_filled(
+                arcade.LBWH(cx - hw - 50, cy - hh - 50, hw * 2 + 100, hh * 2 + 100),
+                (20, 40, 10, 120))

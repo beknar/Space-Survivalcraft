@@ -10,7 +10,7 @@ class CopperAsteroid(arcade.Sprite):
     _SHAKE_AMP: float = 4.0
 
     def __init__(self, texture: arcade.Texture, x: float, y: float) -> None:
-        super().__init__(path_or_texture=texture, scale=1.0)
+        super().__init__(path_or_texture=texture, scale=0.37)
         self.center_x = x
         self.center_y = y
         self._base_x: float = x

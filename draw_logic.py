@@ -133,6 +133,40 @@ def draw_world(gv: GameView, cx: float, cy: float, hw: float, hh: float) -> None
         arcade.draw_circle_outline(dcx, dcy, 12, (255, 60, 60, 180), 2)
 
 
+def _minimap_obstacles(gv: GameView) -> arcade.SpriteList:
+    """Return obstacle sprite list for minimap (zone-aware)."""
+    from zones import ZoneID
+    from zones.zone_warp_base import WarpZoneBase
+    if gv._zone.zone_id == ZoneID.MAIN:
+        return gv.asteroid_list
+    if isinstance(gv._zone, WarpZoneBase):
+        obstacles, _ = gv._zone.get_minimap_objects()
+        return obstacles
+    if hasattr(gv._zone, '_iron_asteroids'):
+        # Zone 2: combine all asteroid lists
+        combined = arcade.SpriteList()
+        for a in gv._zone._iron_asteroids:
+            combined.append(a)
+        for a in gv._zone._copper_asteroids:
+            combined.append(a)
+        return combined
+    return gv.asteroid_list
+
+
+def _minimap_enemies(gv: GameView) -> arcade.SpriteList:
+    """Return enemy sprite list for minimap (zone-aware)."""
+    from zones import ZoneID
+    from zones.zone_warp_base import WarpZoneBase
+    if gv._zone.zone_id == ZoneID.MAIN:
+        return gv.alien_list
+    if isinstance(gv._zone, WarpZoneBase):
+        _, enemies = gv._zone.get_minimap_objects()
+        return enemies
+    if hasattr(gv._zone, '_aliens'):
+        return gv._zone._aliens
+    return gv.alien_list
+
+
 def draw_ui(gv: GameView) -> None:
     """Draw all UI-space elements (called inside ui_cam.activate)."""
     from sprites.building import compute_modules_used, compute_module_capacity
@@ -144,9 +178,9 @@ def draw_ui(gv: GameView) -> None:
         max_hp=gv.player.max_hp,
         shields=gv.player.shields,
         max_shields=gv.player.max_shields,
-        asteroid_list=gv.asteroid_list,
+        asteroid_list=_minimap_obstacles(gv),
         iron_pickup_list=gv.iron_pickup_list,
-        alien_list=gv.alien_list,
+        alien_list=_minimap_enemies(gv),
         player_x=gv.player.center_x,
         player_y=gv.player.center_y,
         player_heading=gv.player.heading,

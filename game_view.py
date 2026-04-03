@@ -452,21 +452,24 @@ class GameView(arcade.View):
 
         # Zone state machine
         from zones.zone1_main import MainZone
-        self._zone = MainZone()
+        self._main_zone = MainZone()  # kept for reuse on return
+        self._zone = self._main_zone
         self._zone.setup(self)
 
     # ── Zone transitions ──────────────────────────────────────────────────
     def _transition_zone(self, target_zone_id, entry_side: str = "bottom") -> None:
         """Tear down current zone, set up target zone, reposition player."""
-        from zones import create_zone
+        from zones import ZoneID, create_zone
         # Store player position for return
         if hasattr(self._zone, '_stash'):
             self._zone._stash["_player_pos"] = (
                 self.player.center_x, self.player.center_y)
-        elif hasattr(self._zone, '_return_pos'):
-            pass  # warp zones track this in setup()
         self._zone.teardown(self)
-        self._zone = create_zone(target_zone_id)
+        # Reuse the main zone instance (preserves stashed state)
+        if target_zone_id == ZoneID.MAIN:
+            self._zone = self._main_zone
+        else:
+            self._zone = create_zone(target_zone_id)
         self._zone.setup(self)
         # Update player world bounds
         self.player.world_width = self._zone.world_width
@@ -736,6 +739,9 @@ class GameView(arcade.View):
         fire = _ul.update_movement(self, delta_time)
         _ul.update_contrail(self, delta_time)
         _ul.update_weapons(self, delta_time, fire)
+        # Always advance player projectiles (shared across all zones)
+        for proj in list(self.projectile_list):
+            proj.update_projectile(delta_time)
         # Zone-specific updates
         from zones import ZoneID
         if self._zone.zone_id == ZoneID.MAIN:
