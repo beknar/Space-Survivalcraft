@@ -126,6 +126,29 @@ class GameView(arcade.View):
         self._use_glow: tuple[int, int, int, int] = (0, 0, 0, 0)
         self._use_glow_timer: float = 0.0
 
+        # Special ability meter
+        from constants import ABILITY_METER_MAX
+        self._ability_meter: float = ABILITY_METER_MAX
+        self._ability_meter_max: float = ABILITY_METER_MAX
+
+        # Misty step cooldown
+        self._misty_step_cd: float = 0.0
+
+        # Force walls
+        self._force_walls: list = []
+
+        # Death blossom state
+        self._death_blossom_active: bool = False
+        self._death_blossom_timer: float = 0.0
+        self._death_blossom_missiles_left: int = 0
+
+        # Missile list
+        self._missile_list: arcade.SpriteList = arcade.SpriteList()
+        self._missile_tex: arcade.Texture | None = None
+
+        # Rear turret cooldown
+        self._rear_turret_cd: float = 0.0
+
         # Flash message (centered on play area)
         self._flash_msg: str = ""
         self._flash_timer: float = 0.0
@@ -271,6 +294,11 @@ class GameView(arcade.View):
         # Shield Recharge texture
         self._shield_recharge_tex = arcade.load_texture(SHIELD_RECHARGE_PNG)
 
+        # Copper pickup texture
+        from constants import COPPER_PICKUP_PNG, MISSILE_PNG
+        self._copper_tex = arcade.load_texture(COPPER_PICKUP_PNG)
+        self._missile_tex = arcade.load_texture(MISSILE_PNG)
+
         # Inventory
         self.inventory = Inventory(
             iron_icon=self._iron_tex,
@@ -283,6 +311,7 @@ class GameView(arcade.View):
             self.inventory.item_icons[f"bp_{key}"] = self._blueprint_tinted.get(key, self._blueprint_tex)
             self.inventory._item_names[f"bp_{key}"] = f"BP {info['label']}"
             self.inventory._item_names[f"mod_{key}"] = info["label"]
+        self.inventory.item_icons["copper"] = self._copper_tex
 
         # Building system
         self.building_list = arcade.SpriteList(use_spatial_hash=True)
@@ -322,6 +351,7 @@ class GameView(arcade.View):
             mod_icon = arcade.load_texture(info["icon"])
             self._station_inv.item_icons[f"mod_{key}"] = mod_icon
             self._station_inv.item_icons[f"bp_{key}"] = self._blueprint_tinted.get(key, self._blueprint_tex)
+        self._station_inv.item_icons["copper"] = self._copper_tex
 
         # Craft menu
         self._craft_menu = CraftMenu()
@@ -631,6 +661,9 @@ class GameView(arcade.View):
         self._boss = None
         self._wormholes.clear()
         self._wormhole_list.clear()
+        self._missile_list.clear()
+        self._force_walls.clear()
+        self._death_blossom_active = False
         # Re-enable GC so old view can be collected
         gc.enable()
 
@@ -701,6 +734,10 @@ class GameView(arcade.View):
             _ul.update_wormholes(self, delta_time)
         else:
             self._zone.update(self, delta_time)
+        _ul.update_ability_meter(self, delta_time)
+        _ul.update_force_walls(self, delta_time)
+        _ul.update_missiles(self, delta_time)
+        _ul.update_death_blossom(self, delta_time)
         _ul.update_effects(self, delta_time)
 
     # ── Input ────────────────────────────────────────────────────────────────

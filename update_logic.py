@@ -299,6 +299,23 @@ def update_weapons(gv: GameView, dt: float, fire: bool) -> None:
                 )
                 gv.projectile_list.append(proj)
 
+    # Rear turret auto-fire (fires backward, same stats as broadside)
+    if "rear_turret" in gv._module_slots and not gv._player_dead:
+        gv._rear_turret_cd -= dt
+        if gv._rear_turret_cd <= 0.0 and fire:
+            gv._rear_turret_cd = BROADSIDE_COOLDOWN
+            from sprites.projectile import Projectile
+            heading = gv.player.heading
+            cx, cy = gv.player.center_x, gv.player.center_y
+            proj = Projectile(
+                gv._broadside_tex, cx, cy,
+                heading + 180.0,
+                BROADSIDE_SPEED, BROADSIDE_RANGE,
+                scale=1.0, mines_rock=False,
+                damage=BROADSIDE_DAMAGE,
+            )
+            gv.projectile_list.append(proj)
+
 
 def update_entities(gv: GameView, dt: float) -> None:
     """Advance projectiles, pickups, asteroids, and aliens."""
@@ -319,7 +336,7 @@ def update_entities(gv: GameView, dt: float) -> None:
     for pickup in list(gv.iron_pickup_list):
         collected = pickup.update_pickup(dt, sx, sy, SHIP_RADIUS)
         if collected:
-            gv.inventory.add_item("iron", pickup.amount)
+            gv.inventory.add_item(getattr(pickup, 'item_type', 'iron'), pickup.amount)
 
     # Blueprint pickups
     for bp in list(gv.blueprint_pickup_list):
@@ -434,6 +451,99 @@ def update_wormholes(gv: GameView, dt: float) -> None:
             if dist < 64:
                 gv._transition_zone(wh.zone_target, entry_side="bottom")
                 return
+
+
+def update_ability_meter(gv: GameView, dt: float) -> None:
+    """Regen the special ability meter and update module cooldowns."""
+    from constants import ABILITY_REGEN_RATE, MISTY_STEP_COOLDOWN
+    if gv._ability_meter < gv._ability_meter_max:
+        gv._ability_meter = min(gv._ability_meter_max,
+                                gv._ability_meter + ABILITY_REGEN_RATE * dt)
+    if gv._misty_step_cd > 0:
+        gv._misty_step_cd = max(0.0, gv._misty_step_cd - dt)
+    if gv._rear_turret_cd > 0:
+        gv._rear_turret_cd = max(0.0, gv._rear_turret_cd - dt)
+
+
+def update_force_walls(gv: GameView, dt: float) -> None:
+    """Update force wall lifetimes."""
+    for wall in gv._force_walls:
+        wall.update(dt)
+    gv._force_walls = [w for w in gv._force_walls if not w.dead]
+
+
+def update_missiles(gv: GameView, dt: float) -> None:
+    """Update homing missiles and check hits."""
+    from sprites.explosion import HitSpark
+    from constants import SHIP_RADIUS
+
+    # Gather targets (aliens in current zone)
+    from zones import ZoneID
+    targets = []
+    if gv._zone.zone_id == ZoneID.MAIN:
+        for a in gv.alien_list:
+            targets.append((a.center_x, a.center_y))
+        if gv._boss is not None and gv._boss.hp > 0:
+            targets.append((gv._boss.center_x, gv._boss.center_y))
+    elif hasattr(gv._zone, '_aliens'):
+        for a in gv._zone._aliens:
+            targets.append((a.center_x, a.center_y))
+
+    for m in list(gv._missile_list):
+        m.update_missile(dt, targets)
+        # Check hits on aliens
+        if gv._zone.zone_id == ZoneID.MAIN:
+            for a in list(gv.alien_list):
+                if math.hypot(m.center_x - a.center_x, m.center_y - a.center_y) < 25:
+                    gv.hit_sparks.append(HitSpark(m.center_x, m.center_y))
+                    gv._spawn_explosion(m.center_x, m.center_y)
+                    a.take_damage(int(m.damage))
+                    if a.hp <= 0:
+                        gv._spawn_explosion(a.center_x, a.center_y)
+                        gv._add_xp(25)
+                        a.remove_from_sprite_lists()
+                    m.remove_from_sprite_lists()
+                    break
+        elif hasattr(gv._zone, '_aliens'):
+            for a in list(gv._zone._aliens):
+                if math.hypot(m.center_x - a.center_x, m.center_y - a.center_y) < 25:
+                    gv.hit_sparks.append(HitSpark(m.center_x, m.center_y))
+                    gv._spawn_explosion(m.center_x, m.center_y)
+                    a.take_damage(int(m.damage))
+                    if a.hp <= 0:
+                        gv._spawn_explosion(a.center_x, a.center_y)
+                        gv._add_xp(50)
+                        a.remove_from_sprite_lists()
+                    m.remove_from_sprite_lists()
+                    break
+
+
+def update_death_blossom(gv: GameView, dt: float) -> None:
+    """Update death blossom sequence if active."""
+    if not gv._death_blossom_active:
+        return
+    from constants import DEATH_BLOSSOM_FIRE_RATE, DEATH_BLOSSOM_MISSILES_PER_VOLLEY, DEATH_BLOSSOM_HP_AFTER
+    from sprites.missile import HomingMissile
+
+    gv._death_blossom_timer -= dt
+    if gv._death_blossom_timer <= 0 and gv._death_blossom_missiles_left > 0:
+        gv._death_blossom_timer = DEATH_BLOSSOM_FIRE_RATE
+        # Fire missiles in all directions
+        count = min(DEATH_BLOSSOM_MISSILES_PER_VOLLEY, gv._death_blossom_missiles_left)
+        for i in range(count):
+            angle = (360.0 / count) * i + gv.player.heading
+            m = HomingMissile(gv._missile_tex,
+                              gv.player.center_x, gv.player.center_y, angle)
+            gv._missile_list.append(m)
+        gv._death_blossom_missiles_left -= count
+        # Spin the ship
+        gv.player.heading = (gv.player.heading + 90 * dt * 10) % 360
+
+    if gv._death_blossom_missiles_left <= 0:
+        # End death blossom — power down
+        gv._death_blossom_active = False
+        gv.player.shields = 0
+        gv.player.hp = DEATH_BLOSSOM_HP_AFTER
 
 
 def update_effects(gv: GameView, dt: float) -> None:

@@ -31,7 +31,8 @@ class IronPickup(arcade.Sprite):
         super().__init__(path_or_texture=texture, scale=0.5)
         self.center_x = x
         self.center_y = y
-        self.amount: int = amount           # iron units this pickup is worth
+        self.amount: int = amount           # units this pickup is worth
+        self.item_type: str = "iron"        # item type (overridden for copper etc.)
         self._lifetime: Optional[float] = lifetime  # None = never expires
         self._age: float = 0.0
         self._flying: bool = False

@@ -114,6 +114,60 @@ def handle_key_press(gv: GameView, key: int, modifiers: int) -> None:
                 gv._use_repair_pack(slot)
             elif item == "shield_recharge":
                 gv._use_shield_recharge(slot)
+    # Force wall (G key)
+    elif key == arcade.key.G:
+        if (not gv._escape_menu.open and not gv._player_dead
+                and "force_wall" in gv._module_slots):
+            from constants import FORCE_WALL_COST
+            from sprites.force_wall import ForceWall
+            if gv._ability_meter >= FORCE_WALL_COST:
+                gv._ability_meter -= FORCE_WALL_COST
+                # Spawn wall behind the ship
+                rad = math.radians(gv.player.heading)
+                behind_x = gv.player.center_x - math.sin(rad) * 60
+                behind_y = gv.player.center_y - math.cos(rad) * 60
+                gv._force_walls.append(ForceWall(behind_x, behind_y, gv.player.heading))
+    # Death blossom (X key)
+    elif key == arcade.key.X:
+        if (not gv._escape_menu.open and not gv._player_dead
+                and "death_blossom" in gv._module_slots
+                and not gv._death_blossom_active):
+            missile_count = gv.inventory.count_item("missile")
+            if missile_count > 0:
+                gv._death_blossom_active = True
+                gv._death_blossom_timer = 0.0
+                gv._death_blossom_missiles_left = missile_count
+                gv.inventory.remove_item("missile", missile_count)
+    # Misty step (double-tap WASD)
+    elif key in (arcade.key.W, arcade.key.A, arcade.key.S, arcade.key.D):
+        if (not gv._escape_menu.open and not gv._player_dead
+                and "misty_step" in gv._module_slots):
+            import time
+            from constants import MISTY_STEP_DISTANCE, MISTY_STEP_COST, MISTY_STEP_COOLDOWN
+            now = time.monotonic()
+            last = getattr(gv, '_misty_last_tap', {}).get(key, 0)
+            if not hasattr(gv, '_misty_last_tap'):
+                gv._misty_last_tap = {}
+            if now - last < 0.3 and gv._misty_step_cd <= 0 and gv._ability_meter >= MISTY_STEP_COST:
+                # Double tap detected — teleport
+                gv._ability_meter -= MISTY_STEP_COST
+                gv._misty_step_cd = MISTY_STEP_COOLDOWN
+                rad = math.radians(gv.player.heading)
+                if key == arcade.key.W:
+                    dx, dy = math.sin(rad), math.cos(rad)
+                elif key == arcade.key.S:
+                    dx, dy = -math.sin(rad), -math.cos(rad)
+                elif key == arcade.key.A:
+                    dx, dy = -math.cos(rad), math.sin(rad)
+                else:  # D
+                    dx, dy = math.cos(rad), -math.sin(rad)
+                gv.player.center_x += dx * MISTY_STEP_DISTANCE
+                gv.player.center_y += dy * MISTY_STEP_DISTANCE
+                gv._use_glow = (160, 80, 255, 160)
+                gv._use_glow_timer = 0.3
+                gv._misty_last_tap[key] = 0
+            else:
+                gv._misty_last_tap[key] = now
 
 
 def handle_mouse_press(gv: GameView, x: int, y: int, button: int, modifiers: int) -> None:

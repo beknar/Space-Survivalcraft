@@ -16,6 +16,8 @@ SELL_PRICES: dict[str, int] = {
     "iron": 1,
     "repair_pack": 100,
     "shield_recharge": 100,
+    "copper": 2,
+    "missile": 200,
 }
 # Add blueprint sell prices (half the module craft cost)
 for _k, _info in MODULE_TYPES.items():
@@ -33,6 +35,8 @@ _ITEM_NAMES: dict[str, str] = {
     "iron": "Iron",
     "repair_pack": "Repair Pack",
     "shield_recharge": "Shield Recharge",
+    "copper": "Copper",
+    "missile": "Homing Missile",
 }
 for _k, _info in MODULE_TYPES.items():
     _ITEM_NAMES[f"bp_{_k}"] = f"BP {_info['label']}"

@@ -296,6 +296,9 @@ BUILDING_TYPES = {
     "Basic Crafter":   {"png": "spaceBuilding_008.png", "hp":  75, "cost": 150,
                         "max": 1,    "module_slots": 0, "connectable": True,
                         "free_place": False, "slots_used": 1},
+    "Advanced Crafter": {"png": "spaceBuilding_020.png", "hp": 100, "cost": 300,
+                        "max": 1,    "module_slots": 0, "connectable": True,
+                        "free_place": False, "slots_used": 2},
 }
 
 # Turret combat constants
@@ -329,6 +332,8 @@ MAX_STACK: dict[str, int] = {
     "iron": 999,
     "repair_pack": 99,
     "shield_recharge": 99,
+    "copper": 999,
+    "missile": 99,
 }
 MAX_STACK_DEFAULT: int = 10  # for blueprints, modules, etc.
 
@@ -360,6 +365,12 @@ BLUEPRINT_SPIN_SPEED: float = 180.0   # degrees per second
 BLUEPRINT_DROP_CHANCE_ALIEN: float = 0.50
 BLUEPRINT_DROP_CHANCE_ASTEROID: float = 0.25
 
+# Missile asset (needed by MODULE_TYPES below)
+MISSILE_PNG = os.path.join(
+    _HERE, "assets", "kenney space combat assets",
+    "Space Shooter Extension", "PNG", "Sprites", "Missiles", "spaceMissiles_003.png",
+)
+
 _MODULE_ITEMS_DIR = os.path.join(
     _HERE, "assets", "gamedevmarket assets",
     "alien spaceship creation kit", "png", "Separate", "Items",
@@ -378,6 +389,27 @@ MODULE_TYPES: dict[str, dict] = {
                         "craft_cost": 150, "icon": os.path.join(_MODULE_ITEMS_DIR, "Nuke.png")},
     "broadside":       {"label": "Broadside Module",  "effect": "broadside",     "value": 1,
                         "craft_cost": 200, "icon": os.path.join(_MODULE_ITEMS_DIR, "Poison.png")},
+    "rear_turret":     {"label": "Rear Turret",       "effect": "rear_turret",   "value": 1,
+                        "craft_cost": 200, "icon": os.path.join(_MODULE_ITEMS_DIR, "Poison.png"),
+                        "advanced": True},
+    "homing_missile":  {"label": "Homing Missiles",   "effect": "homing",        "value": 1,
+                        "craft_cost": 500, "craft_cost_copper": 300,
+                        "icon": MISSILE_PNG, "advanced": True},
+    "misty_step":      {"label": "Misty Step",        "effect": "misty_step",    "value": 1,
+                        "craft_cost": 300, "craft_cost_copper": 200,
+                        "icon": os.path.join(_MODULE_ITEMS_DIR, "Energy.png"),
+                        "advanced": True},
+    "force_wall":      {"label": "Force Wall",        "effect": "force_wall",    "value": 1,
+                        "craft_cost": 400, "craft_cost_copper": 250,
+                        "icon": os.path.join(_MODULE_ITEMS_DIR, "Shield.png"),
+                        "advanced": True},
+    "death_blossom":   {"label": "Death Blossom",     "effect": "death_blossom", "value": 1,
+                        "craft_cost": 600, "craft_cost_copper": 400,
+                        "icon": os.path.join(_MODULE_ITEMS_DIR, "Nuke.png"),
+                        "advanced": True},
+    "advanced_crafter": {"label": "Adv. Crafter BP",  "effect": "none",          "value": 0,
+                        "craft_cost": 0, "icon": os.path.join(_MODULE_ITEMS_DIR, "Blank.png"),
+                        "blueprint_only": True},
 }
 
 # Broadside weapon stats
@@ -403,6 +435,92 @@ BUILD_MENU_W: int = 280
 BUILD_MENU_H: int = 420
 BUILD_MENU_ITEM_H: int = 48
 BUILD_MENU_PAD: int = 10
+
+# ── Zone 2 (Nebula) constants ───────────────────────────────────────────────
+ZONE2_WIDTH: int = 6400
+ZONE2_HEIGHT: int = 6400
+
+# Double iron asteroids
+DOUBLE_IRON_COUNT: int = 15
+DOUBLE_IRON_HP: int = ASTEROID_HP * 2        # 200
+DOUBLE_IRON_YIELD: int = ASTEROID_IRON_YIELD * 2  # 20
+DOUBLE_IRON_SCALE: float = 2.0
+DOUBLE_IRON_XP: int = 10
+
+# Copper asteroids
+COPPER_ASTEROID_COUNT: int = 75
+COPPER_ASTEROID_HP: int = 100
+COPPER_YIELD: int = 10
+COPPER_XP: int = 10
+COPPER_ASTEROID_PNG = os.path.join(
+    _HERE, "assets", "gamedevmarket assets",
+    "asteroids crusher", "Asteroids", "PNG", "asteroid_02.png",
+)
+COPPER_PICKUP_PNG = os.path.join(
+    _HERE, "assets", "kenney space combat assets",
+    "Space Shooter Redux", "PNG", "Power-ups", "things_bronze.png",
+)
+
+# Gaseous areas
+GAS_AREA_COUNT: int = 75
+GAS_AREA_DAMAGE: float = 20.0       # damage per second + on first contact
+GAS_AREA_SLOW: float = 0.5          # speed multiplier while inside gas
+GAS_AREA_MIN_SIZE: int = 128
+GAS_AREA_MAX_SIZE: int = 1024
+
+# Wandering magnetic asteroids
+WANDERING_COUNT: int = 30
+WANDERING_HP: int = 150
+WANDERING_SPEED: float = 80.0       # wander speed px/s
+WANDERING_MAGNET_DIST: float = 80.0 # px attraction range
+WANDERING_MAGNET_SPEED: float = 200.0
+WANDERING_DAMAGE: int = 15
+WANDERING_RADIUS: float = 26.0
+
+# Zone 2 alien types
+Z2_ALIEN_SHIP_PNG = os.path.join(
+    _HERE, "assets", "gamedevmarket assets",
+    "alien spaceship creation kit", "png", "Ship.png",
+)
+Z2_SHIELDED_COUNT: int = 15
+Z2_SHIELDED_SHIELD: int = 50
+Z2_SHIELDED_XP: int = 50
+Z2_FAST_COUNT: int = 15
+Z2_FAST_SPEED: float = 160.0
+Z2_FAST_XP: int = 60
+Z2_GUNNER_COUNT: int = 15
+Z2_GUNNER_XP: int = 70
+Z2_RAMMER_COUNT: int = 15
+Z2_RAMMER_HP: int = ALIEN_HP * 2   # 100
+Z2_RAMMER_SHIELD: int = 50
+Z2_RAMMER_XP: int = 80
+
+# Homing missile
+MISSILE_COST_IRON: int = 500
+MISSILE_COST_COPPER: int = 300
+MISSILE_DAMAGE: float = 50.0
+MISSILE_SPEED: float = 400.0
+MISSILE_RANGE: float = 1500.0
+MISSILE_TURN_RATE: float = 180.0    # deg/s homing turn rate
+
+# Special ability meter
+ABILITY_METER_MAX: float = 100.0
+ABILITY_REGEN_RATE: float = 5.0     # points per second
+
+# Misty step module
+MISTY_STEP_DISTANCE: float = 100.0
+MISTY_STEP_COST: float = 20.0
+MISTY_STEP_COOLDOWN: float = 2.0
+
+# Force wall module
+FORCE_WALL_LENGTH: float = 100.0
+FORCE_WALL_DURATION: float = 20.0
+FORCE_WALL_COST: float = 30.0
+
+# Death blossom module
+DEATH_BLOSSOM_FIRE_RATE: float = 0.3   # seconds between volleys
+DEATH_BLOSSOM_MISSILES_PER_VOLLEY: int = 8
+DEATH_BLOSSOM_HP_AFTER: int = 10
 
 # ── Boss encounter constants ────────────────────────────────────────────────
 BOSS_MONSTER_PNG = os.path.join(

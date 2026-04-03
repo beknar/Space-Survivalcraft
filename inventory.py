@@ -41,7 +41,7 @@ class Inventory(BaseInventoryData):
         self._shield_recharge_icon: Optional[arcade.Texture] = shield_recharge_icon
         # Extra icons for blueprints, modules, etc. (set by game_view)
         self.item_icons: dict[str, arcade.Texture] = {}
-        self._item_names: dict[str, str] = {"iron": "Iron", "repair_pack": "Repair Pack", "shield_recharge": "Shield Recharge"}
+        self._item_names: dict[str, str] = {"iron": "Iron", "copper": "Copper", "repair_pack": "Repair Pack", "shield_recharge": "Shield Recharge", "missile": "Homing Missile"}
         self._count_cache: dict[str, arcade.Text] = {}
 
         # Drag-and-drop state

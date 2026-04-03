@@ -85,6 +85,8 @@ class StationInventory(BaseInventoryData):
         self._ITEM_NAMES["iron"] = "Iron"
         self._ITEM_NAMES["repair_pack"] = "Repair Pack"
         self._ITEM_NAMES["shield_recharge"] = "Shield Recharge"
+        self._ITEM_NAMES["copper"] = "Copper"
+        self._ITEM_NAMES["missile"] = "Homing Missile"
 
     # ── Geometry ─────────────────────────────────────────────────────────
     def _panel_origin(self) -> tuple[int, int]:

@@ -74,6 +74,10 @@ def draw_world(gv: GameView, cx: float, cy: float, hw: float, hh: float) -> None
 
     # Shared world entities (always drawn)
     gv.projectile_list.draw()
+    gv._missile_list.draw()
+    # Force walls
+    for wall in gv._force_walls:
+        wall.draw()
     # Contrail drawn behind the player ship
     for cp in gv._contrail:
         cp.draw()
