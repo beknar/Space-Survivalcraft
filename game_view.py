@@ -480,6 +480,20 @@ class GameView(arcade.View):
         self.player.center_y = py
         self.player.vel_x = 0.0
         self.player.vel_y = 0.0
+        # Zone entry announcement
+        _ZONE_NAMES = {
+            ZoneID.MAIN: "Entering the Double Star Zone",
+            ZoneID.ZONE2: "Entering the Nebula Zone",
+            ZoneID.WARP_METEOR: "Meteor Warp Zone",
+            ZoneID.WARP_LIGHTNING: "Lightning Warp Zone",
+            ZoneID.WARP_GAS: "Gas Cloud Warp Zone",
+            ZoneID.WARP_ENEMY: "Enemy Spawner Warp Zone",
+        }
+        zone_name = _ZONE_NAMES.get(target_zone_id, "")
+        if zone_name:
+            self._boss_announce_timer = 3.0
+            self._t_boss_announce.text = zone_name
+            self._t_boss_subtitle.text = ""
 
     # ── Music delegates (game_music module) ────────────────────────────────
     def _play_next_track(self) -> None:
