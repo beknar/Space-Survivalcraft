@@ -143,11 +143,13 @@ def _minimap_obstacles(gv: GameView) -> arcade.SpriteList:
         obstacles, _ = gv._zone.get_minimap_objects()
         return obstacles
     if hasattr(gv._zone, '_iron_asteroids'):
-        # Zone 2: combine all asteroid lists
+        # Zone 2: combine all asteroid + gas area lists for minimap
         combined = arcade.SpriteList()
         for a in gv._zone._iron_asteroids:
             combined.append(a)
         for a in gv._zone._copper_asteroids:
+            combined.append(a)
+        for a in gv._zone._gas_areas:
             combined.append(a)
         return combined
     return gv.asteroid_list

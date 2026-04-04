@@ -36,7 +36,13 @@ def generate_gas_texture(size: int) -> arcade.Texture:
             [int(cx + ox - r), int(cy + oy - r),
              int(cx + ox + r), int(cy + oy + r)],
             fill=(180, 255, 80, random.randint(40, 90)))
-    img = img.filter(ImageFilter.GaussianBlur(radius=max(2, size // 40)))
+    img = img.filter(ImageFilter.GaussianBlur(radius=max(3, size // 30)))
+    # Apply circular alpha mask so edges are rounded, not square
+    mask = PILImage.new("L", (size, size), 0)
+    mask_draw = ImageDraw.Draw(mask)
+    mask_draw.ellipse([0, 0, size - 1, size - 1], fill=255)
+    mask = mask.filter(ImageFilter.GaussianBlur(radius=max(2, size // 20)))
+    img.putalpha(PILImage.composite(img.getchannel("A"), PILImage.new("L", (size, size), 0), mask))
     return arcade.Texture(img)
 
 

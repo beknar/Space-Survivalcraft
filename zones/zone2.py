@@ -45,6 +45,15 @@ class Zone2(ZoneState):
     world_height = ZONE2_HEIGHT
 
     def __init__(self) -> None:
+        from constants import FOG_CELL_SIZE, FOG_REVEAL_RADIUS
+        self._fog_cell = FOG_CELL_SIZE
+        self._fog_reveal_r = FOG_REVEAL_RADIUS
+        _fog_w = ZONE2_WIDTH // FOG_CELL_SIZE
+        _fog_h = ZONE2_HEIGHT // FOG_CELL_SIZE
+        self._fog_grid: list[list[bool]] = [[False] * _fog_w for _ in range(_fog_h)]
+        self._fog_revealed: int = 0
+        self._fog_w = _fog_w
+        self._fog_h = _fog_h
         # Sprite lists
         self._iron_asteroids: arcade.SpriteList = arcade.SpriteList(use_spatial_hash=True)
         self._double_iron: arcade.SpriteList = arcade.SpriteList(use_spatial_hash=True)
@@ -109,7 +118,14 @@ class Zone2(ZoneState):
         if gv._trade_station is None:
             gv._spawn_trade_station()
 
+        # Set Zone 2 fog grid on GameView
+        gv._fog_grid = self._fog_grid
+        gv._fog_revealed = self._fog_revealed
+
     def teardown(self, gv: GameView) -> None:
+        # Save fog state back
+        self._fog_grid = gv._fog_grid
+        self._fog_revealed = gv._fog_revealed
         self._iron_asteroids.clear()
         self._double_iron.clear()
         self._copper_asteroids.clear()
@@ -215,11 +231,28 @@ class Zone2(ZoneState):
 
     # ── Update ─────────────────────────────────────────────────────────────
 
+    def _update_fog(self, gv: GameView) -> None:
+        """Reveal fog cells around the player in Zone 2."""
+        px, py = gv.player.center_x, gv.player.center_y
+        cx = int(px / self._fog_cell)
+        cy = int(py / self._fog_cell)
+        r = int(self._fog_reveal_r / self._fog_cell) + 1
+        for gy in range(max(0, cy - r), min(self._fog_h, cy + r + 1)):
+            for gx in range(max(0, cx - r), min(self._fog_w, cx + r + 1)):
+                if not self._fog_grid[gy][gx]:
+                    cell_cx = (gx + 0.5) * self._fog_cell
+                    cell_cy = (gy + 0.5) * self._fog_cell
+                    if math.hypot(px - cell_cx, py - cell_cy) <= self._fog_reveal_r:
+                        self._fog_grid[gy][gx] = True
+                        self._fog_revealed += 1
+                        gv._fog_revealed = self._fog_revealed
+
     def update(self, gv: GameView, dt: float) -> None:
         from sprites.explosion import HitSpark
         from sprites.zone2_aliens import ShieldedAlien
 
         px, py = gv.player.center_x, gv.player.center_y
+        self._update_fog(gv)
 
         # Wormhole animation + collision
         for wh in gv._wormholes:
