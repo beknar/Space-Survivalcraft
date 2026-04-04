@@ -13,12 +13,12 @@ from zones.zone_warp_base import WarpZoneBase, WARP_ZONE_WIDTH, WARP_ZONE_HEIGHT
 if TYPE_CHECKING:
     from game_view import GameView
 
-_BOLT_SPEED = 650.0        # px/s (same as alien laser)
-_BOLT_DAMAGE = 20
-_BOLT_INTERVAL_MIN = 0.5   # seconds between volleys
-_BOLT_INTERVAL_MAX = 2.0
-_BOLTS_PER_VOLLEY_MIN = 8
-_BOLTS_PER_VOLLEY_MAX = 15
+_BOLT_SPEED = 750.0        # px/s (faster than alien laser)
+_BOLT_DAMAGE = 25
+_BOLT_INTERVAL_MIN = 0.3   # seconds between volleys
+_BOLT_INTERVAL_MAX = 1.5
+_BOLTS_PER_VOLLEY_MIN = 10
+_BOLTS_PER_VOLLEY_MAX = 20
 _BOLT_WIDTH = 3.0
 _BOLT_LIFETIME = 1.5       # seconds before despawn
 

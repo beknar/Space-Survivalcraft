@@ -279,7 +279,7 @@ class Zone2(ZoneState):
                 ddy = gv.player.center_y - a.center_y
                 ddist = math.hypot(ddx, ddy)
                 # Use half the sprite width as radius for copper (larger)
-                a_radius = max(ASTEROID_RADIUS, a.width * a.scale / 2 * 0.8)
+                a_radius = max(ASTEROID_RADIUS, a.width / 2 * 0.8)
                 combined = a_radius + SHIP_RADIUS
                 if ddist < combined and ddist > 0 and gv.player._collision_cd <= 0.0:
                     # Push apart
