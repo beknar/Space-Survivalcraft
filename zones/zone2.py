@@ -227,7 +227,6 @@ class Zone2(ZoneState):
             if math.hypot(px - wh.center_x, py - wh.center_y) < 100:
                 gv._use_glow = (100, 180, 255, 200)
                 gv._use_glow_timer = 0.5
-                import arcade
                 arcade.play_sound(gv._victory_snd, volume=0.6)
                 gv._flash_game_msg("Returning through wormhole...", 1.5)
                 target = wh.zone_target if wh.zone_target is not None else ZoneID.MAIN
