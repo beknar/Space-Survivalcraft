@@ -247,8 +247,9 @@ class Zone2(ZoneState):
         self._update_gas_damage(gv, dt)
 
         # Update wandering asteroids
+        # Wandering asteroids: spin only, no movement in Zone 2
         for w in self._wanderers:
-            w.update_wandering(dt, px, py)
+            w.angle = (w.angle + w._rot_speed * dt) % 360
         self._update_wanderer_collision(gv, dt)
 
         # Update aliens

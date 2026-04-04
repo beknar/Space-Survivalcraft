@@ -21,21 +21,21 @@ def generate_gas_texture(size: int) -> arcade.Texture:
         green = random.randint(120, 220)
         red = random.randint(80, 160)
         blue = random.randint(20, 80)
-        alpha = random.randint(15, 40)
+        alpha = random.randint(30, 70)
         draw.ellipse(
             [int(cx + ox - r), int(cy + oy - r),
              int(cx + ox + r), int(cy + oy + r)],
             fill=(red, green, blue, alpha))
     # Bright toxic core
     for _ in range(blob_count // 4):
-        r = random.gauss(size * 0.05, size * 0.03)
-        r = max(2, min(size * 0.1, r))
-        ox = random.gauss(0, size * 0.08)
-        oy = random.gauss(0, size * 0.08)
+        r = random.gauss(size * 0.08, size * 0.04)
+        r = max(3, min(size * 0.15, r))
+        ox = random.gauss(0, size * 0.06)
+        oy = random.gauss(0, size * 0.06)
         draw.ellipse(
             [int(cx + ox - r), int(cy + oy - r),
              int(cx + ox + r), int(cy + oy + r)],
-            fill=(180, 255, 80, random.randint(20, 50)))
+            fill=(180, 255, 80, random.randint(40, 90)))
     img = img.filter(ImageFilter.GaussianBlur(radius=max(2, size // 40)))
     return arcade.Texture(img)
 

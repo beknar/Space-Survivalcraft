@@ -72,6 +72,10 @@ class SaveLoadMode(MenuMode):
                     with open(path, "r") as f:
                         data = json.load(f)
                     player = data.get("player", {})
+                    zone_names = {"MAIN": "Double Star", "ZONE2": "Nebula",
+                                   "WARP_METEOR": "Warp", "WARP_LIGHTNING": "Warp",
+                                   "WARP_GAS": "Warp", "WARP_ENEMY": "Warp"}
+                    zone_id = data.get("zone_id", "MAIN")
                     self._slots.append({
                         "name": data.get("save_name", f"Save {i + 1}"),
                         "exists": True,
@@ -81,6 +85,7 @@ class SaveLoadMode(MenuMode):
                         "hp": player.get("hp", 0),
                         "shields": player.get("shields", 0),
                         "modules": len(data.get("buildings", [])),
+                        "zone": zone_names.get(zone_id, zone_id),
                     })
                 except (json.JSONDecodeError, OSError):
                     self._slots.append({"name": "", "exists": False})
@@ -138,7 +143,9 @@ class SaveLoadMode(MenuMode):
             if info.get("exists"):
                 char = info.get("character", "")
                 char_part = f"  \u00b7 {char}" if char else ""
-                detail = (f"{info.get('faction','?')} \u00b7 {info.get('ship_type','?')}{char_part}"
+                zone_label = info.get("zone", "")
+                zone_part = f"  \u00b7 {zone_label}" if zone_label else ""
+                detail = (f"{info.get('faction','?')} \u00b7 {info.get('ship_type','?')}{char_part}{zone_part}"
                           f"  |  HP {info.get('hp',0)}  Shields {info.get('shields',0)}")
                 mods = info.get("modules", 0)
                 if mods > 0: detail += f"  |  Modules {mods}"
