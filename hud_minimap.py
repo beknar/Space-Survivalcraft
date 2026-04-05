@@ -41,7 +41,7 @@ def draw_minimap(
     wormhole_positions: list[tuple[float, float]] | None = None,
     zone_width: float = WORLD_WIDTH,
     zone_height: float = WORLD_HEIGHT,
-    gas_positions: list[tuple[float, float]] | None = None,
+    gas_positions: list[tuple[float, float, float]] | None = None,
 ) -> None:
     """Draw a scaled overview of the world inside the status panel."""
     mx, my = MINIMAP_X, MINIMAP_Y
@@ -185,12 +185,16 @@ def draw_minimap(
             arcade.draw_circle_filled(bmx, bmy, 4.0, (255, 50, 50))
             arcade.draw_circle_outline(bmx, bmy, 5.5, (255, 100, 100), 1)
 
-    # Gas areas (green dots)
+    # Gas areas (green dots/circles, sized proportionally)
     if gas_positions:
-        for gpx, gpy in gas_positions:
+        map_scale = mw / zone_width  # world px to minimap px
+        for entry in gas_positions:
+            gpx, gpy = entry[0], entry[1]
+            grad = entry[2] if len(entry) > 2 else 50.0
             if is_revealed(gpx, gpy, fog_grid):
                 gmx, gmy = to_map(gpx, gpy)
-                arcade.draw_circle_filled(gmx, gmy, 2.5, (80, 200, 60))
+                dot_r = max(1.5, grad * map_scale)
+                arcade.draw_circle_filled(gmx, gmy, dot_r, (80, 200, 60, 120))
 
     # Wormholes (purple pulsing circles)
     if wormhole_positions:

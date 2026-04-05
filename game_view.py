@@ -453,6 +453,7 @@ class GameView(arcade.View):
         # Zone state machine
         from zones.zone1_main import MainZone
         self._main_zone = MainZone()  # kept for reuse on return
+        self._zone2: None = None      # created on first visit, reused after
         self._zone = self._main_zone
         self._zone.setup(self)
 
@@ -465,9 +466,13 @@ class GameView(arcade.View):
             self._zone._stash["_player_pos"] = (
                 self.player.center_x, self.player.center_y)
         self._zone.teardown(self)
-        # Reuse the main zone instance (preserves stashed state)
+        # Reuse persistent zone instances (preserves state across visits)
         if target_zone_id == ZoneID.MAIN:
             self._zone = self._main_zone
+        elif target_zone_id == ZoneID.ZONE2:
+            if self._zone2 is None:
+                self._zone2 = create_zone(ZoneID.ZONE2)
+            self._zone = self._zone2
         else:
             self._zone = create_zone(target_zone_id)
         self._zone.setup(self)

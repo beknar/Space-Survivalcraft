@@ -40,7 +40,7 @@ class LightningBolt:
         """Generate offset points for jagged lightning appearance."""
         pts = [(0.0, 0.0)]
         length = 80.0
-        seg_count = 6
+        seg_count = 4
         perp_x = -self.dy
         perp_y = self.dx
         for i in range(1, seg_count + 1):
@@ -63,14 +63,14 @@ class LightningBolt:
 
     def draw(self) -> None:
         alpha = max(40, int(255 * (1.0 - self.age / _BOLT_LIFETIME)))
-        for i in range(len(self.segments) - 1):
-            x1 = self.x + self.segments[i][0]
-            y1 = self.y + self.segments[i][1]
-            x2 = self.x + self.segments[i + 1][0]
-            y2 = self.y + self.segments[i + 1][1]
-            arcade.draw_line(x1, y1, x2, y2, (180, 200, 255, alpha), _BOLT_WIDTH)
-            # Bright core
-            arcade.draw_line(x1, y1, x2, y2, (255, 255, 255, alpha // 2), 1)
+        colour = (200, 220, 255, alpha)
+        ox, oy = self.x, self.y
+        segs = self.segments
+        for i in range(len(segs) - 1):
+            arcade.draw_line(
+                ox + segs[i][0], oy + segs[i][1],
+                ox + segs[i+1][0], oy + segs[i+1][1],
+                colour, _BOLT_WIDTH)
 
 
 class LightningWarpZone(WarpZoneBase):

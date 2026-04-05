@@ -262,7 +262,7 @@ class HUD:
         zone_height: float = 6400,
         ability_meter: float = 0.0,
         ability_meter_max: float = 100.0,
-        gas_positions: list[tuple[float, float]] | None = None,
+        gas_positions: list[tuple[float, float, float]] | None = None,
     ) -> None:
         """Draw the full HUD status panel."""
         # Panel background

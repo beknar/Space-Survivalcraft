@@ -65,6 +65,7 @@ class Zone2(ZoneState):
         self._gas_pos_cache: list[tuple[float, float]] | None = None
         # World seed for deterministic regeneration on save/load
         self._world_seed: int = random.randint(0, 2**31)
+        self._populated: bool = False
         # Sprite lists
         self._iron_asteroids: arcade.SpriteList = arcade.SpriteList(use_spatial_hash=True)
         self._double_iron: arcade.SpriteList = arcade.SpriteList(use_spatial_hash=True)
@@ -88,9 +89,6 @@ class Zone2(ZoneState):
     def setup(self, gv: GameView) -> None:
         _HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-        # Seed RNG for deterministic world layout (same seed = same map)
-        random.seed(self._world_seed)
-
         # Load textures (cached at module level to avoid reloading)
         global _alien_texture_cache, _copper_tex_cache
         self._iron_tex = gv._asteroid_tex
@@ -110,54 +108,42 @@ class Zone2(ZoneState):
                 _alien_texture_cache[name] = arcade.Texture(frame)
             pil_ship.close()
         self._alien_textures = _alien_texture_cache
-
-        # Wanderer uses same asteroid texture
         self._wanderer_tex = self._iron_tex
 
-        # Populate iron asteroids (same count as zone 1)
-        self._populate_iron_asteroids()
-        # Populate double iron asteroids
-        self._populate_double_iron()
-        # Populate copper asteroids
-        self._populate_copper_asteroids()
-        # Populate gas areas
-        self._populate_gas_areas()
-        # Cache gas positions for minimap
-        self._gas_pos_cache = [(g.center_x, g.center_y) for g in self._gas_areas]
-        # Populate wandering asteroids
-        self._populate_wanderers()
-        # Populate aliens
-        self._populate_aliens()
+        # Only populate on first visit (not on re-entry)
+        if not self._populated:
+            random.seed(self._world_seed)
+            self._populate_iron_asteroids()
+            self._populate_double_iron()
+            self._populate_copper_asteroids()
+            self._populate_gas_areas()
+            self._gas_pos_cache = [(g.center_x, g.center_y, g.radius) for g in self._gas_areas]
+            self._populate_wanderers()
+            self._populate_aliens()
+            random.seed()
+            self._populated = True
 
-        # Return wormhole at centre
+        # Wormhole back to zone 1
         wh = Wormhole(self.world_width / 2, self.world_height / 2)
         wh.zone_target = ZoneID.MAIN
         gv._wormholes = [wh]
         gv._wormhole_list.clear()
         gv._wormhole_list.append(wh)
 
-        # Restore RNG to non-deterministic after world generation
-        random.seed()
-
         # Spawn a trader station in Zone 2
         if gv._trade_station is None:
             gv._spawn_trade_station()
 
-        # Set Zone 2 fog grid on GameView
+        # Set Zone 2 fog grid on GameView (persists across visits)
         gv._fog_grid = self._fog_grid
         gv._fog_revealed = self._fog_revealed
 
     def teardown(self, gv: GameView) -> None:
-        # Save fog state back
+        # Save fog state back (persists across visits)
         self._fog_grid = gv._fog_grid
         self._fog_revealed = gv._fog_revealed
-        self._iron_asteroids.clear()
-        self._double_iron.clear()
-        self._copper_asteroids.clear()
-        self._aliens.clear()
+        # Clear transient lists only (projectiles, pickups)
         self._alien_projectiles.clear()
-        self._gas_areas.clear()
-        self._wanderers.clear()
         gv._wormholes.clear()
         gv._wormhole_list.clear()
 
