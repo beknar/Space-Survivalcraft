@@ -56,6 +56,8 @@ class Zone2(ZoneState):
         self._fog_h = _fog_h
         # Minimap cache (invalidated when objects are destroyed)
         self._minimap_cache: arcade.SpriteList | None = None
+        # World seed for deterministic regeneration on save/load
+        self._world_seed: int = random.randint(0, 2**31)
         # Sprite lists
         self._iron_asteroids: arcade.SpriteList = arcade.SpriteList(use_spatial_hash=True)
         self._double_iron: arcade.SpriteList = arcade.SpriteList(use_spatial_hash=True)
@@ -78,6 +80,9 @@ class Zone2(ZoneState):
 
     def setup(self, gv: GameView) -> None:
         _HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+        # Seed RNG for deterministic world layout (same seed = same map)
+        random.seed(self._world_seed)
 
         # Load textures
         self._iron_tex = gv._asteroid_tex
@@ -115,6 +120,9 @@ class Zone2(ZoneState):
         gv._wormholes = [wh]
         gv._wormhole_list.clear()
         gv._wormhole_list.append(wh)
+
+        # Restore RNG to non-deterministic after world generation
+        random.seed()
 
         # Spawn a trader station in Zone 2
         if gv._trade_station is None:

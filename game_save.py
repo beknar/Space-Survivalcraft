@@ -86,6 +86,7 @@ def save_to_dict(gv: GameView, name: str = "") -> dict:
             "y": gv._trade_station.center_y,
         } if gv._trade_station is not None else None,
         "zone_id": gv._zone.zone_id.name,
+        "zone_seed": getattr(gv._zone, '_world_seed', None),
         "boss_spawned": gv._boss_spawned,
         "boss_defeated": gv._boss_defeated,
         "boss": {
@@ -274,6 +275,10 @@ def restore_state(view: GameView, data: dict) -> None:
         zid = ZoneID[saved_zone]
         view._zone.teardown(view)
         view._zone = create_zone(zid)
+        # Restore world seed so zone regenerates identically
+        saved_seed = data.get("zone_seed")
+        if saved_seed is not None and hasattr(view._zone, '_world_seed'):
+            view._zone._world_seed = saved_seed
         view._zone.setup(view)
         view.player.world_width = view._zone.world_width
         view.player.world_height = view._zone.world_height
