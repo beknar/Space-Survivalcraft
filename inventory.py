@@ -274,14 +274,11 @@ class Inventory(BaseInventoryData):
             icon = self.item_icons[item_type]
 
         if icon is not None:
-            icon_scale = (INV_CELL - 12) / max(icon.width, icon.height)
+            # Use fixed icon size (INV_CELL - 12) to avoid per-frame scale calc
+            isz = INV_CELL - 12
             arcade.draw_texture_rect(
                 icon,
-                arcade.LBWH(
-                    cell_x + 6, cell_y + 6,
-                    icon.width * icon_scale,
-                    icon.height * icon_scale,
-                ),
+                arcade.LBWH(cell_x + 6, cell_y + 6, isz, isz),
                 alpha=alpha,
             )
         else:
@@ -338,38 +335,39 @@ class Inventory(BaseInventoryData):
         # Determine which cell the cursor is hovering over (for highlight)
         hover_cell = self._cell_at(self._drag_x, self._drag_y) if self._drag_type else None
 
-        # Grid cells
+        # Grid: single background + grid lines (instead of 25 individual cells)
+        grid_w = INV_COLS * INV_CELL
+        grid_h = INV_ROWS * INV_CELL
+        arcade.draw_rect_filled(
+            arcade.LBWH(gx, gy, grid_w, grid_h), (30, 30, 60, 200))
+        # Horizontal grid lines
+        for r in range(INV_ROWS + 1):
+            ly = gy + r * INV_CELL
+            arcade.draw_line(gx, ly, gx + grid_w, ly, (60, 80, 120), 1)
+        # Vertical grid lines
+        for c in range(INV_COLS + 1):
+            lx = gx + c * INV_CELL
+            arcade.draw_line(lx, gy, lx, gy + grid_h, (60, 80, 120), 1)
+
+        # Only draw fills for occupied/hover/drag cells (not all 25)
         for row in range(INV_ROWS):
             for col in range(INV_COLS):
-                cx_ = gx + col * INV_CELL
-                cy_ = gy + (INV_ROWS - 1 - row) * INV_CELL
                 cell = (row, col)
+                item = self._items.get(cell)
                 is_src = (cell == self._drag_src and self._drag_type is not None)
                 is_hover = (cell == hover_cell)
-
-                item = self._items.get(cell)
-                occupied = item is not None
-
+                if not is_src and not is_hover and item is None:
+                    continue  # skip empty cells — already drawn as background
+                cx_ = gx + col * INV_CELL
+                cy_ = gy + (INV_ROWS - 1 - row) * INV_CELL
                 if is_src:
                     fill = (60, 60, 20, 200)
                 elif is_hover:
                     fill = (50, 70, 100, 220)
-                elif occupied:
-                    fill = (50, 80, 50, 200)
                 else:
-                    fill = (30, 30, 60, 200)
-
+                    fill = (50, 80, 50, 200)
                 arcade.draw_rect_filled(
-                    arcade.LBWH(cx_ + 1, cy_ + 1, INV_CELL - 2, INV_CELL - 2),
-                    fill,
-                )
-                arcade.draw_rect_outline(
-                    arcade.LBWH(cx_, cy_, INV_CELL, INV_CELL),
-                    (60, 80, 120),
-                    border_width=1,
-                )
-
-                # Draw item content (skip source cell of drag)
+                    arcade.LBWH(cx_ + 1, cy_ + 1, INV_CELL - 2, INV_CELL - 2), fill)
                 if not is_src and item is not None:
                     self._draw_item_in_cell(item[0], item[1], cx_, cy_)
 
