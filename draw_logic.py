@@ -172,9 +172,14 @@ def _minimap_enemies(gv: GameView) -> arcade.SpriteList:
 
 
 def _gas_positions(gv: GameView) -> list[tuple[float, float]]:
-    """Return gas area positions for minimap (Zone 2 only)."""
-    if hasattr(gv._zone, '_gas_areas'):
-        return [(g.center_x, g.center_y) for g in gv._zone._gas_areas]
+    """Return gas area positions for minimap (Zone 2 only, cached)."""
+    if hasattr(gv._zone, '_gas_pos_cache'):
+        if gv._zone._gas_pos_cache is not None:
+            return gv._zone._gas_pos_cache
+        if hasattr(gv._zone, '_gas_areas'):
+            gv._zone._gas_pos_cache = [
+                (g.center_x, g.center_y) for g in gv._zone._gas_areas]
+            return gv._zone._gas_pos_cache
     return []
 
 

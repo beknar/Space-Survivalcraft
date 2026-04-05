@@ -37,6 +37,11 @@ from sprites.asteroid import IronAsteroid
 if TYPE_CHECKING:
     from game_view import GameView
 
+# Module-level caches (persist across zone entries, generated once)
+_gas_texture_cache: dict[int, arcade.Texture] = {}
+_alien_texture_cache: dict[str, arcade.Texture] | None = None
+_copper_tex_cache: arcade.Texture | None = None
+
 
 class Zone2(ZoneState):
     """The Nebula — second biome with copper, gas clouds, new aliens."""
@@ -56,6 +61,8 @@ class Zone2(ZoneState):
         self._fog_h = _fog_h
         # Minimap cache (invalidated when objects are destroyed)
         self._minimap_cache: arcade.SpriteList | None = None
+        # Gas positions cache for minimap (rebuilt when gas list changes)
+        self._gas_pos_cache: list[tuple[float, float]] | None = None
         # World seed for deterministic regeneration on save/load
         self._world_seed: int = random.randint(0, 2**31)
         # Sprite lists
@@ -84,19 +91,25 @@ class Zone2(ZoneState):
         # Seed RNG for deterministic world layout (same seed = same map)
         random.seed(self._world_seed)
 
-        # Load textures
+        # Load textures (cached at module level to avoid reloading)
+        global _alien_texture_cache, _copper_tex_cache
         self._iron_tex = gv._asteroid_tex
-        self._copper_tex = arcade.load_texture(COPPER_ASTEROID_PNG)
+        if _copper_tex_cache is None:
+            _copper_tex_cache = arcade.load_texture(COPPER_ASTEROID_PNG)
+        self._copper_tex = _copper_tex_cache
         self._copper_pickup_tex = arcade.load_texture(COPPER_PICKUP_PNG)
         self._alien_laser_tex = gv._alien_laser_tex
 
-        # Load alien textures from Ship.png crops
-        from sprites.zone2_aliens import ALIEN_CROPS
-        pil_ship = PILImage.open(Z2_ALIEN_SHIP_PNG).convert("RGBA")
-        for name, crop in ALIEN_CROPS.items():
-            frame = pil_ship.crop(crop)
-            self._alien_textures[name] = arcade.Texture(frame)
-        pil_ship.close()
+        # Load alien textures from Ship.png crops (cached at module level)
+        if _alien_texture_cache is None:
+            from sprites.zone2_aliens import ALIEN_CROPS
+            pil_ship = PILImage.open(Z2_ALIEN_SHIP_PNG).convert("RGBA")
+            _alien_texture_cache = {}
+            for name, crop in ALIEN_CROPS.items():
+                frame = pil_ship.crop(crop)
+                _alien_texture_cache[name] = arcade.Texture(frame)
+            pil_ship.close()
+        self._alien_textures = _alien_texture_cache
 
         # Wanderer uses same asteroid texture
         self._wanderer_tex = self._iron_tex
@@ -109,6 +122,8 @@ class Zone2(ZoneState):
         self._populate_copper_asteroids()
         # Populate gas areas
         self._populate_gas_areas()
+        # Cache gas positions for minimap
+        self._gas_pos_cache = [(g.center_x, g.center_y) for g in self._gas_areas]
         # Populate wandering asteroids
         self._populate_wanderers()
         # Populate aliens
@@ -189,14 +204,14 @@ class Zone2(ZoneState):
 
     def _populate_gas_areas(self) -> None:
         from sprites.gas_area import GasArea, generate_gas_texture
-        textures = {}
+        global _gas_texture_cache
         sizes = [64, 128, 192, 256, 384]
         for _ in range(GAS_AREA_COUNT):
             size = random.choice(sizes)
-            if size not in textures:
-                textures[size] = generate_gas_texture(size)
+            if size not in _gas_texture_cache:
+                _gas_texture_cache[size] = generate_gas_texture(size)
             x, y = self._rand_pos(200)
-            self._gas_areas.append(GasArea(textures[size], x, y, size,
+            self._gas_areas.append(GasArea(_gas_texture_cache[size], x, y, size,
                                            world_w=self.world_width,
                                            world_h=self.world_height))
 
