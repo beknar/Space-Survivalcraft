@@ -152,8 +152,6 @@ def _minimap_obstacles(gv: GameView) -> arcade.SpriteList:
             combined.append(a)
         for a in gv._zone._copper_asteroids:
             combined.append(a)
-        for a in gv._zone._gas_areas:
-            combined.append(a)
         gv._zone._minimap_cache = combined
         return combined
     return gv.asteroid_list
@@ -171,6 +169,13 @@ def _minimap_enemies(gv: GameView) -> arcade.SpriteList:
     if hasattr(gv._zone, '_aliens'):
         return gv._zone._aliens
     return gv.alien_list
+
+
+def _gas_positions(gv: GameView) -> list[tuple[float, float]]:
+    """Return gas area positions for minimap (Zone 2 only)."""
+    if hasattr(gv._zone, '_gas_areas'):
+        return [(g.center_x, g.center_y) for g in gv._zone._gas_areas]
+    return []
 
 
 def draw_ui(gv: GameView) -> None:
@@ -207,6 +212,7 @@ def draw_ui(gv: GameView) -> None:
         zone_height=gv._zone.world_height,
         ability_meter=gv._ability_meter,
         ability_meter_max=gv._ability_meter_max,
+        gas_positions=_gas_positions(gv),
     )
     # Video frame draws (skip when menu open)
     if not menu_open:

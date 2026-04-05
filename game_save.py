@@ -19,6 +19,68 @@ if TYPE_CHECKING:
 _SAVE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "saves")
 
 
+def _restore_zone2_aliens(view: GameView, aliens_data: list[dict]) -> None:
+    """Restore Zone 2 aliens from saved data."""
+    from sprites.zone2_aliens import (
+        ShieldedAlien, FastAlien, GunnerAlien, RammerAlien)
+    zone = view._zone
+    zone._aliens.clear()
+    classes = {
+        "shielded": ShieldedAlien,
+        "fast": FastAlien,
+        "gunner": GunnerAlien,
+        "rammer": RammerAlien,
+    }
+    kw = dict(world_w=zone.world_width, world_h=zone.world_height)
+    for ald in aliens_data:
+        atype = ald.get("type", "shielded")
+        cls = classes.get(atype, ShieldedAlien)
+        tex = zone._alien_textures.get(atype)
+        if tex is None:
+            continue
+        al = cls(tex, zone._alien_laser_tex, ald["x"], ald["y"], **kw)
+        al.hp = ald.get("hp", al.hp)
+        al.shields = ald.get("shields", al.shields)
+        al.vel_x = ald.get("vel_x", 0.0)
+        al.vel_y = ald.get("vel_y", 0.0)
+        al._heading = ald.get("heading", 0.0)
+        al.angle = al._heading
+        al._state = ald.get("state", 0)
+        al._home_x = ald.get("home_x", ald["x"])
+        al._home_y = ald.get("home_y", ald["y"])
+        zone._aliens.append(al)
+
+
+def _save_zone2_aliens(gv: GameView) -> list[dict]:
+    """Serialize Zone 2 aliens if currently in Zone 2."""
+    from zones import ZoneID
+    if gv._zone.zone_id != ZoneID.ZONE2 or not hasattr(gv._zone, '_aliens'):
+        return []
+    from sprites.zone2_aliens import (
+        ShieldedAlien, FastAlien, GunnerAlien, RammerAlien)
+    result = []
+    for al in gv._zone._aliens:
+        if isinstance(al, ShieldedAlien):
+            atype = "shielded"
+        elif isinstance(al, FastAlien):
+            atype = "fast"
+        elif isinstance(al, GunnerAlien):
+            atype = "gunner"
+        elif isinstance(al, RammerAlien):
+            atype = "rammer"
+        else:
+            atype = "shielded"
+        result.append({
+            "type": atype,
+            "x": al.center_x, "y": al.center_y,
+            "hp": al.hp, "shields": al.shields,
+            "vel_x": al.vel_x, "vel_y": al.vel_y,
+            "heading": al._heading, "state": al._state,
+            "home_x": al._home_x, "home_y": al._home_y,
+        })
+    return result
+
+
 def save_to_dict(gv: GameView, name: str = "") -> dict:
     """Serialize current game state to a dict."""
     from settings import audio
@@ -87,6 +149,7 @@ def save_to_dict(gv: GameView, name: str = "") -> dict:
         } if gv._trade_station is not None else None,
         "zone_id": gv._zone.zone_id.name,
         "zone_seed": getattr(gv._zone, '_world_seed', None),
+        "zone2_aliens": _save_zone2_aliens(gv),
         "boss_spawned": gv._boss_spawned,
         "boss_defeated": gv._boss_defeated,
         "boss": {
@@ -289,6 +352,10 @@ def restore_state(view: GameView, data: dict) -> None:
             if hasattr(view._zone, '_fog_grid'):
                 view._zone._fog_grid = saved_fog
                 view._zone._fog_revealed = view._fog_revealed
+        # Restore Zone 2 aliens from save (replace randomly generated ones)
+        z2_aliens = data.get("zone2_aliens", [])
+        if z2_aliens and hasattr(view._zone, '_aliens'):
+            _restore_zone2_aliens(view, z2_aliens)
 
     view._boss_spawned = data.get("boss_spawned", False)
     view._boss_defeated = data.get("boss_defeated", False)
