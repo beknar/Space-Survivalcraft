@@ -481,14 +481,14 @@ COPPER_PICKUP_PNG = os.path.join(
 )
 
 # Gaseous areas
-GAS_AREA_COUNT: int = 75
+GAS_AREA_COUNT: int = 40
 GAS_AREA_DAMAGE: float = 20.0       # damage per second + on first contact
 GAS_AREA_SLOW: float = 0.5          # speed multiplier while inside gas
 GAS_AREA_MIN_SIZE: int = 64
 GAS_AREA_MAX_SIZE: int = 384
 
 # Wandering magnetic asteroids
-WANDERING_COUNT: int = 30
+WANDERING_COUNT: int = 15
 WANDERING_HP: int = 150
 WANDERING_SPEED: float = 80.0       # wander speed px/s
 WANDERING_MAGNET_DIST: float = 80.0 # px attraction range

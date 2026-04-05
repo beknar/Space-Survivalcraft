@@ -54,6 +54,8 @@ class Zone2(ZoneState):
         self._fog_revealed: int = 0
         self._fog_w = _fog_w
         self._fog_h = _fog_h
+        # Minimap cache (invalidated when objects are destroyed)
+        self._minimap_cache: arcade.SpriteList | None = None
         # Sprite lists
         self._iron_asteroids: arcade.SpriteList = arcade.SpriteList(use_spatial_hash=True)
         self._double_iron: arcade.SpriteList = arcade.SpriteList(use_spatial_hash=True)
@@ -400,6 +402,8 @@ class Zone2(ZoneState):
         """Player projectile hits on asteroids and aliens."""
         from sprites.explosion import HitSpark
         from sprites.zone2_aliens import ShieldedAlien
+        _pre_count = (len(self._iron_asteroids) + len(self._copper_asteroids)
+                      + len(self._double_iron) + len(self._wanderers))
 
         for proj in list(gv.projectile_list):
             consumed = False
@@ -525,6 +529,11 @@ class Zone2(ZoneState):
                                 gv._spawn_blueprint_pickup(alien.center_x, alien.center_y)
                             alien.remove_from_sprite_lists()
                         break
+        # Invalidate minimap cache if any asteroid/gas was destroyed
+        _post_count = (len(self._iron_asteroids) + len(self._copper_asteroids)
+                       + len(self._double_iron) + len(self._wanderers))
+        if _post_count != _pre_count:
+            self._minimap_cache = None
 
     def _xp_for_alien(self, alien) -> int:
         from sprites.zone2_aliens import (

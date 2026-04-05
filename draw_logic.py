@@ -142,8 +142,11 @@ def _minimap_obstacles(gv: GameView) -> arcade.SpriteList:
     if isinstance(gv._zone, WarpZoneBase):
         obstacles, _ = gv._zone.get_minimap_objects()
         return obstacles
-    if hasattr(gv._zone, '_iron_asteroids'):
-        # Zone 2: combine all asteroid + gas area lists for minimap
+    if hasattr(gv._zone, '_minimap_cache'):
+        # Zone 2: use cached combined list (rebuilt only when stale)
+        cache = gv._zone._minimap_cache
+        if cache is not None:
+            return cache
         combined = arcade.SpriteList()
         for a in gv._zone._iron_asteroids:
             combined.append(a)
@@ -151,6 +154,7 @@ def _minimap_obstacles(gv: GameView) -> arcade.SpriteList:
             combined.append(a)
         for a in gv._zone._gas_areas:
             combined.append(a)
+        gv._zone._minimap_cache = combined
         return combined
     return gv.asteroid_list
 
