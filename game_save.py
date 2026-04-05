@@ -267,7 +267,7 @@ def restore_state(view: GameView, data: dict) -> None:
             view._spawn_trade_station()
 
     # Boss encounter
-    # Restore zone (only save while in main zone for now)
+    # Restore zone
     saved_zone = data.get("zone_id", "MAIN")
     if saved_zone != "MAIN":
         from zones import ZoneID, create_zone
@@ -277,6 +277,13 @@ def restore_state(view: GameView, data: dict) -> None:
         view._zone.setup(view)
         view.player.world_width = view._zone.world_width
         view.player.world_height = view._zone.world_height
+        # Restore fog grid into the zone (setup created a blank one)
+        if saved_fog is not None:
+            view._fog_grid = saved_fog
+            view._fog_revealed = sum(cell for row in saved_fog for cell in row)
+            if hasattr(view._zone, '_fog_grid'):
+                view._zone._fog_grid = saved_fog
+                view._zone._fog_revealed = view._fog_revealed
 
     view._boss_spawned = data.get("boss_spawned", False)
     view._boss_defeated = data.get("boss_defeated", False)
