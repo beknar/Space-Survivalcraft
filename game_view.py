@@ -756,6 +756,17 @@ class GameView(arcade.View):
         # Always advance player projectiles (shared across all zones)
         for proj in list(self.projectile_list):
             proj.update_projectile(delta_time)
+        # Always collect pickups (shared across all zones)
+        from constants import SHIP_RADIUS
+        sx, sy = self.player.center_x, self.player.center_y
+        for pickup in list(self.iron_pickup_list):
+            collected = pickup.update_pickup(delta_time, sx, sy, SHIP_RADIUS)
+            if collected:
+                self.inventory.add_item(getattr(pickup, 'item_type', 'iron'), pickup.amount)
+        for bp in list(self.blueprint_pickup_list):
+            collected = bp.update_pickup(delta_time, sx, sy, SHIP_RADIUS)
+            if collected:
+                self.inventory.add_item(bp.item_type, 1)
         # Zone-specific updates
         from zones import ZoneID
         if self._zone.zone_id == ZoneID.MAIN:

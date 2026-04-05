@@ -330,18 +330,7 @@ def update_entities(gv: GameView, dt: float) -> None:
     for asteroid in gv.asteroid_list:
         asteroid.update_asteroid(dt)
 
-    # Iron pickups
-    sx, sy = gv.player.center_x, gv.player.center_y
-    for pickup in list(gv.iron_pickup_list):
-        collected = pickup.update_pickup(dt, sx, sy, SHIP_RADIUS)
-        if collected:
-            gv.inventory.add_item(getattr(pickup, 'item_type', 'iron'), pickup.amount)
-
-    # Blueprint pickups
-    for bp in list(gv.blueprint_pickup_list):
-        collected = bp.update_pickup(dt, sx, sy, SHIP_RADIUS)
-        if collected:
-            gv.inventory.add_item(bp.item_type, 1)
+    # Note: pickup collection moved to game_view.on_update (shared across all zones)
 
     # Alien AI
     px, py = gv.player.center_x, gv.player.center_y
