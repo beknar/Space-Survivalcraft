@@ -123,8 +123,10 @@ class Zone2(ZoneState):
             random.seed()
             self._populated = True
 
-        # Wormhole back to zone 1
-        wh = Wormhole(self.world_width / 2, self.world_height / 2)
+        # Wormhole back to zone 1 — find a clear position
+        whx, why = self._find_clear_position(self.world_width / 2,
+                                              self.world_height / 2, 120)
+        wh = Wormhole(whx, why)
         wh.zone_target = ZoneID.MAIN
         gv._wormholes = [wh]
         gv._wormhole_list.clear()
@@ -148,22 +150,37 @@ class Zone2(ZoneState):
         gv._wormhole_list.clear()
 
     def get_player_spawn(self, entry_side: str) -> tuple[float, float]:
-        # Find a safe position near centre, not inside any gas cloud
-        cx, cy = self.world_width / 2, self.world_height / 2 - 200
-        for _ in range(50):
-            safe = True
-            for g in self._gas_areas:
-                if g.contains_point(cx, cy):
-                    safe = False
-                    break
-            if safe:
-                return cx, cy
-            # Try a random nearby position
-            cx = self.world_width / 2 + random.uniform(-300, 300)
-            cy = self.world_height / 2 - 200 + random.uniform(-300, 300)
-        return self.world_width / 2, self.world_height / 2 - 200
+        # Find a safe position near centre, not inside any gas cloud or asteroid
+        return self._find_clear_position(
+            self.world_width / 2, self.world_height / 2 - 200, 80)
 
     # ── Population ─────────────────────────────────────────────────────────
+
+    def _find_clear_position(self, cx: float, cy: float,
+                              clearance: float = 120) -> tuple[float, float]:
+        """Find a position near (cx, cy) not overlapping gas, asteroids, or wanderers."""
+        for _ in range(80):
+            ok = True
+            # Check gas areas
+            for g in self._gas_areas:
+                if g.contains_point(cx, cy):
+                    ok = False
+                    break
+            if ok:
+                # Check all asteroid types
+                for alist in (self._iron_asteroids, self._double_iron,
+                              self._copper_asteroids, self._wanderers):
+                    for a in alist:
+                        if math.hypot(a.center_x - cx, a.center_y - cy) < clearance:
+                            ok = False
+                            break
+                    if not ok:
+                        break
+            if ok:
+                return cx, cy
+            cx = self.world_width / 2 + random.uniform(-500, 500)
+            cy = self.world_height / 2 + random.uniform(-500, 500)
+        return cx, cy
 
     def _rand_pos(self, margin: float = 100.0) -> tuple[float, float]:
         return (random.uniform(margin, self.world_width - margin),
@@ -303,63 +320,64 @@ class Zone2(ZoneState):
             for p in projs:
                 self._alien_projectiles.append(p)
 
-        # Alien projectiles
+        # Alien projectiles — update all, then check hits via spatial
         for proj in list(self._alien_projectiles):
             proj.update_projectile(dt)
-            dist = math.hypot(proj.center_x - px, proj.center_y - py)
-            if dist < SHIP_RADIUS + 8:
-                proj.remove_from_sprite_lists()
-                gv._apply_damage_to_player(int(proj.damage))
-                gv._trigger_shake()
+        for proj in arcade.check_for_collision_with_list(
+                gv.player, self._alien_projectiles):
+            gv._apply_damage_to_player(int(proj.damage))
+            gv._trigger_shake()
+            proj.remove_from_sprite_lists()
 
         # Player projectile hits
         self._handle_projectile_hits(gv)
 
-        # Player-asteroid collision (iron, double iron, copper)
+        # Player-asteroid collision (spatial hash for fast lookup)
         from constants import ASTEROID_RADIUS, SHIP_COLLISION_DAMAGE, SHIP_BOUNCE
-        for alist in (self._iron_asteroids, self._double_iron, self._copper_asteroids):
-            for a in alist:
-                ddx = gv.player.center_x - a.center_x
-                ddy = gv.player.center_y - a.center_y
-                ddist = math.hypot(ddx, ddy)
-                # Use half the sprite width as radius for copper (larger)
-                a_radius = max(ASTEROID_RADIUS, a.width / 2 * 0.8)
-                combined = a_radius + SHIP_RADIUS
-                if ddist < combined and ddist > 0 and gv.player._collision_cd <= 0.0:
-                    # Push apart
-                    nx, ny = ddx / ddist, ddy / ddist
-                    overlap = combined - ddist
-                    gv.player.center_x += nx * overlap
-                    gv.player.center_y += ny * overlap
-                    # Bounce
-                    dot = gv.player.vel_x * nx + gv.player.vel_y * ny
-                    if dot < 0:
-                        gv.player.vel_x -= (1 + SHIP_BOUNCE) * dot * nx
-                        gv.player.vel_y -= (1 + SHIP_BOUNCE) * dot * ny
-                    gv._apply_damage_to_player(SHIP_COLLISION_DAMAGE)
-                    gv.player._collision_cd = SHIP_COLLISION_COOLDOWN
-                    gv._trigger_shake()
-                    arcade.play_sound(gv._bump_snd, volume=0.4)
+        if gv.player._collision_cd <= 0.0:
+            for alist in (self._iron_asteroids, self._double_iron, self._copper_asteroids):
+                for a in arcade.check_for_collision_with_list(gv.player, alist):
+                    ddx = gv.player.center_x - a.center_x
+                    ddy = gv.player.center_y - a.center_y
+                    ddist = math.hypot(ddx, ddy)
+                    if ddist > 0:
+                        a_radius = max(ASTEROID_RADIUS, a.width / 2 * 0.8)
+                        combined = a_radius + SHIP_RADIUS
+                        nx, ny = ddx / ddist, ddy / ddist
+                        overlap = combined - ddist
+                        if overlap > 0:
+                            gv.player.center_x += nx * overlap
+                            gv.player.center_y += ny * overlap
+                        dot = gv.player.vel_x * nx + gv.player.vel_y * ny
+                        if dot < 0:
+                            gv.player.vel_x -= (1 + SHIP_BOUNCE) * dot * nx
+                            gv.player.vel_y -= (1 + SHIP_BOUNCE) * dot * ny
+                        gv._apply_damage_to_player(SHIP_COLLISION_DAMAGE)
+                        gv.player._collision_cd = SHIP_COLLISION_COOLDOWN
+                        gv._trigger_shake()
+                        arcade.play_sound(gv._bump_snd, volume=0.4)
+                        break
+                else:
+                    continue
+                break
 
-        # Alien-player collision (with push-apart so they don't stick)
+        # Alien-player collision (spatial hash lookup)
         from constants import ALIEN_RADIUS, ALIEN_BOUNCE
-        for alien in list(self._aliens):
+        for alien in arcade.check_for_collision_with_list(gv.player, self._aliens):
             ddx = alien.center_x - gv.player.center_x
             ddy = alien.center_y - gv.player.center_y
             ddist = math.hypot(ddx, ddy)
             combined = 20 + SHIP_RADIUS
-            if ddist < combined and ddist > 0:
-                # Push apart
+            if ddist > 0:
                 nx, ny = ddx / ddist, ddy / ddist
                 overlap = combined - ddist
-                alien.center_x += nx * overlap * 0.5
-                alien.center_y += ny * overlap * 0.5
-                gv.player.center_x -= nx * overlap * 0.5
-                gv.player.center_y -= ny * overlap * 0.5
-                # Bounce alien away
+                if overlap > 0:
+                    alien.center_x += nx * overlap * 0.5
+                    alien.center_y += ny * overlap * 0.5
+                    gv.player.center_x -= nx * overlap * 0.5
+                    gv.player.center_y -= ny * overlap * 0.5
                 alien.vel_x += nx * 150
                 alien.vel_y += ny * 150
-                # Bounce player
                 dot = gv.player.vel_x * (-nx) + gv.player.vel_y * (-ny)
                 if dot < 0:
                     gv.player.vel_x -= (1 + ALIEN_BOUNCE) * dot * (-nx) * 0.4
@@ -397,147 +415,122 @@ class Zone2(ZoneState):
 
     def _update_wanderer_collision(self, gv: GameView, dt: float) -> None:
         """Check wandering asteroid collision with player."""
-        px, py = gv.player.center_x, gv.player.center_y
-        for w in list(self._wanderers):
-            dist = math.hypot(w.center_x - px, w.center_y - py)
-            if dist < WANDERING_RADIUS + SHIP_RADIUS:
-                if gv.player._collision_cd <= 0.0:
-                    gv._apply_damage_to_player(WANDERING_DAMAGE)
-                    gv.player._collision_cd = SHIP_COLLISION_COOLDOWN
-                    gv._trigger_shake()
-                    arcade.play_sound(gv._bump_snd, volume=0.4)
+        if gv.player._collision_cd > 0.0:
+            return
+        for w in arcade.check_for_collision_with_list(gv.player, self._wanderers):
+            gv._apply_damage_to_player(WANDERING_DAMAGE)
+            gv.player._collision_cd = SHIP_COLLISION_COOLDOWN
+            gv._trigger_shake()
+            arcade.play_sound(gv._bump_snd, volume=0.4)
+            break
 
     def _handle_projectile_hits(self, gv: GameView) -> None:
-        """Player projectile hits on asteroids and aliens."""
+        """Player projectile hits on asteroids and aliens using spatial hash."""
         from sprites.explosion import HitSpark
-        from sprites.zone2_aliens import ShieldedAlien
         _pre_count = (len(self._iron_asteroids) + len(self._copper_asteroids)
                       + len(self._double_iron) + len(self._wanderers))
 
         for proj in list(gv.projectile_list):
-            consumed = False
-
-            # Mining beam vs asteroids
             if proj.mines_rock:
-                # Iron asteroids
-                for a in list(self._iron_asteroids):
-                    if math.hypot(proj.center_x - a.center_x,
-                                  proj.center_y - a.center_y) < 36:
-                        gv.hit_sparks.append(HitSpark(proj.center_x, proj.center_y))
-                        proj.remove_from_sprite_lists()
-                        consumed = True
-                        a.take_damage(int(proj.damage))
-                        if a.hp <= 0:
-                            gv._spawn_explosion(a.center_x, a.center_y)
-                            gv._spawn_iron_pickup(a.center_x, a.center_y,
-                                                  amount=ASTEROID_IRON_YIELD)
-                            gv._add_xp(10)
-                            # Blueprint chance
-                            if random.random() < BLUEPRINT_DROP_CHANCE_ASTEROID:
-                                gv._spawn_blueprint_pickup(a.center_x, a.center_y)
-                            a.remove_from_sprite_lists()
-                        break
-                if consumed:
+                # Mining beam vs all asteroid types (spatial hash lookup)
+                hit = False
+                for a in arcade.check_for_collision_with_list(proj, self._iron_asteroids):
+                    gv.hit_sparks.append(HitSpark(proj.center_x, proj.center_y))
+                    proj.remove_from_sprite_lists()
+                    a.take_damage(int(proj.damage))
+                    if a.hp <= 0:
+                        gv._spawn_explosion(a.center_x, a.center_y)
+                        gv._spawn_iron_pickup(a.center_x, a.center_y,
+                                              amount=ASTEROID_IRON_YIELD)
+                        gv._add_xp(10)
+                        if random.random() < BLUEPRINT_DROP_CHANCE_ASTEROID:
+                            gv._spawn_blueprint_pickup(a.center_x, a.center_y)
+                        a.remove_from_sprite_lists()
+                    hit = True
+                    break
+                if hit:
                     continue
 
-                # Double iron asteroids
-                for a in list(self._double_iron):
-                    if math.hypot(proj.center_x - a.center_x,
-                                  proj.center_y - a.center_y) < 60:
-                        gv.hit_sparks.append(HitSpark(proj.center_x, proj.center_y))
-                        proj.remove_from_sprite_lists()
-                        consumed = True
-                        a.take_damage(int(proj.damage))
-                        if a.hp <= 0:
-                            gv._spawn_explosion(a.center_x, a.center_y)
-                            gv._spawn_iron_pickup(a.center_x, a.center_y,
-                                                  amount=DOUBLE_IRON_YIELD)
-                            gv._add_xp(DOUBLE_IRON_XP)
-                            if random.random() < BLUEPRINT_DROP_CHANCE_ASTEROID:
-                                gv._spawn_blueprint_pickup(a.center_x, a.center_y)
-                            a.remove_from_sprite_lists()
-                        break
-                if consumed:
+                for a in arcade.check_for_collision_with_list(proj, self._double_iron):
+                    gv.hit_sparks.append(HitSpark(proj.center_x, proj.center_y))
+                    proj.remove_from_sprite_lists()
+                    a.take_damage(int(proj.damage))
+                    if a.hp <= 0:
+                        gv._spawn_explosion(a.center_x, a.center_y)
+                        gv._spawn_iron_pickup(a.center_x, a.center_y,
+                                              amount=DOUBLE_IRON_YIELD)
+                        gv._add_xp(DOUBLE_IRON_XP)
+                        if random.random() < BLUEPRINT_DROP_CHANCE_ASTEROID:
+                            gv._spawn_blueprint_pickup(a.center_x, a.center_y)
+                        a.remove_from_sprite_lists()
+                    hit = True
+                    break
+                if hit:
                     continue
 
-                # Copper asteroids
-                for a in list(self._copper_asteroids):
-                    if math.hypot(proj.center_x - a.center_x,
-                                  proj.center_y - a.center_y) < 96:
-                        gv.hit_sparks.append(HitSpark(proj.center_x, proj.center_y))
-                        proj.remove_from_sprite_lists()
-                        consumed = True
-                        a.take_damage(int(proj.damage))
-                        if a.hp <= 0:
-                            gv._spawn_explosion(a.center_x, a.center_y)
-                            # Spawn copper pickup
+                for a in arcade.check_for_collision_with_list(proj, self._copper_asteroids):
+                    gv.hit_sparks.append(HitSpark(proj.center_x, proj.center_y))
+                    proj.remove_from_sprite_lists()
+                    a.take_damage(int(proj.damage))
+                    if a.hp <= 0:
+                        gv._spawn_explosion(a.center_x, a.center_y)
+                        from sprites.pickup import IronPickup
+                        from character_data import bonus_copper_asteroid
+                        from settings import audio
+                        base = COPPER_YIELD
+                        extra = bonus_copper_asteroid(audio.character_name, gv._char_level)
+                        pickup = IronPickup(self._copper_pickup_tex,
+                                            a.center_x, a.center_y,
+                                            amount=base + extra)
+                        pickup.item_type = "copper"
+                        gv.iron_pickup_list.append(pickup)
+                        gv._add_xp(COPPER_XP)
+                        a.remove_from_sprite_lists()
+                    hit = True
+                    break
+                if hit:
+                    continue
+
+                for w in arcade.check_for_collision_with_list(proj, self._wanderers):
+                    gv.hit_sparks.append(HitSpark(proj.center_x, proj.center_y))
+                    proj.remove_from_sprite_lists()
+                    w.take_damage(int(proj.damage))
+                    if w.hp <= 0:
+                        gv._spawn_explosion(w.center_x, w.center_y)
+                        w.remove_from_sprite_lists()
+                    hit = True
+                    break
+                if hit:
+                    continue
+            else:
+                # Basic laser vs aliens (spatial hash lookup)
+                for alien in arcade.check_for_collision_with_list(proj, self._aliens):
+                    gv.hit_sparks.append(HitSpark(proj.center_x, proj.center_y))
+                    gv._trigger_shake()
+                    proj.remove_from_sprite_lists()
+                    alien.take_damage(int(proj.damage))
+                    if alien.hp <= 0:
+                        gv._spawn_explosion(alien.center_x, alien.center_y)
+                        gv._spawn_iron_pickup(alien.center_x, alien.center_y, amount=5)
+                        from character_data import bonus_copper_enemy, blueprint_drop_bonus
+                        from settings import audio
+                        copper_extra = bonus_copper_enemy(audio.character_name, gv._char_level)
+                        if copper_extra > 0:
                             from sprites.pickup import IronPickup
-                            from character_data import bonus_copper_asteroid
-                            from settings import audio
-                            base = COPPER_YIELD
-                            extra = bonus_copper_asteroid(audio.character_name, gv._char_level)
-                            pickup = IronPickup(self._copper_pickup_tex,
-                                                a.center_x, a.center_y,
-                                                amount=base + extra)
-                            pickup.item_type = "copper"
-                            gv.iron_pickup_list.append(pickup)
-                            gv._add_xp(COPPER_XP)
-                            a.remove_from_sprite_lists()
-                        break
-                if consumed:
-                    continue
+                            cp = IronPickup(self._copper_pickup_tex,
+                                            alien.center_x, alien.center_y,
+                                            amount=copper_extra)
+                            cp.item_type = "copper"
+                            gv.iron_pickup_list.append(cp)
+                        xp = self._xp_for_alien(alien)
+                        gv._add_xp(xp)
+                        bp_chance = BLUEPRINT_DROP_CHANCE_ALIEN + blueprint_drop_bonus(
+                            audio.character_name, gv._char_level)
+                        if random.random() < bp_chance:
+                            gv._spawn_blueprint_pickup(alien.center_x, alien.center_y)
+                        alien.remove_from_sprite_lists()
+                    break
 
-                # Wandering asteroids (minable)
-                for w in list(self._wanderers):
-                    if math.hypot(proj.center_x - w.center_x,
-                                  proj.center_y - w.center_y) < 30:
-                        gv.hit_sparks.append(HitSpark(proj.center_x, proj.center_y))
-                        proj.remove_from_sprite_lists()
-                        consumed = True
-                        w.take_damage(int(proj.damage))
-                        if w.hp <= 0:
-                            gv._spawn_explosion(w.center_x, w.center_y)
-                            w.remove_from_sprite_lists()
-                        break
-                if consumed:
-                    continue
-
-            # Basic laser vs aliens
-            if not proj.mines_rock:
-                for alien in list(self._aliens):
-                    dist = math.hypot(proj.center_x - alien.center_x,
-                                      proj.center_y - alien.center_y)
-                    if dist < 25:
-                        gv.hit_sparks.append(HitSpark(proj.center_x, proj.center_y))
-                        gv._trigger_shake()
-                        proj.remove_from_sprite_lists()
-                        consumed = True
-                        alien.take_damage(int(proj.damage))
-                        if alien.hp <= 0:
-                            gv._spawn_explosion(alien.center_x, alien.center_y)
-                            gv._spawn_iron_pickup(alien.center_x, alien.center_y, amount=5)
-                            # Copper bonus from Debra
-                            from character_data import bonus_copper_enemy
-                            from settings import audio
-                            copper_extra = bonus_copper_enemy(audio.character_name, gv._char_level)
-                            if copper_extra > 0:
-                                from sprites.pickup import IronPickup
-                                cp = IronPickup(self._copper_pickup_tex,
-                                                alien.center_x, alien.center_y,
-                                                amount=copper_extra)
-                                cp.item_type = "copper"
-                                gv.iron_pickup_list.append(cp)
-                            # XP based on type
-                            xp = self._xp_for_alien(alien)
-                            gv._add_xp(xp)
-                            # Blueprint drop
-                            from character_data import blueprint_drop_bonus
-                            bp_chance = BLUEPRINT_DROP_CHANCE_ALIEN + blueprint_drop_bonus(
-                                audio.character_name, gv._char_level)
-                            if random.random() < bp_chance:
-                                gv._spawn_blueprint_pickup(alien.center_x, alien.center_y)
-                            alien.remove_from_sprite_lists()
-                        break
         # Invalidate minimap cache if any asteroid/gas was destroyed
         _post_count = (len(self._iron_asteroids) + len(self._copper_asteroids)
                        + len(self._double_iron) + len(self._wanderers))
