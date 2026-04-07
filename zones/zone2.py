@@ -249,8 +249,14 @@ class Zone2(ZoneState):
                     g.update_gas(dt)
         self._update_gas_damage(gv, dt)
 
-        # Wanderers (spin only)
+        # Wanderers — full wander + magnet AI near viewport, spin-only when far
         for w in self._wanderers:
+            wx = w.center_x
+            if vx0 < wx < vx1:
+                wy = w.center_y
+                if vy0 < wy < vy1:
+                    w.update_wandering(dt, px, py)
+                    continue
             w.angle = (w.angle + w._rot_speed * dt) % 360
         self._update_wanderer_collision(gv, dt)
 
