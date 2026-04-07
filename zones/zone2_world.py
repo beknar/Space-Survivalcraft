@@ -25,10 +25,32 @@ from constants import (
     RESPAWN_INTERVAL,
 )
 from sprites.asteroid import IronAsteroid
+from sprites.explosion import HitSpark
+from sprites.pickup import IronPickup
+from sprites.zone2_aliens import (
+    ShieldedAlien, FastAlien, GunnerAlien, RammerAlien,
+)
+from character_data import (
+    bonus_copper_asteroid, bonus_copper_enemy, blueprint_drop_bonus,
+)
+from settings import audio as _audio
 
 if TYPE_CHECKING:
     from game_view import GameView
     from zones.zone2 import Zone2
+
+# Module-level XP table (avoids rebuilding dict per call)
+_ALIEN_XP: dict[type, int] = {}  # populated lazily after imports resolve
+
+
+def _get_alien_xp() -> dict[type, int]:
+    global _ALIEN_XP
+    if not _ALIEN_XP:
+        _ALIEN_XP = {
+            ShieldedAlien: Z2_SHIELDED_XP, FastAlien: Z2_FAST_XP,
+            GunnerAlien: Z2_GUNNER_XP, RammerAlien: Z2_RAMMER_XP,
+        }
+    return _ALIEN_XP
 
 
 # ── Population ─────────────────────────────────────────────────────────────
@@ -77,8 +99,6 @@ def populate_wanderers(z: Zone2) -> None:
 
 
 def populate_aliens(z: Zone2) -> None:
-    from sprites.zone2_aliens import (
-        ShieldedAlien, FastAlien, GunnerAlien, RammerAlien)
     kw = dict(world_w=z.world_width, world_h=z.world_height)
     specs = [
         (Z2_SHIELDED_COUNT, "shielded", ShieldedAlien),
@@ -106,15 +126,12 @@ def _rand_pos(z: Zone2, margin: float = 100.0) -> tuple[float, float]:
 
 def handle_projectile_hits(z: Zone2, gv: GameView) -> None:
     """Player projectile hits on asteroids and aliens using spatial hash."""
-    from sprites.explosion import HitSpark
     _pre_count = (len(z._iron_asteroids) + len(z._copper_asteroids)
                   + len(z._double_iron) + len(z._wanderers))
 
-    for proj in list(gv.projectile_list):
+    for proj in gv.projectile_list:
         if proj.mines_rock:
-            hit = _check_mining_hits(z, gv, proj)
-            if hit:
-                continue
+            _check_mining_hits(z, gv, proj)
         else:
             _check_laser_vs_aliens(z, gv, proj)
 
@@ -124,10 +141,8 @@ def handle_projectile_hits(z: Zone2, gv: GameView) -> None:
         z._minimap_cache = None
 
 
-def _check_mining_hits(z: Zone2, gv: GameView, proj) -> bool:
-    """Check mining beam projectile against all asteroid types. Returns True if consumed."""
-    from sprites.explosion import HitSpark
-
+def _check_mining_hits(z: Zone2, gv: GameView, proj) -> None:
+    """Check mining beam projectile against all asteroid types."""
     # Iron
     for a in arcade.check_for_collision_with_list(proj, z._iron_asteroids):
         gv.hit_sparks.append(HitSpark(proj.center_x, proj.center_y))
@@ -140,7 +155,7 @@ def _check_mining_hits(z: Zone2, gv: GameView, proj) -> bool:
             if random.random() < BLUEPRINT_DROP_CHANCE_ASTEROID:
                 gv._spawn_blueprint_pickup(a.center_x, a.center_y)
             a.remove_from_sprite_lists()
-        return True
+        return
 
     # Double iron
     for a in arcade.check_for_collision_with_list(proj, z._double_iron):
@@ -154,7 +169,7 @@ def _check_mining_hits(z: Zone2, gv: GameView, proj) -> bool:
             if random.random() < BLUEPRINT_DROP_CHANCE_ASTEROID:
                 gv._spawn_blueprint_pickup(a.center_x, a.center_y)
             a.remove_from_sprite_lists()
-        return True
+        return
 
     # Copper
     for a in arcade.check_for_collision_with_list(proj, z._copper_asteroids):
@@ -163,18 +178,15 @@ def _check_mining_hits(z: Zone2, gv: GameView, proj) -> bool:
         a.take_damage(int(proj.damage))
         if a.hp <= 0:
             gv._spawn_explosion(a.center_x, a.center_y)
-            from sprites.pickup import IronPickup
-            from character_data import bonus_copper_asteroid
-            from settings import audio
             base = COPPER_YIELD
-            extra = bonus_copper_asteroid(audio.character_name, gv._char_level)
+            extra = bonus_copper_asteroid(_audio.character_name, gv._char_level)
             pickup = IronPickup(z._copper_pickup_tex, a.center_x, a.center_y,
                                 amount=base + extra)
             pickup.item_type = "copper"
             gv.iron_pickup_list.append(pickup)
             gv._add_xp(COPPER_XP)
             a.remove_from_sprite_lists()
-        return True
+        return
 
     # Wanderers
     for w in arcade.check_for_collision_with_list(proj, z._wanderers):
@@ -184,14 +196,11 @@ def _check_mining_hits(z: Zone2, gv: GameView, proj) -> bool:
         if w.hp <= 0:
             gv._spawn_explosion(w.center_x, w.center_y)
             w.remove_from_sprite_lists()
-        return True
-
-    return False
+        return
 
 
 def _check_laser_vs_aliens(z: Zone2, gv: GameView, proj) -> None:
     """Check laser projectile against Zone 2 aliens."""
-    from sprites.explosion import HitSpark
     for alien in arcade.check_for_collision_with_list(proj, z._aliens):
         gv.hit_sparks.append(HitSpark(proj.center_x, proj.center_y))
         gv._trigger_shake()
@@ -200,40 +209,27 @@ def _check_laser_vs_aliens(z: Zone2, gv: GameView, proj) -> None:
         if alien.hp <= 0:
             gv._spawn_explosion(alien.center_x, alien.center_y)
             gv._spawn_iron_pickup(alien.center_x, alien.center_y, amount=5)
-            from character_data import bonus_copper_enemy, blueprint_drop_bonus
-            from settings import audio
-            copper_extra = bonus_copper_enemy(audio.character_name, gv._char_level)
+            copper_extra = bonus_copper_enemy(_audio.character_name, gv._char_level)
             if copper_extra > 0:
-                from sprites.pickup import IronPickup
                 cp = IronPickup(z._copper_pickup_tex,
                                 alien.center_x, alien.center_y, amount=copper_extra)
                 cp.item_type = "copper"
                 gv.iron_pickup_list.append(cp)
-            xp = xp_for_alien(alien)
+            xp = _get_alien_xp().get(type(alien), 25)
             gv._add_xp(xp)
             bp_chance = BLUEPRINT_DROP_CHANCE_ALIEN + blueprint_drop_bonus(
-                audio.character_name, gv._char_level)
+                _audio.character_name, gv._char_level)
             if random.random() < bp_chance:
                 gv._spawn_blueprint_pickup(alien.center_x, alien.center_y)
             alien.remove_from_sprite_lists()
         break
 
 
-def xp_for_alien(alien) -> int:
-    from sprites.zone2_aliens import (
-        ShieldedAlien, FastAlien, GunnerAlien, RammerAlien)
-    _XP = {ShieldedAlien: Z2_SHIELDED_XP, FastAlien: Z2_FAST_XP,
-           GunnerAlien: Z2_GUNNER_XP, RammerAlien: Z2_RAMMER_XP}
-    return _XP.get(type(alien), 25)
-
-
 def try_respawn(z: Zone2, gv: GameView) -> None:
     """Respawn one alien of each type if below max."""
-    from sprites.zone2_aliens import (
-        ShieldedAlien, FastAlien, GunnerAlien, RammerAlien)
-    counts = {"shielded": 0, "fast": 0, "gunner": 0, "rammer": 0}
     _CLASS_MAP = {ShieldedAlien: "shielded", FastAlien: "fast",
                   GunnerAlien: "gunner", RammerAlien: "rammer"}
+    counts = {"shielded": 0, "fast": 0, "gunner": 0, "rammer": 0}
     for a in z._aliens:
         name = _CLASS_MAP.get(type(a))
         if name:

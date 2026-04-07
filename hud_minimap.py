@@ -11,6 +11,11 @@ from constants import (
     FOG_CELL_SIZE, FOG_GRID_W, FOG_GRID_H,
 )
 
+# Cached fog overlay texture — rebuilt only when fog_revealed changes
+_fog_cache_tex: arcade.Texture | None = None
+_fog_cache_revealed: int = -1
+_fog_cache_grid_id: int = -1  # id() of the fog_grid list
+
 
 def is_revealed(wx: float, wy: float, fog_grid: list[list[bool]] | None) -> bool:
     """Check if a world position has been revealed in the fog grid."""
@@ -23,6 +28,44 @@ def is_revealed(wx: float, wy: float, fog_grid: list[list[bool]] | None) -> bool
     if 0 <= gx < _fw and 0 <= gy < _fh:
         return fog_grid[gy][gx]
     return False
+
+
+def _build_fog_texture(
+    fog_grid: list[list[bool]], mw: int, mh: int
+) -> arcade.Texture:
+    """Build a small RGBA image for the fog overlay, then wrap as arcade.Texture."""
+    from PIL import Image as PILImage
+
+    _fog_h = len(fog_grid)
+    _fog_w = len(fog_grid[0]) if _fog_h > 0 else 0
+    # Use a small image (block-sampled) to keep it fast
+    _BLOCK = 4
+    bw = max(1, _fog_w // _BLOCK)
+    bh = max(1, _fog_h // _BLOCK)
+
+    # Create RGBA image: fog = semi-transparent grey, clear = fully transparent
+    img = PILImage.new("RGBA", (bw, bh), (0, 0, 0, 0))
+    pixels = img.load()
+    fog_pixel = (60, 60, 80, 200)
+    clear_pixel = (0, 0, 0, 0)
+
+    for by in range(bh):
+        gy0 = by * _BLOCK
+        for bx in range(bw):
+            gx0 = bx * _BLOCK
+            # Check if any cell in the block is still fogged
+            any_fog = False
+            for dy in range(min(_BLOCK, _fog_h - gy0)):
+                row = fog_grid[gy0 + dy]
+                for dx in range(min(_BLOCK, _fog_w - gx0)):
+                    if not row[gx0 + dx]:
+                        any_fog = True
+                        break
+                if any_fog:
+                    break
+            pixels[bx, bh - 1 - by] = fog_pixel if any_fog else clear_pixel
+
+    return arcade.Texture(img)
 
 
 def draw_minimap(
@@ -44,6 +87,8 @@ def draw_minimap(
     gas_positions: list[tuple[float, float, float]] | None = None,
 ) -> None:
     """Draw a scaled overview of the world inside the status panel."""
+    global _fog_cache_tex, _fog_cache_revealed, _fog_cache_grid_id
+
     mx, my = MINIMAP_X, MINIMAP_Y
     mw, mh = MINIMAP_W, MINIMAP_H
 
@@ -59,85 +104,19 @@ def draw_minimap(
             my + (wy / zone_height) * mh,
         )
 
-    # Draw grey fog overlay using 4x4 block sampling
+    # Draw fog overlay as a cached texture (rebuilt only when fog changes)
     if fog_grid is not None:
-        _BLOCK = 4
-        # Derive grid dims from actual fog_grid (may differ per zone)
-        _fog_h = len(fog_grid)
-        _fog_w = len(fog_grid[0]) if _fog_h > 0 else 0
-        bw = max(1, _fog_w // _BLOCK)
-        bh = max(1, _fog_h // _BLOCK)
-        block_w = mw / bw
-        block_h = mh / bh
-        fog_colour = (60, 60, 80, 200)
-        total = _fog_w * _fog_h
-        if fog_revealed < total // 3:
-            arcade.draw_rect_filled(
-                arcade.LBWH(mx, my, mw, mh), fog_colour)
-            clear_colour = (5, 5, 20, 245)
-            for by in range(bh):
-                run_start = -1
-                for bx in range(bw):
-                    gy0 = by * _BLOCK
-                    gx0 = bx * _BLOCK
-                    all_clear = True
-                    for dy in range(min(_BLOCK, _fog_h - gy0)):
-                        row = fog_grid[gy0 + dy]
-                        for dx in range(min(_BLOCK, _fog_w - gx0)):
-                            if not row[gx0 + dx]:
-                                all_clear = False
-                                break
-                        if not all_clear:
-                            break
-                    if all_clear:
-                        if run_start < 0:
-                            run_start = bx
-                    else:
-                        if run_start >= 0:
-                            arcade.draw_rect_filled(
-                                arcade.LBWH(mx + run_start * block_w,
-                                            my + by * block_h,
-                                            (bx - run_start) * block_w,
-                                            block_h), clear_colour)
-                            run_start = -1
-                if run_start >= 0:
-                    arcade.draw_rect_filled(
-                        arcade.LBWH(mx + run_start * block_w,
-                                    my + by * block_h,
-                                    (bw - run_start) * block_w,
-                                    block_h), clear_colour)
-        else:
-            for by in range(bh):
-                run_start = -1
-                for bx in range(bw):
-                    gy0 = by * _BLOCK
-                    gx0 = bx * _BLOCK
-                    any_fog = False
-                    for dy in range(min(_BLOCK, _fog_h - gy0)):
-                        row = fog_grid[gy0 + dy]
-                        for dx in range(min(_BLOCK, _fog_w - gx0)):
-                            if not row[gx0 + dx]:
-                                any_fog = True
-                                break
-                        if any_fog:
-                            break
-                    if any_fog:
-                        if run_start < 0:
-                            run_start = bx
-                    else:
-                        if run_start >= 0:
-                            arcade.draw_rect_filled(
-                                arcade.LBWH(mx + run_start * block_w,
-                                            my + by * block_h,
-                                            (bx - run_start) * block_w,
-                                            block_h), fog_colour)
-                            run_start = -1
-                if run_start >= 0:
-                    arcade.draw_rect_filled(
-                        arcade.LBWH(mx + run_start * block_w,
-                                    my + by * block_h,
-                                    (bw - run_start) * block_w,
-                                    block_h), fog_colour)
+        grid_id = id(fog_grid)
+        if (_fog_cache_tex is None
+                or _fog_cache_revealed != fog_revealed
+                or _fog_cache_grid_id != grid_id):
+            _fog_cache_tex = _build_fog_texture(fog_grid, mw, mh)
+            _fog_cache_revealed = fog_revealed
+            _fog_cache_grid_id = grid_id
+        arcade.draw_texture_rect(
+            _fog_cache_tex,
+            arcade.LBWH(mx, my, mw, mh),
+        )
 
     # Objects
     for asteroid in asteroid_list:

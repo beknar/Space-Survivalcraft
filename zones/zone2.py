@@ -12,6 +12,8 @@ from PIL import Image as PILImage
 from constants import (
     ZONE2_WIDTH, ZONE2_HEIGHT,
     SHIP_RADIUS, SHIP_COLLISION_COOLDOWN,
+    ASTEROID_RADIUS, SHIP_COLLISION_DAMAGE, SHIP_BOUNCE,
+    ALIEN_BOUNCE,
     GAS_AREA_DAMAGE, GAS_AREA_SLOW,
     WANDERING_DAMAGE, WANDERING_RADIUS,
     COPPER_ASTEROID_PNG, COPPER_PICKUP_PNG,
@@ -20,6 +22,7 @@ from constants import (
 )
 from zones import ZoneID, ZoneState
 from sprites.wormhole import Wormhole
+from sprites.zone2_aliens import ShieldedAlien
 
 if TYPE_CHECKING:
     from game_view import GameView
@@ -55,6 +58,7 @@ class Zone2(ZoneState):
         self._double_iron: arcade.SpriteList = arcade.SpriteList(use_spatial_hash=True)
         self._copper_asteroids: arcade.SpriteList = arcade.SpriteList(use_spatial_hash=True)
         self._aliens: arcade.SpriteList = arcade.SpriteList(use_spatial_hash=True)
+        self._shielded_aliens: list = []  # references into _aliens for draw_shield()
         self._alien_projectiles: arcade.SpriteList = arcade.SpriteList()
         self._gas_areas: arcade.SpriteList = arcade.SpriteList()
         self._wanderers: arcade.SpriteList = arcade.SpriteList()
@@ -69,6 +73,11 @@ class Zone2(ZoneState):
         self._gas_damage_cd: float = 0.0
         self._respawn_timer: float = 0.0
         self._alien_counts: dict[str, int] = {}
+
+    def _rebuild_shielded_list(self) -> None:
+        """Rebuild the shielded aliens shortlist from _aliens."""
+        self._shielded_aliens = [
+            a for a in self._aliens if isinstance(a, ShieldedAlien)]
 
     def setup(self, gv: GameView) -> None:
         global _alien_texture_cache, _copper_tex_cache
@@ -106,6 +115,8 @@ class Zone2(ZoneState):
             populate_aliens(self)
             random.seed()
             self._populated = True
+
+        self._rebuild_shielded_list()
 
         # Wormhole back to zone 1
         whx, why = self._find_clear_position(
@@ -194,28 +205,34 @@ class Zone2(ZoneState):
                 gv._transition_zone(target, entry_side="wormhole_return")
                 return
 
-        # Update entities
+        # Update asteroids (rotation + shake only)
         for a in self._iron_asteroids:
             a.update_asteroid(dt)
         for a in self._double_iron:
             a.update_asteroid(dt)
         for a in self._copper_asteroids:
             a.update_asteroid(dt)
+
+        # Gas areas
         for g in self._gas_areas:
             g.update_gas(dt)
         self._update_gas_damage(gv, dt)
+
+        # Wanderers (spin only in Zone 2)
         for w in self._wanderers:
             w.angle = (w.angle + w._rot_speed * dt) % 360
         self._update_wanderer_collision(gv, dt)
 
-        # Aliens
-        for alien in list(self._aliens):
+        # Aliens — iterate SpriteList directly (no list() copy)
+        _alien_pre_count = len(self._aliens)
+        for alien in self._aliens:
             projs = alien.update_alien(dt, px, py, self._iron_asteroids, self._aliens)
-            for p in projs:
-                self._alien_projectiles.append(p)
+            if projs:
+                for p in projs:
+                    self._alien_projectiles.append(p)
 
-        # Alien projectiles
-        for proj in list(self._alien_projectiles):
+        # Alien projectiles — iterate directly, remove dead ones after
+        for proj in self._alien_projectiles:
             proj.update_projectile(dt)
         for proj in arcade.check_for_collision_with_list(
                 gv.player, self._alien_projectiles):
@@ -226,8 +243,11 @@ class Zone2(ZoneState):
         # Player projectile hits (delegated)
         handle_projectile_hits(self, gv)
 
+        # Rebuild shielded list if aliens died
+        if len(self._aliens) != _alien_pre_count:
+            self._rebuild_shielded_list()
+
         # Player-asteroid collision
-        from constants import ASTEROID_RADIUS, SHIP_COLLISION_DAMAGE, SHIP_BOUNCE
         if gv.player._collision_cd <= 0.0:
             for alist in (self._iron_asteroids, self._double_iron, self._copper_asteroids):
                 for a in arcade.check_for_collision_with_list(gv.player, alist):
@@ -256,7 +276,6 @@ class Zone2(ZoneState):
                 break
 
         # Alien-player collision
-        from constants import ALIEN_BOUNCE
         for alien in arcade.check_for_collision_with_list(gv.player, self._aliens):
             ddx = alien.center_x - gv.player.center_x
             ddy = alien.center_y - gv.player.center_y
@@ -287,6 +306,7 @@ class Zone2(ZoneState):
         if self._respawn_timer >= RESPAWN_INTERVAL:
             self._respawn_timer = 0.0
             try_respawn(self, gv)
+            self._rebuild_shielded_list()
 
     def _update_gas_damage(self, gv: GameView, dt: float) -> None:
         self._gas_damage_cd = max(0.0, self._gas_damage_cd - dt)
@@ -319,7 +339,6 @@ class Zone2(ZoneState):
 
     def draw_world(self, gv: GameView, cx: float, cy: float,
                    hw: float, hh: float) -> None:
-        from sprites.zone2_aliens import ShieldedAlien
         self._gas_areas.draw()
         self._iron_asteroids.draw()
         self._double_iron.draw()
@@ -328,9 +347,9 @@ class Zone2(ZoneState):
         if gv._wormholes:
             gv._wormhole_list.draw()
         self._aliens.draw()
-        for alien in self._aliens:
-            if isinstance(alien, ShieldedAlien):
-                alien.draw_shield()
+        # Draw shield overlays only for shielded aliens (pre-filtered list)
+        for alien in self._shielded_aliens:
+            alien.draw_shield()
         self._alien_projectiles.draw()
         gv.iron_pickup_list.draw()
         gv.blueprint_pickup_list.draw()
