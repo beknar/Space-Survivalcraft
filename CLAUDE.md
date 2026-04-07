@@ -41,20 +41,21 @@ Space Survivalcraft/
 ├── splash_view.py       # SplashView — "CALL OF ORION" title, Play/Load/Options/Exit buttons
 ├── options_view.py      # OptionsView — volume sliders, resolution selector, fullscreen toggle, Config save
 ├── selection_view.py    # SelectionView — two-phase faction then ship-type picker
-├── game_view.py         # GameView — thin dispatcher (~620 lines); delegates to extracted modules
+├── game_view.py         # GameView — thin dispatcher (~820 lines); delegates to extracted modules
+├── game_state.py        # GameState dataclasses (BossState, FogState, CombatTimers, AbilityState, EffectState)
 ├── combat_helpers.py    # Combat, spawning, respawn, XP, boss spawn (extracted from GameView)
 ├── building_manager.py  # Building placement, destruction, ports, trade station (extracted from GameView)
 ├── draw_logic.py        # draw_world() and draw_ui() (extracted from GameView.on_draw)
 ├── update_logic.py      # 11 update sub-functions (extracted from GameView.on_update)
 ├── input_handlers.py    # All keyboard/mouse event handling (extracted from GameView)
-├── game_save.py         # Save/load serialization (extracted from GameView)
+├── game_save.py         # Save/load serialization with reusable serialize/restore helpers
 ├── game_music.py        # Music/video playback management (extracted from GameView)
 │
 │  ── UI overlays (drawn by GameView, not separate Views) ──
 ├── hud.py               # HUD — left status panel (HP/shield bars, character video, weapon); delegates minimap and equalizer
 ├── hud_minimap.py       # Minimap drawing with fog overlay (extracted from HUD)
 ├── hud_equalizer.py     # Equalizer visualizer state and drawing (extracted from HUD)
-├── base_inventory.py    # BaseInventoryData — shared item storage logic for both inventories
+├── base_inventory.py    # BaseInventoryData — shared item storage, drag state, icon resolution, and grid helpers for both inventories
 ├── escape_menu/         # EscapeMenu package — overlay with save/load/quit, audio sliders, song controls, video/character picker, help
 │   ├── __init__.py      # EscapeMenu orchestrator — delegates draw/input to active mode (~157 lines)
 │   ├── _context.py      # MenuContext (shared state) + MenuMode base class
@@ -135,7 +136,8 @@ Space Survivalcraft/
 │   ├── zone_warp_lightning.py # LightningWarpZone — periodic lightning volleys
 │   ├── zone_warp_gas.py # GasCloudWarpZone — maze of damaging gas clouds
 │   ├── zone_warp_enemy.py # EnemySpawnerWarpZone — 4 spawner stations
-│   └── zone2.py         # Zone 2 (Nebula) — copper, gas hazards, new aliens
+│   ├── zone2.py         # Zone 2 (Nebula) — coordinator (setup/teardown/update/draw)
+│   └── zone2_world.py   # Zone 2 entity population, collision handling, respawn (extracted from zone2.py)
 │
 ├── assets/              # Art, sound, music (gitignored — not in repo)
 ├── saves/               # Save slot JSON files (gitignored)
@@ -197,7 +199,8 @@ game_view.py (thin dispatcher)
   ├── draw_logic.py (world + UI rendering)
   ├── update_logic.py (11 update phases)
   ├── input_handlers.py (keyboard + mouse events)
-  ├── game_save.py, game_music.py (save/load, music/video)
+  ├── game_save.py (save/load with zone-aware serialization), game_music.py (music/video)
+  ├── game_state.py (state dataclasses — BossState, FogState, CombatTimers, AbilityState, EffectState)
   ├── sprites/* (PlayerShip, Weapon, Explosion, HitSpark, FireSpark, IronPickup, ContrailParticle, Building*, BossAlienShip)
   ├── collisions.py (all collision handlers called from update_logic)
   ├── world_setup.py (asset loading, asteroid/alien/building population, music tracks)
@@ -254,11 +257,14 @@ sprites/alien.py
 - **XP hard cap** — XP capped at 1,000 (max level); `_add_xp` short-circuits when cap reached
 - **Character bio panel** — Ship Stats overlay (C key) shows a second panel with a random portrait from `characters/portraits/` and backstory text; portrait chosen fresh each time the panel opens
 - **GameView extraction pattern** — all extracted modules (combat_helpers, building_manager, draw_logic, update_logic, input_handlers) use free functions receiving `gv: GameView` with `TYPE_CHECKING` to avoid circular imports; GameView keeps thin one-liner delegates so external callers (collisions.py, game_save.py) continue to work via `gv._method()`
-- **BaseInventoryData mixin** — shared item storage (add/remove/count/consolidate/toggle) inherited by both Inventory and StationInventory; subclasses set `_rows`/`_cols` for grid dimensions
+- **BaseInventoryData mixin** — shared item storage (add/remove/count/consolidate/toggle), drag state (`_init_drag_state`/`_start_drag`/`_finish_drag`/`_clear_drag`), icon resolution (`_resolve_icon`/`_draw_count_badge`), and window helpers inherited by both Inventory and StationInventory; subclasses set `_rows`/`_cols` for grid dimensions
 - **Boss encounter** — spawns when player reaches level 5, all 4 modules equipped, 5+ repair packs, and Home Station built; BossAlienShip has 2000 HP + 500 shields, 3-phase AI (main cannon + spread → adds charge attack → enraged with halved cooldowns); spawns at farthest world corner from station and heads toward it; full save/load support; HP bar with phase indicator; large dramatic announcement on spawn; red minimap marker
 - **Multi-zone system** — ZoneState base class with zone-specific setup/teardown/update/draw; MainZone stashes zone 1 state during warp zone visits; player world bounds parameterized for different zone sizes
 - **Warp zones** — 4 transition zones (meteor, lightning, gas, enemy spawner) with shared WarpZoneBase handling red walls, exits, and safe returns
-- **Zone 2 (Nebula)** — second biome with copper asteroids, double iron, gas hazards, wandering magnetic asteroids, and 4 new alien types (shielded, fast, gunner, rammer)
+- **Zone 2 (Nebula)** — second biome with copper asteroids, double iron, gas hazards, wandering magnetic asteroids, and 4 new alien types (shielded, fast, gunner, rammer); population and collision logic extracted into `zones/zone2_world.py`
+- **Cross-zone save/load** — Zone 1 state saved from MainZone stash when player is in another zone; Zone 2 state (asteroids, aliens, fog, wanderers) fully serialized; both zones restore correctly on load regardless of which zone was active
+- **game_save.py serialization helpers** — reusable `_serialize_asteroid`, `_serialize_alien`, `_serialize_z2_alien`, `_serialize_boss`, `_serialize_wormhole` functions eliminate repeated serialization patterns; matching `_restore_*` functions for deserialization
+- **GameState dataclasses** — `game_state.py` defines `BossState`, `FogState`, `CombatTimers`, `AbilityState`, `EffectState` for incremental adoption; GameView attributes unchanged to avoid cascading changes in extracted modules
 - **10-level character progression** — XP thresholds 0-7000; Debra gets copper bonuses at L6+, Ellie gets advanced laser upgrades, Tara gets copper cost reductions
 - **Special ability meter** — 100 max, 5/s regen; powers Misty Step (teleport), Force Wall (barrier), Death Blossom (missile barrage)
 - **Homing missiles** — consumable quick-use item; 50 dmg, 400 px/s, 180 deg/s turn rate, 1500px range

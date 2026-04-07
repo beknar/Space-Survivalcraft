@@ -8,7 +8,6 @@ import arcade
 from constants import (
     SCREEN_WIDTH, SCREEN_HEIGHT,
     INV_COLS, INV_ROWS, INV_CELL, INV_PAD, INV_HEADER, INV_FOOTER, INV_W, INV_H,
-    MAX_STACK, MAX_STACK_DEFAULT,
 )
 from base_inventory import BaseInventoryData
 
@@ -26,38 +25,16 @@ class Inventory(BaseInventoryData):
         repair_pack_icon: Optional[arcade.Texture] = None,
         shield_recharge_icon: Optional[arcade.Texture] = None,
     ) -> None:
-        # items: dict[(row, col)] -> (item_type, count); absent key = empty slot
         self._items: dict[tuple[int, int], tuple[str, int]] = {}
         self._rows = INV_ROWS
         self._cols = INV_COLS
         self.open: bool = False
-        try:
-            self._window = arcade.get_window()
-        except Exception:
-            self._window = None  # tests may run without a window
-
-        self._iron_icon: Optional[arcade.Texture] = iron_icon
-        self._repair_pack_icon: Optional[arcade.Texture] = repair_pack_icon
-        self._shield_recharge_icon: Optional[arcade.Texture] = shield_recharge_icon
-        # Extra icons for blueprints, modules, etc. (set by game_view)
-        self.item_icons: dict[str, arcade.Texture] = {}
+        self._init_window()
+        self._init_icons(iron_icon, repair_pack_icon, shield_recharge_icon)
+        self._init_drag_state()
         self._item_names: dict[str, str] = {"iron": "Iron", "copper": "Copper", "repair_pack": "Repair Pack", "shield_recharge": "Shield Recharge", "missile": "Homing Missile"}
-        self._count_cache: dict[str, arcade.Text] = {}
 
-        # Drag-and-drop state
-        self._drag_type: Optional[str] = None
-        self._drag_amount: int = 0
-        self._drag_src: Optional[tuple[int, int]] = None
-        self._drag_x: float = 0.0
-        self._drag_y: float = 0.0
-
-        # Mouse position (for hover tooltip)
-        self._mouse_x: float = 0.0
-        self._mouse_y: float = 0.0
-
-        # Pre-built Text labels (avoids per-draw allocations)
-        _sw = self._window.width if self._window else SCREEN_WIDTH
-        _sh = self._window.height if self._window else SCREEN_HEIGHT
+        _sw, _sh = self._screen_size()
         cx = _sw // 2
         oy = (_sh - INV_H) // 2
         self._t_title = arcade.Text(
@@ -169,16 +146,7 @@ class Inventory(BaseInventoryData):
         cell = self._cell_at(x, y)
         if cell is None:
             return False
-        item = self._items.get(cell)
-        if item is not None:
-            self._drag_type = item[0]
-            self._drag_amount = item[1]
-            self._drag_src = cell
-            del self._items[cell]
-            self._drag_x = x
-            self._drag_y = y
-            return True
-        return False
+        return self._start_drag(cell, x, y)
 
     def on_mouse_drag(self, x: float, y: float) -> None:
         """Update the floating icon position during a drag."""
@@ -204,56 +172,28 @@ class Inventory(BaseInventoryData):
         if self._drag_type is None:
             return None
 
-        dt = self._drag_type
-        da = self._drag_amount
-
         # Check if dropped on station inventory panel — treat as cross-transfer
-        from station_inventory import StationInventory, _INV_W as _SI_W, _INV_H as _SI_H
+        from station_inventory import _INV_W as _SI_W, _INV_H as _SI_H
         try:
             from constants import INV_W as _ship_w
-            sw = self._window.width if self._window else SCREEN_WIDTH
-            sh = self._window.height if self._window else SCREEN_HEIGHT
+            sw, sh = self._screen_size()
             ship_left = (sw - _ship_w) // 2
             si_ox = max(4, ship_left - _SI_W - 10)
             si_oy = (sh - _SI_H) // 2
             if si_ox <= x <= si_ox + _SI_W and si_oy <= y <= si_oy + _SI_H:
-                self._drag_type = None
-                self._drag_amount = 0
-                self._drag_src = None
-                return (dt, da)
+                return self._clear_drag()
         except ImportError:
             pass
 
         target = self._cell_at(x, y)
 
         if target is None and not self._panel_contains(x, y):
-            # ── Ejected outside the inventory panel -> drop into world ─────
-            self._drag_type = None
-            self._drag_amount = 0
-            self._drag_src = None
-            return (dt, da)
+            return self._clear_drag()
 
         if target is None:
-            # Dropped on panel header/border -- return to source cell
             target = self._drag_src
 
-        assert target is not None
-        existing = self._items.get(target)
-        if existing is not None:
-            if existing[0] == dt:
-                # Stack onto same type
-                self._items[target] = (dt, existing[1] + da)
-            else:
-                # Swap: put existing back in source, place dragged in target
-                if self._drag_src is not None:
-                    self._items[self._drag_src] = existing
-                self._items[target] = (dt, da)
-        else:
-            self._items[target] = (dt, da)
-
-        self._drag_type = None
-        self._drag_amount = 0
-        self._drag_src = None
+        self._finish_drag(target)
         return None
 
     # ── Drawing ─────────────────────────────────────────────────────────────
@@ -261,20 +201,8 @@ class Inventory(BaseInventoryData):
         self, item_type: str, count: int, cell_x: float, cell_y: float, alpha: int = 255
     ) -> None:
         """Draw an item icon + count badge in a cell."""
-        icon = None
-        if item_type == "iron" and self._iron_icon is not None:
-            icon = self._iron_icon
-        elif item_type == "repair_pack" and self._repair_pack_icon is not None:
-            icon = self._repair_pack_icon
-        elif item_type == "shield_recharge" and self._shield_recharge_icon is not None:
-            icon = self._shield_recharge_icon
-        elif item_type == "missile" and "missile" in self.item_icons:
-            icon = self.item_icons["missile"]
-        elif item_type in self.item_icons:
-            icon = self.item_icons[item_type]
-
+        icon = self._resolve_icon(item_type)
         if icon is not None:
-            # Use fixed icon size (INV_CELL - 12) to avoid per-frame scale calc
             isz = INV_CELL - 12
             arcade.draw_texture_rect(
                 icon,
@@ -287,15 +215,7 @@ class Inventory(BaseInventoryData):
             self._t_item_label.y = cell_y + INV_CELL // 2 - 5
             self._t_item_label.draw()
 
-        ct_str = str(count)
-        ct_text = self._count_cache.get(ct_str)
-        if ct_text is None:
-            ct_text = arcade.Text(ct_str, 0, 0, arcade.color.ORANGE, 8,
-                                  bold=True, anchor_x="right")
-            self._count_cache[ct_str] = ct_text
-        ct_text.x = cell_x + INV_CELL - 4
-        ct_text.y = cell_y + 3
-        ct_text.draw()
+        self._draw_count_badge(count, cell_x, cell_y, INV_CELL)
         self._t_count.anchor_x = "left"
 
     def draw(self) -> None:

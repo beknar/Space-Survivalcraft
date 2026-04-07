@@ -11,6 +11,7 @@ A top-down space survival game built with Python and the Arcade framework. Pilot
 - **Boss encounter** --- 3-phase AI boss with 2,000 HP, spread shots, and charge attacks
 - **4 warp zones** --- meteor, lightning, gas cloud, and enemy spawner transition zones
 - **Zone 2 (Nebula)** --- second biome with copper, gas hazards, magnetic asteroids, and 4 new alien types
+- **Cross-zone persistence** --- all zones saved and restored independently; fog of war, asteroids, aliens, and buildings persist across zone transitions and save/load
 - **Homing missiles** --- consumable weapon with homing AI, craftable at Advanced Crafter
 - **Advanced modules** --- Misty Step teleport, Force Wall barrier, Death Blossom missile barrage
 - **Special ability meter** --- powers advanced module abilities
@@ -88,13 +89,14 @@ Space Survivalcraft/
 ├── settings.py          # Audio settings singleton
 │
 │  ── Core gameplay (GameView + extracted modules) ──
-├── game_view.py         # GameView thin dispatcher (~620 lines)
+├── game_view.py         # GameView thin dispatcher (~820 lines)
+├── game_state.py        # State dataclasses (BossState, FogState, CombatTimers, etc.)
 ├── combat_helpers.py    # Damage, spawning, respawn, XP, boss spawn
 ├── building_manager.py  # Building placement, destruction, ports
 ├── draw_logic.py        # World and UI rendering
 ├── update_logic.py      # 11 update sub-functions
 ├── input_handlers.py    # Keyboard and mouse event handling
-├── game_save.py         # Save/load serialization
+├── game_save.py         # Save/load with zone-aware serialization helpers
 ├── game_music.py        # Music and video playback management
 ├── collisions.py        # All collision handlers
 ├── world_setup.py       # Asset loading and world population
@@ -108,7 +110,7 @@ Space Survivalcraft/
 ├── hud.py               # HUD status panel
 ├── hud_minimap.py       # Minimap with fog overlay
 ├── hud_equalizer.py     # Equalizer visualizer
-├── base_inventory.py    # Shared inventory data logic (BaseInventoryData)
+├── base_inventory.py    # Shared inventory data, drag state, and icon helpers
 ├── inventory.py         # 5x5 cargo grid
 ├── station_inventory.py # 10x10 station grid
 ├── escape_menu/         # Escape menu package (10 sub-modes)
@@ -140,7 +142,7 @@ Space Survivalcraft/
 │   ├── missile.py       # HomingMissile
 │   ├── force_wall.py    # ForceWall
 │   └── wormhole.py      # Wormhole
-├── zones/               # Zone state machine (8 zone files)
+├── zones/               # Zone state machine (9 zone files incl. zone2_world.py)
 ├── unit tests/          # 319 tests across 17 files
 ├── docs/                # Full game documentation
 ├── characters/          # Character videos and portraits

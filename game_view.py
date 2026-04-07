@@ -68,6 +68,7 @@ from craft_menu import CraftMenu
 from trade_menu import TradeMenu
 from video_player import VideoPlayer
 from game_save import _SAVE_DIR
+from game_state import BossState, FogState, CombatTimers, AbilityState, EffectState
 
 # Extracted modules
 import combat_helpers as _ch

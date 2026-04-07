@@ -53,6 +53,21 @@ Welcome to the full documentation for **Call of Orion**, a top-down space surviv
 
 Zone 2 is the second biome, accessed through warp zones that appear when the boss is defeated. It features copper asteroids, toxic gas clouds, wandering magnetic asteroids, and 4 new alien types. See [Features](features.md) and [Statistics](statistics.md) for full details.
 
+## Cross-Zone Save/Load
+
+All zones are saved and restored independently. When saving from any zone, both Zone 1 (Double Star) and Zone 2 (Nebula) state is fully serialized --- including asteroids, aliens, fog of war, buildings, and wanderers. Zone 1 data is pulled from the MainZone stash when the player is in another zone. Zone 2 entity population and collision handling are in `zones/zone2_world.py`.
+
+## Architecture Notes
+
+The codebase follows an extraction pattern where GameView delegates to free-function modules. Recent refactors introduced:
+
+- **`game_state.py`** --- state dataclasses (`BossState`, `FogState`, `CombatTimers`, `AbilityState`, `EffectState`) for future incremental adoption
+- **`game_save.py`** --- reusable serialization/deserialization helpers (`_serialize_asteroid`, `_restore_z1_aliens`, etc.) replacing repeated patterns
+- **`zones/zone2_world.py`** --- Zone 2 entity population and collision handling extracted from `zone2.py`
+- **`base_inventory.py`** --- shared drag state, icon resolution, and grid helpers used by both cargo and station inventories
+
+See [Architecture](architecture.md) for the full dependency graph.
+
 ### Music and Sound Effects Licensing
 
 - Bought from Humble Bundle

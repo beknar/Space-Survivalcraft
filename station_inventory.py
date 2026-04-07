@@ -6,9 +6,7 @@ from typing import Optional
 import arcade
 
 from constants import (
-    SCREEN_WIDTH, SCREEN_HEIGHT,
     STATION_INV_COLS, STATION_INV_ROWS, STATION_INV_CELL, STATION_INV_PAD,
-    MAX_STACK, MAX_STACK_DEFAULT,
 )
 from base_inventory import BaseInventoryData
 
@@ -34,27 +32,10 @@ class StationInventory(BaseInventoryData):
         self._rows = STATION_INV_ROWS
         self._cols = STATION_INV_COLS
         self.open: bool = False
-        self._iron_icon = iron_icon
-        self._repair_pack_icon = repair_pack_icon
-        self._shield_recharge_icon = shield_recharge_icon
-        # Extra icons for blueprints, modules, etc. (set by game_view)
-        self.item_icons: dict[str, arcade.Texture] = {}
-        # Mouse tracking for tooltip
-        self._mouse_x: float = 0.0
-        self._mouse_y: float = 0.0
-        self._tip_cell: Optional[tuple[int, int]] = None  # cached hover cell
-
-        try:
-            self._window = arcade.get_window()
-        except Exception:
-            self._window = None
-
-        # Drag state
-        self._drag_type: Optional[str] = None
-        self._drag_amount: int = 0
-        self._drag_src: Optional[tuple[int, int]] = None
-        self._drag_x: float = 0.0
-        self._drag_y: float = 0.0
+        self._init_window()
+        self._init_icons(iron_icon, repair_pack_icon, shield_recharge_icon)
+        self._init_drag_state()
+        self._tip_cell: Optional[tuple[int, int]] = None
 
         # Pre-built text
         self._t_title = arcade.Text(
@@ -160,16 +141,7 @@ class StationInventory(BaseInventoryData):
         cell = self._cell_at(x, y)
         if cell is None:
             return False
-        item = self._items.get(cell)
-        if item is not None:
-            self._drag_type = item[0]
-            self._drag_amount = item[1]
-            self._drag_src = cell
-            del self._items[cell]
-            self._drag_x = x
-            self._drag_y = y
-            return True
-        return False
+        return self._start_drag(cell, x, y)
 
     def on_mouse_drag(self, x: float, y: float) -> None:
         if self._drag_type is not None:
@@ -180,46 +152,25 @@ class StationInventory(BaseInventoryData):
         """Returns (item_type, amount) if item was dropped outside panel (for transfer)."""
         if self._drag_type is None:
             return None
-        dt = self._drag_type
-        da = self._drag_amount
-        src = self._drag_src
-        self._drag_type = None
-        self._drag_amount = 0
-        self._drag_src = None
 
         # Check if dropped on the ship inventory panel — treat as external transfer
         from constants import INV_W, INV_H
-        sw = self._window.width if self._window else SCREEN_WIDTH
-        sh = self._window.height if self._window else SCREEN_HEIGHT
+        sw, sh = self._screen_size()
         ship_ox = (sw - INV_W) // 2
         ship_oy = (sh - INV_H) // 2
         if ship_ox <= x <= ship_ox + INV_W and ship_oy <= y <= ship_oy + INV_H:
-            return (dt, da)
+            return self._clear_drag()
 
         cell = self._cell_at(x, y)
         if cell is not None:
-            # Dropped back into station grid — handle swap/stack
-            existing = self._items.get(cell)
-            if existing is not None:
-                if existing[0] == dt:
-                    # Stack onto same type
-                    self._items[cell] = (dt, existing[1] + da)
-                else:
-                    # Swap
-                    if src is not None:
-                        self._items[src] = existing
-                    self._items[cell] = (dt, da)
-            else:
-                self._items[cell] = (dt, da)
+            self._finish_drag(cell)
             return None
 
         if not self._panel_contains(x, y):
-            # Dropped outside panel — return for transfer to ship
-            return (dt, da)
+            return self._clear_drag()
 
         # Dropped on panel border — return to source
-        if src is not None:
-            self._items[src] = (dt, da)
+        self._finish_drag(None)
         return None
 
     # ── Drawing ──────────────────────────────────────────────────────────
@@ -283,16 +234,7 @@ class StationInventory(BaseInventoryData):
 
             if not is_src:
                     it, ct = self._items[cell]
-                    icon = None
-                    if it == "iron" and self._iron_icon:
-                        icon = self._iron_icon
-                    elif it == "repair_pack" and self._repair_pack_icon:
-                        icon = self._repair_pack_icon
-                    elif it == "shield_recharge" and self._shield_recharge_icon:
-                        icon = self._shield_recharge_icon
-                    elif it in self.item_icons:
-                        icon = self.item_icons[it]
-
+                    icon = self._resolve_icon(it)
                     if icon:
                         arcade.draw_texture_rect(
                             icon,
@@ -303,15 +245,7 @@ class StationInventory(BaseInventoryData):
                         self._t_label.x = cx + 3
                         self._t_label.y = cy + cs // 2
                         self._t_label.draw()
-                    ct_str = str(ct)
-                    ct_text = self._count_cache.get(ct_str)
-                    if ct_text is None:
-                        ct_text = arcade.Text(ct_str, 0, 0, arcade.color.ORANGE, 8,
-                                              bold=True, anchor_x="right")
-                        self._count_cache[ct_str] = ct_text
-                    ct_text.x = cx + cs - 6
-                    ct_text.y = cy + 4
-                    ct_text.draw()
+                    self._draw_count_badge(ct, cx, cy, cs)
 
         # ── Hover tooltip ──────────────────────────────────────────────
         if self._drag_type is None:
