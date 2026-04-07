@@ -32,6 +32,9 @@ _gas_texture_cache: dict[int, arcade.Texture] = {}
 _alien_texture_cache: dict[str, arcade.Texture] | None = None
 _copper_tex_cache: arcade.Texture | None = None
 
+# Margin around the camera rect for culling (px)
+_CULL_MARGIN = 250.0
+
 
 class Zone2(ZoneState):
     """The Nebula — second biome with copper, gas clouds, new aliens."""
@@ -58,10 +61,12 @@ class Zone2(ZoneState):
         self._double_iron: arcade.SpriteList = arcade.SpriteList(use_spatial_hash=True)
         self._copper_asteroids: arcade.SpriteList = arcade.SpriteList(use_spatial_hash=True)
         self._aliens: arcade.SpriteList = arcade.SpriteList(use_spatial_hash=True)
-        self._shielded_aliens: list = []  # references into _aliens for draw_shield()
+        self._shielded_aliens: list = []
         self._alien_projectiles: arcade.SpriteList = arcade.SpriteList()
         self._gas_areas: arcade.SpriteList = arcade.SpriteList()
         self._wanderers: arcade.SpriteList = arcade.SpriteList()
+        # Visible-set SpriteLists for viewport-culled drawing
+        self._vis_draw: arcade.SpriteList = arcade.SpriteList()
         # Textures (loaded on setup)
         self._iron_tex: arcade.Texture | None = None
         self._copper_tex: arcade.Texture | None = None
@@ -75,7 +80,6 @@ class Zone2(ZoneState):
         self._alien_counts: dict[str, int] = {}
 
     def _rebuild_shielded_list(self) -> None:
-        """Rebuild the shielded aliens shortlist from _aliens."""
         self._shielded_aliens = [
             a for a in self._aliens if isinstance(a, ShieldedAlien)]
 
@@ -118,7 +122,6 @@ class Zone2(ZoneState):
 
         self._rebuild_shielded_list()
 
-        # Wormhole back to zone 1
         whx, why = self._find_clear_position(
             self.world_width / 2, self.world_height / 2, 120)
         wh = Wormhole(whx, why)
@@ -148,7 +151,6 @@ class Zone2(ZoneState):
 
     def _find_clear_position(self, cx: float, cy: float,
                               clearance: float = 120) -> tuple[float, float]:
-        """Find a position near (cx, cy) not overlapping gas, asteroids, or wanderers."""
         for _ in range(80):
             ok = True
             for g in self._gas_areas:
@@ -205,25 +207,54 @@ class Zone2(ZoneState):
                 gv._transition_zone(target, entry_side="wormhole_return")
                 return
 
-        # Update asteroids (rotation + shake only)
-        for a in self._iron_asteroids:
-            a.update_asteroid(dt)
-        for a in self._double_iron:
-            a.update_asteroid(dt)
-        for a in self._copper_asteroids:
-            a.update_asteroid(dt)
+        # Compute visible rect for update culling (wider margin for updates)
+        try:
+            win = arcade.get_window()
+            _hw = win.width / 2
+            _hh = win.height / 2
+        except Exception:
+            _hw, _hh = 640.0, 400.0
+        _margin = _CULL_MARGIN + 100  # extra margin so sprites rotate in smoothly
+        vx0 = px - _hw - _margin
+        vx1 = px + _hw + _margin
+        vy0 = py - _hh - _margin
+        vy1 = py + _hh + _margin
 
-        # Gas areas
+        # Update asteroids — only update visible ones (rotation is invisible offscreen)
+        for a in self._iron_asteroids:
+            ax = a.center_x
+            if vx0 < ax < vx1:
+                ay = a.center_y
+                if vy0 < ay < vy1:
+                    a.update_asteroid(dt)
+        for a in self._double_iron:
+            ax = a.center_x
+            if vx0 < ax < vx1:
+                ay = a.center_y
+                if vy0 < ay < vy1:
+                    a.update_asteroid(dt)
+        for a in self._copper_asteroids:
+            ax = a.center_x
+            if vx0 < ax < vx1:
+                ay = a.center_y
+                if vy0 < ay < vy1:
+                    a.update_asteroid(dt)
+
+        # Gas areas — only update visible ones
         for g in self._gas_areas:
-            g.update_gas(dt)
+            gx = g.center_x
+            if vx0 - 200 < gx < vx1 + 200:
+                gy = g.center_y
+                if vy0 - 200 < gy < vy1 + 200:
+                    g.update_gas(dt)
         self._update_gas_damage(gv, dt)
 
-        # Wanderers (spin only in Zone 2)
+        # Wanderers (spin only)
         for w in self._wanderers:
             w.angle = (w.angle + w._rot_speed * dt) % 360
         self._update_wanderer_collision(gv, dt)
 
-        # Aliens — iterate SpriteList directly (no list() copy)
+        # Aliens — always update AI (they need to track player from afar)
         _alien_pre_count = len(self._aliens)
         for alien in self._aliens:
             projs = alien.update_alien(dt, px, py, self._iron_asteroids, self._aliens)
@@ -231,7 +262,7 @@ class Zone2(ZoneState):
                 for p in projs:
                     self._alien_projectiles.append(p)
 
-        # Alien projectiles — iterate directly, remove dead ones after
+        # Alien projectiles
         for proj in self._alien_projectiles:
             proj.update_projectile(dt)
         for proj in arcade.check_for_collision_with_list(
@@ -335,21 +366,60 @@ class Zone2(ZoneState):
             arcade.play_sound(gv._bump_snd, volume=0.4)
             break
 
-    # ── Drawing ────────────────────────────────────────────────────────────
+    # ── Drawing (viewport-culled) ──────────────────────────────────────────
+
+    def _draw_visible(self, source: arcade.SpriteList,
+                      vx0: float, vx1: float, vy0: float, vy1: float) -> None:
+        """Draw only sprites from source that are within the visible rect."""
+        vis = self._vis_draw
+        vis.clear()
+        for s in source:
+            sx = s.center_x
+            if vx0 < sx < vx1:
+                sy = s.center_y
+                if vy0 < sy < vy1:
+                    vis.append(s)
+        if len(vis) > 0:
+            vis.draw()
 
     def draw_world(self, gv: GameView, cx: float, cy: float,
                    hw: float, hh: float) -> None:
-        self._gas_areas.draw()
-        self._iron_asteroids.draw()
-        self._double_iron.draw()
-        self._copper_asteroids.draw()
-        self._wanderers.draw()
+        # Compute visible rect with margin
+        m = _CULL_MARGIN
+        vx0 = cx - hw - m
+        vx1 = cx + hw + m
+        vy0 = cy - hh - m
+        vy1 = cy + hh + m
+
+        # Gas areas need wider margin (they can be large)
+        gm = m + 200
+        gvx0 = cx - hw - gm
+        gvx1 = cx + hw + gm
+        gvy0 = cy - hh - gm
+        gvy1 = cy + hh + gm
+        self._draw_visible(self._gas_areas, gvx0, gvx1, gvy0, gvy1)
+
+        # Asteroids, wanderers
+        self._draw_visible(self._iron_asteroids, vx0, vx1, vy0, vy1)
+        self._draw_visible(self._double_iron, vx0, vx1, vy0, vy1)
+        self._draw_visible(self._copper_asteroids, vx0, vx1, vy0, vy1)
+        self._draw_visible(self._wanderers, vx0, vx1, vy0, vy1)
+
+        # Wormholes (few, always draw)
         if gv._wormholes:
             gv._wormhole_list.draw()
-        self._aliens.draw()
-        # Draw shield overlays only for shielded aliens (pre-filtered list)
+
+        # Aliens (cull)
+        self._draw_visible(self._aliens, vx0, vx1, vy0, vy1)
+        # Shield overlays (pre-filtered list, cull)
         for alien in self._shielded_aliens:
-            alien.draw_shield()
+            ax = alien.center_x
+            if vx0 < ax < vx1:
+                ay = alien.center_y
+                if vy0 < ay < vy1:
+                    alien.draw_shield()
+
+        # Projectiles (typically few, near player — always draw)
         self._alien_projectiles.draw()
         gv.iron_pickup_list.draw()
         gv.blueprint_pickup_list.draw()
