@@ -563,20 +563,51 @@ def handle_mouse_motion(gv: GameView, x: int, y: int, dx: int, dy: int) -> None:
         if stats["connectable"]:
             snap = gv._find_nearest_snap_port(wx, wy)
             if snap is not None:
-                _, port, sx, sy = snap
-                opp_dir = DockingPort.opposite(port.direction)
-                ghw = (gv._ghost_sprite.width) / 2
-                ghh = (gv._ghost_sprite.height) / 2
-                _port_offsets = {"N": (0, ghh), "S": (0, -ghh),
-                                 "E": (ghw, 0), "W": (-ghw, 0)}
-                opp_off = _port_offsets.get(opp_dir, (0, 0))
-                rad = math.radians(gv._ghost_rotation)
-                cos_a = math.cos(rad)
-                sin_a = math.sin(rad)
-                ox_rot = opp_off[0] * cos_a - opp_off[1] * sin_a
-                oy_rot = opp_off[0] * sin_a + opp_off[1] * cos_a
-                wx = sx - ox_rot
-                wy = sy - oy_rot
+                snap_parent_ghost, port, sx, sy = snap
+                # Compute physical direction of the snap port
+                _DIR_ORDER = ["N", "E", "S", "W"]
+                p_steps = round(snap_parent_ghost.angle / 90.0) % 4
+                p_label_idx = _DIR_ORDER.index(port.direction)
+                phys_dir = _DIR_ORDER[(p_label_idx - p_steps) % 4]
+                phys_opp = DockingPort.opposite(phys_dir)
+
+                # Determine ghost rotation (mirror placement auto-rotate)
+                tex = gv._building_textures[bt]
+                tw = tex.width * 0.5
+                th = tex.height * 0.5
+                is_wide = tw > th and abs(tw - th) > 4.0
+                is_tall = th > tw and abs(tw - th) > 4.0
+                ghost_angle = gv._ghost_rotation
+                centre_snap = False
+                if is_wide and phys_dir in ("N", "S"):
+                    centre_snap = True
+                elif is_wide and phys_dir in ("E", "W"):
+                    ghost_angle = 90.0
+                elif is_tall and phys_dir in ("E", "W"):
+                    ghost_angle = 90.0
+                gv._ghost_sprite.angle = ghost_angle
+
+                if centre_snap:
+                    wx, wy = sx, sy
+                else:
+                    # Find the connecting port on the ghost building
+                    bld_steps = round(ghost_angle / 90.0) % 4
+                    opp_idx = _DIR_ORDER.index(phys_opp)
+                    needed_label = _DIR_ORDER[(opp_idx + bld_steps) % 4]
+                    ghost_port = None
+                    # Use actual port offsets from a fresh building
+                    ghw = tw / 2
+                    ghh = th / 2
+                    _ghost_ports = {"N": (0, ghh), "S": (0, -ghh),
+                                    "E": (ghw, 0), "W": (-ghw, 0)}
+                    opp_off = _ghost_ports.get(needed_label, (0, 0))
+                    rad = math.radians(ghost_angle)
+                    cos_a = math.cos(rad)
+                    sin_a = math.sin(rad)
+                    ox_rot = opp_off[0] * cos_a - opp_off[1] * sin_a
+                    oy_rot = opp_off[0] * sin_a + opp_off[1] * cos_a
+                    wx = sx - ox_rot
+                    wy = sy - oy_rot
         if stats["free_place"]:
             home = None
             for b in gv.building_list:
