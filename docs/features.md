@@ -31,7 +31,8 @@
 ## Enemies --- Small Alien Ships
 
 - 30 alien scout ships patrol the world with autonomous AI
-- Two AI states: **Patrol** (lazy loops near spawn) and **Pursue** (chase and fire on detection)
+- Two AI states: **Patrol** (lazy loops near spawn) and **Pursue** (orbit at standoff range and fire)
+- Ranged aliens orbit the player at ~300 px instead of charging; each picks a random orbit direction
 - Obstacle-avoidance steering around asteroids and other aliens
 - Physics-based collision bouncing between all entities
 - Destroyed aliens drop iron ore and may drop blueprints
@@ -62,12 +63,12 @@
 - **Copper asteroids** --- new resource type, mineable with the Mining Beam
 - **Double iron asteroids** --- tougher asteroids that yield twice the iron
 - **Toxic gas clouds** --- environmental hazards that damage and slow the player on contact
-- **Wandering magnetic asteroids** --- asteroids that drift through space and attract nearby ships
+- **Wandering magnetic asteroids** --- asteroids that drift through space and attract nearby ships; bounce off the player on contact with knockback physics
 - 4 new alien types with unique abilities:
-  - **Shielded Alien** --- comes with 50 shields for extra durability
-  - **Fast Alien** --- moves at 160 px/s, harder to hit and outrun
-  - **Gunner Alien** --- equipped with 2 guns for double the firepower
-  - **Rammer Alien** --- 100 HP + 50 shields, charges toward the player on contact
+  - **Shielded Alien** --- comes with 50 shields for extra durability; orbits at range
+  - **Fast Alien** --- moves at 160 px/s, harder to hit and outrun; flips orbit direction unpredictably
+  - **Gunner Alien** --- equipped with 2 guns for double the firepower; orbits at range
+  - **Rammer Alien** --- 100 HP + 50 shields, charges directly toward the player (no guns)
 
 ## Advanced Modules
 
@@ -154,7 +155,7 @@
 
 - Left-side status panel with HP/shield bars, character video, active weapon, faction/ship info
 - FPS counter (toggle with F), music track name with equalizer visualizer
-- Mini-map showing full world: player (white), asteroids (grey), pickups (orange), aliens (red), buildings (cyan), trading station (yellow), boss (large red)
+- Mini-map showing full world: player (white), asteroids (grey), pickups (orange), aliens (red), buildings (cyan), trading station (yellow), boss (large red), gas areas (green circles with outline, proportional to world size), wormholes (purple)
 
 ## Fog of War
 

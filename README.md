@@ -15,7 +15,7 @@ A top-down space survival game built with Python and the Arcade framework. Pilot
 - **Homing missiles** --- consumable weapon with homing AI, craftable at Advanced Crafter
 - **Advanced modules** --- Misty Step teleport, Force Wall barrier, Death Blossom missile barrage
 - **Special ability meter** --- powers advanced module abilities
-- **30 alien scouts** with patrol/pursue AI and obstacle avoidance
+- **30 alien scouts** with patrol/pursue/orbit AI and obstacle avoidance
 - **75 minable asteroids** that drop iron and copper ore for crafting
 - **Modular space station** with 8 building types, turrets, repair module, and crafter
 - **12 ship modules** crafted from blueprint drops (armor, engine, shield, absorber, broadside, and advanced modules)

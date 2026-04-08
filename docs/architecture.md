@@ -63,7 +63,7 @@ def _spawn_explosion(self, x, y):
 
 | Module | Lines | Key Methods |
 |---|---|---|
-| `sprites/alien.py` | ~308 | `update_alien` dispatches to `_update_movement`, `_update_stuck_detection`, `_update_color_tint`, `_try_fire` |
+| `sprites/alien.py` | ~315 | `update_alien` dispatches to `_update_movement` (standoff orbit AI), `_update_stuck_detection`, `_update_color_tint`, `_try_fire` |
 | `sprites/boss.py` | ~354 | `update_boss` dispatches to `_update_charge`, `_try_fire_weapons`, `_update_color_tint` |
 | `sprites/shielded_alien.py` | — | ShieldedAlien --- alien with 50-point shield |
 | `sprites/fast_alien.py` | — | FastAlien --- 160 px/s high-speed alien |
@@ -113,6 +113,8 @@ collisions.py
 - **MenuContext + MenuMode** --- escape menu sub-mode pattern with shared state and per-mode draw/input
 - **TYPE_CHECKING imports** --- all extracted modules avoid circular imports at runtime
 - **Zone state machine** --- `zones/` package manages transitions between Zone 1, warp zones, and Zone 2; each zone has its own asteroid/alien populations, hazard rules, and background; GameView delegates zone-specific setup and update logic to the active zone state
+- **Viewport culling** --- Zone 2 only draws/updates sprites within camera bounds + 250 px margin (gas areas get +200 px extra); offscreen wanderers spin-only; uses `_vis_draw` SpriteList rebuilt each frame for GPU batch drawing
+- **Ranged alien standoff AI** --- gun-equipped aliens orbit at `ALIEN_STANDOFF_DIST` (300 px) with random CW/CCW direction; RammerAlien charges directly (`has_guns=False`)
 
 ## View Flow
 

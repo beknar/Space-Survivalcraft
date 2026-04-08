@@ -106,6 +106,14 @@ All ships start at world centre. Ships rendered at 0.75x scale (96 px in-game). 
 | XP reward | 25 |
 | Respawn interval | 60 s |
 
+### Alien Combat AI
+
+| Property | Value |
+|---|---|
+| Standoff distance | 300 px (ranged aliens orbit at this range) |
+| Orbit behaviour | Approach if >360 px, back off if <210 px, strafe laterally otherwise |
+| Orbit direction | Random per alien (clockwise or counter-clockwise) |
+
 ### Alien Weapon
 
 | Property | Value |
@@ -173,10 +181,10 @@ All ships start at world centre. Ships rendered at 0.75x scale (96 px in-game). 
 
 | Type | HP | Shields | Speed | XP Reward | Special |
 |---|---|---|---|---|---|
-| Shielded Alien | 50 | 50 | 120 px/s | 50 | Extra shield durability |
-| Fast Alien | 50 | 0 | 160 px/s | 60 | High speed |
-| Gunner Alien | 50 | 0 | 120 px/s | 70 | 2 guns, double firepower |
-| Rammer Alien | 100 | 50 | 120 px/s | 80 | Charges toward player |
+| Shielded Alien | 50 | 50 | 120 px/s | 50 | Extra shield durability; orbits at range |
+| Fast Alien | 50 | 0 | 160 px/s | 60 | High speed; flips orbit direction unpredictably |
+| Gunner Alien | 50 | 0 | 120 px/s | 70 | 2 guns, double firepower; orbits at range |
+| Rammer Alien | 100 | 50 | 120 px/s | 80 | Charges directly toward player (no guns) |
 
 ---
 

@@ -209,8 +209,11 @@ Pickups idle at their drop position until the ship's hull edge comes within 40 p
 - Takes no hostile action
 
 **PURSUE state (triggered when player enters 500 px, or player weapon fires within 160 px — 4× ship diameter):**
-- Chases the player at 120 px/s
-- Fires laser bolts along its current heading every 1.5 s when player is within 500 px
+- Orbits the player at ~300 px standoff distance (ALIEN_STANDOFF_DIST) instead of charging
+- Each alien picks a random orbit direction (clockwise or counter-clockwise)
+- Approaches if farther than 360 px (1.2× standoff), backs off if closer than 210 px (0.7× standoff), strafes laterally at range
+- Always faces the player while orbiting
+- Fires laser bolts along its heading every 1.5 s when player is within 500 px
 - Fire cooldown resets to 0 on first detection (immediate first shot)
 - Steers around obstacles (asteroids and other aliens) using avoidance blending
 - Avoidance radius: 65 px beyond obstacle edge; avoidance force weight: 2.5x
@@ -238,8 +241,7 @@ Alien ships use avoidance steering in both PATROL and PURSUE states:
 #### Known AI Weaknesses
 - No coordinated group behaviour — each ship acts independently
 - No flanking or encirclement
-- Fires only along its heading; strafing perpendicular to an incoming alien dodges most shots
-- No stand-off sniping behaviour
+- Fires only along its heading; strafing perpendicular to an orbiting alien dodges most shots
 
 #### Alien Collision Physics
 
@@ -464,6 +466,11 @@ When background music is playing (and no video is active), a 16-bar equalizer an
 - **Grey dots** — asteroids
 - **Orange dots** — iron pickups
 - **Red dots** — alien ships
+- **Green circles with outline** — gas areas (proportional to world radius)
+- **Yellow square** — trading station
+- **Large red dot** — boss
+- **Purple dot** — wormhole
+- **Cyan dots** — station buildings
 - **White dot + cyan heading line** — player ship
 
 ---

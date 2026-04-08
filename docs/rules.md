@@ -111,7 +111,10 @@ When HP reaches 0:
 
 ### PURSUE State
 Triggered when player enters 500 px, or player weapon fires within 160 px (4x ship diameter):
-- Chases player at 120 px/s with obstacle avoidance
+- Ranged aliens orbit the player at ~300 px standoff distance instead of charging directly
+- Each alien picks a random orbit direction (clockwise or counter-clockwise)
+- Approaches if farther than 360 px, backs off if closer than 210 px, strafes laterally at range
+- Always faces the player while orbiting
 - Fires laser bolts every 1.5 s when player within 500 px
 - Immediate first shot on detection
 - Returns to PATROL when player exceeds 1,500 px (3x detection range)
@@ -210,31 +213,36 @@ Triggered when player enters 500 px, or player weapon fires within 160 px (4x sh
 - Gas clouds are stationary environmental hazards
 
 ### Wandering Magnetic Asteroids
-- Drift through space on fixed paths
-- Exert a magnetic pull on nearby ships within 200 px
-- Pull strength increases as distance decreases
+- Drift through space with random wander, changing direction every 1--3 seconds
+- Exert a magnetic pull on nearby ships within 80 px (WANDERING_MAGNET_DIST)
+- Pull speed: 200 px/s when attracted (WANDERING_MAGNET_SPEED)
+- **Collision with player**: 60/40 push-apart (player pushed more), velocity bounce with 0.55 restitution, 15 damage, wanderer kicked away from player for 1.5 s
 - Can be destroyed with the Mining Beam but yield no resources
+- Offscreen wanderers only spin (viewport culling optimisation)
 
 ---
 
-## Zone 2 Alien Collision Rules
+## Zone 2 Alien Combat & Collision Rules
 
 ### Shielded Alien
-- Same collision rules as standard aliens
+- Orbits the player at ~300 px standoff distance while firing
 - Shields absorb damage before HP (50 shield points)
+- Same collision physics as standard aliens
 
 ### Fast Alien
-- Same collision rules as standard aliens
-- Higher speed (160 px/s) means stronger collision impulse
+- Orbits the player at ~300 px, flips orbit direction unpredictably on a 0.8--2.0 s timer
+- Higher speed (160 px/s) makes it harder to track
+- Same collision physics as standard aliens
 
 ### Gunner Alien
-- Same collision rules as standard aliens
+- Orbits the player at ~300 px standoff distance
 - Fires from 2 guns simultaneously (double projectile output)
+- Same collision physics as standard aliens
 
 ### Rammer Alien
-- Initiates a charge when player is within 300 px
-- Charge collision deals 25 damage (5x normal alien collision)
+- No guns --- charges directly at the player at 1.5x speed when in pursuit
 - 100 HP + 50 shields makes it the toughest standard alien
+- Collision deals 5 damage (same as standard alien collision)
 
 ---
 
