@@ -1,9 +1,30 @@
-"""Centralised game constants for Space Survivalcraft."""
+"""Centralised game constants for Space Survivalcraft.
+
+Sections:
+  1. Window / World / Resolution
+  2. Player Physics
+  3. Asset Paths (directories, PNGs, SFX)
+  4. Shield Sprite Sheet
+  5. Weapon / Projectile / Contrail
+  6. Inventory / Quick Use
+  7. Player Ship Stats / Factions / Ship Types
+  8. Ship Module System
+  9. Asteroid / Explosion
+ 10. Alien Ship AI & Physics
+ 11. Respawn / Pickup / Fog / Camera
+ 12. UI: Mini-map / Escape Menu / Save-Load
+ 13. Building System
+ 14. Zone 2 (Nebula)
+ 15. Homing Missiles / Special Abilities
+ 16. Boss Encounter
+"""
 from __future__ import annotations
 
 import os
 
-# ── Window / World ──────────────────────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════════════════════
+# 1. Window / World / Resolution
+# ═══════════════════════════════════════════════════════════════════════════════
 SCREEN_WIDTH: int = 1280
 SCREEN_HEIGHT: int = 800
 SCREEN_TITLE: str = "Call of Orion"
@@ -14,7 +35,6 @@ WORLD_HEIGHT: int = 6400
 
 BG_TILE: int = 1024              # Starfield texture is 1024x1024
 
-# ── Resolution presets ────────────────────────────────────────────────────
 RESOLUTION_PRESETS: list[tuple[int, int]] = [
     (1280, 800),
     (1366, 768),
@@ -24,7 +44,9 @@ RESOLUTION_PRESETS: list[tuple[int, int]] = [
     (3840, 2160),
 ]
 
-# ── Player physics ──────────────────────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════════════════════
+# 2. Player Physics
+# ═══════════════════════════════════════════════════════════════════════════════
 ROT_SPEED: float = 150.0         # deg / s
 THRUST: float = 250.0            # px / s^2
 BRAKE: float = 125.0             # px / s^2  (reverse thrust)
@@ -33,9 +55,12 @@ DAMPING: float = 0.98875         # per-frame velocity multiplier (space drag)
 
 DEAD_ZONE: float = 0.15          # Gamepad analogue stick dead zone
 
-# ── Asset paths ─────────────────────────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════════════════════
+# 3. Asset Paths
+# ═══════════════════════════════════════════════════════════════════════════════
 _HERE = os.path.dirname(os.path.abspath(__file__))
 
+# ── Directories ────────────────────────────────────────────────────────────
 STARFIELD_DIR = os.path.join(
     _HERE, "assets",
     "SBS - Seamless Space Backgrounds - Large 1024x1024",
@@ -77,6 +102,7 @@ MUSIC_VOL2_DIR = os.path.join(
 )
 MUSIC_VOLUME: float = 0.35          # background music volume (0.0 – 1.0)
 
+# ── PNG assets ─────────────────────────────────────────────────────────────
 ASTEROID_PNG = os.path.join(_HERE, "assets", "Pixel Art Space", "Asteroid.png")
 ALIEN_SHIP_PNG = os.path.join(
     _HERE, "assets", "gamedevmarket assets",
@@ -98,8 +124,49 @@ SHIELD_PNG = os.path.join(
     _HERE, "assets", "gamedevmarket assets", "asteroids crusher",
     "Weapons", "PNG", "shield_frames.png",
 )
+REPAIR_PACK_PNG = os.path.join(
+    _HERE, "assets", "gamedevmarket assets",
+    "alien spaceship creation kit", "png", "items.png",
+)
+REPAIR_PACK_CROP = (198, 0, 396, 198)  # (x0, y0, x1, y1) for PIL crop
+SHIELD_RECHARGE_PNG = os.path.join(
+    _HERE, "assets", "kenney space combat assets",
+    "Space Shooter Redux", "PNG", "Power-ups", "powerupBlue_bolt.png",
+)
+BLUEPRINT_PNG = os.path.join(
+    _HERE, "assets", "kenney space combat assets",
+    "Simple Space", "PNG", "Retina", "satellite_D.png",
+)
+MISSILE_PNG = os.path.join(
+    _HERE, "assets", "kenney space combat assets",
+    "Space Shooter Extension", "PNG", "Sprites", "Missiles", "spaceMissiles_003.png",
+)
 
-# ── Shield sprite-sheet constants ───────────────────────────────────────────
+# ── SFX assets ─────────────────────────────────────────────────────────────
+SFX_MISSILE_LAUNCH = os.path.join(
+    _HERE, "assets", "Sci Fi Sound Effects Bundle",
+    "Stormwave Audio Sci-Fi Sound Effects Bundle", "Weapons", "Misc Weapons",
+    "Sci-Fi Missile Flyby 1.wav",
+)
+SFX_MISSILE_IMPACT = os.path.join(
+    _HERE, "assets", "Sci Fi Sound Effects Bundle",
+    "Stormwave Audio Sci-Fi Sound Effects Bundle", "Weapons", "Explosions",
+    "Sci-Fi Missile Impact Explosion 1.wav",
+)
+SFX_MISTY_STEP = os.path.join(
+    _HERE, "assets", "Sci Fi Sound Effects Bundle",
+    "Stormwave Audio Sci-Fi Sound Effects Bundle", "Energy",
+    "Sci-Fi Eerie Crystalline Radiation Loop 1.wav",
+)
+SFX_FORCE_WALL = os.path.join(
+    _HERE, "assets", "Sci Fi Sound Effects Bundle",
+    "Stormwave Audio Sci-Fi Sound Effects Bundle", "Energy",
+    "Sci-Fi Energy Pulse 1.wav",
+)
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 4. Shield Sprite Sheet
+# ═══════════════════════════════════════════════════════════════════════════════
 SHIELD_COLS: int = 3
 SHIELD_ROWS: int = 2
 SHIELD_FRAME_W: int = 280          # each frame is 280x280 px in the sheet
@@ -109,11 +176,12 @@ SHIELD_SCALE: float = 0.50         # 280x0.5 = 140 px bubble -- wraps 96 px ship
 SHIELD_ROT_SPEED: float = 25.0     # slow bubble rotation, degrees/s
 SHIELD_HIT_FLASH: float = 0.25     # seconds of bright flash when shield absorbs a hit
 
-# ── Weapon / projectile constants ───────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════════════════════
+# 5. Weapon / Projectile / Contrail
+# ═══════════════════════════════════════════════════════════════════════════════
 NOSE_OFFSET: float = 44.0        # px ahead of ship centre where projectiles spawn
 GUN_LATERAL_OFFSET: float = 10.0 # px left/right of centre axis for dual-gun ships
 
-# ── Contrail constants ─────────────────────────────────────────────────────
 CONTRAIL_MAX_PARTICLES: int = 20       # max trail particles when thrusting
 CONTRAIL_SPAWN_RATE: float = 30.0      # particles per second when thrusting
 CONTRAIL_LIFETIME: float = 0.5         # seconds each particle lives
@@ -129,18 +197,45 @@ CONTRAIL_COLOURS = {
     "Thunderbolt": ((200, 120, 255), (60, 20, 100)),      # purple
 }
 
-# ── Inventory constants ────────────────────────────────────────────────────
+# Broadside weapon stats
+BROADSIDE_COOLDOWN: float = 0.50      # seconds between shots
+BROADSIDE_DAMAGE: int = 25            # same as basic laser
+BROADSIDE_SPEED: float = 600.0        # projectile speed
+BROADSIDE_RANGE: float = 400.0        # max travel distance
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 6. Inventory / Quick Use
+# ═══════════════════════════════════════════════════════════════════════════════
 INV_COLS: int = 5
 INV_ROWS: int = 5
 INV_CELL: int = 48               # cell size in px
 INV_PAD: int = 10                # padding around grid
 INV_HEADER: int = 32             # space for title text above grid
-
 INV_FOOTER: int = 20             # space for hint text below grid
 INV_W: int = INV_COLS * INV_CELL + INV_PAD * 2
 INV_H: int = INV_ROWS * INV_CELL + INV_PAD * 2 + INV_HEADER + INV_FOOTER
 
-# ── Player ship stats (defaults; overridden by ship type selection) ─────────
+STATION_INV_COLS: int = 10
+STATION_INV_ROWS: int = 10
+STATION_INV_CELL: int = 40            # cell size in px (smaller than ship inv)
+STATION_INV_PAD: int = 10
+
+# Item stack limits
+MAX_STACK: dict[str, int] = {
+    "iron": 999,
+    "repair_pack": 99,
+    "shield_recharge": 99,
+    "copper": 999,
+    "missile": 500,
+}
+MAX_STACK_DEFAULT: int = 10  # for blueprints, modules, etc.
+
+QUICK_USE_SLOTS: int = 10
+QUICK_USE_CELL: int = 30              # cell size in px
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 7. Player Ship Stats / Factions / Ship Types
+# ═══════════════════════════════════════════════════════════════════════════════
 PLAYER_MAX_HP: int = 100
 PLAYER_MAX_SHIELD: int = 100         # full shield capacity
 SHIELD_REGEN_RATE: float = 0.5       # shield points restored per second (1 per 2 s)
@@ -151,7 +246,6 @@ SHIP_BOUNCE: float = 0.55            # velocity restitution on bounce (0=dead st
 SHIP_RADIUS: float = 28.0
 ASTEROID_RADIUS: float = 26.0
 
-# ── Faction definitions ────────────────────────────────────────────────────
 FACTIONS = {
     "Earth": "faction_1_ships_128x128.png",
     "Colonial": "faction_2_ships_128x128.png",
@@ -159,9 +253,7 @@ FACTIONS = {
     "Ascended": "faction_7_ships_128x128.png",
 }
 
-# Ship type → sprite-sheet row (0-indexed) within each faction sheet (8x8, 128x128 frames)
-# Row 4 (0-idx 3) = Thunderbolt, Row 5 (0-idx 4) = Striker, Row 6 (0-idx 5) = Aegis,
-# Row 7 (0-idx 6) = Bastion, Row 8 (0-idx 7) = Cruiser
+# Ship type -> sprite-sheet row (0-indexed) within each faction sheet (8x8, 128x128 frames)
 SHIP_FRAME_SIZE: int = 128
 SHIP_SHEET_COLS: int = 8   # 8 upgrade levels per ship type
 
@@ -183,7 +275,61 @@ SHIP_TYPES = {
                     "max_speed": 400.0, "damping": 0.98875, "guns": 2},
 }
 
-# ── Asteroid constants ──────────────────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════════════════════
+# 8. Ship Module System
+# ═══════════════════════════════════════════════════════════════════════════════
+MODULE_SLOT_COUNT: int = 4
+MODULE_SLOT_CELL: int = 36            # cell size in px (slightly larger than quick-use)
+
+BLUEPRINT_SPIN_SPEED: float = 180.0   # degrees per second
+BLUEPRINT_DROP_CHANCE_ALIEN: float = 0.50
+BLUEPRINT_DROP_CHANCE_ASTEROID: float = 0.25
+
+_MODULE_ITEMS_DIR = os.path.join(
+    _HERE, "assets", "gamedevmarket assets",
+    "alien spaceship creation kit", "png", "Separate", "Items",
+)
+
+MODULE_TYPES: dict[str, dict] = {
+    "armor_plate":     {"label": "Armor Plate",      "effect": "max_hp",        "value": 20,
+                        "craft_cost": 50,  "icon": os.path.join(_MODULE_ITEMS_DIR, "Blank.png")},
+    "engine_booster":  {"label": "Engine Booster",    "effect": "max_speed",     "value": 50,
+                        "craft_cost": 75,  "icon": os.path.join(_MODULE_ITEMS_DIR, "Energy.png")},
+    "shield_booster":  {"label": "Shield Booster",    "effect": "max_shields",   "value": 20,
+                        "craft_cost": 100, "icon": os.path.join(_MODULE_ITEMS_DIR, "Shield.png")},
+    "shield_enhancer": {"label": "Shield Enhancer",   "effect": "shield_regen",  "value": 3.0,
+                        "craft_cost": 125, "icon": os.path.join(_MODULE_ITEMS_DIR, "Freeze.png")},
+    "damage_absorber": {"label": "Damage Absorber",   "effect": "shield_absorb", "value": 3,
+                        "craft_cost": 150, "icon": os.path.join(_MODULE_ITEMS_DIR, "Nuke.png")},
+    "broadside":       {"label": "Broadside Module",  "effect": "broadside",     "value": 1,
+                        "craft_cost": 200, "icon": os.path.join(_MODULE_ITEMS_DIR, "Poison.png")},
+    "rear_turret":     {"label": "Rear Turret",       "effect": "rear_turret",   "value": 1,
+                        "craft_cost": 200, "icon": os.path.join(_MODULE_ITEMS_DIR, "Poison.png"),
+                        "advanced": True},
+    "homing_missile":  {"label": "Homing Missiles",   "effect": "homing",        "value": 1,
+                        "craft_cost": 50, "craft_cost_copper": 25,
+                        "icon": MISSILE_PNG, "advanced": True,
+                        "consumable": True, "craft_time": 30.0, "craft_count": 1},
+    "misty_step":      {"label": "Misty Step",        "effect": "misty_step",    "value": 1,
+                        "craft_cost": 400, "craft_cost_copper": 200,
+                        "icon": os.path.join(_MODULE_ITEMS_DIR, "Energy.png"),
+                        "advanced": True},
+    "force_wall":      {"label": "Force Wall",        "effect": "force_wall",    "value": 1,
+                        "craft_cost": 400, "craft_cost_copper": 250,
+                        "icon": os.path.join(_MODULE_ITEMS_DIR, "Shield.png"),
+                        "advanced": True},
+    "death_blossom":   {"label": "Death Blossom",     "effect": "death_blossom", "value": 1,
+                        "craft_cost": 600, "craft_cost_copper": 400,
+                        "icon": os.path.join(_MODULE_ITEMS_DIR, "Nuke.png"),
+                        "advanced": True},
+    "advanced_crafter": {"label": "Adv. Crafter BP",  "effect": "none",          "value": 0,
+                        "craft_cost": 0, "icon": os.path.join(_MODULE_ITEMS_DIR, "Blank.png"),
+                        "blueprint_only": True},
+}
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 9. Asteroid / Explosion
+# ═══════════════════════════════════════════════════════════════════════════════
 ASTEROID_COUNT: int = 75
 ASTEROID_HP: int = 100
 ASTEROID_IRON_YIELD: int = 10
@@ -194,7 +340,9 @@ EXPLOSION_FRAME_W: int = 140
 EXPLOSION_FRAME_H: int = 140
 EXPLOSION_FPS: float = 15.0        # frames per second
 
-# ── Small Alien Ship constants ──────────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════════════════════
+# 10. Alien Ship AI & Physics
+# ═══════════════════════════════════════════════════════════════════════════════
 ALIEN_COUNT: int = 30
 ALIEN_HP: int = 50
 ALIEN_SCALE: float = 0.10               # display scale  (461 px source -> ~46 px wide)
@@ -210,7 +358,7 @@ ALIEN_LASER_SPEED: float = 650.0        # alien laser projectile speed  px/s
 ALIEN_FIRE_COOLDOWN: float = 1.5        # seconds between alien shots
 ALIEN_STANDOFF_DIST: float = 300.0     # preferred orbit distance for ranged aliens  px
 ALIEN_MIN_DIST: float = 400.0           # min spawn distance from world centre  px
-# ── Alien physics / collision constants ─────────────────────────────────────
+# Collision / physics
 ALIEN_BOUNCE: float = 0.65             # velocity restitution on collision bounce
 ALIEN_VEL_DAMPING: float = 0.97        # per-frame physics velocity decay (@ 60 fps)
 ALIEN_COL_COOLDOWN: float = 0.40       # seconds before another bounce can re-trigger
@@ -220,42 +368,41 @@ ALIEN_BUMP_FLASH: float = 0.15         # seconds of orange tint on collision bum
 ALIEN_STUCK_TIME: float = 2.0         # seconds before stuck detection triggers
 ALIEN_STUCK_DIST: float = 10.0        # px — if alien moved less than this in STUCK_TIME, it's stuck
 
-# ── Respawn constants ──────────────────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════════════════════
+# 11. Respawn / Pickup / Fog / Camera
+# ═══════════════════════════════════════════════════════════════════════════════
 RESPAWN_INTERVAL: float = 60.0           # seconds (1 minute) between respawn checks
 RESPAWN_EXCLUSION_RADIUS: float = 300.0  # px — no respawn within this range of a building
 ALIEN_IRON_DROP: int = 5                 # iron units dropped when an alien ship is destroyed
 
-# ── Iron pickup constants ───────────────────────────────────────────────────
 IRON_PICKUP_DIST: float = 40.0   # px -- edge distance (from ship hull) to trigger fly-to-ship
 IRON_FLY_SPEED: float = 400.0    # px/s -- speed of iron token once attracted
 WORLD_ITEM_LIFETIME: float = 600.0  # seconds before a dropped item despawns (10 min)
 EJECT_DIST: float = 60.0            # px from ship EDGE where ejected items land
 
-# ── Fog of war constants ───────────────────────────────────────────────────
 FOG_REVEAL_RADIUS: float = 400.0        # px — radius around ship that gets revealed (800 px diameter)
 FOG_CELL_SIZE: int = 50                 # px per fog grid cell
 FOG_GRID_W: int = WORLD_WIDTH // FOG_CELL_SIZE    # 128 cells
 FOG_GRID_H: int = WORLD_HEIGHT // FOG_CELL_SIZE   # 128 cells
 
-# ── Camera shake constants ──────────────────────────────────────────────────
 SHAKE_DURATION: float = 0.25     # seconds of camera shake after a hull collision
 SHAKE_AMPLITUDE: float = 8.0     # max pixel offset during shake
 
-# ── Mini-map constants (drawn inside the status panel) ──────────────────────
+# ═══════════════════════════════════════════════════════════════════════════════
+# 12. UI: Mini-map / Escape Menu / Save-Load
+# ═══════════════════════════════════════════════════════════════════════════════
 MINIMAP_PAD: int = 10
 MINIMAP_W: int = STATUS_WIDTH - 2 * MINIMAP_PAD   # 193 px wide
 MINIMAP_H: int = MINIMAP_W                         # square
 MINIMAP_X: int = MINIMAP_PAD
 MINIMAP_Y: int = MINIMAP_PAD + 16                  # 26 px from bottom; label sits below
 
-# ── Escape menu constants ─────────────────────────────────────────────────
 MENU_W: int = 320
 MENU_H: int = 770
 MENU_BTN_W: int = 240
 MENU_BTN_H: int = 40
 MENU_BTN_GAP: int = 16
 
-# ── Save/Load slot sub-menu constants ─────────────────────────────────────
 SAVE_SLOT_COUNT: int = 10
 SAVE_MENU_W: int = 420
 SAVE_MENU_H: int = 590
@@ -263,7 +410,9 @@ SAVE_SLOT_W: int = 380
 SAVE_SLOT_H: int = 42
 SAVE_SLOT_GAP: int = 6
 
-# ── Building system constants ────────────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════════════════════
+# 13. Building System
+# ═══════════════════════════════════════════════════════════════════════════════
 BUILDING_DIR = os.path.join(
     _HERE, "assets", "kenney space combat assets",
     "Space Shooter Extension", "PNG", "Sprites X2", "Building",
@@ -320,7 +469,7 @@ BUILDING_TYPES = {
                         "free_place": True,  "slots_used": 2},
 }
 
-# Turret combat constants
+# Turret combat
 TURRET_RANGE: float = 400.0         # px — alien detection range for auto-fire
 TURRET_DAMAGE: float = 10.0         # HP per turret shot
 TURRET_COOLDOWN: float = 1.5        # seconds between turret shots
@@ -328,135 +477,33 @@ TURRET_LASER_SPEED: float = 700.0   # turret projectile speed  px/s
 TURRET_LASER_RANGE: float = 500.0   # turret projectile max range  px
 TURRET_FREE_PLACE_RADIUS: float = 300.0  # max distance from Home Station for turrets
 
-# Repair module constants
+# Repair module
 REPAIR_RANGE: float = 300.0             # px — distance from Home Station for repair to activate
 REPAIR_RATE: float = 1.0               # HP restored per second when near Home Station
 REPAIR_SHIELD_BOOST: float = 1.0      # extra shield regen pt/s from Repair Module
 
-# Crafting constants
+# Crafting
 CRAFT_TIME: float = 60.0              # seconds to craft one Repair Pack batch
 CRAFT_IRON_COST: int = 200            # iron needed from station inventory
 CRAFT_RESULT_COUNT: int = 5           # number of Repair Packs produced per craft
 REPAIR_PACK_HEAL: float = 0.50       # fraction of max_hp healed per Repair Pack use
 SHIELD_RECHARGE_HEAL: float = 0.50   # fraction of max_shields recharged per Shield Recharge use
 
-# Station inventory constants
-STATION_INV_COLS: int = 10
-STATION_INV_ROWS: int = 10
-STATION_INV_CELL: int = 40            # cell size in px (smaller than ship inv)
-STATION_INV_PAD: int = 10
-
-# Item stack limits
-MAX_STACK: dict[str, int] = {
-    "iron": 999,
-    "repair_pack": 99,
-    "shield_recharge": 99,
-    "copper": 999,
-    "missile": 500,
-}
-MAX_STACK_DEFAULT: int = 10  # for blueprints, modules, etc.
-
-# Quick use bar constants
-QUICK_USE_SLOTS: int = 10
-QUICK_USE_CELL: int = 30              # cell size in px
-
-# Repair Pack asset (items.png — second 198×198 item in first row)
-REPAIR_PACK_PNG = os.path.join(
-    _HERE, "assets", "gamedevmarket assets",
-    "alien spaceship creation kit", "png", "items.png",
-)
-REPAIR_PACK_CROP = (198, 0, 396, 198)  # (x0, y0, x1, y1) for PIL crop
-
-SHIELD_RECHARGE_PNG = os.path.join(
-    _HERE, "assets", "kenney space combat assets",
-    "Space Shooter Redux", "PNG", "Power-ups", "powerupBlue_bolt.png",
-)
-
-# ── Ship Module System ────────────────────────────────────────────────────────
-MODULE_SLOT_COUNT: int = 4
-MODULE_SLOT_CELL: int = 36            # cell size in px (slightly larger than quick-use)
-
-BLUEPRINT_PNG = os.path.join(
-    _HERE, "assets", "kenney space combat assets",
-    "Simple Space", "PNG", "Retina", "satellite_D.png",
-)
-BLUEPRINT_SPIN_SPEED: float = 180.0   # degrees per second
-BLUEPRINT_DROP_CHANCE_ALIEN: float = 0.50
-BLUEPRINT_DROP_CHANCE_ASTEROID: float = 0.25
-
-# Missile asset (needed by MODULE_TYPES below)
-MISSILE_PNG = os.path.join(
-    _HERE, "assets", "kenney space combat assets",
-    "Space Shooter Extension", "PNG", "Sprites", "Missiles", "spaceMissiles_003.png",
-)
-
-_MODULE_ITEMS_DIR = os.path.join(
-    _HERE, "assets", "gamedevmarket assets",
-    "alien spaceship creation kit", "png", "Separate", "Items",
-)
-
-MODULE_TYPES: dict[str, dict] = {
-    "armor_plate":     {"label": "Armor Plate",      "effect": "max_hp",        "value": 20,
-                        "craft_cost": 50,  "icon": os.path.join(_MODULE_ITEMS_DIR, "Blank.png")},
-    "engine_booster":  {"label": "Engine Booster",    "effect": "max_speed",     "value": 50,
-                        "craft_cost": 75,  "icon": os.path.join(_MODULE_ITEMS_DIR, "Energy.png")},
-    "shield_booster":  {"label": "Shield Booster",    "effect": "max_shields",   "value": 20,
-                        "craft_cost": 100, "icon": os.path.join(_MODULE_ITEMS_DIR, "Shield.png")},
-    "shield_enhancer": {"label": "Shield Enhancer",   "effect": "shield_regen",  "value": 3.0,
-                        "craft_cost": 125, "icon": os.path.join(_MODULE_ITEMS_DIR, "Freeze.png")},
-    "damage_absorber": {"label": "Damage Absorber",   "effect": "shield_absorb", "value": 3,
-                        "craft_cost": 150, "icon": os.path.join(_MODULE_ITEMS_DIR, "Nuke.png")},
-    "broadside":       {"label": "Broadside Module",  "effect": "broadside",     "value": 1,
-                        "craft_cost": 200, "icon": os.path.join(_MODULE_ITEMS_DIR, "Poison.png")},
-    "rear_turret":     {"label": "Rear Turret",       "effect": "rear_turret",   "value": 1,
-                        "craft_cost": 200, "icon": os.path.join(_MODULE_ITEMS_DIR, "Poison.png"),
-                        "advanced": True},
-    "homing_missile":  {"label": "Homing Missiles",   "effect": "homing",        "value": 1,
-                        "craft_cost": 50, "craft_cost_copper": 25,
-                        "icon": MISSILE_PNG, "advanced": True,
-                        "consumable": True, "craft_time": 30.0, "craft_count": 1},
-    "misty_step":      {"label": "Misty Step",        "effect": "misty_step",    "value": 1,
-                        "craft_cost": 400, "craft_cost_copper": 200,
-                        "icon": os.path.join(_MODULE_ITEMS_DIR, "Energy.png"),
-                        "advanced": True},
-    "force_wall":      {"label": "Force Wall",        "effect": "force_wall",    "value": 1,
-                        "craft_cost": 400, "craft_cost_copper": 250,
-                        "icon": os.path.join(_MODULE_ITEMS_DIR, "Shield.png"),
-                        "advanced": True},
-    "death_blossom":   {"label": "Death Blossom",     "effect": "death_blossom", "value": 1,
-                        "craft_cost": 600, "craft_cost_copper": 400,
-                        "icon": os.path.join(_MODULE_ITEMS_DIR, "Nuke.png"),
-                        "advanced": True},
-    "advanced_crafter": {"label": "Adv. Crafter BP",  "effect": "none",          "value": 0,
-                        "craft_cost": 0, "icon": os.path.join(_MODULE_ITEMS_DIR, "Blank.png"),
-                        "blueprint_only": True},
-}
-
-# Broadside weapon stats
-BROADSIDE_COOLDOWN: float = 0.50      # seconds between shots
-BROADSIDE_DAMAGE: int = 25            # same as basic laser
-BROADSIDE_SPEED: float = 600.0        # projectile speed
-BROADSIDE_RANGE: float = 400.0        # max travel distance
-
-# Docking port snap distance
+# Docking / placement / capacity
 DOCK_SNAP_DIST: float = 40.0        # px — max distance to snap to a port
-
-# Base module capacity (before Solar Arrays)
 BASE_MODULE_CAPACITY: int = 4
-
-# Building collision radius (approximate)
 BUILDING_RADIUS: float = 30.0
-
-# Station info panel — max distance to open
 STATION_INFO_RANGE: float = 300.0
 
-# Build menu UI constants
+# Build menu UI
 BUILD_MENU_W: int = 280
 BUILD_MENU_H: int = 420
 BUILD_MENU_ITEM_H: int = 48
 BUILD_MENU_PAD: int = 10
 
-# ── Zone 2 (Nebula) constants ───────────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════════════════════
+# 14. Zone 2 (Nebula)
+# ═══════════════════════════════════════════════════════════════════════════════
 ZONE2_WIDTH: int = 6400
 ZONE2_HEIGHT: int = 6400
 
@@ -515,7 +562,9 @@ Z2_RAMMER_HP: int = ALIEN_HP * 2   # 100
 Z2_RAMMER_SHIELD: int = 50
 Z2_RAMMER_XP: int = 80
 
-# Homing missile
+# ═══════════════════════════════════════════════════════════════════════════════
+# 15. Homing Missiles / Special Abilities
+# ═══════════════════════════════════════════════════════════════════════════════
 MISSILE_COST_IRON: int = 50
 MISSILE_COST_COPPER: int = 25
 MISSILE_CRAFT_TIME: float = 30.0
@@ -524,27 +573,6 @@ MISSILE_DAMAGE: float = 50.0
 MISSILE_SPEED: float = 400.0
 MISSILE_RANGE: float = 1500.0
 MISSILE_TURN_RATE: float = 180.0    # deg/s homing turn rate
-
-SFX_MISSILE_LAUNCH = os.path.join(
-    _HERE, "assets", "Sci Fi Sound Effects Bundle",
-    "Stormwave Audio Sci-Fi Sound Effects Bundle", "Weapons", "Misc Weapons",
-    "Sci-Fi Missile Flyby 1.wav",
-)
-SFX_MISSILE_IMPACT = os.path.join(
-    _HERE, "assets", "Sci Fi Sound Effects Bundle",
-    "Stormwave Audio Sci-Fi Sound Effects Bundle", "Weapons", "Explosions",
-    "Sci-Fi Missile Impact Explosion 1.wav",
-)
-SFX_MISTY_STEP = os.path.join(
-    _HERE, "assets", "Sci Fi Sound Effects Bundle",
-    "Stormwave Audio Sci-Fi Sound Effects Bundle", "Energy",
-    "Sci-Fi Eerie Crystalline Radiation Loop 1.wav",
-)
-SFX_FORCE_WALL = os.path.join(
-    _HERE, "assets", "Sci Fi Sound Effects Bundle",
-    "Stormwave Audio Sci-Fi Sound Effects Bundle", "Energy",
-    "Sci-Fi Energy Pulse 1.wav",
-)
 
 # Special ability meter
 ABILITY_METER_MAX: float = 100.0
@@ -565,7 +593,9 @@ DEATH_BLOSSOM_FIRE_RATE: float = 0.3   # seconds between volleys
 DEATH_BLOSSOM_MISSILES_PER_VOLLEY: int = 8
 DEATH_BLOSSOM_HP_AFTER: int = 10
 
-# ── Boss encounter constants ────────────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════════════════════
+# 16. Boss Encounter
+# ═══════════════════════════════════════════════════════════════════════════════
 BOSS_MONSTER_PNG = os.path.join(
     _HERE, "assets", "256Spacemonsters", "faction_6_monsters_128x128.png",
 )
@@ -614,6 +644,6 @@ BOSS_BOUNCE: float = 0.3                # heavy boss barely bounces
 BOSS_PHASE2_HP: float = 0.50            # 50% HP → Phase 2
 BOSS_PHASE3_HP: float = 0.25            # 25% HP → Phase 3
 
-# Boss XP reward
+# Boss rewards
 BOSS_XP_REWARD: int = 500
 BOSS_IRON_DROP: int = 200

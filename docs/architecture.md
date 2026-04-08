@@ -48,6 +48,7 @@ def _spawn_explosion(self, x, y):
 
 | Module | Lines | Responsibility |
 |---|---|---|
+| `ui_helpers.py` | ~85 | Shared `draw_button()`, `draw_load_slot()`, standard colour constants |
 | `hud.py` | ~518 | HUD status panel, delegates minimap and equalizer |
 | `hud_minimap.py` | ~185 | Minimap drawing with fog overlay |
 | `hud_equalizer.py` | ~83 | Equalizer visualizer state and rendering |
@@ -78,8 +79,9 @@ def _spawn_explosion(self, x, y):
 ## Dependency Graph
 
 ```
-constants.py <-- nearly everything (central config)
-settings.py  <-- splash_view, options_view, game_view, death_screen
+constants.py   <-- nearly everything (central config, 16 sections)
+settings.py    <-- splash_view, options_view, game_view, death_screen
+ui_helpers.py  <-- splash_view, death_screen, options_view (shared button/slot drawing)
 
 game_view.py (thin dispatcher)
   +-- combat_helpers.py
@@ -100,10 +102,15 @@ collisions.py
   +-- constants.py (radii, damage, bounce)
   +-- sprites/explosion.py (HitSpark)
   +-- sprites/building.py (HomeStation disable cascade)
+  +-- character_data.py (kill bonus functions)
+  +-- settings.py (character name for bonuses)
 ```
 
 ## Key Design Patterns
 
+- **Shared UI helpers** --- `ui_helpers.py` provides `draw_button()` and `draw_load_slot()` with standard colour constants; used by splash_view, death_screen, and options_view
+- **Kill reward centralisation** --- `collisions._apply_kill_rewards()` handles explosion + loot + XP for all kill types, eliminating 3x duplicated bonus blocks
+- **Constants organisation** --- `constants.py` uses 16 named `═══` sections with a docstring table of contents for discoverability
 - **Pre-built `arcade.Text` objects** --- avoids per-frame allocation (PerformanceWarning)
 - **Spatial hashing** on `asteroid_list` and `alien_list` for O(1) collision lookups
 - **GC management** --- automatic GC disabled; manual collect when ESC menu opens

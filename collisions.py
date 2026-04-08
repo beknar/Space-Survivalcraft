@@ -11,7 +11,7 @@ from constants import (
     SHIP_RADIUS, ASTEROID_RADIUS, ALIEN_RADIUS,
     SHIP_COLLISION_DAMAGE, SHIP_COLLISION_COOLDOWN, SHIP_BOUNCE,
     ALIEN_BOUNCE, ALIEN_SPEED, ALIEN_COL_COOLDOWN,
-    BUILDING_RADIUS, ALIEN_IRON_DROP,
+    BUILDING_RADIUS, ALIEN_IRON_DROP, ASTEROID_IRON_YIELD,
     BUILDING_TYPES, ALIEN_AGGRO_RANGE,
     BLUEPRINT_DROP_CHANCE_ALIEN, BLUEPRINT_DROP_CHANCE_ASTEROID,
     BOSS_RADIUS, BOSS_COLLISION_DAMAGE, BOSS_COLLISION_COOLDOWN,
@@ -22,8 +22,32 @@ from character_data import (
 )
 from sprites.explosion import HitSpark
 
+from settings import audio as _audio
+
 if TYPE_CHECKING:
     from game_view import GameView
+
+
+def _apply_kill_rewards(
+    gv: GameView, x: float, y: float,
+    base_iron: int,
+    iron_bonus_fn,
+    bp_base_chance: float,
+    xp: int = 25,
+) -> None:
+    """Spawn explosion, drop iron (base + character bonus), maybe blueprint, award XP."""
+    gv._spawn_explosion(x, y)
+    arcade.play_sound(gv._explosion_snd, volume=0.7)
+    gv._spawn_iron_pickup(x, y, amount=base_iron)
+    _cn = _audio.character_name
+    _cl = gv._char_level
+    _extra = iron_bonus_fn(_cn, _cl)
+    if _extra > 0:
+        gv._spawn_iron_pickup(x, y, amount=_extra)
+    _bp_chance = bp_base_chance + blueprint_drop_bonus(_cn, _cl)
+    if random.random() < _bp_chance:
+        gv._spawn_blueprint_pickup(x, y)
+    gv._add_xp(xp)
 
 
 def _alert_nearby_aliens(gv: GameView, x: float, y: float) -> None:
@@ -51,21 +75,10 @@ def handle_projectile_hits(gv: GameView) -> None:
                 asteroid.take_damage(int(proj.damage))
                 if asteroid.hp <= 0:
                     ax, ay = asteroid._base_x, asteroid._base_y
-                    gv._spawn_explosion(ax, ay)
-                    arcade.play_sound(gv._explosion_snd, volume=0.7)
                     asteroid.remove_from_sprite_lists()
-                    gv._spawn_iron_pickup(ax, ay)
-                    # Character bonuses
-                    from settings import audio
-                    _cn = audio.character_name
-                    _cl = gv._char_level
-                    _extra = bonus_iron_asteroid(_cn, _cl)
-                    if _extra > 0:
-                        gv._spawn_iron_pickup(ax, ay, amount=_extra)
-                    _bp_chance = BLUEPRINT_DROP_CHANCE_ASTEROID + blueprint_drop_bonus(_cn, _cl)
-                    if random.random() < _bp_chance:
-                        gv._spawn_blueprint_pickup(ax, ay)
-                    gv._add_xp(25)
+                    _apply_kill_rewards(gv, ax, ay, ASTEROID_IRON_YIELD,
+                                        bonus_iron_asteroid,
+                                        BLUEPRINT_DROP_CHANCE_ASTEROID)
 
         if not consumed and not proj.mines_rock:
             hit_aliens = arcade.check_for_collision_with_list(
@@ -79,22 +92,9 @@ def handle_projectile_hits(gv: GameView) -> None:
                 proj.remove_from_sprite_lists()
                 alien.take_damage(int(proj.damage))
                 if alien.hp <= 0:
-                    gv._spawn_explosion(alien.center_x, alien.center_y)
-                    arcade.play_sound(gv._explosion_snd, volume=0.7)
-                    gv._spawn_iron_pickup(
-                        alien.center_x, alien.center_y,
-                        amount=ALIEN_IRON_DROP,
-                    )
-                    from settings import audio
-                    _cn = audio.character_name
-                    _cl = gv._char_level
-                    _extra = bonus_iron_enemy(_cn, _cl)
-                    if _extra > 0:
-                        gv._spawn_iron_pickup(alien.center_x, alien.center_y, amount=_extra)
-                    _bp_chance = BLUEPRINT_DROP_CHANCE_ALIEN + blueprint_drop_bonus(_cn, _cl)
-                    if random.random() < _bp_chance:
-                        gv._spawn_blueprint_pickup(alien.center_x, alien.center_y)
-                    gv._add_xp(25)
+                    _apply_kill_rewards(gv, alien.center_x, alien.center_y,
+                                        ALIEN_IRON_DROP, bonus_iron_enemy,
+                                        BLUEPRINT_DROP_CHANCE_ALIEN)
                     alien.remove_from_sprite_lists()
 
 
@@ -328,22 +328,9 @@ def handle_turret_projectile_hits(gv: GameView) -> None:
             proj.remove_from_sprite_lists()
             alien.take_damage(int(proj.damage))
             if alien.hp <= 0:
-                gv._spawn_explosion(alien.center_x, alien.center_y)
-                arcade.play_sound(gv._explosion_snd, volume=0.7)
-                gv._spawn_iron_pickup(
-                    alien.center_x, alien.center_y,
-                    amount=ALIEN_IRON_DROP,
-                )
-                from settings import audio
-                _cn = audio.character_name
-                _cl = gv._char_level
-                _extra = bonus_iron_enemy(_cn, _cl)
-                if _extra > 0:
-                    gv._spawn_iron_pickup(alien.center_x, alien.center_y, amount=_extra)
-                _bp_chance = BLUEPRINT_DROP_CHANCE_ALIEN + blueprint_drop_bonus(_cn, _cl)
-                if random.random() < _bp_chance:
-                    gv._spawn_blueprint_pickup(alien.center_x, alien.center_y)
-                gv._add_xp(25)
+                _apply_kill_rewards(gv, alien.center_x, alien.center_y,
+                                    ALIEN_IRON_DROP, bonus_iron_enemy,
+                                    BLUEPRINT_DROP_CHANCE_ALIEN)
                 alien.remove_from_sprite_lists()
 
 

@@ -251,15 +251,11 @@ class OptionsView(arcade.View):
         self._t_fs.color = arcade.color.CYAN if audio.fullscreen else arcade.color.WHITE
         self._t_fs.draw()
 
-    def _draw_btn(self, rect, hover, t_label) -> None:
+    @staticmethod
+    def _draw_btn(rect, hover, t_label) -> None:
         """Draw a single button with hover highlight."""
-        bx, by, bw, bh = rect
-        bg = (50, 80, 140, 255) if hover else (25, 35, 70, 230)
-        arcade.draw_rect_filled(arcade.LBWH(bx, by, bw, bh), bg)
-        outline = arcade.color.CYAN if hover else arcade.color.STEEL_BLUE
-        arcade.draw_rect_outline(arcade.LBWH(bx, by, bw, bh), outline, border_width=2)
-        t_label.color = arcade.color.CYAN if hover else arcade.color.WHITE
-        t_label.draw()
+        from ui_helpers import draw_button
+        draw_button(rect, hover, t_label)
 
     def _draw_buttons(self) -> None:
         """Draw all main buttons."""

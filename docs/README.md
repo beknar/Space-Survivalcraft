@@ -61,6 +61,9 @@ All zones are saved and restored independently. When saving from any zone, both 
 
 The codebase follows an extraction pattern where GameView delegates to free-function modules. Recent refactors introduced:
 
+- **`ui_helpers.py`** --- shared `draw_button()` and `draw_load_slot()` with standard colour constants; eliminates duplicated button/slot drawing across splash, death, and options views
+- **`collisions._apply_kill_rewards()`** --- centralised explosion + iron drop + character bonus + blueprint chance + XP for all kill types (asteroid, alien-by-player, alien-by-turret)
+- **`constants.py`** --- reorganised into 16 clearly labelled sections with `═══` dividers and a docstring table of contents
 - **`game_state.py`** --- state dataclasses (`BossState`, `FogState`, `CombatTimers`, `AbilityState`, `EffectState`) for future incremental adoption
 - **`game_save.py`** --- reusable serialization/deserialization helpers (`_serialize_asteroid`, `_restore_z1_aliens`, etc.) replacing repeated patterns
 - **`zones/zone2_world.py`** --- Zone 2 entity population and collision handling extracted from `zone2.py`

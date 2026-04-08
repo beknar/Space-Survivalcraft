@@ -85,8 +85,9 @@ python -m pytest "unit tests/" -v
 ```
 Space Survivalcraft/
 ├── main.py              # Entry point
-├── constants.py         # All game constants
+├── constants.py         # All game constants (16 named sections)
 ├── settings.py          # Audio settings singleton
+├── ui_helpers.py        # Shared UI drawing (buttons, save slots)
 │
 │  ── Core gameplay (GameView + extracted modules) ──
 ├── game_view.py         # GameView thin dispatcher (~820 lines)
@@ -98,7 +99,7 @@ Space Survivalcraft/
 ├── input_handlers.py    # Keyboard and mouse event handling
 ├── game_save.py         # Save/load with zone-aware serialization helpers
 ├── game_music.py        # Music and video playback management
-├── collisions.py        # All collision handlers
+├── collisions.py        # Collision handlers + centralised kill rewards
 ├── world_setup.py       # Asset loading and world population
 │
 │  ── Views ──

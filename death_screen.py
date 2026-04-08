@@ -223,22 +223,13 @@ class DeathScreen:
             self._draw_main()
 
     def _draw_main(self) -> None:
+        from ui_helpers import draw_button
         self._t_title.draw()
         self._t_quote.draw()
 
         for i, label in enumerate(_BTN_LABELS):
-            bx, by, bw, bh = self._btn_rects[i]
-            hovered = (i == self._hover_idx)
-            bg = (50, 80, 140, 255) if hovered else (25, 35, 70, 230)
-            arcade.draw_rect_filled(arcade.LBWH(bx, by, bw, bh), bg)
-            outline = arcade.color.CYAN if hovered else arcade.color.STEEL_BLUE
-            arcade.draw_rect_outline(
-                arcade.LBWH(bx, by, bw, bh), outline, border_width=2,
-            )
-            self._t_btn_labels[i].color = (
-                arcade.color.CYAN if hovered else arcade.color.WHITE
-            )
-            self._t_btn_labels[i].draw()
+            draw_button(self._btn_rects[i], i == self._hover_idx,
+                        self._t_btn_labels[i])
 
     def _draw_load(self) -> None:
         from constants import SAVE_MENU_W, SAVE_MENU_H
@@ -257,62 +248,17 @@ class DeathScreen:
         self._t_load_title.y = py + panel_h - 30
         self._t_load_title.draw()
 
+        from ui_helpers import draw_load_slot, draw_button, BTN_BG_BACK_NORMAL
         for i in range(SAVE_SLOT_COUNT):
-            sx, sy, sw, sh = slot_rects[i]
-            info = self._load_slots[i] if i < len(self._load_slots) else {"name": "", "exists": False}
-            hovered = (i == self._load_hover)
-
-            if not info["exists"]:
-                bg = (20, 20, 40, 255)
-                outline_c = (60, 60, 80)
-                text_c = (80, 80, 100)
-            elif hovered:
-                bg = (50, 80, 140, 255)
-                outline_c = arcade.color.CYAN
-                text_c = arcade.color.CYAN
-            else:
-                bg = (30, 40, 80, 255)
-                outline_c = arcade.color.STEEL_BLUE
-                text_c = arcade.color.WHITE
-
-            arcade.draw_rect_filled(arcade.LBWH(sx, sy, sw, sh), bg)
-            arcade.draw_rect_outline(
-                arcade.LBWH(sx, sy, sw, sh), outline_c, border_width=1,
-            )
-
-            label = f"Slot {i + 1}: {info['name']}" if info["exists"] else f"Slot {i + 1}: \u2014 Empty \u2014"
-            self._t_load_labels[i].text = label
-            self._t_load_labels[i].x = sx + 10
-            self._t_load_labels[i].y = sy + sh - 10
-            self._t_load_labels[i].color = text_c
-            self._t_load_labels[i].draw()
-
-            if info["exists"]:
-                zone_label = info.get("zone", "")
-                zone_part = f"  \u00b7 {zone_label}" if zone_label else ""
-                detail = (f"{info.get('faction', '?')} \u00b7 {info.get('ship_type', '?')}{zone_part}"
-                          f"  |  HP {info.get('hp', 0)}  Shields {info.get('shields', 0)}")
-                det_c = (140, 200, 240) if hovered else (120, 150, 180)
-                self._t_load_details[i].text = detail
-                self._t_load_details[i].x = sx + 10
-                self._t_load_details[i].y = sy + 10
-                self._t_load_details[i].color = det_c
-                self._t_load_details[i].draw()
+            draw_load_slot(i, slot_rects, self._load_slots,
+                           self._load_hover, self._t_load_labels,
+                           self._t_load_details)
 
         # Back button
-        bbx, bby, bbw, bbh = self._load_back_rect()
-        back_hovered = (self._load_hover == 100)
-        bg = (50, 80, 140, 255) if back_hovered else (30, 40, 80, 255)
-        arcade.draw_rect_filled(arcade.LBWH(bbx, bby, bbw, bbh), bg)
-        outline = arcade.color.CYAN if back_hovered else arcade.color.STEEL_BLUE
-        arcade.draw_rect_outline(
-            arcade.LBWH(bbx, bby, bbw, bbh), outline, border_width=2,
-        )
-        self._t_load_back.y = bby + bbh // 2
-        self._t_load_back.color = (
-            arcade.color.CYAN if back_hovered else arcade.color.WHITE
-        )
-        self._t_load_back.draw()
+        back_rect = self._load_back_rect()
+        self._t_load_back.y = back_rect[1] + back_rect[3] // 2
+        draw_button(back_rect, self._load_hover == 100,
+                    self._t_load_back, bg_normal=BTN_BG_BACK_NORMAL)
 
     # ── Input ──────────────────────────────────────────────────────────
 

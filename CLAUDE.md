@@ -29,7 +29,7 @@ Space Survivalcraft/
 ├── .gitignore
 │
 ├── main.py              # Entry point — creates Window, starts SplashView, patches pyglet clock for video
-├── constants.py         # All game constants (window, physics, assets, factions, ship types, respawn)
+├── constants.py         # All game constants in 16 named sections (window, physics, assets, factions, aliens, buildings, zone 2, boss, etc.)
 ├── settings.py          # Global runtime settings singleton (volume, resolution, display mode, video dir) + apply_resolution() + save_config()/load_config()
 ├── video_player.py      # VideoPlayer — FFmpeg video playback with GPU blit downscale, segment looping, character video support
 │
@@ -81,7 +81,8 @@ Space Survivalcraft/
 ├── character_data.py    # Character progression: XP/level tables, per-character bonuses (Debra/Ellie/Tara)
 │
 │  ── Game logic ──
-├── collisions.py        # All collision handlers (projectile/asteroid/alien/player/building/boss pairs) + XP gain + character bonuses
+├── collisions.py        # All collision handlers + _apply_kill_rewards helper (explosion, iron, blueprint, XP)
+├── ui_helpers.py        # Shared UI drawing: draw_button, draw_load_slot, standard button/slot colours
 ├── world_setup.py       # Asset loading helpers + asteroid/alien/building spawning + music collection
 │
 │  ── Sprite classes ──
@@ -233,6 +234,9 @@ sprites/alien.py
 
 ### Key Patterns
 
+- **Shared UI helpers** — `ui_helpers.py` provides `draw_button()` and `draw_load_slot()` with standard colour constants; used by splash_view, death_screen, and options_view to eliminate duplicated button/slot drawing code
+- **Kill reward centralisation** — `collisions._apply_kill_rewards()` handles explosion + iron drop + character bonus + blueprint chance + XP for all kill types (asteroid, alien-by-player, alien-by-turret)
+- **Constants organisation** — `constants.py` grouped into 16 named sections with `═══` dividers and a docstring table of contents for discoverability
 - **Pre-built `arcade.Text` objects** everywhere (avoids per-frame `arcade.draw_text()` PerformanceWarning)
 - **Module-level caching** for music tracks (`_music_cache` in `world_setup.py`) — loads WAVs once, shuffles copy on each call
 - **Spatial hashing** on `asteroid_list` and `alien_list` (`use_spatial_hash=True`) for O(1) collision lookups
