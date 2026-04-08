@@ -12,8 +12,12 @@ from constants import (
 )
 
 _PANEL_W = 300
-_PANEL_H = 420
+_PANEL_H_MIN = 280
 _RECIPE_H = 28
+_HEADER = 55   # title area
+_DETAIL = 40   # detail text + padding
+_BTN_AREA = 80 # craft button + progress bar + close text
+
 
 
 class CraftMenu:
@@ -93,7 +97,11 @@ class CraftMenu:
         for recipe in self._recipes:
             info = MODULE_TYPES[recipe["key"]]
             if info.get("blueprint_only"):
-                cost_text = "Unlocks building"
+                from constants import BUILDING_TYPES
+                bld = BUILDING_TYPES.get("Advanced Crafter", {})
+                b_iron = bld.get("cost", 0)
+                b_copper = bld.get("cost_copper", 0)
+                cost_text = f"Unlocks building ({b_iron} iron + {b_copper} copper)"
             else:
                 cost_text = f"{recipe['cost']} iron"
                 if recipe.get("cost_copper", 0) > 0:
@@ -108,10 +116,15 @@ class CraftMenu:
     def toggle(self) -> None:
         self.open = not self.open
 
+    def _panel_height(self) -> int:
+        n = 2 + len(self._recipes)  # repair pack + shield recharge + modules
+        return max(_PANEL_H_MIN, _HEADER + n * _RECIPE_H + _DETAIL + _BTN_AREA)
+
     def _panel_origin(self) -> tuple[int, int]:
         sw = self._window.width if self._window else SCREEN_WIDTH
         sh = self._window.height if self._window else SCREEN_HEIGHT
-        return (sw - _PANEL_W) // 2, (sh - _PANEL_H) // 2
+        ph = self._panel_height()
+        return (sw - _PANEL_W) // 2, (sh - ph) // 2
 
     def _craft_btn_rect(self) -> tuple[int, int, int, int]:
         px, py = self._panel_origin()
@@ -125,12 +138,13 @@ class CraftMenu:
         if not self.open:
             return None
         px, py = self._panel_origin()
-        if not (px <= x <= px + _PANEL_W and py <= y <= py + _PANEL_H):
+        ph = self._panel_height()
+        if not (px <= x <= px + _PANEL_W and py <= y <= py + ph):
             self.open = False
             return None
 
         # Recipe list clicks (0=repair pack, 1=shield recharge, 2+=modules)
-        list_y = py + _PANEL_H - 55
+        list_y = py + ph - _HEADER
         total_recipes = 2 + len(self._recipes)  # 2 consumables + modules
         for i in range(total_recipes):
             ry = list_y - i * _RECIPE_H
@@ -171,26 +185,27 @@ class CraftMenu:
         if not self.open:
             return
         px, py = self._panel_origin()
+        ph = self._panel_height()
 
         arcade.draw_rect_filled(
-            arcade.LBWH(px, py, _PANEL_W, _PANEL_H), (15, 20, 45, 240))
+            arcade.LBWH(px, py, _PANEL_W, ph), (15, 20, 45, 240))
         arcade.draw_rect_outline(
-            arcade.LBWH(px, py, _PANEL_W, _PANEL_H),
+            arcade.LBWH(px, py, _PANEL_W, ph),
             arcade.color.STEEL_BLUE, border_width=2)
 
         self._t_title.x = px + _PANEL_W // 2
-        self._t_title.y = py + _PANEL_H - 20
+        self._t_title.y = py + ph - 20
         self._t_title.draw()
 
-        self._draw_recipe_list(px, py, station_iron)
+        self._draw_recipe_list(px, py, ph, station_iron)
         self._draw_craft_button(px, py, station_iron)
 
         self._t_close.x = px + _PANEL_W // 2; self._t_close.y = py + 10
         self._t_close.draw()
 
-    def _draw_recipe_list(self, px: int, py: int, station_iron: int) -> None:
+    def _draw_recipe_list(self, px: int, py: int, ph: int, station_iron: int) -> None:
         """Draw the scrollable recipe list and selected recipe detail."""
-        list_y = py + _PANEL_H - 55
+        list_y = py + ph - _HEADER
 
         # Draw recipe list using pre-built text objects
         # Costs: index 0=repair pack, 1=shield recharge, 2+=modules
