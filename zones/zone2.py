@@ -53,7 +53,7 @@ class Zone2(ZoneState):
         self._fog_w = _fog_w
         self._fog_h = _fog_h
         self._minimap_cache: arcade.SpriteList | None = None
-        self._gas_pos_cache: list[tuple[float, float]] | None = None
+        self._gas_pos_cache: list[tuple[float, float, float]] | None = None
         self._world_seed: int = random.randint(0, 2**31)
         self._populated: bool = False
         # Sprite lists
@@ -366,6 +366,28 @@ class Zone2(ZoneState):
         if gv.player._collision_cd > 0.0:
             return
         for w in arcade.check_for_collision_with_list(gv.player, self._wanderers):
+            # Direction from wanderer to player
+            ddx = gv.player.center_x - w.center_x
+            ddy = gv.player.center_y - w.center_y
+            ddist = math.hypot(ddx, ddy)
+            if ddist > 0:
+                nx, ny = ddx / ddist, ddy / ddist
+                combined = WANDERING_RADIUS + SHIP_RADIUS
+                overlap = combined - ddist
+                # Push player and wanderer apart
+                if overlap > 0:
+                    gv.player.center_x += nx * overlap * 0.6
+                    gv.player.center_y += ny * overlap * 0.6
+                    w.center_x -= nx * overlap * 0.4
+                    w.center_y -= ny * overlap * 0.4
+                # Bounce player velocity away
+                dot = gv.player.vel_x * nx + gv.player.vel_y * ny
+                if dot < 0:
+                    gv.player.vel_x -= (1 + SHIP_BOUNCE) * dot * nx
+                    gv.player.vel_y -= (1 + SHIP_BOUNCE) * dot * ny
+                # Kick wanderer away from player
+                w._wander_angle = math.atan2(-ny, -nx)
+                w._wander_timer = 1.5
             gv._apply_damage_to_player(WANDERING_DAMAGE)
             gv.player._collision_cd = SHIP_COLLISION_COOLDOWN
             gv._trigger_shake()

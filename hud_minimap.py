@@ -164,7 +164,7 @@ def draw_minimap(
             arcade.draw_circle_filled(bmx, bmy, 4.0, (255, 50, 50))
             arcade.draw_circle_outline(bmx, bmy, 5.5, (255, 100, 100), 1)
 
-    # Gas areas (green dots/circles, sized proportionally)
+    # Gas areas (green circles, sized proportionally to world radius)
     if gas_positions:
         map_scale = mw / zone_width  # world px to minimap px
         for entry in gas_positions:
@@ -172,8 +172,9 @@ def draw_minimap(
             grad = entry[2] if len(entry) > 2 else 50.0
             if is_revealed(gpx, gpy, fog_grid):
                 gmx, gmy = to_map(gpx, gpy)
-                dot_r = max(1.5, grad * map_scale)
-                arcade.draw_circle_filled(gmx, gmy, dot_r, (80, 200, 60, 120))
+                dot_r = max(2.0, grad * map_scale)
+                arcade.draw_circle_filled(gmx, gmy, dot_r, (60, 180, 40, 100))
+                arcade.draw_circle_outline(gmx, gmy, dot_r, (100, 220, 60, 180), 1)
 
     # Wormholes (purple pulsing circles)
     if wormhole_positions:

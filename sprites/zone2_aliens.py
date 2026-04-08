@@ -10,7 +10,7 @@ import arcade
 from constants import (
     ALIEN_HP, ALIEN_SCALE, ALIEN_SPEED, ALIEN_RADIUS,
     ALIEN_DETECT_DIST, ALIEN_LASER_DAMAGE, ALIEN_LASER_RANGE,
-    ALIEN_LASER_SPEED, ALIEN_FIRE_COOLDOWN,
+    ALIEN_LASER_SPEED, ALIEN_FIRE_COOLDOWN, ALIEN_STANDOFF_DIST,
     ALIEN_VEL_DAMPING, ALIEN_COL_COOLDOWN, ALIEN_BUMP_FLASH,
     ALIEN_AVOIDANCE_RADIUS, ALIEN_AVOIDANCE_FORCE,
     ALIEN_STUCK_TIME, ALIEN_STUCK_DIST,
@@ -87,6 +87,7 @@ class Zone2Alien(arcade.Sprite):
         self._stuck_check_x: float = x
         self._stuck_check_y: float = y
         self._stuck_timer: float = 0.0
+        self._orbit_dir: int = random.choice((-1, 1))
 
     def _pick_patrol_target(self) -> None:
         angle = random.uniform(0.0, math.tau)
@@ -193,7 +194,7 @@ class Zone2Alien(arcade.Sprite):
 
     def _move(self, dt, player_x, player_y, dist, dx, dy,
               asteroid_list, alien_list) -> None:
-        """Movement with obstacle avoidance."""
+        """Movement — patrol wanders; pursue orbits at standoff range."""
         if self._state == self._STATE_PATROL:
             tdx = self._tgt_x - self.center_x
             tdy = self._tgt_y - self.center_y
@@ -209,11 +210,33 @@ class Zone2Alien(arcade.Sprite):
         else:
             if dist > 1.0:
                 nx, ny = dx / dist, dy / dist
-                step = self._speed * dt
-                self.center_x += nx * step
-                self.center_y += ny * step
-                self._heading = math.degrees(math.atan2(nx, ny)) % 360
-                self.angle = self._heading
+                # Ranged aliens orbit at standoff distance; face the player
+                if self._has_guns:
+                    perp_x = -ny * self._orbit_dir
+                    perp_y = nx * self._orbit_dir
+                    if dist > ALIEN_STANDOFF_DIST * 1.2:
+                        radial = 1.0      # close in
+                    elif dist < ALIEN_STANDOFF_DIST * 0.7:
+                        radial = -0.6     # back off
+                    else:
+                        radial = 0.0      # hold distance
+                    mx = nx * radial + perp_x * 0.9
+                    my = ny * radial + perp_y * 0.9
+                    mag = math.hypot(mx, my)
+                    if mag > 0.001:
+                        step = self._speed * dt
+                        self.center_x += mx / mag * step
+                        self.center_y += my / mag * step
+                    # Always face the player
+                    self._heading = math.degrees(math.atan2(nx, ny)) % 360
+                    self.angle = self._heading
+                else:
+                    # Non-ranged aliens charge directly
+                    step = self._speed * dt
+                    self.center_x += nx * step
+                    self.center_y += ny * step
+                    self._heading = math.degrees(math.atan2(nx, ny)) % 360
+                    self.angle = self._heading
 
 
 class ShieldedAlien(Zone2Alien):
@@ -257,17 +280,13 @@ class FastAlien(Zone2Alien):
               asteroid_list, alien_list) -> None:
         super()._move(dt, player_x, player_y, dist, dx, dy,
                       asteroid_list, alien_list)
-        # Random sideslip dodge while in pursuit
+        # Occasional sudden sideslip dodge while in pursuit
         if self._state == self._STATE_PURSUE:
             self._dodge_cd -= dt
             if self._dodge_cd <= 0:
                 self._dodge_cd = random.uniform(0.8, 2.0)
-                rad = math.radians(self._heading)
-                perp_x = math.cos(rad)
-                perp_y = -math.sin(rad)
-                slip = random.choice((-1, 1)) * 40.0
-                self.center_x += perp_x * slip
-                self.center_y += perp_y * slip
+                # Flip orbit direction for unpredictable strafing
+                self._orbit_dir *= -1
 
 
 class GunnerAlien(Zone2Alien):

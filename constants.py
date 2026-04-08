@@ -208,6 +208,7 @@ ALIEN_LASER_DAMAGE: float = 10.0        # HP per alien laser hit
 ALIEN_LASER_RANGE: float = 500.0        # alien laser max range  px
 ALIEN_LASER_SPEED: float = 650.0        # alien laser projectile speed  px/s
 ALIEN_FIRE_COOLDOWN: float = 1.5        # seconds between alien shots
+ALIEN_STANDOFF_DIST: float = 300.0     # preferred orbit distance for ranged aliens  px
 ALIEN_MIN_DIST: float = 400.0           # min spawn distance from world centre  px
 # ── Alien physics / collision constants ─────────────────────────────────────
 ALIEN_BOUNCE: float = 0.65             # velocity restitution on collision bounce

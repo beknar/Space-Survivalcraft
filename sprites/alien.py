@@ -12,7 +12,7 @@ from constants import (
     ALIEN_HP, ALIEN_SCALE, ALIEN_RADIUS, ALIEN_SPEED,
     ALIEN_PATROL_RADIUS_MIN, ALIEN_PATROL_RADIUS_MAX,
     ALIEN_DETECT_DIST, ALIEN_LASER_DAMAGE, ALIEN_LASER_RANGE,
-    ALIEN_LASER_SPEED, ALIEN_FIRE_COOLDOWN,
+    ALIEN_LASER_SPEED, ALIEN_FIRE_COOLDOWN, ALIEN_STANDOFF_DIST,
     ALIEN_BOUNCE, ALIEN_VEL_DAMPING, ALIEN_COL_COOLDOWN,
     ALIEN_AVOIDANCE_RADIUS, ALIEN_AVOIDANCE_FORCE, ALIEN_BUMP_FLASH,
     ASTEROID_RADIUS,
@@ -75,6 +75,8 @@ class SmallAlienShip(arcade.Sprite):
         self._stuck_check_x: float = x
         self._stuck_check_y: float = y
         self._stuck_timer: float = 0.0
+        # Orbit direction for standoff combat
+        self._orbit_dir: int = random.choice((-1, 1))
 
     def _pick_patrol_target(self) -> None:
         """Choose a fresh random point within the patrol radius."""
@@ -237,13 +239,23 @@ class SmallAlienShip(arcade.Sprite):
                     ) % 360.0
                     self.angle = self._heading
 
-        else:  # PURSUE -- steer toward player with obstacle avoidance
+        else:  # PURSUE -- orbit at standoff distance, face the player
             dx = player_x - self.center_x
             dy = player_y - self.center_y
             dist = math.hypot(dx, dy)
             if dist > 1.0:
-                base_x = dx / dist
-                base_y = dy / dist
+                nx, ny = dx / dist, dy / dist
+                # Perpendicular component for orbiting
+                perp_x = -ny * self._orbit_dir
+                perp_y = nx * self._orbit_dir
+                if dist > ALIEN_STANDOFF_DIST * 1.2:
+                    radial = 1.0      # close in
+                elif dist < ALIEN_STANDOFF_DIST * 0.7:
+                    radial = -0.6     # back off
+                else:
+                    radial = 0.0      # hold distance
+                base_x = nx * radial + perp_x * 0.9
+                base_y = ny * radial + perp_y * 0.9
                 steer_x, steer_y = self._compute_avoidance(
                     base_x, base_y, asteroid_list, alien_list
                 )
@@ -254,10 +266,11 @@ class SmallAlienShip(arcade.Sprite):
                     step = ALIEN_SPEED * dt
                     self.center_x += steer_x * step
                     self.center_y += steer_y * step
-                    self._heading = math.degrees(
-                        math.atan2(steer_x, steer_y)
-                    ) % 360.0
-                    self.angle = self._heading
+                # Always face the player
+                self._heading = math.degrees(
+                    math.atan2(nx, ny)
+                ) % 360.0
+                self.angle = self._heading
 
     def _update_stuck_detection(
         self, dt: float, asteroid_list: arcade.SpriteList,
