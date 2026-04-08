@@ -271,6 +271,7 @@ def _restore_zone2_full(view: GameView, z2_state: dict) -> None:
 
 def _restore_z2_buildings(view: GameView, z2_state: dict) -> None:
     """Restore Zone 2 buildings and trade station after zone setup."""
+    from sprites.building import create_building
     z2_buildings = z2_state.get("buildings", [])
     for bd in z2_buildings:
         bt = bd["type"]
