@@ -385,9 +385,10 @@ class Zone2(ZoneState):
                 if dot < 0:
                     gv.player.vel_x -= (1 + SHIP_BOUNCE) * dot * nx
                     gv.player.vel_y -= (1 + SHIP_BOUNCE) * dot * ny
-                # Kick wanderer away from player
+                # Kick wanderer away from player, suppress magnet
                 w._wander_angle = math.atan2(-ny, -nx)
                 w._wander_timer = 1.5
+                w._repel_timer = 2.0
             gv._apply_damage_to_player(WANDERING_DAMAGE)
             gv.player._collision_cd = SHIP_COLLISION_COOLDOWN
             gv._trigger_shake()

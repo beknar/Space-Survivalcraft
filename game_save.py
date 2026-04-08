@@ -252,6 +252,7 @@ def _restore_zone2_full(view: GameView, z2_state: dict) -> None:
         w.angle = wd.get("angle", 0.0)
         w._wander_angle = wd.get("wander_angle", w._wander_angle)
         w._wander_timer = wd.get("wander_timer", w._wander_timer)
+        w._repel_timer = wd.get("repel_timer", 0.0)
         zone._wanderers.append(w)
 
     # Gas areas (deterministic from seed)
@@ -394,7 +395,8 @@ def _save_zone2_state(gv: GameView) -> dict | None:
         "copper_asteroids": [_serialize_asteroid(a) for a in zone2._copper_asteroids],
         "wanderers": [
             {"x": w.center_x, "y": w.center_y, "hp": w.hp, "angle": w.angle,
-             "wander_angle": w._wander_angle, "wander_timer": w._wander_timer}
+             "wander_angle": w._wander_angle, "wander_timer": w._wander_timer,
+             "repel_timer": w._repel_timer}
             for w in zone2._wanderers
         ],
     }

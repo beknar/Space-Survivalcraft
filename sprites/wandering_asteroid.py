@@ -27,6 +27,7 @@ class WanderingAsteroid(arcade.Sprite):
         self._wander_angle: float = random.uniform(0, math.tau)
         self._wander_timer: float = random.uniform(1.0, 3.0)
         self._attracted: bool = False
+        self._repel_timer: float = 0.0  # post-collision magnet suppression
 
     def update_wandering(self, dt: float, player_x: float, player_y: float) -> None:
         self.angle = (self.angle + self._rot_speed * dt) % 360
@@ -35,7 +36,10 @@ class WanderingAsteroid(arcade.Sprite):
         dy = player_y - self.center_y
         dist = math.hypot(dx, dy)
 
-        if dist < WANDERING_MAGNET_DIST and dist > 0:
+        if self._repel_timer > 0.0:
+            self._repel_timer = max(0.0, self._repel_timer - dt)
+
+        if dist < WANDERING_MAGNET_DIST and dist > 0 and self._repel_timer <= 0.0:
             # Magnetic attraction toward player
             nx, ny = dx / dist, dy / dist
             self.center_x += nx * WANDERING_MAGNET_SPEED * dt
