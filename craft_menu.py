@@ -79,6 +79,7 @@ class CraftMenu:
                     "key": key,
                     "label": info["label"],
                     "cost": info["craft_cost"],
+                    "cost_copper": info.get("craft_cost_copper", 0),
                 })
         self._selected = 0
         self._scroll = 0
@@ -90,8 +91,15 @@ class CraftMenu:
                         0, 0, arcade.color.WHITE, 9),
         ]
         for recipe in self._recipes:
+            info = MODULE_TYPES[recipe["key"]]
+            if info.get("blueprint_only"):
+                cost_text = "Unlocks building"
+            else:
+                cost_text = f"{recipe['cost']} iron"
+                if recipe.get("cost_copper", 0) > 0:
+                    cost_text += f" + {recipe['cost_copper']} copper"
             self._t_recipes.append(
-                arcade.Text(f"{recipe['label']}  —  {recipe['cost']} iron",
+                arcade.Text(f"{recipe['label']}  —  {cost_text}",
                             0, 0, arcade.color.WHITE, 9)
             )
         # Pre-build detail text
