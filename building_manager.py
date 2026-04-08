@@ -288,14 +288,26 @@ def place_building(gv: GameView, wx: float, wy: float) -> None:
     if isinstance(building, RepairModule) and gv._trade_station is None:
         spawn_trade_station(gv)
 
+    _DIR_ORDER_AC = ["N", "E", "S", "W"]
+    bld_steps_ac = round(building.angle / 90.0) % 4
     for new_port in building.get_unoccupied_ports():
         npx, npy = building.get_port_world_pos(new_port)
+        # Physical direction of this port on the new building
+        np_idx = _DIR_ORDER_AC.index(new_port.direction)
+        np_phys = _DIR_ORDER_AC[(np_idx - bld_steps_ac) % 4]
+        np_phys_opp = DockingPort.opposite(np_phys)
         for other in gv.building_list:
             if other is building:
                 continue
+            other_steps = round(other.angle / 90.0) % 4
             for other_port in other.get_unoccupied_ports():
                 opx, opy = other.get_port_world_pos(other_port)
-                if math.hypot(npx - opx, npy - opy) < DOCK_SNAP_DIST:
+                if math.hypot(npx - opx, npy - opy) >= DOCK_SNAP_DIST:
+                    continue
+                # Only connect if ports face opposite physical directions
+                op_idx = _DIR_ORDER_AC.index(other_port.direction)
+                op_phys = _DIR_ORDER_AC[(op_idx - other_steps) % 4]
+                if op_phys == np_phys_opp:
                     new_port.occupied = True
                     new_port.connected_to = other
                     other_port.occupied = True
