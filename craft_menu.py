@@ -13,7 +13,10 @@ from constants import (
 
 _PANEL_W = 300
 _PANEL_H_MIN = 280
-_RECIPE_H = 28
+_RECIPE_H = 28     # single-line recipe row height
+_RECIPE_H2 = 42    # two-line recipe row height
+_ICON_AREA = 28    # icon column width
+_TEXT_W = _PANEL_W - 20 - _ICON_AREA  # available text width (panel - padding - icon)
 _HEADER = 55   # title area
 _DETAIL = 40   # detail text + padding
 _BTN_AREA = 80 # craft button + progress bar + close text
@@ -88,12 +91,20 @@ class CraftMenu:
         self._selected = 0
         self._scroll = 0
         # Pre-build recipe text objects (index 0 = repair pack, 1 = shield recharge, then modules)
-        self._t_recipes = [
-            arcade.Text(f"Repair Pack x{CRAFT_RESULT_COUNT}  —  {CRAFT_IRON_COST} iron",
-                        0, 0, arcade.color.WHITE, 9),
-            arcade.Text(f"Shield Recharge x{CRAFT_RESULT_COUNT}  —  {CRAFT_IRON_COST} iron",
-                        0, 0, arcade.color.WHITE, 9),
-        ]
+        self._t_recipes = []
+        self._recipe_heights: list[int] = []  # per-row pixel height
+
+        def _add_recipe_text(text: str) -> None:
+            t = arcade.Text(text, 0, 0, arcade.color.WHITE, 9,
+                            width=_TEXT_W, multiline=True)
+            self._t_recipes.append(t)
+            # Estimate lines: if content_width > available width, 2 lines
+            h = _RECIPE_H2 if len(text) * 5.4 > _TEXT_W else _RECIPE_H
+            self._recipe_heights.append(h)
+
+        _add_recipe_text(f"Repair Pack x{CRAFT_RESULT_COUNT}  —  {CRAFT_IRON_COST} iron")
+        _add_recipe_text(f"Shield Recharge x{CRAFT_RESULT_COUNT}  —  {CRAFT_IRON_COST} iron")
+
         for recipe in self._recipes:
             info = MODULE_TYPES[recipe["key"]]
             if info.get("blueprint_only"):
@@ -101,15 +112,12 @@ class CraftMenu:
                 bld = BUILDING_TYPES.get("Advanced Crafter", {})
                 b_iron = bld.get("cost", 0)
                 b_copper = bld.get("cost_copper", 0)
-                cost_text = f"Unlocks building ({b_iron} iron + {b_copper} copper)"
+                cost_text = f"Unlocks building\n({b_iron} iron + {b_copper} copper)"
             else:
                 cost_text = f"{recipe['cost']} iron"
                 if recipe.get("cost_copper", 0) > 0:
                     cost_text += f" + {recipe['cost_copper']} copper"
-            self._t_recipes.append(
-                arcade.Text(f"{recipe['label']}  —  {cost_text}",
-                            0, 0, arcade.color.WHITE, 9)
-            )
+            _add_recipe_text(f"{recipe['label']}  —  {cost_text}")
         # Pre-build detail text
         self._t_detail.text = f"Produces {CRAFT_RESULT_COUNT}x Repair Pack ({int(CRAFT_TIME)}s)"
 
@@ -117,8 +125,8 @@ class CraftMenu:
         self.open = not self.open
 
     def _panel_height(self) -> int:
-        n = 2 + len(self._recipes)  # repair pack + shield recharge + modules
-        return max(_PANEL_H_MIN, _HEADER + n * _RECIPE_H + _DETAIL + _BTN_AREA)
+        list_h = sum(self._recipe_heights) if self._recipe_heights else 2 * _RECIPE_H
+        return max(_PANEL_H_MIN, _HEADER + list_h + _DETAIL + _BTN_AREA)
 
     def _panel_origin(self) -> tuple[int, int]:
         sw = self._window.width if self._window else SCREEN_WIDTH
@@ -144,11 +152,13 @@ class CraftMenu:
             return None
 
         # Recipe list clicks (0=repair pack, 1=shield recharge, 2+=modules)
-        list_y = py + ph - _HEADER
-        total_recipes = 2 + len(self._recipes)  # 2 consumables + modules
-        for i in range(total_recipes):
-            ry = list_y - i * _RECIPE_H
-            if px + 10 <= x <= px + _PANEL_W - 10 and ry <= y <= ry + _RECIPE_H:
+        top_y = py + ph - _HEADER
+        cum_y = 0
+        for i in range(len(self._t_recipes)):
+            rh = self._recipe_heights[i] if i < len(self._recipe_heights) else _RECIPE_H
+            ry = top_y - cum_y - rh
+            cum_y += rh
+            if px + 10 <= x <= px + _PANEL_W - 10 and ry <= y <= ry + rh:
                 self._selected = i
                 return None
 
@@ -205,39 +215,42 @@ class CraftMenu:
 
     def _draw_recipe_list(self, px: int, py: int, ph: int, station_iron: int) -> None:
         """Draw the scrollable recipe list and selected recipe detail."""
-        list_y = py + ph - _HEADER
+        top_y = py + ph - _HEADER
 
         # Draw recipe list using pre-built text objects
-        # Costs: index 0=repair pack, 1=shield recharge, 2+=modules
         costs = [CRAFT_IRON_COST, CRAFT_IRON_COST] + [r["cost"] for r in self._recipes]
+        cum_y = 0
         for i, tr in enumerate(self._t_recipes):
-            ry = list_y - i * _RECIPE_H
+            rh = self._recipe_heights[i] if i < len(self._recipe_heights) else _RECIPE_H
+            ry = top_y - cum_y - rh
+            cum_y += rh
             sel = (self._selected == i)
             fill = (50, 70, 100, 220) if sel else (25, 30, 50, 180)
-            arcade.draw_rect_filled(arcade.LBWH(px + 10, ry, _PANEL_W - 20, _RECIPE_H - 2), fill)
+            arcade.draw_rect_filled(arcade.LBWH(px + 10, ry, _PANEL_W - 20, rh - 2), fill)
             affordable = station_iron >= costs[i] if i < len(costs) else False
             tr.color = arcade.color.CYAN if sel else (arcade.color.WHITE if affordable else (150, 80, 80))
             # Draw recipe icon
             icon_w = 0
+            icon_size = min(rh - 6, _RECIPE_H - 6)
             if i == 0 and self.repair_pack_icon:
                 arcade.draw_texture_rect(self.repair_pack_icon,
-                    arcade.LBWH(px + 14, ry + 2, _RECIPE_H - 6, _RECIPE_H - 6))
-                icon_w = _RECIPE_H - 2
+                    arcade.LBWH(px + 14, ry + (rh - icon_size) // 2, icon_size, icon_size))
+                icon_w = _ICON_AREA
             elif i == 1 and self.shield_recharge_icon:
                 arcade.draw_texture_rect(self.shield_recharge_icon,
-                    arcade.LBWH(px + 14, ry + 2, _RECIPE_H - 6, _RECIPE_H - 6))
-                icon_w = _RECIPE_H - 2
+                    arcade.LBWH(px + 14, ry + (rh - icon_size) // 2, icon_size, icon_size))
+                icon_w = _ICON_AREA
             elif i >= 2 and i - 2 < len(self._recipes):
                 ricon = self.item_icons.get(self._recipes[i - 2]["key"])
                 if ricon:
                     arcade.draw_texture_rect(ricon,
-                        arcade.LBWH(px + 14, ry + 2, _RECIPE_H - 6, _RECIPE_H - 6))
-                    icon_w = _RECIPE_H - 2
-            tr.x = px + 16 + icon_w; tr.y = ry + _RECIPE_H // 2
+                        arcade.LBWH(px + 14, ry + (rh - icon_size) // 2, icon_size, icon_size))
+                    icon_w = _ICON_AREA
+            tr.x = px + 16 + icon_w; tr.y = ry + rh // 2
             tr.draw()
 
         # Selected recipe detail with icon
-        detail_y = list_y - len(self._t_recipes) * _RECIPE_H - 10
+        detail_y = top_y - cum_y - 10
         icon = None
         if self._selected == 0:
             self._t_detail.text = f"Produces {CRAFT_RESULT_COUNT}x Repair Pack ({int(CRAFT_TIME)}s)"
