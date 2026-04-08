@@ -200,26 +200,29 @@ class Turret(StationModule):
 
         self._fire_cd = max(0.0, self._fire_cd - dt)
 
-        # Find nearest enemy (aliens + boss)
+        # Find nearest enemy (aliens + boss) using fast distance check
         best_dist = TURRET_RANGE + 1.0
+        best_dsq = best_dist * best_dist
         target = None
+        tr = TURRET_RANGE
+        tx, ty = self.center_x, self.center_y
         for alien in alien_list:
-            dx = alien.center_x - self.center_x
-            dy = alien.center_y - self.center_y
-            d = math.hypot(dx, dy)
-            if d < best_dist:
-                best_dist = d
+            dx = alien.center_x - tx
+            dy = alien.center_y - ty
+            dsq = dx * dx + dy * dy
+            if dsq < best_dsq:
+                best_dsq = dsq
                 target = alien
         # Also consider the boss as a target
         if boss is not None and boss.hp > 0:
-            dx = boss.center_x - self.center_x
-            dy = boss.center_y - self.center_y
-            d = math.hypot(dx, dy)
-            if d < best_dist:
-                best_dist = d
+            dx = boss.center_x - tx
+            dy = boss.center_y - ty
+            dsq = dx * dx + dy * dy
+            if dsq < best_dsq:
+                best_dsq = dsq
                 target = boss
 
-        if target is None or best_dist > TURRET_RANGE:
+        if target is None or best_dsq > tr * tr:
             return
 
         # Rotate to face target

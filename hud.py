@@ -279,7 +279,8 @@ class HUD:
 
         # Character name label below video area
         if character_name:
-            self._t_char_name.text = character_name
+            if self._t_char_name.text != character_name:
+                self._t_char_name.text = character_name
             self._t_char_name.draw()
 
         hp_y = self._hp_y_offset
@@ -290,7 +291,8 @@ class HUD:
             self._t_fps.text = f"FPS  {self._fps:>6.1f}"
             self._t_fps.draw()
 
-        self._t_wpn_name.text = weapon_name
+        if self._t_wpn_name.text != weapon_name:
+            self._t_wpn_name.text = weapon_name
         self._t_wpn_name.draw()
 
         # HP bar
@@ -305,7 +307,9 @@ class HUD:
             hp_color,
         )
         # HP numerical value
-        self._t_hp_val.text = f"{hp} / {max_hp}"
+        _hp_str = f"{hp} / {max_hp}"
+        if self._t_hp_val.text != _hp_str:
+            self._t_hp_val.text = _hp_str
         self._t_hp_val.draw()
 
         # Shield bar
@@ -315,7 +319,9 @@ class HUD:
             (0, 140, 210),
         )
         # Shield numerical value
-        self._t_shield_val.text = f"{shields} / {max_shields}"
+        _sh_str = f"{shields} / {max_shields}"
+        if self._t_shield_val.text != _sh_str:
+            self._t_shield_val.text = _sh_str
         self._t_shield_val.draw()
 
         # Ability meter bar (yellow)
@@ -326,7 +332,9 @@ class HUD:
                 arcade.LBWH(10, hp_y - 104, int(190 * ability_frac), 10),
                 (220, 200, 50),
             )
-            self._t_ability_val.text = f"{int(ability_meter)} / {int(ability_meter_max)}"
+            _ab_str = f"{int(ability_meter)} / {int(ability_meter_max)}"
+            if self._t_ability_val.text != _ab_str:
+                self._t_ability_val.text = _ab_str
             self._t_ability_val.draw()
 
         self._t_faction.draw()
@@ -335,7 +343,8 @@ class HUD:
         # Now-playing track name
         if track_name:
             self._t_music_hdr.draw()
-            self._t_track_name.text = track_name
+            if self._t_track_name.text != track_name:
+                self._t_track_name.text = track_name
             self._t_track_name.draw()
 
         # Equalizer visualizer (only when music is playing, not video)

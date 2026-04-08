@@ -23,6 +23,11 @@ _MENU_ORDER = [
     "Turret 2",
     "Repair Module",
     "Basic Crafter",
+    "Advanced Crafter",
+    "Fission Generator",
+    "Advanced Ship",
+    "Shield Generator",
+    "Missile Array",
 ]
 
 
@@ -124,10 +129,13 @@ class BuildMenu:
         modules_used: int,
         module_capacity: int,
         has_home: bool,
+        copper: int = 0,
+        unlocked_blueprints: set | None = None,
     ) -> tuple[bool, str]:
         """Return (available, reason) for a building type."""
         stats = BUILDING_TYPES[name]
         cost = stats["cost"]
+        copper_cost = stats.get("cost_copper", 0)
         max_count = stats["max"]
         slots = stats["slots_used"]
 
@@ -142,8 +150,17 @@ class BuildMenu:
         if not has_home:
             return False, "Need Home Station"
 
+        # Blueprint gate
+        bp_key = stats.get("requires_blueprint")
+        if bp_key:
+            if not unlocked_blueprints or bp_key not in unlocked_blueprints:
+                return False, "Need blueprint"
+
         if iron < cost:
             return False, f"Need {cost} iron"
+
+        if copper_cost > 0 and copper < copper_cost:
+            return False, f"Need {copper_cost} copper"
 
         if max_count is not None and building_counts.get(name, 0) >= max_count:
             return False, f"Max {max_count} built"
@@ -182,6 +199,8 @@ class BuildMenu:
         modules_used: int,
         module_capacity: int,
         has_home: bool,
+        copper: int = 0,
+        unlocked_blueprints: set | None = None,
     ) -> Optional[str]:
         """Handle a click. Returns building type name, or "__destroy__" for destroy mode."""
         self._update_layout()
@@ -193,6 +212,7 @@ class BuildMenu:
                 avail, _ = self._check_availability(
                     name, iron, building_counts,
                     modules_used, module_capacity, has_home,
+                    copper, unlocked_blueprints,
                 )
                 if avail:
                     return name
@@ -213,6 +233,8 @@ class BuildMenu:
         modules_used: int,
         module_capacity: int,
         has_home: bool,
+        copper: int = 0,
+        unlocked_blueprints: set | None = None,
     ) -> None:
         if not self.open:
             return
@@ -251,7 +273,8 @@ class BuildMenu:
         self._t_name.bold = True
 
         self._draw_menu_items(iron, building_counts, modules_used,
-                              module_capacity, has_home)
+                              module_capacity, has_home, copper,
+                              unlocked_blueprints)
         self._draw_destroy_button(has_home)
 
     def _draw_menu_items(
@@ -261,6 +284,8 @@ class BuildMenu:
         modules_used: int,
         module_capacity: int,
         has_home: bool,
+        copper: int = 0,
+        unlocked_blueprints: set | None = None,
     ) -> None:
         """Draw the list of buildable module rows."""
         for i, name in enumerate(_MENU_ORDER):
@@ -268,6 +293,7 @@ class BuildMenu:
             avail, reason = self._check_availability(
                 name, iron, building_counts,
                 modules_used, module_capacity, has_home,
+                copper, unlocked_blueprints,
             )
 
             # Row background

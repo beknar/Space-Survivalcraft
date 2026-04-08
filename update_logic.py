@@ -101,24 +101,30 @@ def update_timers(gv: GameView, dt: float) -> None:
 
 def update_repair_and_shields(gv: GameView, dt: float) -> None:
     """Repair module proximity check, shield regen, HP/building healing."""
-    has_repair = any(
-        isinstance(b, RepairModule) and not b.disabled
-        for b in gv.building_list
-    )
-    repair_near_home = False
-    if has_repair:
+    # Cache home station and repair module references to avoid per-frame isinstance scans
+    home = getattr(gv, '_cached_home', None)
+    has_repair = getattr(gv, '_cached_has_repair', False)
+    if home is not None and (home not in gv.building_list or home.disabled):
         home = None
+        gv._cached_home = None
+    if home is None or not has_repair:
+        # Rebuild cache (runs once after station changes, not every frame)
+        home = None
+        has_repair = False
         for b in gv.building_list:
             if isinstance(b, HomeStation) and not b.disabled:
                 home = b
-                break
-        if home is not None:
-            dist = math.hypot(
-                gv.player.center_x - home.center_x,
-                gv.player.center_y - home.center_y,
-            )
-            if dist <= REPAIR_RANGE:
-                repair_near_home = True
+            elif isinstance(b, RepairModule) and not b.disabled:
+                has_repair = True
+        gv._cached_home = home
+        gv._cached_has_repair = has_repair
+
+    repair_near_home = False
+    if has_repair and home is not None:
+        dx = gv.player.center_x - home.center_x
+        dy = gv.player.center_y - home.center_y
+        if dx * dx + dy * dy <= REPAIR_RANGE * REPAIR_RANGE:
+            repair_near_home = True
 
     # Shield regen
     if gv.player.shields < gv.player.max_shields:

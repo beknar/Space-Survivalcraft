@@ -253,16 +253,20 @@ class CraftMenu:
         detail_y = top_y - cum_y - 10
         icon = None
         if self._selected == 0:
-            self._t_detail.text = f"Produces {CRAFT_RESULT_COUNT}x Repair Pack ({int(CRAFT_TIME)}s)"
+            _dt = f"Produces {CRAFT_RESULT_COUNT}x Repair Pack ({int(CRAFT_TIME)}s)"
             icon = self.repair_pack_icon
         elif self._selected == 1:
-            self._t_detail.text = f"Produces {CRAFT_RESULT_COUNT}x Shield Recharge ({int(CRAFT_TIME)}s)"
+            _dt = f"Produces {CRAFT_RESULT_COUNT}x Shield Recharge ({int(CRAFT_TIME)}s)"
             icon = self.shield_recharge_icon
         elif self._selected - 2 < len(self._recipes):
             recipe = self._recipes[self._selected - 2]
             info = MODULE_TYPES[recipe["key"]]
-            self._t_detail.text = f"{info['label']}: {_effect_desc(info)} ({int(CRAFT_TIME)}s)"
+            _dt = f"{info['label']}: {_effect_desc(info)} ({int(CRAFT_TIME)}s)"
             icon = self.item_icons.get(recipe["key"])
+        else:
+            _dt = ""
+        if self._t_detail.text != _dt:
+            self._t_detail.text = _dt
         icon_w = 0
         if icon:
             icon_w = 22
@@ -286,7 +290,9 @@ class CraftMenu:
         arcade.draw_rect_filled(arcade.LBWH(bx, by, bw, bh), btn_fill)
         arcade.draw_rect_outline(arcade.LBWH(bx, by, bw, bh),
                                  arcade.color.STEEL_BLUE, border_width=1)
-        self._t_btn.text = "CANCEL" if self._crafting else "CRAFT"
+        _btn_label = "CANCEL" if self._crafting else "CRAFT"
+        if self._t_btn.text != _btn_label:
+            self._t_btn.text = _btn_label
         self._t_btn.x = bx + bw // 2; self._t_btn.y = by + bh // 2
         self._t_btn.draw()
 

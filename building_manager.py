@@ -181,6 +181,14 @@ def place_building(gv: GameView, wx: float, wy: float) -> None:
     if total_iron < cost:
         cancel_placement(gv)
         return
+    copper_cost = int(stats.get("cost_copper", 0) * build_cost_multiplier(
+        audio.character_name, gv._char_level))
+    if copper_cost > 0:
+        total_copper = gv.inventory.count_item("copper") + gv._station_inv.count_item("copper")
+        if total_copper < copper_cost:
+            cancel_placement(gv)
+            return
+    # Deduct iron
     remaining = cost
     ship_iron = min(remaining, gv.inventory.total_iron)
     if ship_iron > 0:
@@ -188,6 +196,15 @@ def place_building(gv: GameView, wx: float, wy: float) -> None:
         remaining -= ship_iron
     if remaining > 0:
         gv._station_inv.remove_item("iron", remaining)
+    # Deduct copper
+    if copper_cost > 0:
+        remaining_cu = copper_cost
+        ship_cu = min(remaining_cu, gv.inventory.count_item("copper"))
+        if ship_cu > 0:
+            gv.inventory.remove_item("copper", ship_cu)
+            remaining_cu -= ship_cu
+        if remaining_cu > 0:
+            gv._station_inv.remove_item("copper", remaining_cu)
 
     tex = gv._building_textures[bt]
     laser_tex = gv._turret_laser_tex if "Turret" in bt else None

@@ -254,6 +254,8 @@ def draw_ui(gv: GameView) -> None:
         modules_used=compute_modules_used(gv.building_list),
         module_capacity=compute_module_capacity(gv.building_list),
         has_home=gv._has_home_station(),
+        copper=gv.inventory.count_item("copper") + gv._station_inv.count_item("copper"),
+        unlocked_blueprints=gv._craft_menu._unlocked,
     )
     gv._station_info.draw()
     gv._ship_stats.draw()
