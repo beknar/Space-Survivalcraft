@@ -218,42 +218,51 @@ def place_building(gv: GameView, wx: float, wy: float) -> None:
             tex = gv._building_textures[bt]
             tw = tex.width * 0.5
             th = tex.height * 0.5
-            if abs(tw - th) > 4.0:  # non-square sprite
-                if snap_port.direction in ("E", "W") and th > tw:
-                    building.angle = 90.0
-                elif snap_port.direction in ("N", "S") and tw > th:
-                    building.angle = 90.0
+            is_wide = tw > th and abs(tw - th) > 4.0
+            is_tall = th > tw and abs(tw - th) > 4.0
 
-            # Map the snap port's opposite direction through the
-            # building's rotation to find the correct connecting port.
-            opp_dir = DockingPort.opposite(snap_port.direction)
-            # At 0° rotation, labels match physical directions.
-            # Arcade rotates CCW: at +90° a port labelled "N" (0,+hh)
-            # rotates to (-hh, 0) which physically faces West.
-            # Physical dir = _DIR_ORDER[(label_idx - steps) % 4]
-            # We need physical dir == opp_dir, so:
-            #   label_idx = (opp_idx + steps) % 4
-            _DIR_ORDER = ["N", "E", "S", "W"]
-            steps = round(building.angle / 90.0) % 4
-            opp_idx = _DIR_ORDER.index(opp_dir)
-            needed_label = _DIR_ORDER[(opp_idx + steps) % 4]
-            for np in building.ports:
-                if np.direction == needed_label:
-                    snap_opp_port = np
-                    break
+            # Wide modules (Solar Arrays) centre on N/S ports instead
+            # of edge-to-edge, so skip rotation for them.
+            centre_on_port = False
+            if is_wide and snap_port.direction in ("N", "S"):
+                centre_on_port = True
+            elif is_wide and snap_port.direction in ("E", "W"):
+                # Wide module connecting to side port → rotate 90°
+                building.angle = 90.0
+            elif is_tall and snap_port.direction in ("E", "W"):
+                building.angle = 90.0
 
-            rad = math.radians(building.angle)
-            cos_a = math.cos(rad)
-            sin_a = math.sin(rad)
-
-            if snap_opp_port is not None:
-                ox_rot = snap_opp_port.offset_x * cos_a - snap_opp_port.offset_y * sin_a
-                oy_rot = snap_opp_port.offset_x * sin_a + snap_opp_port.offset_y * cos_a
-                building.center_x = sx - ox_rot
-                building.center_y = sy - oy_rot
-            else:
+            if centre_on_port:
+                # Place building centre directly on the snap point
                 building.center_x = sx
                 building.center_y = sy
+                # Mark the port on the parent as occupied
+                snap_opp_port = None  # no matching port for edge connect
+            else:
+                # Map the snap port's opposite direction through the
+                # building's rotation to find the correct connecting port.
+                opp_dir = DockingPort.opposite(snap_port.direction)
+                _DIR_ORDER = ["N", "E", "S", "W"]
+                steps = round(building.angle / 90.0) % 4
+                opp_idx = _DIR_ORDER.index(opp_dir)
+                needed_label = _DIR_ORDER[(opp_idx + steps) % 4]
+                for np in building.ports:
+                    if np.direction == needed_label:
+                        snap_opp_port = np
+                        break
+
+                rad = math.radians(building.angle)
+                cos_a = math.cos(rad)
+                sin_a = math.sin(rad)
+
+                if snap_opp_port is not None:
+                    ox_rot = snap_opp_port.offset_x * cos_a - snap_opp_port.offset_y * sin_a
+                    oy_rot = snap_opp_port.offset_x * sin_a + snap_opp_port.offset_y * cos_a
+                    building.center_x = sx - ox_rot
+                    building.center_y = sy - oy_rot
+                else:
+                    building.center_x = sx
+                    building.center_y = sy
 
     for existing in gv.building_list:
         if existing is snap_parent:
