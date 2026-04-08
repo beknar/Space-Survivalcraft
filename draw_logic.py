@@ -71,6 +71,16 @@ def draw_world(gv: GameView, cx: float, cy: float, hw: float, hh: float) -> None
     else:
         gv.explosion_list.draw()
         gv._zone.draw_world(gv, cx, cy, hw, hh)
+        # Trade station shared across zones
+        if gv._trade_station is not None:
+            ts = gv._trade_station
+            tw = gv._trade_station_tex.width * 0.15
+            th = gv._trade_station_tex.height * 0.15
+            arcade.draw_texture_rect(
+                gv._trade_station_tex,
+                arcade.LBWH(ts.center_x - tw / 2,
+                            ts.center_y - th / 2,
+                            tw, th))
 
     # Shared world entities (always drawn)
     gv.projectile_list.draw()

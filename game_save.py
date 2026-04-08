@@ -269,6 +269,28 @@ def _restore_zone2_full(view: GameView, z2_state: dict) -> None:
     view._zone2 = zone
 
 
+def _restore_z2_buildings(view: GameView, z2_state: dict) -> None:
+    """Restore Zone 2 buildings and trade station after zone setup."""
+    z2_buildings = z2_state.get("buildings", [])
+    for bd in z2_buildings:
+        bt = bd["type"]
+        tex = view._building_textures[bt]
+        laser_tex = view._turret_laser_tex if "Turret" in bt else None
+        b = create_building(bt, tex, bd["x"], bd["y"], laser_tex=laser_tex, scale=0.5)
+        b.hp = bd.get("hp", b.max_hp)
+        b.angle = bd.get("angle", 0.0)
+        b.disabled = bd.get("disabled", False)
+        if b.disabled:
+            b.color = (128, 128, 128, 255)
+        view.building_list.append(b)
+    z2_ts = z2_state.get("trade_station")
+    if z2_ts and isinstance(z2_ts, dict):
+        view._trade_station = arcade.Sprite(
+            path_or_texture=view._trade_station_tex, scale=0.15)
+        view._trade_station.center_x = z2_ts["x"]
+        view._trade_station.center_y = z2_ts["y"]
+
+
 def _regenerate_gas_areas(zone, _z2mod) -> None:
     """Regenerate gas areas deterministically from zone seed."""
     from sprites.gas_area import GasArea, generate_gas_texture
@@ -385,6 +407,13 @@ def _save_zone2_state(gv: GameView) -> dict | None:
         zone2 = gv._zone2
     if zone2 is None:
         return None
+    # Zone 2 buildings: from live gv.building_list when in Z2, or empty
+    from zones import ZoneID
+    z2_buildings = []
+    z2_trade = None
+    if gv._zone.zone_id == ZoneID.ZONE2:
+        z2_buildings = [_serialize_building(b) for b in gv.building_list]
+        z2_trade = _serialize_trade_station(gv._trade_station)
     return {
         "world_seed": zone2._world_seed,
         "fog_grid": zone2._fog_grid,
@@ -399,6 +428,8 @@ def _save_zone2_state(gv: GameView) -> dict | None:
              "repel_timer": w._repel_timer}
             for w in zone2._wanderers
         ],
+        "buildings": z2_buildings,
+        "trade_station": z2_trade,
     }
 
 
@@ -600,6 +631,9 @@ def restore_state(view: GameView, data: dict) -> None:
         view._zone.setup(view)
         view.player.world_width = view._zone.world_width
         view.player.world_height = view._zone.world_height
+        # Restore Zone 2 buildings and trade station
+        if zid == ZoneID.ZONE2 and z2_state:
+            _restore_z2_buildings(view, z2_state)
         # Restore Zone 2 fog
         if z2_state and hasattr(view._zone, '_fog_grid'):
             z2_fog = z2_state.get("fog_grid")

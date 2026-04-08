@@ -132,6 +132,9 @@ class Zone2(ZoneState):
 
         if gv._trade_station is None:
             gv._spawn_trade_station()
+        else:
+            # Relocate if trade station overlaps a gas cloud or asteroid
+            self._validate_trade_station(gv)
 
         gv._fog_grid = self._fog_grid
         gv._fog_revealed = self._fog_revealed
@@ -171,6 +174,40 @@ class Zone2(ZoneState):
             cx = self.world_width / 2 + random.uniform(-500, 500)
             cy = self.world_height / 2 + random.uniform(-500, 500)
         return cx, cy
+
+    def _validate_trade_station(self, gv: GameView) -> None:
+        """Relocate the trade station if it overlaps a gas cloud or asteroid."""
+        ts = gv._trade_station
+        if ts is None:
+            return
+        tx, ty = ts.center_x, ts.center_y
+        blocked = False
+        for g in self._gas_areas:
+            if math.hypot(g.center_x - tx, g.center_y - ty) < g.radius + 80:
+                blocked = True
+                break
+        if not blocked:
+            for alist in (self._iron_asteroids, self._double_iron,
+                          self._copper_asteroids, self._wanderers):
+                for a in alist:
+                    if math.hypot(a.center_x - tx, a.center_y - ty) < 80:
+                        blocked = True
+                        break
+                if blocked:
+                    break
+        if blocked:
+            from building_manager import _trade_pos_clear
+            margin = 500
+            for _ in range(400):
+                nx = random.uniform(margin, self.world_width - margin)
+                ny = random.uniform(margin, self.world_height - margin)
+                if math.hypot(nx - self.world_width / 2,
+                              ny - self.world_height / 2) < 1500:
+                    continue
+                if _trade_pos_clear(gv, nx, ny, 120.0):
+                    ts.center_x = nx
+                    ts.center_y = ny
+                    return
 
     # ── Update ─────────────────────────────────────────────────────────────
 
@@ -338,6 +375,18 @@ class Zone2(ZoneState):
                     gv._trigger_shake()
                     arcade.play_sound(gv._bump_snd, volume=0.3)
 
+        # Buildings (turrets, repair, collisions)
+        if len(gv.building_list) > 0:
+            from update_logic import update_buildings
+            # Point shared lists at Zone 2 entities for turret/collision logic
+            _saved_alien = gv.alien_list
+            _saved_aproj = gv.alien_projectile_list
+            gv.alien_list = self._aliens
+            gv.alien_projectile_list = self._alien_projectiles
+            update_buildings(gv, dt)
+            gv.alien_list = _saved_alien
+            gv.alien_projectile_list = _saved_aproj
+
         # Respawn
         self._respawn_timer += dt
         if self._respawn_timer >= RESPAWN_INTERVAL:
@@ -447,6 +496,11 @@ class Zone2(ZoneState):
                 ay = alien.center_y
                 if vy0 < ay < vy1:
                     alien.draw_shield()
+
+        # Station buildings (if any built in this zone)
+        if len(gv.building_list) > 0:
+            gv.building_list.draw()
+        gv.turret_projectile_list.draw()
 
         # Projectiles (typically few, near player — always draw)
         self._alien_projectiles.draw()

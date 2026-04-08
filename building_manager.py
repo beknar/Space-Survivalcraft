@@ -24,20 +24,53 @@ if TYPE_CHECKING:
 
 
 def spawn_trade_station(gv: GameView) -> None:
-    """Spawn the trading station at a random position far from the player."""
+    """Spawn the trading station at a random position clear of all entities."""
     if gv._trade_station is not None:
         return
+    zone = gv._zone
+    zw = getattr(zone, 'world_width', WORLD_WIDTH)
+    zh = getattr(zone, 'world_height', WORLD_HEIGHT)
     margin = 500
-    for _ in range(200):
-        tx = random.uniform(margin, WORLD_WIDTH - margin)
-        ty = random.uniform(margin, WORLD_HEIGHT - margin)
-        if math.hypot(tx - WORLD_WIDTH / 2, ty - WORLD_HEIGHT / 2) < 1500:
+    clearance = 120.0  # min distance from any entity
+
+    for _ in range(400):
+        tx = random.uniform(margin, zw - margin)
+        ty = random.uniform(margin, zh - margin)
+        if math.hypot(tx - zw / 2, ty - zh / 2) < 1500:
+            continue
+        if not _trade_pos_clear(gv, tx, ty, clearance):
             continue
         gv._trade_station = arcade.Sprite(
             path_or_texture=gv._trade_station_tex, scale=0.15)
         gv._trade_station.center_x = tx
         gv._trade_station.center_y = ty
         return
+
+
+def _trade_pos_clear(gv: GameView, tx: float, ty: float,
+                     clearance: float) -> bool:
+    """Check that (tx, ty) is clear of asteroids, gas clouds, buildings, etc."""
+    # Zone 1 asteroids and aliens
+    for slist in (gv.asteroid_list, gv.alien_list, gv.building_list):
+        for s in slist:
+            if math.hypot(s.center_x - tx, s.center_y - ty) < clearance:
+                return False
+    # Zone 2 entities (if in Zone 2)
+    zone = gv._zone
+    for attr in ('_iron_asteroids', '_double_iron', '_copper_asteroids',
+                 '_wanderers', '_aliens'):
+        slist = getattr(zone, attr, None)
+        if slist is not None:
+            for s in slist:
+                if math.hypot(s.center_x - tx, s.center_y - ty) < clearance:
+                    return False
+    # Gas areas (check radius, not just centre)
+    gas_areas = getattr(zone, '_gas_areas', None)
+    if gas_areas is not None:
+        for g in gas_areas:
+            if math.hypot(g.center_x - tx, g.center_y - ty) < g.radius + clearance:
+                return False
+    return True
 
 
 def building_counts(gv: GameView) -> dict[str, int]:
@@ -178,15 +211,42 @@ def place_building(gv: GameView, wx: float, wy: float) -> None:
             return
         if snap is not None:
             snap_parent, snap_port, sx, sy = snap
+
+            # Auto-rotate non-square modules so their long axis aligns
+            # with the snap direction (e.g. tall module turns horizontal
+            # when connecting to an E/W port).
+            tex = gv._building_textures[bt]
+            tw = tex.width * 0.5
+            th = tex.height * 0.5
+            if abs(tw - th) > 4.0:  # non-square sprite
+                if snap_port.direction in ("E", "W") and th > tw:
+                    building.angle = 90.0
+                elif snap_port.direction in ("N", "S") and tw > th:
+                    building.angle = 90.0
+
+            # Map the snap port's opposite direction through the
+            # building's rotation to find the correct connecting port.
             opp_dir = DockingPort.opposite(snap_port.direction)
+            # At 0° rotation, labels match physical directions.
+            # Arcade rotates CCW: at +90° a port labelled "N" (0,+hh)
+            # rotates to (-hh, 0) which physically faces West.
+            # Physical dir = _DIR_ORDER[(label_idx - steps) % 4]
+            # We need physical dir == opp_dir, so:
+            #   label_idx = (opp_idx + steps) % 4
+            _DIR_ORDER = ["N", "E", "S", "W"]
+            steps = round(building.angle / 90.0) % 4
+            opp_idx = _DIR_ORDER.index(opp_dir)
+            needed_label = _DIR_ORDER[(opp_idx + steps) % 4]
             for np in building.ports:
-                if np.direction == opp_dir:
+                if np.direction == needed_label:
                     snap_opp_port = np
                     break
+
+            rad = math.radians(building.angle)
+            cos_a = math.cos(rad)
+            sin_a = math.sin(rad)
+
             if snap_opp_port is not None:
-                rad = math.radians(building.angle)
-                cos_a = math.cos(rad)
-                sin_a = math.sin(rad)
                 ox_rot = snap_opp_port.offset_x * cos_a - snap_opp_port.offset_y * sin_a
                 oy_rot = snap_opp_port.offset_x * sin_a + snap_opp_port.offset_y * cos_a
                 building.center_x = sx - ox_rot
