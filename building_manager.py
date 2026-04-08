@@ -212,9 +212,16 @@ def place_building(gv: GameView, wx: float, wy: float) -> None:
         if snap is not None:
             snap_parent, snap_port, sx, sy = snap
 
+            # Compute the PHYSICAL direction of the snap port by
+            # rotating its label through the parent's angle.
+            _DIR_ORDER = ["N", "E", "S", "W"]
+            parent_steps = round(snap_parent.angle / 90.0) % 4
+            label_idx = _DIR_ORDER.index(snap_port.direction)
+            phys_dir = _DIR_ORDER[(label_idx - parent_steps) % 4]
+            phys_opp = DockingPort.opposite(phys_dir)
+
             # Auto-rotate non-square modules so their long axis aligns
-            # with the snap direction (e.g. tall module turns horizontal
-            # when connecting to an E/W port).
+            # with the physical snap direction.
             tex = gv._building_textures[bt]
             tw = tex.width * 0.5
             th = tex.height * 0.5
@@ -224,28 +231,24 @@ def place_building(gv: GameView, wx: float, wy: float) -> None:
             # Wide modules (Solar Arrays) centre on N/S ports instead
             # of edge-to-edge, so skip rotation for them.
             centre_on_port = False
-            if is_wide and snap_port.direction in ("N", "S"):
+            if is_wide and phys_dir in ("N", "S"):
                 centre_on_port = True
-            elif is_wide and snap_port.direction in ("E", "W"):
-                # Wide module connecting to side port → rotate 90°
+            elif is_wide and phys_dir in ("E", "W"):
                 building.angle = 90.0
-            elif is_tall and snap_port.direction in ("E", "W"):
+            elif is_tall and phys_dir in ("E", "W"):
                 building.angle = 90.0
 
             if centre_on_port:
                 # Place building centre directly on the snap point
                 building.center_x = sx
                 building.center_y = sy
-                # Mark the port on the parent as occupied
-                snap_opp_port = None  # no matching port for edge connect
+                snap_opp_port = None
             else:
-                # Map the snap port's opposite direction through the
-                # building's rotation to find the correct connecting port.
-                opp_dir = DockingPort.opposite(snap_port.direction)
-                _DIR_ORDER = ["N", "E", "S", "W"]
-                steps = round(building.angle / 90.0) % 4
-                opp_idx = _DIR_ORDER.index(opp_dir)
-                needed_label = _DIR_ORDER[(opp_idx + steps) % 4]
+                # Find the port on the new building that physically
+                # faces the opposite of the snap port's physical dir.
+                bld_steps = round(building.angle / 90.0) % 4
+                opp_idx = _DIR_ORDER.index(phys_opp)
+                needed_label = _DIR_ORDER[(opp_idx + bld_steps) % 4]
                 for np in building.ports:
                     if np.direction == needed_label:
                         snap_opp_port = np
