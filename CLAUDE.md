@@ -234,7 +234,7 @@ sprites/alien.py
 
 ### Key Patterns
 
-- **Shared UI helpers** — `ui_helpers.py` provides `draw_button()` and `draw_load_slot()` with standard colour constants; used by splash_view, death_screen, and options_view to eliminate duplicated button/slot drawing code
+- **Shared UI helpers** — `ui_helpers.py` provides `draw_button()`, `draw_load_slot()` (with `grey_empty` flag for load-mode styling and modules count), and `draw_tooltip()` with standard colour constants; used by splash_view, death_screen, options_view, escape_menu/_save_load_mode, and hud.py
 - **Kill reward centralisation** — `collisions._apply_kill_rewards()` handles explosion + iron drop + character bonus + blueprint chance + XP for all kill types (asteroid, alien-by-player, alien-by-turret)
 - **Constants organisation** — `constants.py` grouped into 16 named sections with `═══` dividers and a docstring table of contents for discoverability
 - **Pre-built `arcade.Text` objects** everywhere (avoids per-frame `arcade.draw_text()` PerformanceWarning)
