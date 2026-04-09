@@ -46,14 +46,22 @@ def draw_load_slot(
     load_hover: int,
     t_labels: list[arcade.Text],
     t_details: list[arcade.Text],
+    *,
+    grey_empty: bool = False,
 ) -> None:
-    """Draw a single save-slot row with 3-state colouring (empty/normal/hover)."""
+    """Draw a single save-slot row with 3-state colouring (empty/normal/hover).
+
+    grey_empty: if True, empty slots use greyed-out colours (load mode).
+    """
     sx, sy, sw, sh = slot_rects[i]
     info = load_slots[i] if i < len(load_slots) else {"name": "", "exists": False}
     hovered = (i == load_hover)
 
-    if not info["exists"]:
+    if grey_empty and not info["exists"]:
         bg, outline_c, text_c = SLOT_BG_EMPTY, SLOT_OUTLINE_EMPTY, SLOT_TEXT_EMPTY
+    elif not info["exists"]:
+        bg, outline_c = SLOT_BG_NORMAL, BTN_OUTLINE_NORMAL
+        text_c = (140, 140, 160)
     elif hovered:
         bg, outline_c, text_c = BTN_BG_HOVER, BTN_OUTLINE_HOVER, BTN_TEXT_HOVER
     else:
@@ -77,9 +85,34 @@ def draw_load_slot(
         detail = (f"{info.get('faction', '?')} \u00b7 {info.get('ship_type', '?')}"
                   f"{char_part}{zone_part}"
                   f"  |  HP {info.get('hp', 0)}  Shields {info.get('shields', 0)}")
-        det_c = SLOT_DETAIL_HOVER if hovered else SLOT_DETAIL_NORMAL
+        mods = info.get("modules", 0)
+        if mods > 0:
+            detail += f"  |  Modules {mods}"
+        if grey_empty and not info["exists"]:
+            det_c = SLOT_TEXT_EMPTY
+        else:
+            det_c = SLOT_DETAIL_HOVER if hovered else SLOT_DETAIL_NORMAL
         t_details[i].text = detail
         t_details[i].x = sx + 10
         t_details[i].y = sy + 10
         t_details[i].color = det_c
         t_details[i].draw()
+
+
+def draw_tooltip(
+    text_obj: arcade.Text,
+    label: str,
+    cx: float,
+    y: float,
+    *,
+    outline_color: tuple = (200, 180, 80),
+) -> None:
+    """Draw a small tooltip box centred horizontally at (cx, y)."""
+    text_obj.text = label
+    tw = len(label) * 7 + 12
+    tx0 = max(2, cx - tw // 2)
+    arcade.draw_rect_filled(arcade.LBWH(tx0, y, tw, 16), (20, 20, 50, 230))
+    arcade.draw_rect_outline(arcade.LBWH(tx0, y, tw, 16), outline_color, border_width=1)
+    text_obj.x = tx0 + tw // 2
+    text_obj.y = y + 8
+    text_obj.draw()

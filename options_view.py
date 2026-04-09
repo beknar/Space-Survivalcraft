@@ -359,40 +359,27 @@ class OptionsView(arcade.View):
         cur_y = py + panel_h - 60
         slider_x = px + 16
         slider_w = panel_w - 32
-        # Music Volume slider
-        self._t_cfg_label.text = "Music Volume"
-        self._t_cfg_label.x = px + 16
-        self._t_cfg_label.y = cur_y + 12
-        self._t_cfg_label.color = arcade.color.WHITE
-        self._t_cfg_label.draw()
-        arcade.draw_rect_filled(
-            arcade.LBWH(slider_x, cur_y, slider_w, 8), (50, 50, 70))
-        fill_w = int(slider_w * audio.music_volume)
-        arcade.draw_rect_filled(
-            arcade.LBWH(slider_x, cur_y, fill_w, 8), arcade.color.CYAN)
-        arcade.draw_circle_filled(slider_x + fill_w, cur_y + 4, 8, arcade.color.WHITE)
-        self._t_cfg_val.text = f"{int(audio.music_volume * 100)}%"
-        self._t_cfg_val.x = px + panel_w - 16
-        self._t_cfg_val.y = cur_y + 12
-        self._t_cfg_val.draw()
-        self._cfg_music_slider = (slider_x, cur_y, slider_w, 8)
+        def _slider(label: str, value: float, y: int) -> tuple[int, int, int, int]:
+            self._t_cfg_label.text = label
+            self._t_cfg_label.x = px + 16
+            self._t_cfg_label.y = y + 12
+            self._t_cfg_label.color = arcade.color.WHITE
+            self._t_cfg_label.draw()
+            arcade.draw_rect_filled(
+                arcade.LBWH(slider_x, y, slider_w, 8), (50, 50, 70))
+            fw = int(slider_w * value)
+            arcade.draw_rect_filled(
+                arcade.LBWH(slider_x, y, fw, 8), arcade.color.CYAN)
+            arcade.draw_circle_filled(slider_x + fw, y + 4, 8, arcade.color.WHITE)
+            self._t_cfg_val.text = f"{int(value * 100)}%"
+            self._t_cfg_val.x = px + panel_w - 16
+            self._t_cfg_val.y = y + 12
+            self._t_cfg_val.draw()
+            return (slider_x, y, slider_w, 8)
+
+        self._cfg_music_slider = _slider("Music Volume", audio.music_volume, cur_y)
         cur_y -= 50
-        # SFX Volume slider
-        self._t_cfg_label.text = "SFX Volume"
-        self._t_cfg_label.x = px + 16
-        self._t_cfg_label.y = cur_y + 12
-        self._t_cfg_label.draw()
-        arcade.draw_rect_filled(
-            arcade.LBWH(slider_x, cur_y, slider_w, 8), (50, 50, 70))
-        fill_w = int(slider_w * audio.sfx_volume)
-        arcade.draw_rect_filled(
-            arcade.LBWH(slider_x, cur_y, fill_w, 8), arcade.color.CYAN)
-        arcade.draw_circle_filled(slider_x + fill_w, cur_y + 4, 8, arcade.color.WHITE)
-        self._t_cfg_val.text = f"{int(audio.sfx_volume * 100)}%"
-        self._t_cfg_val.x = px + panel_w - 16
-        self._t_cfg_val.y = cur_y + 12
-        self._t_cfg_val.draw()
-        self._cfg_sfx_slider = (slider_x, cur_y, slider_w, 8)
+        self._cfg_sfx_slider = _slider("SFX Volume", audio.sfx_volume, cur_y)
         cur_y -= 50
         # Video directory text field
         self._t_cfg_label.text = "Videos Directory"

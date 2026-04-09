@@ -406,19 +406,12 @@ class HUD:
             if mod is not None and self._mod_drag_src is None:
                 info = self._mod_types.get(mod)
                 if info:
+                    from ui_helpers import draw_tooltip
                     tip_sx = mod_x + self._mod_hover * (self._mod_cell + 4)
-                    tip_cx = tip_sx + self._mod_cell // 2
-                    tip_y = mod_y + self._mod_cell + 4
-                    self._t_mod_tip.text = info["label"]
-                    tw = len(info["label"]) * 7 + 12
-                    tx0 = max(2, tip_cx - tw // 2)
-                    arcade.draw_rect_filled(arcade.LBWH(tx0, tip_y, tw, 16),
-                                            (20, 20, 50, 230))
-                    arcade.draw_rect_outline(arcade.LBWH(tx0, tip_y, tw, 16),
-                                             (200, 180, 80), border_width=1)
-                    self._t_mod_tip.x = tx0 + tw // 2
-                    self._t_mod_tip.y = tip_y + 8
-                    self._t_mod_tip.draw()
+                    draw_tooltip(self._t_mod_tip, info["label"],
+                                 tip_sx + self._mod_cell // 2,
+                                 mod_y + self._mod_cell + 4,
+                                 outline_color=(200, 180, 80))
 
         # Module drag preview
         if self._mod_drag_src is not None and self._mod_drag_type is not None:
@@ -495,20 +488,13 @@ class HUD:
                 and self._qu_drag_src is None):
             item = self._qu_slots[self._qu_hover]
             if item is not None:
+                from ui_helpers import draw_tooltip
                 name = self._QU_NAMES.get(item, item)
                 tip_sx = qu_x + self._qu_hover * (self._qu_cell + 2)
-                tip_cx = tip_sx + self._qu_cell // 2
-                tip_y = qu_y + self._qu_cell + 4
-                self._t_qu_tip.text = name
-                tw = len(name) * 7 + 12
-                tx0 = max(2, tip_cx - tw // 2)
-                arcade.draw_rect_filled(arcade.LBWH(tx0, tip_y, tw, 16),
-                                        (20, 20, 50, 230))
-                arcade.draw_rect_outline(arcade.LBWH(tx0, tip_y, tw, 16),
-                                         arcade.color.LIGHT_GRAY, border_width=1)
-                self._t_qu_tip.x = tx0 + tw // 2
-                self._t_qu_tip.y = tip_y + 8
-                self._t_qu_tip.draw()
+                draw_tooltip(self._t_qu_tip, name,
+                             tip_sx + self._qu_cell // 2,
+                             qu_y + self._qu_cell + 4,
+                             outline_color=arcade.color.LIGHT_GRAY)
 
         # Floating drag preview for quick-use
         if self._qu_drag_src is not None and self._qu_drag_type is not None:

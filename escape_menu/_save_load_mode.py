@@ -122,49 +122,18 @@ class SaveLoadMode(MenuMode):
         self._t_title.y = py + SAVE_MENU_H - 30
         self._t_title.draw()
 
+        from ui_helpers import draw_load_slot, draw_button, BTN_BG_BACK_NORMAL
+        is_load = self._sub == "load"
         for i in range(SAVE_SLOT_COUNT):
-            sx, sy, sw, sh = rects[i]
-            hovered = (i == self.ctx.hover_idx)
-            info = self._slots[i]
-            if self._sub == "load" and not info["exists"]:
-                bg, outline_c, text_c = (20, 20, 40, 255), (60, 60, 80), (80, 80, 100)
-            elif hovered:
-                bg, outline_c = (50, 80, 140, 255), arcade.color.CYAN
-                text_c = arcade.color.CYAN
-            else:
-                bg, outline_c = (30, 40, 80, 255), arcade.color.STEEL_BLUE
-                text_c = arcade.color.WHITE if info["exists"] else (140, 140, 160)
-            arcade.draw_rect_filled(arcade.LBWH(sx, sy, sw, sh), bg)
-            arcade.draw_rect_outline(arcade.LBWH(sx, sy, sw, sh), outline_c, border_width=1)
-            label = f"Slot {i + 1}: {info['name']}" if info["exists"] else f"Slot {i + 1}: \u2014 Empty \u2014"
-            self._t_slot_labels[i].text = label
-            self._t_slot_labels[i].x = sx + 10; self._t_slot_labels[i].y = sy + sh - 10
-            self._t_slot_labels[i].color = text_c; self._t_slot_labels[i].draw()
-            if info.get("exists"):
-                char = info.get("character", "")
-                char_part = f"  \u00b7 {char}" if char else ""
-                zone_label = info.get("zone", "")
-                zone_part = f"  \u00b7 {zone_label}" if zone_label else ""
-                detail = (f"{info.get('faction','?')} \u00b7 {info.get('ship_type','?')}{char_part}{zone_part}"
-                          f"  |  HP {info.get('hp',0)}  Shields {info.get('shields',0)}")
-                mods = info.get("modules", 0)
-                if mods > 0: detail += f"  |  Modules {mods}"
-                det_c = (120, 150, 180) if not (hovered and info["exists"]) else (140, 200, 240)
-                if self._sub == "load" and not info["exists"]: det_c = (60, 60, 80)
-                self._t_slot_details[i].text = detail
-                self._t_slot_details[i].x = sx + 10; self._t_slot_details[i].y = sy + 10
-                self._t_slot_details[i].color = det_c; self._t_slot_details[i].draw()
+            draw_load_slot(i, rects, self._slots, self.ctx.hover_idx,
+                           self._t_slot_labels, self._t_slot_details,
+                           grey_empty=is_load)
 
         # Back button
-        bbx, bby, bbw, bbh = back
-        bh = (self.ctx.hover_idx == 100)
-        bg = (50, 80, 140, 255) if bh else (30, 40, 80, 255)
-        arcade.draw_rect_filled(arcade.LBWH(bbx, bby, bbw, bbh), bg)
-        arcade.draw_rect_outline(arcade.LBWH(bbx, bby, bbw, bbh),
-                                 arcade.color.CYAN if bh else arcade.color.STEEL_BLUE, border_width=2)
-        self._t_back.color = arcade.color.CYAN if bh else arcade.color.WHITE
-        self._t_back.x = bbx + bbw // 2; self._t_back.y = bby + bbh // 2
-        self._t_back.draw()
+        self._t_back.x = back[0] + back[2] // 2
+        self._t_back.y = back[1] + back[3] // 2
+        draw_button(back, self.ctx.hover_idx == 100, self._t_back,
+                    bg_normal=BTN_BG_BACK_NORMAL)
 
         if self.ctx.status_msg:
             self.ctx.t_status.x = self.ctx.window.width // 2
