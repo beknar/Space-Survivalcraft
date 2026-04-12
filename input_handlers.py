@@ -85,12 +85,13 @@ def handle_key_press(gv: GameView, key: int, modifiers: int) -> None:
                 for b in gv.building_list
             )
             if near or gv._station_info.open:
-                from draw_logic import compute_world_stats
+                from draw_logic import compute_world_stats, compute_inactive_zone_stats
                 gv._station_info.toggle(
                     gv.building_list,
                     compute_modules_used(gv.building_list),
                     compute_module_capacity(gv.building_list),
                     stat_lines=compute_world_stats(gv),
+                    inactive_zone_stats=compute_inactive_zone_stats(gv),
                 )
     elif key == arcade.key.C:
         if not gv._escape_menu.open and not gv._player_dead:
@@ -229,6 +230,7 @@ def handle_mouse_press(gv: GameView, x: int, y: int, button: int, modifiers: int
             has_home=gv._has_home_station(),
             copper=gv.inventory.count_item("copper") + gv._station_inv.count_item("copper"),
             unlocked_blueprints=gv._craft_menu._unlocked,
+            ship_level=gv._ship_level,
         )
         if selected is not None:
             if selected == "__destroy__":

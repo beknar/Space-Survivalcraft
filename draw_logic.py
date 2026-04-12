@@ -198,6 +198,56 @@ def compute_world_stats(gv: GameView) -> list[tuple[str, int, tuple]]:
     return stats
 
 
+def compute_inactive_zone_stats(gv: GameView) -> list[tuple[str, list[tuple[str, int, tuple]]]]:
+    """Return stats for zones the player is NOT in (Zone 1 and Zone 2 only).
+
+    Returns a list of (zone_name, stat_lines) tuples.
+    """
+    from zones import ZoneID
+    grey = (180, 180, 180, 255)
+    orange = (220, 160, 60, 255)
+    red = (220, 80, 80, 255)
+    green = (120, 200, 90, 255)
+    result: list[tuple[str, list[tuple[str, int, tuple]]]] = []
+
+    # Zone 1 (Double Star) stats from stash
+    if gv._zone.zone_id != ZoneID.MAIN and gv._main_zone._stash:
+        stash = gv._main_zone._stash
+        lines: list[tuple[str, int, tuple]] = []
+        ast = stash.get("asteroid_list")
+        ali = stash.get("alien_list")
+        bld = stash.get("building_list")
+        if ast is not None:
+            lines.append(("ASTEROIDS", len(ast), grey))
+        if ali is not None:
+            lines.append(("ALIENS", len(ali), red))
+        if bld is not None and len(bld) > 0:
+            lines.append(("BUILDINGS", len(bld), orange))
+        boss = stash.get("_boss")
+        if boss is not None and getattr(boss, 'hp', 0) > 0:
+            lines.append(("BOSS HP", int(boss.hp), red))
+        result.append(("DOUBLE STAR", lines))
+
+    # Zone 2 (Nebula) stats from live zone instance
+    if gv._zone.zone_id != ZoneID.ZONE2 and gv._zone2 is not None:
+        z2 = gv._zone2
+        if z2._populated:
+            lines = []
+            lines.append(("IRON ROCK", len(z2._iron_asteroids), grey))
+            lines.append(("BIG IRON", len(z2._double_iron), orange))
+            lines.append(("COPPER", len(z2._copper_asteroids), (200, 130, 60, 255)))
+            lines.append(("WANDERERS", len(z2._wanderers), (200, 200, 130, 255)))
+            lines.append(("GAS AREAS", len(z2._gas_areas), green))
+            lines.append(("ALIENS", len(z2._aliens), red))
+            if z2._building_stash is not None:
+                bld = z2._building_stash.get("building_list")
+                if bld is not None and len(bld) > 0:
+                    lines.append(("BUILDINGS", len(bld), orange))
+            result.append(("NEBULA", lines))
+
+    return result
+
+
 def _gas_always_visible(gv: GameView) -> bool:
     """Gas hazards are always shown on the minimap in warp zones."""
     from zones.zone_warp_base import WarpZoneBase

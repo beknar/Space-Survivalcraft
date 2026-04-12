@@ -437,8 +437,11 @@ def update_buildings(gv: GameView, dt: float) -> None:
 
     # Station info live update
     if gv._station_info.open:
-        from draw_logic import compute_world_stats
-        gv._station_info.update_stats(compute_world_stats(gv))
+        from draw_logic import compute_world_stats, compute_inactive_zone_stats
+        gv._station_info.update_stats(
+            compute_world_stats(gv),
+            inactive_zone_stats=compute_inactive_zone_stats(gv),
+        )
     if gv._station_info.open:
         near = any(
             math.hypot(gv.player.center_x - b.center_x,

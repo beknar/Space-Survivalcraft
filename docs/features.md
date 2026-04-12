@@ -155,7 +155,9 @@
 
 - Left-side status panel with HP/shield bars, character video, active weapon, faction/ship info
 - FPS counter (toggle with F), music track name with equalizer visualizer
-- Mini-map showing full world: player (white), asteroids (grey), pickups (orange), aliens (red), buildings (cyan), trading station (yellow), boss (large red), gas areas (green circles with outline, proportional to world size), wormholes (purple)
+- Mini-map showing full world: player (white), asteroids (grey), pickups (orange), aliens (red), buildings (cyan), trading station (yellow), boss (large red), gas areas (green octagonal outlines, proportional to world size), wormholes (purple)
+- Gas hazards in warp zones always visible on minimap regardless of fog of war
+- **Station Info** (T key) --- building HP, module capacity, zone-specific entity counts, plus an "Other Zones" panel showing live stats from inactive zones (Double Star and/or Nebula)
 
 ## Fog of War
 
@@ -197,7 +199,7 @@
 - **Video Properties** --- resolution selector + character picker for the HUD video portrait
 - **Songs** --- Stop Song, Other Song (random OST track), Music Videos (opens video browser)
 - **Help** --- keyboard and gamepad controls display
-- **Config** --- FPS toggle, volume sliders, video directory, autoplay OST toggle, Save Config
+- **Config** --- FPS toggle, Simulate All Zones toggle, volume sliders, video directory, autoplay OST toggle, Save Config
 
 ## Death & Respawn
 

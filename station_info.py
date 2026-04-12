@@ -18,6 +18,12 @@ _LINE_H = 22
 _MAX_LINES = 14  # max building lines in pool
 _MAX_STAT_LINES = 8  # max world-stat lines in pool
 
+# Inactive zones panel (drawn to the left of the main panel)
+_IZ_PANEL_W = 240
+_IZ_PANEL_H = 320
+_IZ_MAX_ZONES = 2
+_IZ_MAX_LINES_PER_ZONE = 8
+
 
 class StationInfo:
     """Non-pausing right-side overlay showing station module HP and capacity."""
@@ -72,18 +78,41 @@ class StationInfo:
         # List of (label, count, color) tuples for world stats
         self._stat_lines: list[tuple[str, int, tuple]] = []
 
+        # Inactive zones panel — pre-built text pool
+        self._iz_title = arcade.Text(
+            "OTHER ZONES", 0, 0,
+            (180, 140, 220), 13, bold=True,
+            anchor_x="center", anchor_y="center",
+        )
+        self._iz_zone_titles: list[arcade.Text] = []
+        self._iz_lines: list[list[arcade.Text]] = []
+        for _ in range(_IZ_MAX_ZONES):
+            self._iz_zone_titles.append(arcade.Text(
+                "", 0, 0, arcade.color.LIGHT_BLUE, 11, bold=True,
+            ))
+            zone_lines = []
+            for _ in range(_IZ_MAX_LINES_PER_ZONE):
+                zone_lines.append(arcade.Text(
+                    "", 0, 0, (200, 200, 200), 10,
+                ))
+            self._iz_lines.append(zone_lines)
+        # Data: list of (zone_name, [(label, count, color), ...])
+        self._iz_data: list[tuple[str, list[tuple[str, int, tuple]]]] = []
+
     def toggle(
         self,
         building_list: arcade.SpriteList,
         modules_used: int,
         module_capacity: int,
         stat_lines: list[tuple[str, int, tuple]] | None = None,
+        inactive_zone_stats: list[tuple[str, list[tuple[str, int, tuple]]]] | None = None,
     ) -> None:
         """Toggle overlay, refreshing building data when opening."""
         self.open = not self.open
         if self.open:
             self._refresh(building_list, modules_used, module_capacity,
                           stat_lines)
+            self._iz_data = inactive_zone_stats or []
 
     def _refresh(
         self,
@@ -104,9 +133,15 @@ class StationInfo:
                 b.disabled,
             ))
 
-    def update_stats(self, stat_lines: list[tuple[str, int, tuple]]) -> None:
+    def update_stats(
+        self,
+        stat_lines: list[tuple[str, int, tuple]],
+        inactive_zone_stats: list[tuple[str, list[tuple[str, int, tuple]]]] | None = None,
+    ) -> None:
         """Update world stats while panel is open (called every frame)."""
         self._stat_lines = stat_lines
+        if inactive_zone_stats is not None:
+            self._iz_data = inactive_zone_stats
 
     def draw(self) -> None:
         if not self.open:
@@ -165,3 +200,55 @@ class StationInfo:
                 t.text = f"{label:<11} {count:>5}"
                 t.color = color
                 t.draw()
+
+        # ── Inactive zones panel (left of main panel) ──────────────────
+        if self._iz_data:
+            self._draw_inactive_zones()
+
+    def _draw_inactive_zones(self) -> None:
+        """Draw a panel showing stats from zones the player is not in."""
+        # Compute needed height
+        total_lines = 0
+        for _, lines in self._iz_data:
+            total_lines += 1 + len(lines)  # zone title + stat lines
+        iz_h = max(140, 50 + total_lines * 20 + 10)
+        iz_x = self._px - _IZ_PANEL_W - 10
+        iz_y = self._py + _PANEL_H - iz_h
+
+        arcade.draw_rect_filled(
+            arcade.LBWH(iz_x, iz_y, _IZ_PANEL_W, iz_h),
+            (15, 15, 40, 230),
+        )
+        arcade.draw_rect_outline(
+            arcade.LBWH(iz_x, iz_y, _IZ_PANEL_W, iz_h),
+            (120, 90, 180), border_width=2,
+        )
+
+        self._iz_title.x = iz_x + _IZ_PANEL_W // 2
+        self._iz_title.y = iz_y + iz_h - 20
+        self._iz_title.draw()
+
+        cur_y = iz_y + iz_h - 48
+        for zi, (zone_name, zone_lines) in enumerate(self._iz_data):
+            if zi >= _IZ_MAX_ZONES:
+                break
+            # Zone name header
+            zt = self._iz_zone_titles[zi]
+            zt.text = zone_name
+            zt.x = iz_x + _PANEL_PAD
+            zt.y = cur_y
+            zt.draw()
+            cur_y -= 20
+
+            # Stat lines
+            for li, (label, count, color) in enumerate(zone_lines):
+                if li >= _IZ_MAX_LINES_PER_ZONE:
+                    break
+                lt = self._iz_lines[zi][li]
+                lt.text = f"  {label:<11} {count:>5}"
+                lt.color = color
+                lt.x = iz_x + _PANEL_PAD
+                lt.y = cur_y
+                lt.draw()
+                cur_y -= 20
+            cur_y -= 6  # gap between zones

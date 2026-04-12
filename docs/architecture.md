@@ -134,6 +134,14 @@ collisions.py
 - **Zone state machine** --- `zones/` package manages transitions between Zone 1, warp zones, and Zone 2; each zone has its own asteroid/alien populations, hazard rules, and background; GameView delegates zone-specific setup and update logic to the active zone state
 - **Viewport culling (update only)** --- Zone 2 only updates asteroid/wanderer/gas sprites within camera bounds + 250 px margin (gas areas get +200 px extra); offscreen wanderers spin-only. Drawing uses direct `SpriteList.draw()` calls on the static lists rather than per-frame visibility rebuild --- the static VBOs upload once and the renderer handles offscreen culling efficiently.
 - **Ranged alien standoff AI** --- gun-equipped aliens orbit at `ALIEN_STANDOFF_DIST` (300 px) with random CW/CCW direction; RammerAlien charges directly (`has_guns=False`)
+- **Turret target caching** --- `Turret._cached_target` and `_target_rescan_cd` (0.25 s) avoid scanning all aliens every frame; cached target validated cheaply (alive + in range); full rescan 4x/s
+- **Distance-based alien AI culling** --- Zone 2 alien updates check viewport-width + 500 px squared range; aliens outside get cheap position-only updates (velocity decay + drift) instead of full obstacle-avoidance AI
+- **Fog texture rebuild throttling** --- `_FOG_REBUILD_THRESHOLD = 8` skips PIL fog overlay rebuilds until 8+ new cells are revealed, avoiding per-frame image creation while the player moves
+- **Inlined fog visibility checks** --- minimap entity loops use pre-computed `_inv_cell`, `_fg`, `_fw`, `_fh` locals instead of calling `is_revealed()` 200+ times per frame
+- **Gas area minimap batching** --- octagonal outlines drawn via a single `arcade.draw_lines()` call with separate x/y radii for correct proportions in non-square zones
+- **Zone 2 building stash** --- `Zone2.teardown()` saves building state into `_building_stash` dict; `Zone2.setup()` restores it; prevents MainZone from overwriting Zone 2 buildings during zone transitions
+- **Background zone simulation** --- `ZoneState.background_update(gv, dt)` virtual method; `MainZone` operates on stashed sprite lists, `Zone2` on its own lists; called from `GameView.on_update` when `audio.simulate_all_zones` is True
+- **Inactive zone info panel** --- `draw_logic.compute_inactive_zone_stats()` reads Zone 1 stash and Zone 2 sprite list counts; `StationInfo._draw_inactive_zones()` renders a dynamically-sized "Other Zones" panel with pre-pooled `arcade.Text` objects
 
 ## View Flow
 

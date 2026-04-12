@@ -11,7 +11,9 @@ A top-down space survival game built with Python and the Arcade framework. Pilot
 - **Boss encounter** --- 3-phase AI boss with 2,000 HP, spread shots, and charge attacks
 - **4 warp zones** --- meteor, lightning, gas cloud, and enemy spawner transition zones
 - **Zone 2 (Nebula)** --- second biome with copper, gas hazards, magnetic asteroids, and 4 new alien types
-- **Cross-zone persistence** --- all zones saved and restored independently; fog of war, asteroids, aliens, and buildings persist across zone transitions and save/load
+- **Cross-zone persistence** --- all zones saved and restored independently; fog of war, asteroids, aliens, and buildings persist across zone transitions and save/load; Zone 2 buildings survive round trips through warp zones
+- **Background zone simulation** --- optional "Simulate All Zones" setting ticks inactive zones (respawns, alien patrol, asteroid rotation) while the player is elsewhere
+- **Inactive zone info panel** --- Station Info (T key) shows live entity counts from zones the player is not in
 - **Homing missiles** --- consumable weapon with homing AI, craftable at Advanced Crafter
 - **Advanced modules** --- Misty Step teleport, Force Wall barrier, Death Blossom missile barrage
 - **Special ability meter** --- powers advanced module abilities
@@ -23,7 +25,7 @@ A top-down space survival game built with Python and the Arcade framework. Pilot
 - **Trading station** for buying and selling items with credits
 - **10 named save slots** preserving full game state including fog of war and boss
 - **Fog of war**, minimap, HUD with character video, and equalizer visualizer
-- **Performance-optimized rendering** --- batched minimap dot draws (`arcade.draw_points`), inventory render cache with dirty-flag invalidation, PIL-rendered badge texture cache (one `SpriteList.draw()` replaces 100 per-frame `Text.draw()` calls), batched grid lines (`arcade.draw_lines`), and spatial hashing on static sprite lists only
+- **Performance-optimized rendering** --- batched minimap draws (`arcade.draw_points` + `arcade.draw_lines` for gas octagon outlines), inlined fog visibility checks, throttled fog texture rebuilds, turret target caching (4x/s rescan), distance-based alien AI culling, inventory render cache with dirty-flag invalidation, PIL-rendered badge texture cache, and spatial hashing on static sprite lists only
 
 ## Documentation
 

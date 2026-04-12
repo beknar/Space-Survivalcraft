@@ -210,6 +210,19 @@ Triggered when player enters 500 px, or player weapon fires within 160 px (4x sh
 - **Bottom exit** provides a safe return to Zone 1 (home sector)
 - **Top exit** transitions the player into Zone 2 (The Nebula)
 - Player position and inventory are preserved across zone transitions
+- Buildings placed in Zone 2 are preserved when travelling through warp zones and back
+- Gas hazards in the Gas Cloud warp zone are always visible on the minimap regardless of fog of war
+
+---
+
+## Background Zone Simulation
+
+- Optional "Simulate All Zones" toggle in Config (disabled by default)
+- When enabled, inactive zones are ticked every frame while the player is in a different zone
+- Respawn timers advance; asteroids and aliens are replenished
+- Aliens revert to PATROL state and wander toward patrol waypoints
+- No player interaction, sounds, or visual effects --- purely simulation
+- Station Info panel (T key) shows live entity counts from inactive zones
 
 ---
 

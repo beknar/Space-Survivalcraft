@@ -16,7 +16,7 @@
 | Quick Use item | 1--9, 0 (or click the slot) |
 | Open/close build menu | B |
 | Ship stats / character bio | C |
-| Station info panel | T (when near station) |
+| Station info panel (+ other zones) | T (when near station) |
 | Deploy Force Wall | G |
 | Activate Death Blossom | X |
 | Misty Step teleport | Double-tap W/A/S/D |

@@ -330,6 +330,7 @@ Settings stored in `config.json` (gitignored):
 | `video_dir` | Video file directory path | (empty) |
 | `show_fps` | FPS counter visibility | false |
 | `autoplay_ost` | Auto-play OST on game start | true |
+| `simulate_all_zones` | Tick inactive zones in background | false |
 
 ---
 

@@ -51,11 +51,22 @@ Welcome to the full documentation for **Call of Orion**, a top-down space surviv
 
 ## Zone 2 (The Nebula)
 
-Zone 2 is the second biome, accessed through warp zones that appear when the boss is defeated. It features copper asteroids, toxic gas clouds, wandering magnetic asteroids, and 4 new alien types. Ranged aliens orbit the player at ~300 px standoff distance instead of charging, while the Rammer alien still charges directly. Wandering asteroids bounce off the player on contact with full knockback physics. Gas areas are shown on the minimap as proportionally-sized green circles with outline rings. See [Features](features.md) and [Statistics](statistics.md) for full details.
+Zone 2 is the second biome, accessed through warp zones that appear when the boss is defeated. It features copper asteroids, toxic gas clouds, wandering magnetic asteroids, and 4 new alien types. Ranged aliens orbit the player at ~300 px standoff distance instead of charging, while the Rammer alien still charges directly. Wandering asteroids bounce off the player on contact with full knockback physics. Gas areas are shown on the minimap as proportionally-sized green octagonal outlines. In warp zones, gas hazards are always visible on the minimap regardless of fog of war. See [Features](features.md) and [Statistics](statistics.md) for full details.
 
 ## Cross-Zone Save/Load
 
-All zones are saved and restored independently. When saving from any zone, both Zone 1 (Double Star) and Zone 2 (Nebula) state is fully serialized --- including asteroids, aliens, fog of war, buildings, and wanderers. Zone 1 data is pulled from the MainZone stash when the player is in another zone. Zone 2 entity population and collision handling are in `zones/zone2_world.py`.
+All zones are saved and restored independently. When saving from any zone, both Zone 1 (Double Star) and Zone 2 (Nebula) state is fully serialized --- including asteroids, aliens, fog of war, buildings, and wanderers. Zone 1 data is pulled from the MainZone stash when the player is in another zone. Zone 2 buildings are separately stashed/restored during zone transitions to survive round trips through warp zones. Zone 2 entity population and collision handling are in `zones/zone2_world.py`.
+
+## Background Zone Simulation
+
+An optional "Simulate All Zones" toggle (in Config menus) enables background ticking of inactive zones while the player is in a different zone. When enabled:
+
+- Respawn timers advance and replenish asteroids/aliens in zones the player is away from
+- Aliens patrol (no player interaction --- they revert to PATROL state and wander toward waypoints)
+- Asteroids rotate, wanderers drift
+- No sounds, visual effects, or player collision --- purely simulation
+
+The Station Info panel (T key) shows an "Other Zones" panel with live entity counts from inactive zones (Double Star and Nebula), excluding warp zones.
 
 ## Architecture Notes
 
@@ -80,7 +91,9 @@ Several large optimizations target the Nebula zone, which can populate hundreds 
 
 - **Spatial hash on static lists only** --- alien sprite lists deliberately do NOT use `use_spatial_hash=True`. With ~50 moving aliens, the per-frame O(N) hash rebuild costs more than it saves. Asteroid and building lists are static and continue to use spatial hashing.
 - **Inventory render cache** --- both inventories build cached `SpriteList`s of cell fills and icons; rebuild is gated by a `_render_dirty` flag set on every mutation. Grid lines are batched into a single `arcade.draw_lines()` call. Count badges rendered as PIL text into `arcade.Texture` sprites batched into `_cache_badge_list` SpriteList (one `SpriteList.draw()` replaces 100 per-frame `arcade.Text.draw()` calls). Station inventory went from 26.7 FPS to 50.9 FPS with both inventories open.
-- **Minimap dot batching** --- `hud_minimap` collects per-colour point lists and draws each colour group with one `arcade.draw_points()` call instead of per-sprite `draw_circle_filled`.
+- **Minimap dot batching** --- `hud_minimap` collects per-colour point lists and draws each colour group with one `arcade.draw_points()` call instead of per-sprite `draw_circle_filled`. Gas areas drawn as octagonal outlines via batched `arcade.draw_lines()`. Fog visibility checks inlined to avoid per-entity function call overhead. Fog texture rebuilds throttled (every 8 cells).
+- **Turret target caching** --- turrets cache their nearest target and rescan only 4x/second, eliminating per-frame O(turrets x aliens) scans.
+- **Distance-based alien AI culling** --- Zone 2 aliens far from the viewport get cheap position-only updates instead of full AI with obstacle avoidance.
 - **Direct Zone 2 sprite-list draws** --- `Zone2.draw_world` calls `SpriteList.draw()` on each entity list directly; the previous per-frame visibility-list rebuild has been removed (the dead `_draw_visible` helper and `_vis_draw` SpriteList have been deleted). Static VBOs upload once.
 
 ## Tooling
