@@ -372,6 +372,7 @@ class SplashView(arcade.View):
         view = GameView(
             faction=data.get("faction"),
             ship_type=data.get("ship_type"),
+            ship_level=data.get("ship_level", 1),
         )
         GameView._restore_state(view, data)
         self.window.show_view(view)
