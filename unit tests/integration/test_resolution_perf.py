@@ -21,21 +21,12 @@ from settings import apply_resolution
 from zones import ZoneID
 
 MIN_FPS = 40
-WARMUP_FRAMES = 20   # extra warmup to absorb GameView construction cost
-MEASURE_FRAMES = 60
+
+from integration.conftest import measure_fps
 
 
-def _measure_fps(gv, n: int = MEASURE_FRAMES) -> float:
-    dt = 1 / 60
-    for _ in range(WARMUP_FRAMES):
-        gv.on_update(dt)
-        gv.on_draw()
-    start = time.perf_counter()
-    for _ in range(n):
-        gv.on_update(dt)
-        gv.on_draw()
-    elapsed = time.perf_counter() - start
-    return n / elapsed if elapsed > 0 else 999.0
+def _measure_fps(gv) -> float:
+    return measure_fps(gv, n_warmup=20, n_measure=60)
 
 
 # Build test IDs like "1280x800", "1920x1080", etc.

@@ -247,6 +247,168 @@ class HUD:
             value_text.text = label
         value_text.draw()
 
+    def _draw_module_slots(self, play_cx: int, qu_y: int) -> None:
+        """Draw the 4 module-equipment slots above the quick-use bar."""
+        mod_total_w = self._mod_count * self._mod_cell + (self._mod_count - 1) * 4
+        mod_x = play_cx - mod_total_w // 2
+        mod_y = qu_y + self._qu_cell + 26
+        self._t_mod_label.x = play_cx
+        self._t_mod_label.y = mod_y + self._mod_cell + 6
+        self._t_mod_label.draw()
+        for i in range(self._mod_count):
+            sx = mod_x + i * (self._mod_cell + 4)
+            mod = self._mod_slots[i]
+            is_drag = (i == self._mod_drag_src)
+            if is_drag:
+                fill = (60, 60, 20, 200)
+                outline = (200, 180, 80)
+            elif mod is not None:
+                fill = (40, 60, 80, 230)
+                outline = (200, 180, 80)
+            else:
+                fill = (20, 20, 40, 200)
+                outline = (80, 80, 120)
+            arcade.draw_rect_filled(
+                arcade.LBWH(sx, mod_y, self._mod_cell, self._mod_cell), fill)
+            arcade.draw_rect_outline(
+                arcade.LBWH(sx, mod_y, self._mod_cell, self._mod_cell),
+                outline, border_width=1)
+            if mod is not None and not is_drag:
+                icon = self._mod_icons.get(mod)
+                if icon:
+                    pad = 4
+                    arcade.draw_texture_rect(
+                        icon,
+                        arcade.LBWH(sx + pad, mod_y + pad,
+                                    self._mod_cell - pad * 2, self._mod_cell - pad * 2))
+                else:
+                    abbr = self._MOD_ABBR.get(mod, mod[:3].upper())
+                    self._t_mod_text.text = abbr
+                    self._t_mod_text.x = sx + self._mod_cell // 2
+                    self._t_mod_text.y = mod_y + self._mod_cell // 2
+                    self._t_mod_text.color = (200, 180, 80)
+                    self._t_mod_text.draw()
+        # Hover tooltip
+        if self._mod_hover >= 0 and self._mod_hover < self._mod_count:
+            mod = self._mod_slots[self._mod_hover]
+            if mod is not None and self._mod_drag_src is None:
+                info = self._mod_types.get(mod)
+                if info:
+                    from ui_helpers import draw_tooltip
+                    tip_sx = mod_x + self._mod_hover * (self._mod_cell + 4)
+                    draw_tooltip(self._t_mod_tip, info["label"],
+                                 tip_sx + self._mod_cell // 2,
+                                 mod_y + self._mod_cell + 4,
+                                 outline_color=(200, 180, 80))
+        # Drag preview
+        if self._mod_drag_src is not None and self._mod_drag_type is not None:
+            cs = self._mod_cell
+            fx = self._mod_drag_x - cs // 2
+            fy = self._mod_drag_y - cs // 2
+            arcade.draw_rect_filled(arcade.LBWH(fx, fy, cs, cs), (70, 90, 40, 180))
+            arcade.draw_rect_outline(arcade.LBWH(fx, fy, cs, cs),
+                                     (200, 180, 80), border_width=2)
+            icon = self._mod_icons.get(self._mod_drag_type)
+            if icon:
+                pad = 4
+                arcade.draw_texture_rect(icon,
+                    arcade.LBWH(fx + pad, fy + pad, cs - pad * 2, cs - pad * 2),
+                    alpha=200)
+
+    def _resolve_qu_icon(self, item_type: str):
+        """Return the quick-use icon texture for an item type, or None."""
+        if item_type == "repair_pack" and self._repair_pack_icon is not None:
+            return self._repair_pack_icon
+        if item_type == "shield_recharge" and self._shield_recharge_icon is not None:
+            return self._shield_recharge_icon
+        if item_type == "missile" and self._missile_icon is not None:
+            return self._missile_icon
+        return None
+
+    def _draw_quick_use_bar(self, play_cx: int, qu_y: int) -> None:
+        """Draw the 10-slot quick-use consumable bar at the bottom."""
+        qu_total_w = self._qu_count * self._qu_cell + (self._qu_count - 1) * 2
+        qu_x = play_cx - qu_total_w // 2
+        cs = self._qu_cell
+        self._t_qu_label.x = play_cx
+        self._t_qu_label.y = qu_y + cs + 8
+        self._t_qu_label.draw()
+        for i in range(self._qu_count):
+            sx = qu_x + i * (cs + 2)
+            is_drag_src = (i == self._qu_drag_src)
+            filled = self._qu_slots[i] is not None and not is_drag_src
+            if is_drag_src:
+                fill = (60, 60, 20, 200)
+            elif filled:
+                fill = (50, 70, 50, 220)
+            else:
+                fill = (25, 25, 50, 200)
+            arcade.draw_rect_filled(arcade.LBWH(sx, qu_y, cs, cs), fill)
+            arcade.draw_rect_outline(arcade.LBWH(sx, qu_y, cs, cs),
+                                     (80, 100, 140), border_width=1)
+            self._t_qu_num.text = str((i + 1) % 10)
+            self._t_qu_num.x = sx + cs // 2
+            self._t_qu_num.y = qu_y + cs - 6
+            self._t_qu_num.color = (160, 160, 160)
+            self._t_qu_num.draw()
+            if self._qu_slots[i] is not None and not is_drag_src:
+                icon = self._resolve_qu_icon(self._qu_slots[i])
+                if icon is not None:
+                    icon_pad = 4
+                    arcade.draw_texture_rect(
+                        icon,
+                        arcade.LBWH(sx + icon_pad, qu_y + icon_pad + 2,
+                                    cs - icon_pad * 2, cs - icon_pad * 2 - 4))
+                else:
+                    self._t_qu_num.text = self._qu_slots[i][:3].upper()
+                    self._t_qu_num.y = qu_y + cs // 2 - 2
+                    self._t_qu_num.color = arcade.color.YELLOW
+                    self._t_qu_num.draw()
+                if self._qu_counts[i] > 0:
+                    self._t_qu_num.text = str(self._qu_counts[i])
+                    self._t_qu_num.x = sx + cs // 2
+                    self._t_qu_num.y = qu_y + 4
+                    self._t_qu_num.color = arcade.color.ORANGE
+                    self._t_qu_num.draw()
+        # Hover tooltip
+        if (self._qu_hover >= 0 and self._qu_hover < self._qu_count
+                and self._qu_drag_src is None):
+            item = self._qu_slots[self._qu_hover]
+            if item is not None:
+                from ui_helpers import draw_tooltip
+                name = self._QU_NAMES.get(item, item)
+                tip_sx = qu_x + self._qu_hover * (cs + 2)
+                draw_tooltip(self._t_qu_tip, name,
+                             tip_sx + cs // 2, qu_y + cs + 4,
+                             outline_color=arcade.color.LIGHT_GRAY)
+        # Drag preview
+        if self._qu_drag_src is not None and self._qu_drag_type is not None:
+            fx = self._qu_drag_x - cs // 2
+            fy = self._qu_drag_y - cs // 2
+            arcade.draw_rect_filled(arcade.LBWH(fx, fy, cs, cs), (70, 90, 40, 180))
+            arcade.draw_rect_outline(arcade.LBWH(fx, fy, cs, cs),
+                                     arcade.color.YELLOW, border_width=2)
+            icon = self._resolve_qu_icon(self._qu_drag_type)
+            if icon is not None:
+                icon_pad = 4
+                arcade.draw_texture_rect(
+                    icon,
+                    arcade.LBWH(fx + icon_pad, fy + icon_pad + 2,
+                                cs - icon_pad * 2, cs - icon_pad * 2 - 4),
+                    alpha=200)
+            else:
+                self._t_qu_num.text = self._qu_drag_type[:3].upper()
+                self._t_qu_num.x = fx + cs // 2
+                self._t_qu_num.y = fy + cs // 2 - 2
+                self._t_qu_num.color = arcade.color.YELLOW
+                self._t_qu_num.draw()
+            if self._qu_drag_count > 0:
+                self._t_qu_num.text = str(self._qu_drag_count)
+                self._t_qu_num.x = fx + cs // 2
+                self._t_qu_num.y = fy + 4
+                self._t_qu_num.color = arcade.color.ORANGE
+                self._t_qu_num.draw()
+
     def draw(
         self,
         weapon_name: str,
@@ -340,190 +502,12 @@ class HUD:
             eq_y = self._hp_y_offset - 218 - EQ_MAX_H
             self._eq.draw(eq_y)
 
-        # Quick-use bar (10 slots labeled 1–9, 0) — bottom-centre of screen
+        # Bottom-centre UI bars
         win = arcade.get_window()
         play_cx = STATUS_WIDTH + (win.width - STATUS_WIDTH) // 2
-        qu_total_w = self._qu_count * self._qu_cell + (self._qu_count - 1) * 2
-        qu_x = play_cx - qu_total_w // 2
         qu_y = 10
-
-        # Module slots (4 boxes above quick-use bar)
-        mod_total_w = self._mod_count * self._mod_cell + (self._mod_count - 1) * 4
-        mod_x = play_cx - mod_total_w // 2
-        mod_y = qu_y + self._qu_cell + 26
-        self._t_mod_label.x = play_cx
-        self._t_mod_label.y = mod_y + self._mod_cell + 6
-        self._t_mod_label.draw()
-        for i in range(self._mod_count):
-            sx = mod_x + i * (self._mod_cell + 4)
-            mod = self._mod_slots[i]
-            is_drag = (i == self._mod_drag_src)
-            if is_drag:
-                fill = (60, 60, 20, 200)
-                outline = (200, 180, 80)
-            elif mod is not None:
-                fill = (40, 60, 80, 230)
-                outline = (200, 180, 80)
-            else:
-                fill = (20, 20, 40, 200)
-                outline = (80, 80, 120)
-            arcade.draw_rect_filled(
-                arcade.LBWH(sx, mod_y, self._mod_cell, self._mod_cell), fill)
-            arcade.draw_rect_outline(
-                arcade.LBWH(sx, mod_y, self._mod_cell, self._mod_cell),
-                outline, border_width=1)
-            if mod is not None and not is_drag:
-                icon = self._mod_icons.get(mod)
-                if icon:
-                    pad = 4
-                    arcade.draw_texture_rect(
-                        icon,
-                        arcade.LBWH(sx + pad, mod_y + pad,
-                                    self._mod_cell - pad * 2, self._mod_cell - pad * 2))
-                else:
-                    abbr = self._MOD_ABBR.get(mod, mod[:3].upper())
-                    self._t_mod_text.text = abbr
-                    self._t_mod_text.x = sx + self._mod_cell // 2
-                    self._t_mod_text.y = mod_y + self._mod_cell // 2
-                    self._t_mod_text.color = (200, 180, 80)
-                    self._t_mod_text.draw()
-
-        # Module hover tooltip
-        if self._mod_hover >= 0 and self._mod_hover < self._mod_count:
-            mod = self._mod_slots[self._mod_hover]
-            if mod is not None and self._mod_drag_src is None:
-                info = self._mod_types.get(mod)
-                if info:
-                    from ui_helpers import draw_tooltip
-                    tip_sx = mod_x + self._mod_hover * (self._mod_cell + 4)
-                    draw_tooltip(self._t_mod_tip, info["label"],
-                                 tip_sx + self._mod_cell // 2,
-                                 mod_y + self._mod_cell + 4,
-                                 outline_color=(200, 180, 80))
-
-        # Module drag preview
-        if self._mod_drag_src is not None and self._mod_drag_type is not None:
-            cs = self._mod_cell
-            fx = self._mod_drag_x - cs // 2
-            fy = self._mod_drag_y - cs // 2
-            arcade.draw_rect_filled(arcade.LBWH(fx, fy, cs, cs), (70, 90, 40, 180))
-            arcade.draw_rect_outline(arcade.LBWH(fx, fy, cs, cs),
-                                     (200, 180, 80), border_width=2)
-            icon = self._mod_icons.get(self._mod_drag_type)
-            if icon:
-                pad = 4
-                arcade.draw_texture_rect(icon,
-                    arcade.LBWH(fx + pad, fy + pad, cs - pad * 2, cs - pad * 2),
-                    alpha=200)
-
-        self._t_qu_label.x = play_cx
-        self._t_qu_label.y = qu_y + self._qu_cell + 8
-        self._t_qu_label.draw()
-        for i in range(self._qu_count):
-            sx = qu_x + i * (self._qu_cell + 2)
-            is_drag_src = (i == self._qu_drag_src)
-            filled = self._qu_slots[i] is not None and not is_drag_src
-            if is_drag_src:
-                fill = (60, 60, 20, 200)
-            elif filled:
-                fill = (50, 70, 50, 220)
-            else:
-                fill = (25, 25, 50, 200)
-            arcade.draw_rect_filled(
-                arcade.LBWH(sx, qu_y, self._qu_cell, self._qu_cell), fill,
-            )
-            arcade.draw_rect_outline(
-                arcade.LBWH(sx, qu_y, self._qu_cell, self._qu_cell),
-                (80, 100, 140), border_width=1,
-            )
-            # Slot number (1-9, then 0 for slot 10)
-            self._t_qu_num.text = str((i + 1) % 10)
-            self._t_qu_num.x = sx + self._qu_cell // 2
-            self._t_qu_num.y = qu_y + self._qu_cell - 6
-            self._t_qu_num.color = (160, 160, 160)
-            self._t_qu_num.draw()
-            # Item icon/label (skip source slot during drag)
-            if self._qu_slots[i] is not None and not is_drag_src:
-                icon = None
-                if self._qu_slots[i] == "repair_pack" and self._repair_pack_icon is not None:
-                    icon = self._repair_pack_icon
-                elif self._qu_slots[i] == "shield_recharge" and self._shield_recharge_icon is not None:
-                    icon = self._shield_recharge_icon
-                elif self._qu_slots[i] == "missile" and self._missile_icon is not None:
-                    icon = self._missile_icon
-                if icon is not None:
-                    icon_pad = 4
-                    icon_size = self._qu_cell - icon_pad * 2
-                    arcade.draw_texture_rect(
-                        icon,
-                        arcade.LBWH(sx + icon_pad, qu_y + icon_pad + 2,
-                                    icon_size, icon_size - 4),
-                    )
-                else:
-                    self._t_qu_num.text = self._qu_slots[i][:3].upper()
-                    self._t_qu_num.y = qu_y + self._qu_cell // 2 - 2
-                    self._t_qu_num.color = arcade.color.YELLOW
-                    self._t_qu_num.draw()
-                if self._qu_counts[i] > 0:
-                    self._t_qu_num.text = str(self._qu_counts[i])
-                    self._t_qu_num.x = sx + self._qu_cell // 2
-                    self._t_qu_num.y = qu_y + 4
-                    self._t_qu_num.color = arcade.color.ORANGE
-                    self._t_qu_num.draw()
-
-        # Quick-use hover tooltip
-        if (self._qu_hover >= 0 and self._qu_hover < self._qu_count
-                and self._qu_drag_src is None):
-            item = self._qu_slots[self._qu_hover]
-            if item is not None:
-                from ui_helpers import draw_tooltip
-                name = self._QU_NAMES.get(item, item)
-                tip_sx = qu_x + self._qu_hover * (self._qu_cell + 2)
-                draw_tooltip(self._t_qu_tip, name,
-                             tip_sx + self._qu_cell // 2,
-                             qu_y + self._qu_cell + 4,
-                             outline_color=arcade.color.LIGHT_GRAY)
-
-        # Floating drag preview for quick-use
-        if self._qu_drag_src is not None and self._qu_drag_type is not None:
-            cs = self._qu_cell
-            fx = self._qu_drag_x - cs // 2
-            fy = self._qu_drag_y - cs // 2
-            arcade.draw_rect_filled(
-                arcade.LBWH(fx, fy, cs, cs), (70, 90, 40, 180),
-            )
-            arcade.draw_rect_outline(
-                arcade.LBWH(fx, fy, cs, cs),
-                arcade.color.YELLOW, border_width=2,
-            )
-            icon = None
-            if self._qu_drag_type == "repair_pack" and self._repair_pack_icon is not None:
-                icon = self._repair_pack_icon
-            elif self._qu_drag_type == "shield_recharge" and self._shield_recharge_icon is not None:
-                icon = self._shield_recharge_icon
-            elif self._qu_drag_type == "missile" and self._missile_icon is not None:
-                icon = self._missile_icon
-            if icon is not None:
-                icon_pad = 4
-                icon_size = cs - icon_pad * 2
-                arcade.draw_texture_rect(
-                    icon,
-                    arcade.LBWH(fx + icon_pad, fy + icon_pad + 2,
-                                icon_size, icon_size - 4),
-                    alpha=200,
-                )
-            else:
-                self._t_qu_num.text = self._qu_drag_type[:3].upper()
-                self._t_qu_num.x = fx + cs // 2
-                self._t_qu_num.y = fy + cs // 2 - 2
-                self._t_qu_num.color = arcade.color.YELLOW
-                self._t_qu_num.draw()
-            if self._qu_drag_count > 0:
-                self._t_qu_num.text = str(self._qu_drag_count)
-                self._t_qu_num.x = fx + cs // 2
-                self._t_qu_num.y = fy + 4
-                self._t_qu_num.color = arcade.color.ORANGE
-                self._t_qu_num.draw()
+        self._draw_module_slots(play_cx, qu_y)
+        self._draw_quick_use_bar(play_cx, qu_y)
 
         draw_minimap(
             self._t_minimap,

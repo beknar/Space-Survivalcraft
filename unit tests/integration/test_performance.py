@@ -28,30 +28,10 @@ from zones import ZoneID
 
 # ── Configuration ──────────────────────────────────────────────────────────
 
-MIN_FPS = 40        # threshold: fail if average FPS drops below this
-WARMUP_FRAMES = 5   # discard initial frames (texture uploads, JIT)
-MEASURE_FRAMES = 60  # frames to measure (1 second at 60 FPS target)
+MIN_FPS = 40
 
-
-def _measure_fps(gv, n_warmup: int = WARMUP_FRAMES,
-                 n_measure: int = MEASURE_FRAMES) -> float:
-    """Run n_warmup + n_measure full frame loops (update + draw) and
-    return the average FPS over the measured frames."""
-    dt = 1 / 60
-    # Warmup: first few frames have texture-upload / JIT overhead
-    for _ in range(n_warmup):
-        gv.on_update(dt)
-        gv.on_draw()
-
-    start = time.perf_counter()
-    for _ in range(n_measure):
-        gv.on_update(dt)
-        gv.on_draw()
-    elapsed = time.perf_counter() - start
-
-    fps = n_measure / elapsed if elapsed > 0 else 999.0
-    print(f"  [perf] {fps:.1f} FPS ({n_measure} frames in {elapsed:.3f}s)")
-    return fps
+# Use shared measure_fps from conftest
+from integration.conftest import measure_fps as _measure_fps
 
 
 # ═══════════════════════════════════════════════════════════════════════════

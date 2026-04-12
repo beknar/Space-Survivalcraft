@@ -50,3 +50,29 @@ def real_game_view(real_window):
     yield gv
     # GameView doesn't have an explicit teardown — let GC handle the
     # sprite lists. Window stays alive for next test.
+
+
+# ── Shared FPS measurement utility ────────────────────────────────────────
+
+import time as _time
+
+
+def measure_fps(gv, n_warmup: int = 5, n_measure: int = 60) -> float:
+    """Run n_warmup + n_measure full frame loops (on_update + on_draw) and
+    return the average FPS over the measured frames.
+
+    Shared by test_performance.py, test_resolution_perf.py, and
+    test_soak.py to avoid duplicating FPS measurement logic.
+    """
+    dt = 1 / 60
+    for _ in range(n_warmup):
+        gv.on_update(dt)
+        gv.on_draw()
+    start = _time.perf_counter()
+    for _ in range(n_measure):
+        gv.on_update(dt)
+        gv.on_draw()
+    elapsed = _time.perf_counter() - start
+    fps = n_measure / elapsed if elapsed > 0 else 999.0
+    print(f"  [perf] {fps:.1f} FPS ({n_measure} frames in {elapsed:.3f}s)")
+    return fps

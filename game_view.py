@@ -85,7 +85,8 @@ class GameView(arcade.View):
         self._init_inventories()
         self._init_buildings_and_overlays()
         self._init_world_state()
-        self._init_hud_audio_video()
+        self._init_hud()
+        self._init_video_and_menus()
         self._init_zones()
 
     # ── Init helpers ──────────────────────────────────────────────────────
@@ -189,17 +190,19 @@ class GameView(arcade.View):
         self._iron_tex = load_iron_texture()
 
     def _init_world_entities(self) -> None:
-        """Asteroids, aliens, blueprint tints, module slots, sparks, and
-        the supporting sprite lists. Must run before inventories so the
-        tinted blueprint textures are available for icon registration."""
+        """Asteroids, pickup lists, and explosion list."""
         self.asteroid_list = populate_asteroids()
         self.explosion_list = arcade.SpriteList()
         self.iron_pickup_list = arcade.SpriteList()
         self.blueprint_pickup_list = arcade.SpriteList()
-        self._blueprint_tex = arcade.load_texture(BLUEPRINT_PNG)
+        self._init_blueprint_textures()
+        self._init_module_slots()
+        self._init_aliens()
 
-        # Tinted blueprint textures per module type
+    def _init_blueprint_textures(self) -> None:
+        """Load and tint the blueprint textures (one per module type)."""
         from PIL import Image as PILImage
+        self._blueprint_tex = arcade.load_texture(BLUEPRINT_PNG)
         _bp_colors = {
             "armor_plate":     (80, 130, 255),
             "engine_booster":  (255, 80, 80),
@@ -227,7 +230,8 @@ class GameView(arcade.View):
             self._blueprint_tinted[key] = arcade.Texture(tinted)
         _bp_pil.close()
 
-        # Module slots
+    def _init_module_slots(self) -> None:
+        """Module equipment slots and broadside laser texture."""
         self._module_slots: list[str | None] = [None] * MODULE_SLOT_COUNT
         self._broadside_cd: float = 0.0
         self._enhancer_angle: float = 0.0
@@ -235,7 +239,8 @@ class GameView(arcade.View):
         self._broadside_tex = arcade.load_texture(
             os.path.join(LASER_DIR, "laserBlue03.png"))
 
-        # Aliens + asteroid + laser textures (used by save/load too)
+    def _init_aliens(self) -> None:
+        """Alien ships, laser textures, and projectile/spark lists."""
         self.alien_list, _alien_laser_tex = populate_aliens()
         self._asteroid_tex = arcade.load_texture(
             os.path.join(os.path.dirname(os.path.abspath(__file__)),
@@ -249,7 +254,6 @@ class GameView(arcade.View):
         _pil_laser = _pil_fx.crop((4299, 82, 4359, 310))
         self._alien_laser_tex = arcade.Texture(_pil_laser.rotate(90, expand=True))
         _pil_fx.close()
-
         self.alien_projectile_list: arcade.SpriteList = arcade.SpriteList()
         self.hit_sparks: list[HitSpark] = []
         self.fire_sparks: list[FireSpark] = []
@@ -380,9 +384,8 @@ class GameView(arcade.View):
         gc.disable()
         self._gc_ran: bool = False
 
-    def _init_hud_audio_video(self) -> None:
-        """HUD, thruster sound, contrail, video players, escape menu,
-        death screen, background music."""
+    def _init_hud(self) -> None:
+        """HUD panel with module icons and thruster/contrail state."""
         self._hud = HUD(
             has_gamepad=self.joystick is not None,
             faction=self._faction,
@@ -407,6 +410,8 @@ class GameView(arcade.View):
         self._contrail_start_colour: tuple[int, int, int] = colours[0]
         self._contrail_end_colour: tuple[int, int, int] = colours[1]
 
+    def _init_video_and_menus(self) -> None:
+        """Video players, escape menu, death screen, and background music."""
         self._video_player = VideoPlayer(convert_fps=12.0)
         self._char_video_player = VideoPlayer(convert_fps=10.0)
         self._char_video_player._small_w = 160

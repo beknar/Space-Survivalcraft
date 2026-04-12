@@ -41,14 +41,9 @@ def _get_rss_mb() -> float:
 
 
 def _measure_fps_quick(gv, n: int = FRAMES_PER_SAMPLE) -> float:
-    """Time n full frame loops, return FPS."""
-    dt = 1 / 60
-    start = time.perf_counter()
-    for _ in range(n):
-        gv.on_update(dt)
-        gv.on_draw()
-    elapsed = time.perf_counter() - start
-    return n / elapsed if elapsed > 0 else 999.0
+    """Quick FPS sample without warmup (soak tests warm up separately)."""
+    from integration.conftest import measure_fps
+    return measure_fps(gv, n_warmup=0, n_measure=n)
 
 
 def _make_invulnerable(gv) -> None:
@@ -60,6 +55,17 @@ def _make_invulnerable(gv) -> None:
     gv.player.hp = 999999
     gv.player.max_shields = 999999
     gv.player.shields = 999999
+
+
+def _setup_soak(gv, zone_id=None) -> None:
+    """Common soak test setup: transition to zone and make invulnerable.
+    If zone_id is None, stays in current zone."""
+    if zone_id is not None:
+        if zone_id == ZoneID.MAIN and gv._zone.zone_id != ZoneID.MAIN:
+            gv._transition_zone(ZoneID.MAIN, entry_side="wormhole_return")
+        elif zone_id != ZoneID.MAIN:
+            gv._transition_zone(zone_id)
+    _make_invulnerable(gv)
 
 
 def _simulate_churn(gv, dt: float) -> None:
@@ -163,14 +169,9 @@ class TestSoakZone1:
         - Projectile creation/despawn churn
         - GC stall from disabled automatic collection"""
         gv = real_game_view
-        if gv._zone.zone_id != ZoneID.MAIN:
-            gv._transition_zone(ZoneID.MAIN, entry_side="wormhole_return")
-
-        # Point player toward aliens (top-right quadrant has spawns)
+        _setup_soak(gv, ZoneID.MAIN)
         gv.player.center_x = WORLD_WIDTH * 0.7
         gv.player.center_y = WORLD_HEIGHT * 0.7
-        gv.player.heading = 0.0
-        _make_invulnerable(gv)
 
         _run_soak(gv, "Zone 1")
 
@@ -189,8 +190,7 @@ class TestSoakZone2:
         - Zone 2 fog grid updates
         - Alien projectile accumulation"""
         gv = real_game_view
-        gv._transition_zone(ZoneID.ZONE2)
-        _make_invulnerable(gv)
+        _setup_soak(gv, ZoneID.ZONE2)
 
         _run_soak(gv, "Zone 2")
 
@@ -210,8 +210,7 @@ class TestSoakVideoPlayer:
         from video_player import scan_characters_dir, character_video_path
 
         gv = real_game_view
-        if gv._zone.zone_id != ZoneID.MAIN:
-            gv._transition_zone(ZoneID.MAIN, entry_side="wormhole_return")
+        _setup_soak(gv, ZoneID.MAIN)
 
         chars = scan_characters_dir()
         if not chars:
@@ -219,8 +218,6 @@ class TestSoakVideoPlayer:
         path = character_video_path(chars[0])
         if path is None:
             pytest.skip("Character video path not resolved")
-
-        _make_invulnerable(gv)
         gv._char_video_player.play_segments(path, volume=0.0)
         # Warmup to confirm video started
         dt = 1 / 60
@@ -247,9 +244,7 @@ class TestSoakInventoryChurn:
         - SpriteList rebuild cost stability over thousands of dirty cycles
         - _render_dirty flag thrashing"""
         gv = real_game_view
-        if gv._zone.zone_id != ZoneID.MAIN:
-            gv._transition_zone(ZoneID.MAIN, entry_side="wormhole_return")
-        _make_invulnerable(gv)
+        _setup_soak(gv, ZoneID.MAIN)
 
         gv.inventory.open = True
         gv._station_inv.open = True
@@ -367,9 +362,7 @@ class TestSoakFogTexture:
         - PIL Image buffer accumulation from _build_fog_texture
         - Minimap fog overlay VRAM growth"""
         gv = real_game_view
-        if gv._zone.zone_id != ZoneID.MAIN:
-            gv._transition_zone(ZoneID.MAIN, entry_side="wormhole_return")
-        _make_invulnerable(gv)
+        _setup_soak(gv, ZoneID.MAIN)
 
         # Move player in a slow spiral to continuously reveal new fog cells
         import math
@@ -451,8 +444,7 @@ class TestSoakCombined:
         from video_player import scan_characters_dir, character_video_path
 
         gv = real_game_view
-        gv._transition_zone(ZoneID.ZONE2)
-        _make_invulnerable(gv)
+        _setup_soak(gv, ZoneID.ZONE2)
 
         # Start character video if available
         chars = scan_characters_dir()

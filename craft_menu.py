@@ -5,6 +5,7 @@ from typing import Optional
 
 import arcade
 
+from menu_overlay import MenuOverlay
 from constants import (
     SCREEN_WIDTH, SCREEN_HEIGHT,
     CRAFT_TIME, CRAFT_IRON_COST, CRAFT_RESULT_COUNT,
@@ -23,19 +24,17 @@ _BTN_AREA = 80 # craft button + progress bar + close text
 
 
 
-class CraftMenu:
+class CraftMenu(MenuOverlay):
     """Overlay for the Basic Crafter — shows Repair Pack recipe + unlocked module recipes."""
 
+    _title_text = "BASIC CRAFTER"
+    _close_text = "ESC / click outside to close"
+
     def __init__(self) -> None:
-        self.open: bool = False
+        super().__init__()
         self._crafting: bool = False
         self._progress: float = 0.0
         self._craft_target: str = ""  # "" = repair pack, "shield_recharge", or module key
-
-        try:
-            self._window = arcade.get_window()
-        except Exception:
-            self._window = None
 
         # Available module recipes
         self._recipes: list[dict] = []
@@ -43,26 +42,14 @@ class CraftMenu:
         self._scroll: int = 0
         self._selected: int = 0  # 0 = repair pack, 1+ = module recipes
 
-        self._t_title = arcade.Text(
-            "BASIC CRAFTER", 0, 0,
-            arcade.color.LIGHT_BLUE, 14, bold=True,
-            anchor_x="center", anchor_y="center",
-        )
-        self._t_line = arcade.Text("", 0, 0, arcade.color.WHITE, 9)
         # Pre-built recipe text objects (avoid .text churn per frame)
         self._t_recipes: list[arcade.Text] = []
         self._t_detail = arcade.Text("", 0, 0, arcade.color.LIME_GREEN, 9)
         self._last_pct: int = -1  # cached progress percentage
-        self._t_btn = arcade.Text(
-            "CRAFT", 0, 0, arcade.color.WHITE, 12, bold=True,
-            anchor_x="center", anchor_y="center",
-        )
+        self._t_btn.text = "CRAFT"
+        self._t_btn.font_size = 12
         self._t_status = arcade.Text("", 0, 0, arcade.color.YELLOW, 10,
                                      bold=True, anchor_x="center")
-        self._t_close = arcade.Text(
-            "ESC / click outside to close", 0, 0,
-            (120, 120, 120), 8, anchor_x="center",
-        )
         # Item icons (set by game_view)
         self.item_icons: dict[str, arcade.Texture] = {}
         self.repair_pack_icon: Optional[arcade.Texture] = None

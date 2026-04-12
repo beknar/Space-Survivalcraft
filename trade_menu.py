@@ -5,6 +5,7 @@ from typing import Optional
 
 import arcade
 
+from menu_overlay import MenuOverlay
 from constants import SCREEN_WIDTH, SCREEN_HEIGHT, CRAFT_IRON_COST, CRAFT_RESULT_COUNT, MODULE_TYPES
 
 _PANEL_W = 340
@@ -44,29 +45,18 @@ for _k, _info in MODULE_TYPES.items():
     _ITEM_NAMES[f"mod_{_k}"] = _info["label"]
 
 
-class TradeMenu:
+class TradeMenu(MenuOverlay):
     """Overlay for the trading station — sell items for credits, buy consumables."""
 
+    _title_text = "TRADING STATION"
+    _close_text = "ESC to close"
+
     def __init__(self) -> None:
-        self.open: bool = False
+        super().__init__()
         self._mode: str = "main"  # "main", "sell", "buy"
         self._credits: int = 0
-
-        try:
-            self._window = arcade.get_window()
-        except Exception:
-            self._window = None
-
-        self._t_title = arcade.Text("TRADING STATION", 0, 0,
-                                    arcade.color.LIGHT_BLUE, 14, bold=True,
-                                    anchor_x="center", anchor_y="center")
         self._t_credits = arcade.Text("", 0, 0, arcade.color.YELLOW, 11, bold=True,
                                       anchor_x="center")
-        self._t_line = arcade.Text("", 0, 0, arcade.color.WHITE, 9)
-        self._t_btn = arcade.Text("", 0, 0, arcade.color.WHITE, 11, bold=True,
-                                  anchor_x="center", anchor_y="center")
-        self._t_close = arcade.Text("ESC to close", 0, 0, (120, 120, 120), 8,
-                                    anchor_x="center")
 
         # Sell list (populated on open)
         self._sell_items: list[tuple[str, str, int, int]] = []  # (type, name, price, count)

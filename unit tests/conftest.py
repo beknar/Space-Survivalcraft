@@ -129,16 +129,23 @@ class StubGameView(SimpleNamespace):
             calls=self.calls,
         )
 
-        # Bind methods that mutate ``calls``
+        # Bind tracked callback methods. Each appends its args to
+        # self.calls[key] so tests can assert what was called.
+        def _recorder(key):
+            """Return a callable that records all calls under ``key``."""
+            def record(*a, **kw):
+                self.calls[key].append((a, kw) if kw else a)
+            return record
+
         self._apply_damage_to_player = lambda d: self.calls["damage"].append(d)
         self._trigger_shake = lambda: self.calls.__setitem__(
             "shake", self.calls["shake"] + 1)
-        self._spawn_explosion = lambda x, y: self.calls["explosion"].append((x, y))
-        self._spawn_iron_pickup = lambda x, y, **kw: self.calls["iron_pickup"].append((x, y, kw))
-        self._spawn_blueprint_pickup = lambda x, y: self.calls["blueprint_pickup"].append((x, y))
+        self._spawn_explosion = _recorder("explosion")
+        self._spawn_iron_pickup = _recorder("iron_pickup")
+        self._spawn_blueprint_pickup = _recorder("blueprint_pickup")
         self._add_xp = lambda v: self.calls["xp"].append(v)
-        self._transition_zone = lambda *a, **kw: self.calls["transition"].append((a, kw))
-        self._flash_game_msg = lambda msg, dur=1.0: self.calls["flash"].append((msg, dur))
+        self._transition_zone = _recorder("transition")
+        self._flash_game_msg = _recorder("flash")
 
 
 @pytest.fixture

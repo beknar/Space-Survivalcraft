@@ -18,50 +18,36 @@ from constants import (
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
+# All building fixtures use dummy_texture directly (no pass-through wrappers).
 
 @pytest.fixture
-def home_tex(dummy_texture):
-    return dummy_texture
-
-
-@pytest.fixture
-def turret_tex(dummy_texture):
-    return dummy_texture
+def home(dummy_texture):
+    return HomeStation(dummy_texture, 100, 200, "Home Station", scale=0.5)
 
 
 @pytest.fixture
-def laser_tex(dummy_texture):
-    return dummy_texture
+def service(dummy_texture):
+    return ServiceModule(dummy_texture, 150, 200, "Service Module", scale=0.5)
 
 
 @pytest.fixture
-def home(home_tex):
-    return HomeStation(home_tex, 100, 200, "Home Station", scale=0.5)
+def solar1(dummy_texture):
+    return SolarArray(dummy_texture, 200, 200, "Solar Array 1", scale=0.5)
 
 
 @pytest.fixture
-def service(home_tex):
-    return ServiceModule(home_tex, 150, 200, "Service Module", scale=0.5)
+def solar2(dummy_texture):
+    return SolarArray(dummy_texture, 250, 200, "Solar Array 2", scale=0.5)
 
 
 @pytest.fixture
-def solar1(home_tex):
-    return SolarArray(home_tex, 200, 200, "Solar Array 1", scale=0.5)
+def turret1(dummy_texture):
+    return Turret(dummy_texture, 300, 200, "Turret 1", dummy_texture, scale=0.5)
 
 
 @pytest.fixture
-def solar2(home_tex):
-    return SolarArray(home_tex, 250, 200, "Solar Array 2", scale=0.5)
-
-
-@pytest.fixture
-def turret1(turret_tex, laser_tex):
-    return Turret(turret_tex, 300, 200, "Turret 1", laser_tex, scale=0.5)
-
-
-@pytest.fixture
-def turret2(turret_tex, laser_tex):
-    return Turret(turret_tex, 350, 200, "Turret 2", laser_tex, scale=0.5)
+def turret2(dummy_texture):
+    return Turret(dummy_texture, 350, 200, "Turret 2", dummy_texture, scale=0.5)
 
 
 # ── StationModule base ────────────────────────────────────────────────────────
@@ -189,29 +175,29 @@ class TestSolarArray:
 # ── Factory function ─────────────────────────────────────────────────────────
 
 class TestCreateBuilding:
-    def test_home_station(self, home_tex):
-        b = create_building("Home Station", home_tex, 0, 0)
+    def test_home_station(self, dummy_texture):
+        b = create_building("Home Station", dummy_texture, 0, 0)
         assert isinstance(b, HomeStation)
 
-    def test_service_module(self, home_tex):
-        b = create_building("Service Module", home_tex, 0, 0)
+    def test_service_module(self, dummy_texture):
+        b = create_building("Service Module", dummy_texture, 0, 0)
         assert isinstance(b, ServiceModule)
 
-    def test_power_receiver(self, home_tex):
-        b = create_building("Power Receiver", home_tex, 0, 0)
+    def test_power_receiver(self, dummy_texture):
+        b = create_building("Power Receiver", dummy_texture, 0, 0)
         assert isinstance(b, PowerReceiver)
 
-    def test_solar_array(self, home_tex):
-        b = create_building("Solar Array 1", home_tex, 0, 0)
+    def test_solar_array(self, dummy_texture):
+        b = create_building("Solar Array 1", dummy_texture, 0, 0)
         assert isinstance(b, SolarArray)
 
-    def test_turret(self, home_tex, laser_tex):
-        b = create_building("Turret 1", home_tex, 0, 0, laser_tex=laser_tex)
+    def test_turret(self, dummy_texture):
+        b = create_building("Turret 1", dummy_texture, 0, 0, laser_tex=dummy_texture)
         assert isinstance(b, Turret)
 
-    def test_invalid_type_raises(self, home_tex):
+    def test_invalid_type_raises(self, dummy_texture):
         with pytest.raises(KeyError):
-            create_building("Nonexistent", home_tex, 0, 0)
+            create_building("Nonexistent", dummy_texture, 0, 0)
 
 
 # ── Capacity helpers ─────────────────────────────────────────────────────────
@@ -222,49 +208,49 @@ class TestCapacityHelpers:
         slist = arcade.SpriteList()
         assert compute_module_capacity(slist) == BASE_MODULE_CAPACITY
 
-    def test_solar_array_adds_capacity(self, home_tex):
+    def test_solar_array_adds_capacity(self, dummy_texture):
         import arcade
         slist = arcade.SpriteList()
-        sa = SolarArray(home_tex, 0, 0, "Solar Array 1", scale=0.5)
+        sa = SolarArray(dummy_texture, 0, 0, "Solar Array 1", scale=0.5)
         slist.append(sa)
         expected = BASE_MODULE_CAPACITY + BUILDING_TYPES["Solar Array 1"]["module_slots"]
         assert compute_module_capacity(slist) == expected
 
-    def test_disabled_solar_no_bonus(self, home_tex):
+    def test_disabled_solar_no_bonus(self, dummy_texture):
         import arcade
         slist = arcade.SpriteList()
-        sa = SolarArray(home_tex, 0, 0, "Solar Array 1", scale=0.5)
+        sa = SolarArray(dummy_texture, 0, 0, "Solar Array 1", scale=0.5)
         sa.disabled = True
         slist.append(sa)
         assert compute_module_capacity(slist) == BASE_MODULE_CAPACITY
 
-    def test_modules_used_excludes_home(self, home_tex):
+    def test_modules_used_excludes_home(self, dummy_texture):
         import arcade
         slist = arcade.SpriteList()
-        h = HomeStation(home_tex, 0, 0, "Home Station", scale=0.5)
+        h = HomeStation(dummy_texture, 0, 0, "Home Station", scale=0.5)
         slist.append(h)
         assert compute_modules_used(slist) == 0
 
-    def test_modules_used_counts_service(self, home_tex):
+    def test_modules_used_counts_service(self, dummy_texture):
         import arcade
         slist = arcade.SpriteList()
-        sm = ServiceModule(home_tex, 0, 0, "Service Module", scale=0.5)
+        sm = ServiceModule(dummy_texture, 0, 0, "Service Module", scale=0.5)
         slist.append(sm)
         assert compute_modules_used(slist) == 1
 
-    def test_turret2_counts_as_two(self, home_tex, laser_tex):
+    def test_turret2_counts_as_two(self, dummy_texture):
         import arcade
         slist = arcade.SpriteList()
-        t = Turret(home_tex, 0, 0, "Turret 2", laser_tex, scale=0.5)
+        t = Turret(dummy_texture, 0, 0, "Turret 2", dummy_texture, scale=0.5)
         slist.append(t)
         assert compute_modules_used(slist) == 2
 
-    def test_mixed_modules(self, home_tex, laser_tex):
+    def test_mixed_modules(self, dummy_texture):
         import arcade
         slist = arcade.SpriteList()
-        slist.append(HomeStation(home_tex, 0, 0, "Home Station", scale=0.5))
-        slist.append(ServiceModule(home_tex, 10, 0, "Service Module", scale=0.5))
-        slist.append(Turret(home_tex, 20, 0, "Turret 2", laser_tex, scale=0.5))
+        slist.append(HomeStation(dummy_texture, 0, 0, "Home Station", scale=0.5))
+        slist.append(ServiceModule(dummy_texture, 10, 0, "Service Module", scale=0.5))
+        slist.append(Turret(dummy_texture, 20, 0, "Turret 2", dummy_texture, scale=0.5))
         # Home=0, Service=1, Turret2=2 → total=3
         assert compute_modules_used(slist) == 3
 
@@ -272,13 +258,13 @@ class TestCapacityHelpers:
 # ── Home Station destruction ──────────────────────────────────────────────────
 
 class TestHomeStationDestruction:
-    def test_destroying_home_disables_all(self, home_tex, laser_tex):
+    def test_destroying_home_disables_all(self, dummy_texture):
         """When the Home Station HP reaches 0, all modules should be disabled."""
         import arcade
         slist = arcade.SpriteList()
-        h = HomeStation(home_tex, 0, 0, "Home Station", scale=0.5)
-        sm = ServiceModule(home_tex, 50, 0, "Service Module", scale=0.5)
-        t = Turret(home_tex, 100, 0, "Turret 1", laser_tex, scale=0.5)
+        h = HomeStation(dummy_texture, 0, 0, "Home Station", scale=0.5)
+        sm = ServiceModule(dummy_texture, 50, 0, "Service Module", scale=0.5)
+        t = Turret(dummy_texture, 100, 0, "Turret 1", dummy_texture, scale=0.5)
         slist.append(h)
         slist.append(sm)
         slist.append(t)
@@ -298,10 +284,10 @@ class TestHomeStationDestruction:
 class TestEdgeToEdgeSnap:
     """Verify that edge-to-edge snap offset places buildings correctly."""
 
-    def test_snap_north_no_rotation(self, home_tex):
+    def test_snap_north_no_rotation(self, dummy_texture):
         """New building snapping to a parent's N port should sit above, edge-to-edge."""
-        parent = HomeStation(home_tex, 100, 100, "Home Station", scale=0.5)
-        child = ServiceModule(home_tex, 0, 0, "Service Module", scale=0.5)
+        parent = HomeStation(dummy_texture, 100, 100, "Home Station", scale=0.5)
+        child = ServiceModule(dummy_texture, 0, 0, "Service Module", scale=0.5)
 
         # Parent's N port
         n_port = [p for p in parent.ports if p.direction == "N"][0]
@@ -328,10 +314,10 @@ class TestEdgeToEdgeSnap:
         assert child_sx == pytest.approx(sx, abs=0.5)
         assert child_sy == pytest.approx(sy, abs=0.5)
 
-    def test_snap_east_no_rotation(self, home_tex):
+    def test_snap_east_no_rotation(self, dummy_texture):
         """New building snapping to parent's E port should sit to the right."""
-        parent = HomeStation(home_tex, 100, 100, "Home Station", scale=0.5)
-        child = ServiceModule(home_tex, 0, 0, "Service Module", scale=0.5)
+        parent = HomeStation(dummy_texture, 100, 100, "Home Station", scale=0.5)
+        child = ServiceModule(dummy_texture, 0, 0, "Service Module", scale=0.5)
 
         e_port = [p for p in parent.ports if p.direction == "E"][0]
         sx, sy = parent.get_port_world_pos(e_port)
@@ -358,9 +344,9 @@ class TestEdgeToEdgeSnap:
 class TestShipBuildingCollision:
     """Test the push-out / no-bounce collision logic for player vs building."""
 
-    def test_push_out_no_overlap(self, home_tex):
+    def test_push_out_no_overlap(self, dummy_texture):
         """When player overlaps building, push-out should separate them."""
-        building = HomeStation(home_tex, 100, 100, "Home Station", scale=0.5)
+        building = HomeStation(dummy_texture, 100, 100, "Home Station", scale=0.5)
         # Simulate a player at the same position (max overlap)
         player_x = 100.0
         player_y = 100.0
@@ -388,9 +374,9 @@ class TestShipBuildingCollision:
                               player_y - building.center_y)
         assert new_dist >= combined_r - 1.5  # within tolerance of push-out
 
-    def test_velocity_zeroed_toward_building(self, home_tex):
+    def test_velocity_zeroed_toward_building(self, dummy_texture):
         """Velocity component toward building should be zeroed (no bounce)."""
-        building = HomeStation(home_tex, 100, 100, "Home Station", scale=0.5)
+        building = HomeStation(dummy_texture, 100, 100, "Home Station", scale=0.5)
         # Player approaching from left
         player_x = 80.0
         player_y = 100.0
@@ -411,9 +397,9 @@ class TestShipBuildingCollision:
         new_dot = player_vx * nx + player_vy * ny
         assert new_dot >= -0.01  # no longer moving toward building
 
-    def test_no_bounce_restitution(self, home_tex):
+    def test_no_bounce_restitution(self, dummy_texture):
         """Unlike asteroid collision, there should be no bounce multiplier."""
-        building = HomeStation(home_tex, 100, 100, "Home Station", scale=0.5)
+        building = HomeStation(dummy_texture, 100, 100, "Home Station", scale=0.5)
         player_x = 80.0
         player_y = 100.0
         player_vx = 100.0
@@ -437,17 +423,17 @@ class TestShipBuildingCollision:
 # ── Repair Module ────────────────────────────────────────────────────────────
 
 class TestRepairModule:
-    def test_create_repair_module(self, home_tex):
-        b = create_building("Repair Module", home_tex, 0, 0)
+    def test_create_repair_module(self, dummy_texture):
+        b = create_building("Repair Module", dummy_texture, 0, 0)
         assert isinstance(b, RepairModule)
 
-    def test_repair_module_hp(self, home_tex):
-        b = RepairModule(home_tex, 0, 0, "Repair Module", scale=0.5)
+    def test_repair_module_hp(self, dummy_texture):
+        b = RepairModule(dummy_texture, 0, 0, "Repair Module", scale=0.5)
         assert b.hp == 75
         assert b.max_hp == 75
 
-    def test_repair_module_has_ports(self, home_tex):
-        b = RepairModule(home_tex, 0, 0, "Repair Module", scale=0.5)
+    def test_repair_module_has_ports(self, dummy_texture):
+        b = RepairModule(dummy_texture, 0, 0, "Repair Module", scale=0.5)
         assert len(b.ports) == 4
 
     def test_repair_module_in_building_types(self):
@@ -495,10 +481,10 @@ class TestBuildingHeal:
 # ── Port disconnect on deconstruction ─────────────────────────────────────────
 
 class TestPortDisconnect:
-    def test_disconnect_frees_ports(self, home_tex):
+    def test_disconnect_frees_ports(self, dummy_texture):
         """Disconnecting a building should free ports on connected buildings."""
-        parent = HomeStation(home_tex, 100, 100, "Home Station", scale=0.5)
-        child = ServiceModule(home_tex, 100, 200, "Service Module", scale=0.5)
+        parent = HomeStation(dummy_texture, 100, 100, "Home Station", scale=0.5)
+        child = ServiceModule(dummy_texture, 100, 200, "Service Module", scale=0.5)
 
         # Manually connect N port of parent to S port of child
         p_port = [p for p in parent.ports if p.direction == "N"][0]
@@ -521,11 +507,11 @@ class TestPortDisconnect:
         assert p_port.occupied is False
         assert p_port.connected_to is None
 
-    def test_disconnect_leaves_other_ports_intact(self, home_tex):
+    def test_disconnect_leaves_other_ports_intact(self, dummy_texture):
         """Disconnecting one building shouldn't affect unrelated ports."""
-        parent = HomeStation(home_tex, 100, 100, "Home Station", scale=0.5)
-        child1 = ServiceModule(home_tex, 100, 200, "Service Module", scale=0.5)
-        child2 = ServiceModule(home_tex, 200, 100, "Service Module", scale=0.5)
+        parent = HomeStation(dummy_texture, 100, 100, "Home Station", scale=0.5)
+        child1 = ServiceModule(dummy_texture, 100, 200, "Service Module", scale=0.5)
+        child2 = ServiceModule(dummy_texture, 200, 100, "Service Module", scale=0.5)
 
         # Connect child1 to parent's N port
         p_n = [p for p in parent.ports if p.direction == "N"][0]
@@ -560,17 +546,17 @@ class TestPortDisconnect:
 # ── Basic Crafter ────────────────────────────────────────────────────────────
 
 class TestBasicCrafter:
-    def test_create_basic_crafter(self, home_tex):
-        b = create_building("Basic Crafter", home_tex, 0, 0)
+    def test_create_basic_crafter(self, dummy_texture):
+        b = create_building("Basic Crafter", dummy_texture, 0, 0)
         assert isinstance(b, BasicCrafter)
 
-    def test_basic_crafter_hp(self, home_tex):
-        b = BasicCrafter(home_tex, 0, 0, "Basic Crafter", scale=0.5)
+    def test_basic_crafter_hp(self, dummy_texture):
+        b = BasicCrafter(dummy_texture, 0, 0, "Basic Crafter", scale=0.5)
         assert b.hp == 75
         assert b.max_hp == 75
 
-    def test_basic_crafter_has_ports(self, home_tex):
-        b = BasicCrafter(home_tex, 0, 0, "Basic Crafter", scale=0.5)
+    def test_basic_crafter_has_ports(self, dummy_texture):
+        b = BasicCrafter(dummy_texture, 0, 0, "Basic Crafter", scale=0.5)
         assert len(b.ports) == 4
 
     def test_basic_crafter_in_building_types(self):
@@ -581,17 +567,17 @@ class TestBasicCrafter:
         assert stats["connectable"] is True
         assert stats["slots_used"] == 1
 
-    def test_crafting_state_initial(self, home_tex):
-        b = BasicCrafter(home_tex, 0, 0, "Basic Crafter", scale=0.5)
+    def test_crafting_state_initial(self, dummy_texture):
+        b = BasicCrafter(dummy_texture, 0, 0, "Basic Crafter", scale=0.5)
         assert b.crafting is False
         assert b.craft_timer == 0.0
 
-    def test_craft_progress_zero_when_not_crafting(self, home_tex):
-        b = BasicCrafter(home_tex, 0, 0, "Basic Crafter", scale=0.5)
+    def test_craft_progress_zero_when_not_crafting(self, dummy_texture):
+        b = BasicCrafter(dummy_texture, 0, 0, "Basic Crafter", scale=0.5)
         assert b.craft_progress == 0.0
 
-    def test_craft_progress_during_crafting(self, home_tex):
-        b = BasicCrafter(home_tex, 0, 0, "Basic Crafter", scale=0.5)
+    def test_craft_progress_during_crafting(self, dummy_texture):
+        b = BasicCrafter(dummy_texture, 0, 0, "Basic Crafter", scale=0.5)
         b.crafting = True
         b.craft_total = 60.0
         b.craft_timer = 30.0

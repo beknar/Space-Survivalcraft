@@ -262,15 +262,15 @@ class BaseInventoryData:
             cy = gy + row_from_bottom * cs
             cell_cx = cx + cs / 2
             cell_cy = cy + cs / 2
-            # Cell fill — reuse a single cached texture for all fills to
-            # avoid allocating a new atlas entry per sprite per rebuild.
+            # Cell fill — SpriteSolidColor stores color as a sprite TINT on
+            # a white texture, so we must set the color on each fill sprite.
             if self._fill_tex is None:
-                _tmp = SpriteSolidColor(cs - 2, cs - 2, 0, 0,
-                                        (50, 80, 50, 200))
+                _tmp = SpriteSolidColor(cs - 2, cs - 2, 0, 0, (255, 255, 255))
                 self._fill_tex = _tmp.texture
             fill = Sprite(self._fill_tex, center_x=cell_cx, center_y=cell_cy)
             fill.width = cs - 2
             fill.height = cs - 2
+            fill.color = (50, 80, 50, 200)
             fills.append(fill)
             # Icon (if any)
             icon_tex = self._resolve_icon(it)

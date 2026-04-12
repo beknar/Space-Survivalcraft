@@ -5,6 +5,7 @@ from typing import Optional
 
 import arcade
 
+from menu_overlay import MenuOverlay
 from constants import (
     BUILD_MENU_W, BUILD_MENU_ITEM_H, BUILD_MENU_PAD,
     BUILDING_TYPES,
@@ -30,7 +31,7 @@ _MENU_ORDER = [
 ]
 
 
-class BuildMenu:
+class BuildMenu(MenuOverlay):
     """Non-pausing overlay that lists buildable station modules.
 
     Drawn on the right side of the screen (opposite the HUD on the left).
@@ -38,8 +39,11 @@ class BuildMenu:
     Unavailable items are greyed out with a reason displayed.
     """
 
+    _title_text = "BUILD MENU"
+    _close_text = "B / ESC — close    click to build"
+
     def __init__(self) -> None:
-        self.open: bool = False
+        super().__init__()
         self._textures: dict[str, arcade.Texture] = {}
         self._hover_idx: int = -1
         self._hover_destroy: bool = False
@@ -48,26 +52,21 @@ class BuildMenu:
 
         # Panel geometry — right side of screen, vertically centred
         item_count = len(_MENU_ORDER)
-        # Extra space for destroy button (BUILD_MENU_ITEM_H) below items
         self._panel_h = (BUILD_MENU_PAD * 2 + 32
                          + item_count * BUILD_MENU_ITEM_H
-                         + BUILD_MENU_ITEM_H + 8  # destroy button + gap
+                         + BUILD_MENU_ITEM_H + 8
                          + 24)
         self._panel_w = BUILD_MENU_W
-        self._window = arcade.get_window()
         self._panel_x = self._window.width - self._panel_w - 8
         self._panel_y = (self._window.height - self._panel_h) // 2
 
-        # Pre-built Text objects
+        # Reposition inherited title + close text
         cx = self._panel_x + self._panel_w // 2
-        self._t_title = arcade.Text(
-            "BUILD MENU", cx,
-            self._panel_y + self._panel_h - BUILD_MENU_PAD - 10,
-            arcade.color.LIGHT_BLUE, 14, bold=True,
-            anchor_x="center", anchor_y="center",
-        )
+        self._t_title.x = cx
+        self._t_title.y = self._panel_y + self._panel_h - BUILD_MENU_PAD - 10
+
         self._t_hint = arcade.Text(
-            "B / ESC \u2014 close    click to build",
+            self._close_text,
             cx,
             self._panel_y + 12,
             (160, 160, 160), 9,

@@ -17,6 +17,17 @@ if TYPE_CHECKING:
     from game_view import GameView
 
 
+def _draw_trade_station(gv: GameView) -> None:
+    """Draw the trade station sprite if it exists."""
+    if gv._trade_station is not None:
+        ts = gv._trade_station
+        tw = gv._trade_station_tex.width * 0.15
+        th = gv._trade_station_tex.height * 0.15
+        arcade.draw_texture_rect(
+            gv._trade_station_tex,
+            arcade.LBWH(ts.center_x - tw / 2, ts.center_y - th / 2, tw, th))
+
+
 def draw_background(
     gv: GameView, cx: float, cy: float, hw: float, hh: float
 ) -> None:
@@ -50,15 +61,6 @@ def draw_world(gv: GameView, cx: float, cy: float, hw: float, hh: float) -> None
         gv.building_list.draw()
         if gv._wormholes:
             gv._wormhole_list.draw()
-        if gv._trade_station is not None:
-            ts = gv._trade_station
-            tw = gv._trade_station_tex.width * 0.15
-            th = gv._trade_station_tex.height * 0.15
-            arcade.draw_texture_rect(
-                gv._trade_station_tex,
-                arcade.LBWH(ts.center_x - tw / 2,
-                            ts.center_y - th / 2,
-                            tw, th))
         gv.turret_projectile_list.draw()
         gv.alien_list.draw()
         gv.alien_projectile_list.draw()
@@ -68,16 +70,9 @@ def draw_world(gv: GameView, cx: float, cy: float, hw: float, hh: float) -> None
     else:
         gv.explosion_list.draw()
         gv._zone.draw_world(gv, cx, cy, hw, hh)
-        # Trade station shared across zones
-        if gv._trade_station is not None:
-            ts = gv._trade_station
-            tw = gv._trade_station_tex.width * 0.15
-            th = gv._trade_station_tex.height * 0.15
-            arcade.draw_texture_rect(
-                gv._trade_station_tex,
-                arcade.LBWH(ts.center_x - tw / 2,
-                            ts.center_y - th / 2,
-                            tw, th))
+
+    # Trade station (shared across all zones — drawn after zone entities)
+    _draw_trade_station(gv)
 
     # Shared world entities (always drawn)
     gv.projectile_list.draw()
