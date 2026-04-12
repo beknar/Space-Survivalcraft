@@ -10,12 +10,11 @@ import arcade
 from constants import (
     WORLD_WIDTH, WORLD_HEIGHT,
     BUILDING_TYPES, BUILDING_RADIUS,
-    DOCK_SNAP_DIST, TURRET_FREE_PLACE_RADIUS,
+    DOCK_SNAP_DIST,
 )
 from settings import audio
 from sprites.building import (
-    HomeStation, RepairModule, BasicCrafter,
-    StationModule, DockingPort,
+    HomeStation, RepairModule, StationModule, DockingPort,
     create_building,
 )
 

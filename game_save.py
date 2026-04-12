@@ -13,7 +13,7 @@ from constants import (
     WORLD_WIDTH, WORLD_HEIGHT,
     DOUBLE_IRON_SCALE,
     ASTEROID_COUNT, DOUBLE_IRON_COUNT, COPPER_ASTEROID_COUNT,
-    GAS_AREA_COUNT, WANDERING_COUNT,
+    GAS_AREA_COUNT,
 )
 
 if TYPE_CHECKING:
@@ -87,17 +87,31 @@ def _serialize_trade_station(ts) -> dict | None:
 
 # ── Deserialization helpers ────────────────────────────────────────────────
 
+def _restore_sprite_list(target_list, entries: list[dict], factory) -> None:
+    """Generic sprite-list restore: clear ``target_list``, then for every
+    entry in ``entries`` build a sprite via ``factory(entry)`` and append it.
+    ``factory`` is responsible for any per-entry setup (HP, scale, angle...).
+    """
+    target_list.clear()
+    for entry in entries:
+        sprite = factory(entry)
+        if sprite is not None:
+            target_list.append(sprite)
+
+
 def _restore_z1_asteroids(view: GameView, data: list[dict]) -> None:
     """Restore Zone 1 iron asteroids from saved data."""
     from sprites.asteroid import IronAsteroid
     asteroid_tex = arcade.load_texture(
         os.path.join(os.path.dirname(os.path.abspath(__file__)),
                      "assets", "Pixel Art Space", "Asteroid.png"))
-    view.asteroid_list.clear()
-    for ad in data:
+
+    def make(ad):
         a = IronAsteroid(asteroid_tex, ad["x"], ad["y"])
         a.hp = ad["hp"]
-        view.asteroid_list.append(a)
+        return a
+
+    _restore_sprite_list(view.asteroid_list, data, make)
 
 
 def _restore_z1_aliens(view: GameView, data: list[dict]) -> None:
@@ -221,31 +235,23 @@ def _restore_zone2_full(view: GameView, z2_state: dict) -> None:
     copper_tex = arcade.load_texture(COPPER_ASTEROID_PNG)
     zone._copper_tex = copper_tex
 
-    # Restore iron asteroids
-    zone._iron_asteroids.clear()
-    for ad in z2_state.get("iron_asteroids", []):
+    def _make_iron(ad):
         a = IronAsteroid(iron_tex, ad["x"], ad["y"])
         a.hp = ad["hp"]
-        zone._iron_asteroids.append(a)
+        return a
 
-    # Restore double iron
-    zone._double_iron.clear()
-    for ad in z2_state.get("double_iron", []):
+    def _make_double_iron(ad):
         a = IronAsteroid(iron_tex, ad["x"], ad["y"])
         a.hp = ad["hp"]
         a.scale = DOUBLE_IRON_SCALE
-        zone._double_iron.append(a)
+        return a
 
-    # Restore copper
-    zone._copper_asteroids.clear()
-    for ad in z2_state.get("copper_asteroids", []):
+    def _make_copper(ad):
         a = CopperAsteroid(copper_tex, ad["x"], ad["y"])
         a.hp = ad["hp"]
-        zone._copper_asteroids.append(a)
+        return a
 
-    # Restore wanderers
-    zone._wanderers.clear()
-    for wd in z2_state.get("wanderers", []):
+    def _make_wanderer(wd):
         w = WanderingAsteroid(iron_tex, wd["x"], wd["y"],
                               zone.world_width, zone.world_height)
         w.hp = wd.get("hp", w.hp)
@@ -253,7 +259,16 @@ def _restore_zone2_full(view: GameView, z2_state: dict) -> None:
         w._wander_angle = wd.get("wander_angle", w._wander_angle)
         w._wander_timer = wd.get("wander_timer", w._wander_timer)
         w._repel_timer = wd.get("repel_timer", 0.0)
-        zone._wanderers.append(w)
+        return w
+
+    _restore_sprite_list(zone._iron_asteroids,
+                         z2_state.get("iron_asteroids", []), _make_iron)
+    _restore_sprite_list(zone._double_iron,
+                         z2_state.get("double_iron", []), _make_double_iron)
+    _restore_sprite_list(zone._copper_asteroids,
+                         z2_state.get("copper_asteroids", []), _make_copper)
+    _restore_sprite_list(zone._wanderers,
+                         z2_state.get("wanderers", []), _make_wanderer)
 
     # Gas areas (deterministic from seed)
     _regenerate_gas_areas(zone, _z2mod)
@@ -516,6 +531,7 @@ def restore_state(view: GameView, data: dict) -> None:
         old_iron = data.get("iron", 0)
         if old_iron > 0:
             view.inventory.add_item("iron", old_iron)
+    view.inventory._mark_dirty()
 
     # Zone 1 entities
     _restore_z1_asteroids(view, data.get("asteroids", []))

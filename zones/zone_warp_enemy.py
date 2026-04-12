@@ -9,9 +9,9 @@ from typing import TYPE_CHECKING
 import arcade
 
 from constants import (
-    ALIEN_HP, ALIEN_SCALE, ALIEN_SPEED,
+    ALIEN_HP, ALIEN_SPEED,
     ALIEN_LASER_DAMAGE, ALIEN_LASER_RANGE, ALIEN_LASER_SPEED,
-    ALIEN_FIRE_COOLDOWN, SHIP_RADIUS, SHIP_COLLISION_COOLDOWN,
+    SHIP_RADIUS, SHIP_COLLISION_COOLDOWN,
 )
 from zones import ZoneID
 from zones.zone_warp_base import WarpZoneBase, WARP_ZONE_WIDTH, WARP_ZONE_HEIGHT
@@ -57,7 +57,8 @@ class EnemySpawnerWarpZone(WarpZoneBase):
 
         self._spawners = arcade.SpriteList()
         self._spawner_hps = []
-        self._aliens = arcade.SpriteList(use_spatial_hash=True)
+        # Aliens move every frame — spatial hash would be rebuilt each tick
+        self._aliens = arcade.SpriteList()
         self._alien_projectiles = arcade.SpriteList()
         self._spawn_timer = 5.0
 
@@ -83,7 +84,6 @@ class EnemySpawnerWarpZone(WarpZoneBase):
 
     def _update_hazards(self, gv: GameView, dt: float) -> None:
         from sprites.explosion import HitSpark
-        from sprites.projectile import Projectile
 
         # Spawn waves from alive spawners
         self._spawn_timer -= dt
@@ -201,7 +201,6 @@ class _MiniAlien(arcade.Sprite):
 
     def update_mini(self, dt: float, px: float, py: float):
         """Simple pursue AI — move toward player and fire."""
-        from sprites.projectile import Projectile
 
         dx = px - self.center_x
         dy = py - self.center_y

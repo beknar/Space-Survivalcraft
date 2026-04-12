@@ -6,12 +6,9 @@ import os
 import arcade
 from PIL import Image as PILImage
 
-import constants
 from constants import (
-    SCREEN_WIDTH, SCREEN_HEIGHT,
     FACTION_SHIPS_DIR, FACTIONS, SHIP_TYPES,
-    SHIP_FRAME_SIZE, SHIP_SHEET_COLS,
-    SFX_INTERFACE_DIR, SFX_VEHICLES_DIR,
+    SHIP_FRAME_SIZE, SFX_INTERFACE_DIR,
 )
 
 

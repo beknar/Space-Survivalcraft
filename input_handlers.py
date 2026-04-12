@@ -11,7 +11,6 @@ from constants import (
     WORLD_WIDTH, WORLD_HEIGHT,
     SHIP_RADIUS, EJECT_DIST, WORLD_ITEM_LIFETIME,
     BUILDING_TYPES, STATION_INFO_RANGE, TURRET_FREE_PLACE_RADIUS,
-    BUILDING_RADIUS, DOCK_SNAP_DIST,
     CRAFT_TIME, CRAFT_IRON_COST,
     MODULE_TYPES, QUICK_USE_SLOTS,
 )
@@ -86,13 +85,12 @@ def handle_key_press(gv: GameView, key: int, modifiers: int) -> None:
                 for b in gv.building_list
             )
             if near or gv._station_info.open:
+                from draw_logic import compute_world_stats
                 gv._station_info.toggle(
                     gv.building_list,
                     compute_modules_used(gv.building_list),
                     compute_module_capacity(gv.building_list),
-                    iron=gv.inventory.total_iron,
-                    asteroid_count=len(gv.asteroid_list),
-                    alien_count=len(gv.alien_list),
+                    stat_lines=compute_world_stats(gv),
                 )
     elif key == arcade.key.C:
         if not gv._escape_menu.open and not gv._player_dead:
@@ -458,10 +456,12 @@ def _handle_station_drop(
         if (target_cell is not None
                 and target_cell not in gv.inventory._items):
             gv.inventory._items[target_cell] = (item_type, amount)
+            gv.inventory._mark_dirty()
         else:
             nearest = gv.inventory._nearest_empty_cell(x, y)
             if nearest is not None:
                 gv.inventory._items[nearest] = (item_type, amount)
+                gv.inventory._mark_dirty()
             else:
                 gv.inventory.add_item(item_type, amount)
         if item_type in ("repair_pack", "shield_recharge", "missile"):
@@ -473,63 +473,104 @@ def _handle_station_drop(
                     )
 
 
+def _eject_to_module_slot(
+    gv: GameView, mod_slot: int, item_type: str, amount: int,
+) -> None:
+    """Try to equip a module/blueprint into a HUD module slot. Falls back to
+    returning the item to inventory if the module key is already equipped or
+    the item is not a module."""
+    is_module = item_type.startswith("mod_") or item_type.startswith("bp_")
+    if not is_module:
+        gv.inventory.add_item(item_type, amount)
+        return
+    prefix = "mod_" if item_type.startswith("mod_") else "bp_"
+    mod_key = item_type[len(prefix):]
+    if mod_key in gv._module_slots:
+        gv.inventory.add_item(item_type, amount)
+        return
+    old = gv._module_slots[mod_slot]
+    if old is not None:
+        gv.inventory.add_item(f"mod_{old}", 1)
+    gv._module_slots[mod_slot] = mod_key
+    if amount > 1:
+        gv.inventory.add_item(item_type, amount - 1)
+    gv.player.apply_modules(gv._module_slots)
+    gv._hud._mod_slots = list(gv._module_slots)
+
+
+def _eject_to_quick_use(
+    gv: GameView, qu_slot: int, item_type: str, amount: int,
+) -> None:
+    """Assign a consumable to a quick-use slot. Returns the item to inventory
+    first so the slot count reflects the full stack."""
+    gv.inventory.add_item(item_type, amount)
+    if item_type not in ("repair_pack", "shield_recharge", "missile"):
+        return
+    total = gv.inventory.count_item(item_type)
+    for s in range(QUICK_USE_SLOTS):
+        if s != qu_slot and gv._hud.get_quick_use(s) == item_type:
+            gv._hud.set_quick_use(s, None, 0)
+    gv._hud.set_quick_use(qu_slot, item_type, total)
+
+
+def _eject_to_station_inv(
+    gv: GameView, x: int, y: int, item_type: str, amount: int,
+) -> None:
+    """Drop an item into the station inventory at (x, y), preferring the
+    cell under the cursor and falling back to the nearest empty one."""
+    target_cell = gv._station_inv._cell_at(x, y)
+    if target_cell is not None and target_cell not in gv._station_inv._items:
+        gv._station_inv._items[target_cell] = (item_type, amount)
+        gv._station_inv._mark_dirty()
+        return
+    nearest = gv._station_inv._nearest_empty_cell(x, y)
+    if nearest is not None:
+        gv._station_inv._items[nearest] = (item_type, amount)
+        gv._station_inv._mark_dirty()
+    else:
+        gv._station_inv.add_item(item_type, amount)
+
+
+def _eject_iron_to_world(gv: GameView, amount: int) -> None:
+    """Spawn an iron pickup just outside the player ship."""
+    eject_angle = random.uniform(0.0, math.tau)
+    eject_r = SHIP_RADIUS + EJECT_DIST
+    eject_x = max(0.0, min(WORLD_WIDTH,
+                  gv.player.center_x + math.cos(eject_angle) * eject_r))
+    eject_y = max(0.0, min(WORLD_HEIGHT,
+                  gv.player.center_y + math.sin(eject_angle) * eject_r))
+    gv._spawn_iron_pickup(
+        eject_x, eject_y, amount=amount, lifetime=WORLD_ITEM_LIFETIME,
+    )
+
+
 def _handle_inventory_eject(
     gv: GameView, x: int, y: int, ejected: tuple[str, int]
 ) -> None:
-    """Handle an item ejected from ship inventory."""
+    """Route an ejected ship-inventory item to the right destination based
+    on what's under the cursor: module slot, quick-use slot, station
+    inventory, or the world (iron only)."""
     item_type, amount = ejected
+    if amount <= 0:
+        return
+
     mod_slot = gv._hud.module_slot_at(x, y)
-    is_module = item_type.startswith("mod_") or item_type.startswith("bp_")
-    if mod_slot is not None and is_module:
-        prefix = "mod_" if item_type.startswith("mod_") else "bp_"
-        mod_key = item_type[len(prefix):]
-        if mod_key in gv._module_slots:
-            gv.inventory.add_item(item_type, amount)
-        else:
-            old = gv._module_slots[mod_slot]
-            if old is not None:
-                gv.inventory.add_item(f"mod_{old}", 1)
-            gv._module_slots[mod_slot] = mod_key
-            if amount > 1:
-                gv.inventory.add_item(item_type, amount - 1)
-            gv.player.apply_modules(gv._module_slots)
-            gv._hud._mod_slots = list(gv._module_slots)
-    elif mod_slot is not None:
-        gv.inventory.add_item(item_type, amount)
-    elif (qu_slot := gv._hud.slot_at(x, y)) is not None and item_type in ("repair_pack", "shield_recharge", "missile"):
-        gv.inventory.add_item(item_type, amount)
-        total = gv.inventory.count_item(item_type)
-        for s in range(QUICK_USE_SLOTS):
-            if s != qu_slot and gv._hud.get_quick_use(s) == item_type:
-                gv._hud.set_quick_use(s, None, 0)
-        gv._hud.set_quick_use(qu_slot, item_type, total)
-    elif qu_slot is not None:
-        gv.inventory.add_item(item_type, amount)
-    elif gv._station_inv.open and gv._station_inv._panel_contains(x, y):
-        target_cell = gv._station_inv._cell_at(x, y)
-        if (target_cell is not None
-                and target_cell not in gv._station_inv._items):
-            gv._station_inv._items[target_cell] = (item_type, amount)
-        else:
-            nearest = gv._station_inv._nearest_empty_cell(x, y)
-            if nearest is not None:
-                gv._station_inv._items[nearest] = (item_type, amount)
-            else:
-                gv._station_inv.add_item(item_type, amount)
-    elif item_type == "iron" and amount > 0:
-        eject_angle = random.uniform(0.0, math.tau)
-        eject_r = SHIP_RADIUS + EJECT_DIST
-        eject_x = max(0.0, min(WORLD_WIDTH,
-                      gv.player.center_x + math.cos(eject_angle) * eject_r))
-        eject_y = max(0.0, min(WORLD_HEIGHT,
-                      gv.player.center_y + math.sin(eject_angle) * eject_r))
-        gv._spawn_iron_pickup(
-            eject_x, eject_y,
-            amount=amount,
-            lifetime=WORLD_ITEM_LIFETIME,
-        )
-    elif item_type != "iron" and amount > 0:
-        pass  # items other than iron can't become world pickups yet
+    if mod_slot is not None:
+        _eject_to_module_slot(gv, mod_slot, item_type, amount)
+        return
+
+    qu_slot = gv._hud.slot_at(x, y)
+    if qu_slot is not None:
+        _eject_to_quick_use(gv, qu_slot, item_type, amount)
+        return
+
+    if gv._station_inv.open and gv._station_inv._panel_contains(x, y):
+        _eject_to_station_inv(gv, x, y, item_type, amount)
+        return
+
+    if item_type == "iron":
+        _eject_iron_to_world(gv, amount)
+    # Items other than iron can't become world pickups yet — silently drop.
 
 
 def handle_mouse_scroll(
@@ -596,7 +637,6 @@ def handle_mouse_motion(gv: GameView, x: int, y: int, dx: int, dy: int) -> None:
                     bld_steps = round(ghost_angle / 90.0) % 4
                     opp_idx = _DIR_ORDER.index(phys_opp)
                     needed_label = _DIR_ORDER[(opp_idx + bld_steps) % 4]
-                    ghost_port = None
                     # Use actual port offsets from a fresh building
                     ghw = tw / 2
                     ghh = th / 2

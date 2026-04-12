@@ -12,40 +12,20 @@ import arcade.camera
 import pyglet.input
 
 from constants import (
-    SCREEN_WIDTH, SCREEN_HEIGHT, STATUS_WIDTH,
-    WORLD_WIDTH, WORLD_HEIGHT, BG_TILE,
-    DEAD_ZONE,
-    SHIP_RADIUS, ASTEROID_IRON_YIELD,
-    ASTEROID_COUNT, ASTEROID_MIN_DIST,
-    ALIEN_COUNT, ALIEN_MIN_DIST,
-    RESPAWN_INTERVAL, RESPAWN_EXCLUSION_RADIUS,
-    SHAKE_DURATION, SHAKE_AMPLITUDE,
-    EJECT_DIST, WORLD_ITEM_LIFETIME,
-    CONTRAIL_MAX_PARTICLES, CONTRAIL_SPAWN_RATE, CONTRAIL_LIFETIME,
-    CONTRAIL_START_SIZE, CONTRAIL_END_SIZE, CONTRAIL_OFFSET, CONTRAIL_COLOURS,
-    BUILDING_TYPES, DOCK_SNAP_DIST, TURRET_FREE_PLACE_RADIUS,
-    BUILDING_RADIUS, STATION_INFO_RANGE,
-    REPAIR_RANGE, REPAIR_RATE, REPAIR_SHIELD_BOOST,
+    STATUS_WIDTH,
+    WORLD_WIDTH, WORLD_HEIGHT, SHIP_RADIUS, ASTEROID_IRON_YIELD,
+    SHAKE_DURATION, CONTRAIL_COLOURS,
     FOG_REVEAL_RADIUS, FOG_CELL_SIZE, FOG_GRID_W, FOG_GRID_H,
-    CRAFT_TIME, CRAFT_IRON_COST, CRAFT_RESULT_COUNT, REPAIR_PACK_HEAL,
-    REPAIR_PACK_PNG, REPAIR_PACK_CROP, SHIELD_RECHARGE_PNG, QUICK_USE_SLOTS,
-    MINIMAP_Y, MINIMAP_H, SHIELD_SCALE,
-    BLUEPRINT_PNG, MODULE_TYPES, MODULE_SLOT_COUNT,
-    BROADSIDE_COOLDOWN, BROADSIDE_DAMAGE, BROADSIDE_SPEED, BROADSIDE_RANGE,
-    BOSS_MONSTER_PNG, BOSS_FRAME_SIZE, BOSS_SHEET_COLS, BOSS_SHEET_ROWS,
-    BOSS_RADIUS, BOSS_COLLISION_DAMAGE, BOSS_COLLISION_COOLDOWN,
-    BOSS_BOUNCE, BOSS_CHARGE_DAMAGE, BOSS_XP_REWARD, BOSS_IRON_DROP,
+    REPAIR_PACK_PNG, REPAIR_PACK_CROP, SHIELD_RECHARGE_PNG, BLUEPRINT_PNG, MODULE_TYPES, MODULE_SLOT_COUNT,
+    BOSS_MONSTER_PNG, BOSS_FRAME_SIZE, BOSS_SHEET_ROWS,
 )
 from settings import audio
 from sprites.projectile import Weapon
-from sprites.explosion import Explosion, HitSpark, FireSpark
-from sprites.pickup import IronPickup, BlueprintPickup
+from sprites.explosion import HitSpark, FireSpark
 from sprites.player import PlayerShip
 from sprites.contrail import ContrailParticle
 from sprites.building import (
-    StationModule, HomeStation, Turret, RepairModule, BasicCrafter,
-    create_building, compute_module_capacity, compute_modules_used,
-    DockingPort,
+    StationModule, BasicCrafter,
 )
 from sprites.boss import BossAlienShip
 from sprites.wormhole import Wormhole
@@ -68,7 +48,6 @@ from craft_menu import CraftMenu
 from trade_menu import TradeMenu
 from video_player import VideoPlayer
 from game_save import _SAVE_DIR
-from game_state import BossState, FogState, CombatTimers, AbilityState, EffectState
 
 # Extracted modules
 import combat_helpers as _ch
@@ -88,78 +67,80 @@ class GameView(arcade.View):
     ) -> None:
         super().__init__()
         self._skip_music = skip_music
-
         self._faction = faction
         self._ship_type = ship_type
 
-        # Character progression
-        from character_data import level_for_xp
+        # Sectioned init — each helper sets up one cohesive group of state
+        # so the constructor stays scannable. Order matters: textures and
+        # sprite lists must exist before overlays consume them, the HUD
+        # must exist before zone setup may flash messages, etc.
+        self._init_player_and_camera(faction)
+        self._init_abilities_and_effects()
+        self._init_text_overlays()
+        self._init_input_devices()
+        self._init_weapons_and_audio()
+        self._init_world_entities()
+        self._init_boss_and_wormholes()
+        self._init_consumable_textures()
+        self._init_inventories()
+        self._init_buildings_and_overlays()
+        self._init_world_state()
+        self._init_hud_audio_video()
+        self._init_zones()
+
+    # ── Init helpers ──────────────────────────────────────────────────────
+
+    def _init_player_and_camera(self, faction: Optional[str]) -> None:
+        """Player ship, shield, projectiles, background, cameras, shake."""
+        from character_data import level_for_xp  # noqa: F401
         self._char_xp: int = 0
         self._char_level: int = 1
 
-        # Player
-        self.player = PlayerShip(faction=faction, ship_type=ship_type)
+        self.player = PlayerShip(faction=faction, ship_type=self._ship_type)
         self.player_list = arcade.SpriteList()
         self.player_list.append(self.player)
 
-        # Shield
         self.shield_sprite, self.shield_list = load_shield(
             self.player.center_x, self.player.center_y,
             faction=faction,
         )
 
-        # Active projectiles
         self.projectile_list = arcade.SpriteList()
-
-        # Tiled background texture
         self.bg_texture = load_bg_texture()
-
-        # World camera (follows player)
         self.world_cam = arcade.camera.Camera2D()
-        # UI camera (static)
         self.ui_cam = arcade.camera.Camera2D()
 
-        # Camera shake state
         self._shake_timer: float = 0.0
         self._shake_amp: float = 0.0
 
-        # Consumable use glow effect (colour + timer)
+    def _init_abilities_and_effects(self) -> None:
+        """Special ability meter, missile state, force walls, death blossom,
+        consumable use-glow, ship level, rear turret cooldown."""
         self._use_glow: tuple[int, int, int, int] = (0, 0, 0, 0)
         self._use_glow_timer: float = 0.0
 
-        # Special ability meter
         from constants import ABILITY_METER_MAX
         self._ability_meter: float = ABILITY_METER_MAX
         self._ability_meter_max: float = ABILITY_METER_MAX
-
-        # Misty step cooldown
         self._misty_step_cd: float = 0.0
-
-        # Force walls
         self._force_walls: list = []
 
-        # Death blossom state
         self._death_blossom_active: bool = False
         self._death_blossom_timer: float = 0.0
         self._death_blossom_missiles_left: int = 0
 
-        # Missile list
         self._missile_list: arcade.SpriteList = arcade.SpriteList()
         self._missile_tex: arcade.Texture | None = None
-
-        # Rear turret cooldown
         self._rear_turret_cd: float = 0.0
-
-        # Ship level (increases with Advanced Ship building)
         self._ship_level: int = 1
 
-        # Flash message (centered on play area)
+    def _init_text_overlays(self) -> None:
+        """Cached arcade.Text objects for flash messages and boss announce."""
         self._flash_msg: str = ""
         self._flash_timer: float = 0.0
         self._t_flash = arcade.Text("", 0, 0, (255, 100, 100), 12, bold=True,
                                     anchor_x="center", anchor_y="center")
 
-        # Boss announcement (large dramatic text)
         self._boss_announce_timer: float = 0.0
         self._t_boss_announce = arcade.Text(
             "", 0, 0, (255, 60, 60), 36, bold=True,
@@ -168,10 +149,9 @@ class GameView(arcade.View):
             "", 0, 0, (255, 180, 180), 16, bold=True,
             anchor_x="center", anchor_y="center")
 
-        # Held-key tracking
+    def _init_input_devices(self) -> None:
+        """Held-key set + first available gamepad (resilient to reuse)."""
         self._keys: set[int] = set()
-
-        # Gamepad
         self.joystick = None
         self._prev_rb: bool = False
         self._prev_y: bool = False
@@ -184,18 +164,20 @@ class GameView(arcade.View):
                 pass  # already open from a previous View
             print(f"Gamepad connected: {self.joystick.name}")
 
-        # Weapons
+    def _init_weapons_and_audio(self) -> None:
+        """Player weapons + all sound effects (explosion, bump, missile,
+        misty step, force wall, victory)."""
         self._weapons: list[Weapon] = load_weapons(self.player.guns)
         self._weapon_idx: int = 0
         self._apply_character_weapon_bonuses()
 
-        # Explosion assets
         self._explosion_frames, self._explosion_snd = load_explosion_assets()
-
-        # Collision bump sound
         self._bump_snd = load_bump_sound()
-        # Victory sound (for boss kill)
-        from constants import SFX_INTERFACE_DIR, SFX_MISSILE_LAUNCH, SFX_MISSILE_IMPACT, SFX_MISTY_STEP, SFX_FORCE_WALL
+
+        from constants import (
+            SFX_INTERFACE_DIR, SFX_MISSILE_LAUNCH, SFX_MISSILE_IMPACT,
+            SFX_MISTY_STEP, SFX_FORCE_WALL,
+        )
         self._victory_snd = arcade.load_sound(
             os.path.join(SFX_INTERFACE_DIR,
                          "Game Futuristic Item Collection 1.wav"))
@@ -204,17 +186,20 @@ class GameView(arcade.View):
         self._misty_step_snd = arcade.load_sound(SFX_MISTY_STEP)
         self._force_wall_snd = arcade.load_sound(SFX_FORCE_WALL)
 
-        # Iron texture
         self._iron_tex = load_iron_texture()
 
-        # Asteroids
+    def _init_world_entities(self) -> None:
+        """Asteroids, aliens, blueprint tints, module slots, sparks, and
+        the supporting sprite lists. Must run before inventories so the
+        tinted blueprint textures are available for icon registration."""
         self.asteroid_list = populate_asteroids()
         self.explosion_list = arcade.SpriteList()
         self.iron_pickup_list = arcade.SpriteList()
         self.blueprint_pickup_list = arcade.SpriteList()
         self._blueprint_tex = arcade.load_texture(BLUEPRINT_PNG)
+
         # Tinted blueprint textures per module type
-        from PIL import Image as PILImage, ImageEnhance as _IE
+        from PIL import Image as PILImage
         _bp_colors = {
             "armor_plate":     (80, 130, 255),
             "engine_booster":  (255, 80, 80),
@@ -250,7 +235,7 @@ class GameView(arcade.View):
         self._broadside_tex = arcade.load_texture(
             os.path.join(LASER_DIR, "laserBlue03.png"))
 
-        # Alien ships
+        # Aliens + asteroid + laser textures (used by save/load too)
         self.alien_list, _alien_laser_tex = populate_aliens()
         self._asteroid_tex = arcade.load_texture(
             os.path.join(os.path.dirname(os.path.abspath(__file__)),
@@ -264,16 +249,21 @@ class GameView(arcade.View):
         _pil_laser = _pil_fx.crop((4299, 82, 4359, 310))
         self._alien_laser_tex = arcade.Texture(_pil_laser.rotate(90, expand=True))
         _pil_fx.close()
+
         self.alien_projectile_list: arcade.SpriteList = arcade.SpriteList()
         self.hit_sparks: list[HitSpark] = []
         self.fire_sparks: list[FireSpark] = []
 
-        # Boss encounter state
+    def _init_boss_and_wormholes(self) -> None:
+        """Boss sprite/state placeholders and wormhole sprite list. The
+        boss texture is loaded eagerly so save/load can spawn it without
+        re-cropping the sprite sheet."""
         self._boss: Optional[BossAlienShip] = None
         self._boss_spawned: bool = False
         self._boss_defeated: bool = False
         self._boss_list: arcade.SpriteList = arcade.SpriteList()
         self._boss_projectile_list: arcade.SpriteList = arcade.SpriteList()
+
         from PIL import Image as PILImage
         _pil_boss = PILImage.open(BOSS_MONSTER_PNG).convert("RGBA")
         boss_row = random.randint(0, BOSS_SHEET_ROWS - 1)
@@ -286,28 +276,28 @@ class GameView(arcade.View):
         self._boss_laser_tex = self._alien_laser_tex
         _pil_boss.close()
 
-        # Wormholes (spawned when boss is defeated)
         self._wormholes: list[Wormhole] = []
         self._wormhole_list: arcade.SpriteList = arcade.SpriteList()
 
-        # Repair pack texture
+    def _init_consumable_textures(self) -> None:
+        """Repair pack, shield recharge, copper pickup, missile textures."""
         from PIL import Image as PILImage
         _pil_items = PILImage.open(REPAIR_PACK_PNG).convert("RGBA")
         x0, y0, x1, y1 = REPAIR_PACK_CROP
         self._repair_pack_tex = arcade.Texture(
-            _pil_items.crop((x0, y0, x1, y1))
-        )
+            _pil_items.crop((x0, y0, x1, y1)))
         _pil_items.close()
 
-        # Shield Recharge texture
         self._shield_recharge_tex = arcade.load_texture(SHIELD_RECHARGE_PNG)
 
-        # Copper pickup texture
         from constants import COPPER_PICKUP_PNG, MISSILE_PNG
         self._copper_tex = arcade.load_texture(COPPER_PICKUP_PNG)
         self._missile_tex = arcade.load_texture(MISSILE_PNG)
 
-        # Inventory
+    def _init_inventories(self) -> None:
+        """Cargo inventory + module/blueprint icon registration. Station
+        inventory is built later in `_init_buildings_and_overlays` so it
+        groups with the other station UI."""
         self.inventory = Inventory(
             iron_icon=self._iron_tex,
             repair_pack_icon=self._repair_pack_tex,
@@ -322,7 +312,9 @@ class GameView(arcade.View):
         self.inventory.item_icons["copper"] = self._copper_tex
         self.inventory.item_icons["missile"] = self._missile_tex
 
-        # Building system
+    def _init_buildings_and_overlays(self) -> None:
+        """Building list, build menu, ghost preview state, station info /
+        ship stats / station inv / craft / trade overlays, hover state."""
         self.building_list = arcade.SpriteList(use_spatial_hash=True)
         self.turret_projectile_list = arcade.SpriteList()
         self._building_textures = load_building_textures()
@@ -346,11 +338,10 @@ class GameView(arcade.View):
             anchor_x="center", anchor_y="bottom",
         )
 
-        # Station info overlay
         self._station_info = StationInfo()
         self._ship_stats = ShipStats()
 
-        # Station inventory (10x10)
+        # Station inventory (10x10) — register icons for blueprints/modules
         self._station_inv = StationInventory(
             iron_icon=self._iron_tex,
             repair_pack_icon=self._repair_pack_tex,
@@ -363,7 +354,6 @@ class GameView(arcade.View):
         self._station_inv.item_icons["copper"] = self._copper_tex
         self._station_inv.item_icons["missile"] = self._missile_tex
 
-        # Craft menu
         self._craft_menu = CraftMenu()
         self._craft_menu.repair_pack_icon = self._repair_pack_tex
         self._craft_menu.shield_recharge_icon = self._shield_recharge_tex
@@ -371,18 +361,17 @@ class GameView(arcade.View):
             self._craft_menu.item_icons[key] = arcade.load_texture(info["icon"])
         self._active_crafter: Optional[BasicCrafter] = None
 
-        # Trading station
         self._trade_menu = TradeMenu()
         self._trade_station: Optional[arcade.Sprite] = None
         self._trade_station_tex = arcade.load_texture(
             os.path.join(os.path.dirname(os.path.abspath(__file__)),
                          "assets", "ai generated", "space station.PNG"))
 
-        # Respawn timers
+    def _init_world_state(self) -> None:
+        """Respawn timers, fog of war grid, GC management."""
         self._asteroid_respawn_timer: float = 0.0
         self._alien_respawn_timer: float = 0.0
 
-        # Fog of war
         self._fog_grid: list[list[bool]] = [
             [False] * FOG_GRID_W for _ in range(FOG_GRID_H)
         ]
@@ -391,11 +380,13 @@ class GameView(arcade.View):
         gc.disable()
         self._gc_ran: bool = False
 
-        # HUD
+    def _init_hud_audio_video(self) -> None:
+        """HUD, thruster sound, contrail, video players, escape menu,
+        death screen, background music."""
         self._hud = HUD(
             has_gamepad=self.joystick is not None,
-            faction=faction,
-            ship_type=ship_type,
+            faction=self._faction,
+            ship_type=self._ship_type,
             repair_pack_icon=self._repair_pack_tex,
             shield_recharge_icon=self._shield_recharge_tex,
         )
@@ -405,20 +396,17 @@ class GameView(arcade.View):
             self._hud._mod_icons[key] = arcade.load_texture(info["icon"])
         self._hud._missile_icon = self._missile_tex
 
-        # Thruster sound
         self._thruster_snd = load_thruster_sound()
         self._thruster_player: Optional[arcade.sound.media.Player] = None
         self._thrusting_last: bool = False
 
-        # Contrail state
         self._contrail: list[ContrailParticle] = []
         self._contrail_timer: float = 0.0
-        st = ship_type or "Cruiser"
+        st = self._ship_type or "Cruiser"
         colours = CONTRAIL_COLOURS.get(st, CONTRAIL_COLOURS["Cruiser"])
         self._contrail_start_colour: tuple[int, int, int] = colours[0]
         self._contrail_end_colour: tuple[int, int, int] = colours[1]
 
-        # Escape menu
         self._video_player = VideoPlayer(convert_fps=12.0)
         self._char_video_player = VideoPlayer(convert_fps=10.0)
         self._char_video_player._small_w = 160
@@ -439,11 +427,9 @@ class GameView(arcade.View):
             character_select_fn=self._select_character,
         )
 
-        # Death screen
         self._death_screen = DeathScreen()
         self._player_dead: bool = False
 
-        # Background music
         self._music_tracks: list[tuple[arcade.Sound, str]] = collect_music_tracks()
         self._music_idx: int = 0
         self._music_player: Optional[arcade.sound.media.Player] = None
@@ -451,7 +437,8 @@ class GameView(arcade.View):
         if self._music_tracks and not self._skip_music and audio.autoplay_ost:
             self._play_next_track()
 
-        # Zone state machine
+    def _init_zones(self) -> None:
+        """Zone state machine — main zone created up front, Zone 2 lazily."""
         from zones.zone1_main import MainZone
         self._main_zone = MainZone()  # kept for reuse on return
         self._zone2: None = None      # created on first visit, reused after
@@ -763,7 +750,6 @@ class GameView(arcade.View):
         for proj in list(self.projectile_list):
             proj.update_projectile(delta_time)
         # Always collect pickups (shared across all zones)
-        from constants import SHIP_RADIUS
         sx, sy = self.player.center_x, self.player.center_y
         for pickup in list(self.iron_pickup_list):
             collected = pickup.update_pickup(delta_time, sx, sy, SHIP_RADIUS)

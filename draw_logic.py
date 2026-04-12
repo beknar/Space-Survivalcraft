@@ -2,19 +2,16 @@
 from __future__ import annotations
 
 import math
-import random
 from typing import TYPE_CHECKING
 
 import arcade
 
 from constants import (
-    STATUS_WIDTH, WORLD_WIDTH, WORLD_HEIGHT, BG_TILE,
+    STATUS_WIDTH, BG_TILE,
     SHIELD_SCALE,
     MINIMAP_Y, MINIMAP_H,
 )
 from settings import audio
-from sprites.building import HomeStation
-from video_player import VideoPlayer
 
 if TYPE_CHECKING:
     from game_view import GameView
@@ -179,6 +176,31 @@ def _minimap_enemies(gv: GameView) -> arcade.SpriteList:
     if hasattr(gv._zone, '_aliens'):
         return gv._zone._aliens
     return gv.alien_list
+
+
+def compute_world_stats(gv: GameView) -> list[tuple[str, int, tuple]]:
+    """Return a list of (label, count, color) entries for the station info panel.
+    Zone-aware: shows different stats depending on the active zone."""
+    from zones import ZoneID
+    stats: list[tuple[str, int, tuple]] = []
+    grey = (180, 180, 180, 255)
+    orange = (220, 160, 60, 255)
+    red = (220, 80, 80, 255)
+    green = (120, 200, 90, 255)
+    if gv._zone.zone_id == ZoneID.ZONE2 and hasattr(gv._zone, '_iron_asteroids'):
+        z = gv._zone
+        stats.append(("IRON ROCK", len(z._iron_asteroids), grey))
+        stats.append(("BIG IRON",  len(z._double_iron),    orange))
+        stats.append(("COPPER",    len(z._copper_asteroids), (200, 130, 60, 255)))
+        stats.append(("WANDERERS", len(z._wanderers),       (200, 200, 130, 255)))
+        stats.append(("GAS AREAS", len(z._gas_areas),       green))
+        stats.append(("ALIENS",    len(z._aliens),          red))
+    else:
+        stats.append(("ASTEROIDS", len(gv.asteroid_list), grey))
+        stats.append(("ALIENS",    len(gv.alien_list),    red))
+        if gv._boss is not None and gv._boss.hp > 0:
+            stats.append(("BOSS HP", int(gv._boss.hp), red))
+    return stats
 
 
 def _gas_positions(gv: GameView) -> list[tuple[float, float, float]]:

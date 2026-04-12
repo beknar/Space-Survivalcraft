@@ -7,9 +7,7 @@ from typing import Optional
 
 import arcade
 
-import constants
 from constants import (
-    SCREEN_WIDTH, SCREEN_HEIGHT,
     SFX_INTERFACE_DIR,
     SAVE_SLOT_COUNT,
 )
@@ -57,7 +55,6 @@ class SplashView(arcade.View):
         # Read live module-level values (not the stale local import)
         sw = self.window.width
         sh = self.window.height
-        total_h = len(_BTN_LABELS) * _BTN_H + (len(_BTN_LABELS) - 1) * _BTN_GAP
         top_y = sh // 2 - 20  # below the title
         self._btn_rects: list[tuple[int, int, int, int]] = []
         for i in range(len(_BTN_LABELS)):

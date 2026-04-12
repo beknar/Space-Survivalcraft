@@ -2,6 +2,14 @@
 
 ## Collision Rules
 
+All circle-vs-circle collisions in the game share two physics primitives in `collisions.py`:
+
+- **`resolve_overlap(a, b, ra, rb, push_a, push_b)`** computes the contact normal pointing from `b` toward `a`, pushes the bodies apart according to the per-body weights, and returns `(nx, ny)` (or `None` if there's no contact).
+- **`reflect_velocity(obj, nx, ny, bounce)`** reflects a single body's velocity along that normal with restitution and returns the closing-speed dot.
+
+The handlers below describe the per-pair `push_a` / `push_b` weights, restitution (`bounce`), and any custom impulse logic layered on top.
+
+
 ### Player vs Asteroid
 - Push-out along collision normal (no interpenetration)
 - Velocity bounce with 0.55 restitution (only when moving toward asteroid)

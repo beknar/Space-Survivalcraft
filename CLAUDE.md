@@ -108,7 +108,7 @@ Space Survivalcraft/
 │
 │  ── Unit tests ──
 ├── unit tests/
-│   ├── conftest.py        # Shared fixtures (dummy_texture, dummy_texture_list)
+│   ├── conftest.py        # Shared fixtures (dummy_texture, dummy_texture_list, StubPlayer, StubGameView)
 │   ├── test_constants.py  # FACTIONS, SHIP_TYPES, physics constants validation
 │   ├── test_settings.py   # AudioSettings defaults and mutation
 │   ├── test_world_setup.py # _track_name_from_path string parsing
@@ -126,7 +126,15 @@ Space Survivalcraft/
 │   ├── test_inventory.py  # Grid math, iron management, drag-and-drop, ejection
 │   ├── test_damage.py     # Damage routing (shields → HP), death triggering
 │   ├── test_building.py   # StationModule, Turret, RepairModule, DockingPort, capacity, snap, collision, port disconnect
-│   └── test_respawn.py    # Respawn position logic, timer logic, alien iron drop, fog of war constants/grid
+│   ├── test_respawn.py    # Respawn position logic, timer logic, alien iron drop, fog of war constants/grid
+│   ├── test_zone2_update.py # Zone 2 update loop branch coverage + UnboundLocalError regression
+│   ├── test_perf_micro.py # CPU microbenchmarks (collision, inventory, fog, alien AI, minimap, save serialization)
+│   └── integration/       # Integration tests (excluded from default pytest runs via pytest.ini)
+│       ├── test_performance.py       # Full-frame FPS tests at 40 FPS threshold
+│       ├── test_render_perf.py       # GPU rendering microbenchmarks
+│       ├── test_resolution_perf.py   # Resolution scaling FPS tests (6 presets × 2 zones)
+│       ├── test_soak.py              # 5-minute endurance tests (FPS + RSS stability)
+│       └── test_zone2_real_gv.py     # Zone 2 functional tests with real GameView
 │
 │  ── Zones ──
 ├── zones/
@@ -140,6 +148,8 @@ Space Survivalcraft/
 │   ├── zone2.py         # Zone 2 (Nebula) — coordinator (setup/teardown/update/draw)
 │   └── zone2_world.py   # Zone 2 entity population, collision handling, respawn (extracted from zone2.py)
 │
+├── ruff.toml            # Ruff linter config — bug-focused rules (F401, F811, F821, F823, F841, E9, B006/B008/B015/B018/B023)
+├── pytest.ini           # Pytest config — excludes integration/ from default test runs
 ├── assets/              # Art, sound, music (gitignored — not in repo)
 ├── saves/               # Save slot JSON files (gitignored)
 ├── dist/                # PyInstaller build output (gitignored)
@@ -239,7 +249,8 @@ sprites/alien.py
 - **Constants organisation** — `constants.py` grouped into 16 named sections with `═══` dividers and a docstring table of contents for discoverability
 - **Pre-built `arcade.Text` objects** everywhere (avoids per-frame `arcade.draw_text()` PerformanceWarning)
 - **Module-level caching** for music tracks (`_music_cache` in `world_setup.py`) — loads WAVs once, shuffles copy on each call
-- **Spatial hashing** on `asteroid_list` and `alien_list` (`use_spatial_hash=True`) for O(1) collision lookups
+- **Spatial hashing** on static sprite lists only (`asteroid_list`, `building_list`, `_iron_asteroids`/`_double_iron`/`_copper_asteroids` in Zone 2) for O(1) collision lookups; alien lists do NOT use spatial hash because aliens move every frame and would force a per-frame O(N) hash rebuild
+- **Station info world stats** are zone-aware: `draw_logic.compute_world_stats()` returns `(label, count, color)` tuples — Zone 1 shows ASTEROIDS/ALIENS, Zone 2 shows IRON ROCK/BIG IRON/COPPER/WANDERERS/GAS AREAS/ALIENS
 - **Sound throttling** on rapid-fire weapons (min 0.15 s between pyglet media player creations)
 - **PIL for sprite extraction** — alien ship/laser cropped from composite sheets, faction ships cropped from 1024×1024 grids, shield frames from 3×2 sheet
 - **Gamepad resilience** — `joystick.open()` wrapped in `try/except DeviceOpenException` to handle already-open controllers across View transitions
@@ -251,7 +262,17 @@ sprites/alien.py
 - **Character video player** — looping 1:1 square character portrait in HUD; uses GPU-side `glBlitFramebuffer` downscale (1440→200px, ~90KB readback vs 8MB); frame conversion throttled to 15fps; seamless loop via pre-built standby player loaded 5s before end-of-file; `draw_in_hud` accepts `aspect` param (1.0 for character, 16/9 for music videos)
 - **Ship module system** — 6 module types (armor, engine, shield, regen, absorb, broadside) with blueprint drops, crafting, drag-to-equip, stat application via `apply_modules`; broadside auto-fires perpendicular lasers; shield enhancer draws rotating ring; blueprints color-tinted per type
 - **Escape menu package** — refactored from 1918-line monolith into `escape_menu/` package; `MenuContext` + `MenuMode` base class pattern; each sub-mode in its own file; orchestrator delegates all draw/input to active mode
-- **Inventory count cache** — both inventories cache `arcade.Text` objects per count value to avoid `.text` churn (0.375ms per call); station inv draws grid as single background + lines instead of 100 individual cells
+- **Inventory count badge texture cache** — `BaseInventoryData._get_badge_texture(count)` renders each unique count number once via PIL `ImageDraw` into an `arcade.Texture`, cached in `_badge_tex_cache`. Count badges are batched into a `_cache_badge_list` SpriteList rebuilt only on item change, replacing 100 per-frame `arcade.Text.draw()` calls with one `SpriteList.draw()`. Station inventory went from 26.7 FPS to 50.9 FPS with both inventories open.
+- **Inventory render cache (dirty flag)** — `BaseInventoryData` builds two cached `SpriteList`s (cell fills via `SpriteSolidColor`, item icons via textured `Sprite`s) on first draw and rebuilds only when `_render_dirty` is set. `_build_render_cache` REUSES existing SpriteList objects (clear + repopulate) instead of creating new ones, and caches a single fill texture (`_fill_tex`) shared across all fill sprites — prevents Arcade texture atlas leak (~0.2 MB/rebuild from atlas entries that never reclaim). Mutators (`add_item`/`remove_item`/`consolidate`/`_start_drag`/`_finish_drag`/`_clear_drag`) and direct-mutation sites (`game_save` load, `from_save_data`, `input_handlers._handle_inventory_eject`) call `_mark_dirty()`. Both inventories also batch all grid lines into a single `arcade.draw_lines()` call. Replaces ~200 per-frame GPU calls with ~3 when both inventories are open.
+- **Minimap dot batching** — `hud_minimap.draw_minimap` collects asteroid/pickup/alien/building positions into per-colour point lists and submits them with `arcade.draw_points()` (one GPU call per colour group) instead of per-sprite `draw_circle_filled`. Critical when the Nebula minimap shows 200+ entities.
+- **Zone 2 draw without per-frame visibility rebuild** — Zone 2's `draw_world()` calls `SpriteList.draw()` directly on each static list (`_iron_asteroids`, `_double_iron`, `_copper_asteroids`, `_gas_areas`, `_wanderers`, `_aliens`) instead of clearing and re-appending into a temporary visibility `SpriteList` per frame. The static VBOs upload once and Arcade's renderer handles the rest.
+- **Zone-aware Station Info panel** — `draw_logic.compute_world_stats(gv)` returns `(label, count, color)` tuples driven from `gv._zone`. The Station Info pool of stat lines (`_t_stats`) is generic and renders whatever entries are passed, so Zone 1 shows ASTEROIDS/ALIENS/BOSS HP and Zone 2 shows IRON ROCK/BIG IRON/COPPER/WANDERERS/GAS AREAS/ALIENS without code branching in the panel itself.
+- **Ship Stats panel sizing** — left stats panel is 380×520 with 26 cached line slots to fit faction/ship/character/L1–L10 benefits/stats/module mods without overflow; right bio panel is 360×520
+- **Collision physics primitives** — `collisions.resolve_overlap(a, b, ra, rb, push_a, push_b)` push-apart helper returns the contact normal `(nx, ny)` from b→a or `None` if no overlap; `collisions.reflect_velocity(obj, nx, ny, bounce)` reflects a single body's velocity along a contact normal with restitution and returns the closing-speed dot. Used by 9+ collision sites in `collisions.py` and `zones/zone2.py` (ship↔asteroid, ship↔alien, ship↔building, ship↔wanderer, alien↔alien, alien↔asteroid, alien↔building) — eliminating ~150 lines of hand-rolled bounce/push duplication.
+- **Generic save-restore helper** — `game_save._restore_sprite_list(target_list, entries, factory)` clears the target sprite list and rebuilds it from saved entries via a per-entry factory closure. Used by Zone 1 asteroid restore and all four Zone 2 entity lists (iron, double iron, copper, wanderers). Factory may return `None` to skip an entry (mirrors the Zone 2 alien missing-texture path).
+- **HUD stat bar helper** — `HUD._draw_stat_bar(y, current, maximum, color, value_text)` renders one HP/shield/ability bar with cached numerical label. Replaces three near-identical 12-line bar drawing blocks.
+- **Inventory eject routing** — `input_handlers._handle_inventory_eject` is now a 4-line dispatch table calling `_eject_to_module_slot`, `_eject_to_quick_use`, `_eject_to_station_inv`, or `_eject_iron_to_world` based on what's under the cursor.
+- **GameView sectioned `__init__`** — the 380-line constructor is split into 13 named init helpers (`_init_player_and_camera`, `_init_abilities_and_effects`, `_init_text_overlays`, `_init_input_devices`, `_init_weapons_and_audio`, `_init_world_entities`, `_init_boss_and_wormholes`, `_init_consumable_textures`, `_init_inventories`, `_init_buildings_and_overlays`, `_init_world_state`, `_init_hud_audio_video`, `_init_zones`). The `__init__` body itself is now a 13-line scannable list of init phases. Order is significant: textures and sprite lists must exist before overlays consume them.
 - **Ranged alien standoff AI** — gun-equipped aliens (Zone 1 scouts, Zone 2 shielded/fast/gunner) orbit at `ALIEN_STANDOFF_DIST` (300 px) instead of charging; each alien picks a random orbit direction (CW/CCW); approach if too far, back off if too close, strafe laterally at range; always face the player; RammerAlien still charges directly (has_guns=False); FastAlien flips orbit direction on dodge timer for unpredictable strafing
 - **Wandering asteroid bounce** — collision with player applies push-apart (60% player, 40% wanderer), velocity reflection with `SHIP_BOUNCE` restitution, and kicks the wanderer's wander direction away from the player for 1.5 s before resuming random wander
 - **Viewport culling** — Zone 2 only draws/updates sprites within camera bounds + 250 px margin; offscreen wandering asteroids spin-only (cheap); gas areas get wider margin (+200 px) due to large size
@@ -259,13 +280,16 @@ sprites/alien.py
 - **Character progression** — 3 characters (Debra/Ellie/Tara) with 5-level XP trees; bonuses applied via pure functions in `character_data.py`; weapon stats reloaded on level-up
 - **Faction shield tints** — shield color varies by faction (red/green/brown/purple) via `tint` param on ShieldSprite
 - **Trading station** — spawns on first Repair Module; sell/buy with credits; saved/loaded with game state; shown on minimap as yellow square
-- **GC management** — automatic GC disabled; runs once when ESC menu opens to avoid gameplay stalls
+- **Sound player cleanup** — `update_logic._tracked_play_sound` monkey-patches `arcade.play_sound` to track returned pyglet Players with creation timestamps. `_cleanup_finished_sounds()` runs every 5 s and `.delete()`s Players older than 3 s (`_SOUND_MAX_AGE`). Without this, pyglet's event system holds strong references to finished Players (`.playing` stays True), and with GC disabled thousands accumulate during combat (8+ sounds/s), degrading FPS from 63 to 7 over 5 minutes. Also runs `gc.collect()` every 5 s to free cross-generational circular references from Sprite objects.
+- **GC management** — automatic GC disabled; periodic `gc.collect()` in sound cleanup (every 5 s) and manual collect when ESC menu opens to avoid gameplay stalls
 - **Two-frame video pipeline** — GPU blit and readback split across frames; per-frame conversion lock prevents double conversion; fog minimap uses 4x4 block sampling
 - **Respawn texture caching** — asteroid/alien textures loaded once at init, reused for all respawns
 - **XP hard cap** — XP capped at 1,000 (max level); `_add_xp` short-circuits when cap reached
 - **Character bio panel** — Ship Stats overlay (C key) shows a second panel with a random portrait from `characters/portraits/` and backstory text; portrait chosen fresh each time the panel opens
 - **GameView extraction pattern** — all extracted modules (combat_helpers, building_manager, draw_logic, update_logic, input_handlers) use free functions receiving `gv: GameView` with `TYPE_CHECKING` to avoid circular imports; GameView keeps thin one-liner delegates so external callers (collisions.py, game_save.py) continue to work via `gv._method()`
-- **BaseInventoryData mixin** — shared item storage (add/remove/count/consolidate/toggle), drag state (`_init_drag_state`/`_start_drag`/`_finish_drag`/`_clear_drag`), icon resolution (`_resolve_icon`/`_draw_count_badge`), and window helpers inherited by both Inventory and StationInventory; subclasses set `_rows`/`_cols` for grid dimensions
+- **BaseInventoryData mixin** — shared item storage (add/remove/count/consolidate/toggle), drag state (`_init_drag_state`/`_start_drag`/`_finish_drag`/`_clear_drag`), icon resolution (`_resolve_icon`/`_draw_count_badge`), badge texture cache (`_get_badge_texture`/`_badge_tex_cache`/`_cache_badge_list`), and window helpers inherited by both Inventory and StationInventory; subclasses set `_rows`/`_cols` for grid dimensions
+- **Ruff linter** — `ruff.toml` configures bug-focused rules (F401, F811, F821, F823, F841, E9, B006/B008/B015/B018/B023); initial pass cleaned 156 unused imports and 5 dead variables across 12 files, and caught 2 real bugs (missing `SCREEN_WIDTH`/`SCREEN_HEIGHT` imports in `station_inventory.py`)
+- **Test infrastructure** — `pytest.ini` excludes `integration/` from default runs; `conftest.py` provides `StubPlayer` (arcade.Sprite subclass) and `StubGameView` fixtures for zone update testing without a window; `psutil` dev dependency for memory measurement in soak tests; 373 fast tests (0.6 s) + 63 integration tests across 21 fast test files and 5 integration test files (436 total). Integration breakdown: 18 functional (test_zone2_real_gv), 17 full-frame FPS (test_performance), 10 GPU render (test_render_perf), 12 resolution scaling (test_resolution_perf), 6 soak/endurance (test_soak — 5 min each, ~30 min total)
 - **Boss encounter** — spawns when player reaches level 5, all 4 modules equipped, 5+ repair packs, and Home Station built; BossAlienShip has 2000 HP + 500 shields, 3-phase AI (main cannon + spread → adds charge attack → enraged with halved cooldowns); spawns at farthest world corner from station and heads toward it; full save/load support; HP bar with phase indicator; large dramatic announcement on spawn; red minimap marker
 - **Multi-zone system** — ZoneState base class with zone-specific setup/teardown/update/draw; MainZone stashes zone 1 state during warp zone visits; player world bounds parameterized for different zone sizes
 - **Warp zones** — 4 transition zones (meteor, lightning, gas, enemy spawner) with shared WarpZoneBase handling red walls, exits, and safe returns

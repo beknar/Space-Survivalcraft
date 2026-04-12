@@ -9,11 +9,11 @@ import arcade
 
 from constants import SCREEN_WIDTH, SCREEN_HEIGHT, MODULE_TYPES
 
-_PANEL_W = 320
-_PANEL_H = 420
+_PANEL_W = 380
+_PANEL_H = 520
 
-_BIO_PANEL_W = 340
-_BIO_PANEL_H = 420
+_BIO_PANEL_W = 360
+_BIO_PANEL_H = 520
 _PORTRAIT_H = 220
 
 _PORTRAITS_DIR = os.path.join("characters", "portraits")
@@ -59,7 +59,7 @@ class ShipStats:
                                     anchor_x="center", anchor_y="center")
         self._lines: list[arcade.Text] = [
             arcade.Text("", 0, 0, arcade.color.WHITE, 9)
-            for _ in range(22)
+            for _ in range(26)
         ]
 
         # Character bio panel state

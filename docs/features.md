@@ -111,8 +111,8 @@
 - Blueprint drops from aliens (50%) and asteroids (25%)
 - Craft modules at the Basic Crafter after depositing blueprints
 - Drag-to-equip with module slot management
-- **Ship Stats panel** (C key) shows stats with module modifications
-- **Character Bio panel** alongside Ship Stats with random portrait and backstory
+- **Ship Stats panel** (C key, 380x520) shows stats with module modifications and all character benefits up to level 10
+- **Character Bio panel** (360x520) alongside Ship Stats with random portrait and backstory
 
 ## Space Station Building System
 

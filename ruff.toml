@@ -1,0 +1,46 @@
+# Ruff config — focused on catching real bugs, not stylistic nits.
+#
+# The selected rules are the ones that would have caught actual production
+# bugs in this codebase. We deliberately do NOT enable the full lint set
+# (E5xx line length, formatting, naming, docstring, etc.) — those generate
+# noise without preventing crashes.
+
+target-version = "py312"
+line-length = 100
+
+extend-exclude = [
+    "venv",
+    "assets",
+    "build",
+    "dist",
+    ".claude",
+    "__pycache__",
+]
+
+[lint]
+select = [
+    # ── Pyflakes: real bugs ────────────────────────────────────────────
+    "F401",  # unused import (catches dead imports left after refactor)
+    "F811",  # redefinition of unused name (e.g. duplicate imports in different scopes)
+    "F821",  # undefined name (the SCREEN_WIDTH/HEIGHT bug we just fixed)
+    "F823",  # local variable referenced before assignment ← catches the
+             # zone2.py "import inside `if` branch" UnboundLocalError class
+    "F841",  # unused local variable
+
+    # ── Pycodestyle errors only (no style/whitespace) ──────────────────
+    "E9",    # syntax errors
+
+    # ── Bugbear: common gotchas ────────────────────────────────────────
+    "B006",  # mutable default argument
+    "B008",  # function call in default argument
+    "B015",  # useless comparison
+    "B018",  # useless expression
+    "B023",  # function uses loop variable (closure capture bug)
+]
+
+# Per-file ignores
+[lint.per-file-ignores]
+# Test files often have unused fixture parameters and intentional dead vars
+"unit tests/*" = ["F401", "F841"]
+# Sub-mode imports re-export many names that aren't used directly
+"escape_menu/__init__.py" = ["F401"]

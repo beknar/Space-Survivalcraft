@@ -5,7 +5,7 @@ import random
 import arcade
 from constants import (
     WANDERING_HP, WANDERING_SPEED, WANDERING_MAGNET_DIST,
-    WANDERING_MAGNET_SPEED, WANDERING_RADIUS,
+    WANDERING_MAGNET_SPEED,
 )
 
 

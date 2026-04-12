@@ -255,41 +255,47 @@ class Inventory(BaseInventoryData):
         # Determine which cell the cursor is hovering over (for highlight)
         hover_cell = self._cell_at(self._drag_x, self._drag_y) if self._drag_type else None
 
-        # Grid: single background + grid lines (instead of 25 individual cells)
+        # Grid: single background + batched grid lines
         grid_w = INV_COLS * INV_CELL
         grid_h = INV_ROWS * INV_CELL
         arcade.draw_rect_filled(
             arcade.LBWH(gx, gy, grid_w, grid_h), (30, 30, 60, 200))
-        # Horizontal grid lines
+        line_pts: list[tuple[float, float]] = []
         for r in range(INV_ROWS + 1):
             ly = gy + r * INV_CELL
-            arcade.draw_line(gx, ly, gx + grid_w, ly, (60, 80, 120), 1)
-        # Vertical grid lines
+            line_pts.append((gx, ly))
+            line_pts.append((gx + grid_w, ly))
         for c in range(INV_COLS + 1):
             lx = gx + c * INV_CELL
-            arcade.draw_line(lx, gy, lx, gy + grid_h, (60, 80, 120), 1)
+            line_pts.append((lx, gy))
+            line_pts.append((lx, gy + grid_h))
+        arcade.draw_lines(line_pts, (60, 80, 120), 1)
 
-        # Only draw fills for occupied/hover/drag cells (not all 25)
-        for row in range(INV_ROWS):
-            for col in range(INV_COLS):
-                cell = (row, col)
-                item = self._items.get(cell)
-                is_src = (cell == self._drag_src and self._drag_type is not None)
-                is_hover = (cell == hover_cell)
-                if not is_src and not is_hover and item is None:
-                    continue  # skip empty cells — already drawn as background
-                cx_ = gx + col * INV_CELL
-                cy_ = gy + (INV_ROWS - 1 - row) * INV_CELL
-                if is_src:
-                    fill = (60, 60, 20, 200)
-                elif is_hover:
-                    fill = (50, 70, 100, 220)
-                else:
-                    fill = (50, 80, 50, 200)
-                arcade.draw_rect_filled(
-                    arcade.LBWH(cx_ + 1, cy_ + 1, INV_CELL - 2, INV_CELL - 2), fill)
-                if not is_src and item is not None:
-                    self._draw_item_in_cell(item[0], item[1], cx_, cy_)
+        # Batched cell fills + icons + count badges via cached SpriteLists
+        # (rebuilt only on item change). Replaces dozens of GPU calls with 3.
+        self._ensure_render_cache(gx, gy, INV_CELL)
+        if self._cache_fill_list is not None and len(self._cache_fill_list) > 0:
+            self._cache_fill_list.draw()
+        if self._cache_icon_list is not None and len(self._cache_icon_list) > 0:
+            self._cache_icon_list.draw()
+        if self._cache_badge_list is not None and len(self._cache_badge_list) > 0:
+            self._cache_badge_list.draw()
+
+        # Drag-source / hover overlays (1–2 cells, cheap per-frame).
+        if self._drag_src is not None and self._drag_type is not None:
+            row, col = self._drag_src
+            cx_ = gx + col * INV_CELL
+            cy_ = gy + (INV_ROWS - 1 - row) * INV_CELL
+            arcade.draw_rect_filled(
+                arcade.LBWH(cx_ + 1, cy_ + 1, INV_CELL - 2, INV_CELL - 2),
+                (60, 60, 20, 200))
+        if hover_cell is not None and hover_cell not in self._items:
+            row, col = hover_cell
+            cx_ = gx + col * INV_CELL
+            cy_ = gy + (INV_ROWS - 1 - row) * INV_CELL
+            arcade.draw_rect_filled(
+                arcade.LBWH(cx_ + 1, cy_ + 1, INV_CELL - 2, INV_CELL - 2),
+                (50, 70, 100, 220))
 
         # Hint text (drawn after grid so cells don't occlude it)
         self._t_hint.draw()

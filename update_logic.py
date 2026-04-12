@@ -10,11 +10,10 @@ import arcade
 
 from constants import (
     WORLD_WIDTH, WORLD_HEIGHT,
-    DEAD_ZONE, SHIP_RADIUS,
-    CONTRAIL_MAX_PARTICLES, CONTRAIL_SPAWN_RATE, CONTRAIL_LIFETIME,
+    DEAD_ZONE, CONTRAIL_MAX_PARTICLES, CONTRAIL_SPAWN_RATE, CONTRAIL_LIFETIME,
     CONTRAIL_START_SIZE, CONTRAIL_END_SIZE, CONTRAIL_OFFSET,
     REPAIR_RANGE, REPAIR_RATE, REPAIR_SHIELD_BOOST,
-    CRAFT_TIME, CRAFT_IRON_COST, CRAFT_RESULT_COUNT,
+    CRAFT_RESULT_COUNT,
     MODULE_TYPES,
     BROADSIDE_COOLDOWN, BROADSIDE_DAMAGE, BROADSIDE_SPEED, BROADSIDE_RANGE,
     RESPAWN_INTERVAL,
@@ -46,14 +45,74 @@ if TYPE_CHECKING:
     from game_view import GameView
 
 
+# ── Sound player cleanup ──────────────────────────────────────────────────
+# arcade.play_sound() returns a pyglet.media.Player. Pyglet's internal
+# event system holds a strong reference to every Player, and Player.playing
+# stays True even AFTER the source is exhausted. So finished players are
+# never freed — even by gc.collect(). Over minutes of continuous combat,
+# hundreds of dead Players accumulate and degrade FPS.
+#
+# Fix: track each player with a creation timestamp, then .delete() any
+# player older than _SOUND_MAX_AGE seconds. All game SFX are < 2 s long,
+# so 3 s is a safe upper bound.
+import time as _time
+
+_SOUND_MAX_AGE = 3.0  # seconds — all game SFX finish within this
+_sound_players: list[tuple[float, object]] = []  # (creation_time, Player)
+_sound_cleanup_timer: float = 0.0
+
+_real_play_sound = arcade.play_sound
+
+
+def _tracked_play_sound(*args, **kwargs):
+    """Wrapper around arcade.play_sound that tracks the returned Player
+    with a creation timestamp."""
+    player = _real_play_sound(*args, **kwargs)
+    if player is not None:
+        _sound_players.append((_time.perf_counter(), player))
+    return player
+
+
+# Monkey-patch arcade.play_sound at module load time
+arcade.play_sound = _tracked_play_sound
+
+
+def _cleanup_finished_sounds() -> None:
+    """Delete pyglet Players older than _SOUND_MAX_AGE seconds."""
+    now = _time.perf_counter()
+    alive = []
+    for created_at, p in _sound_players:
+        if now - created_at < _SOUND_MAX_AGE:
+            alive.append((created_at, p))
+        else:
+            try:
+                p.delete()
+            except Exception:
+                pass
+    _sound_players.clear()
+    _sound_players.extend(alive)
+
+
 def update_preamble(gv: GameView, dt: float) -> None:
-    """GC, FPS, video/music sync, and escape menu tick."""
-    # Manual GC
+    """GC, FPS, video/music sync, sound cleanup, and escape menu tick."""
+    global _sound_cleanup_timer
+    # Full GC when ESC menu opens (existing behaviour)
     if gv._escape_menu.open and not gv._gc_ran:
         gc.collect()
         gv._gc_ran = True
     elif not gv._escape_menu.open:
         gv._gc_ran = False
+    # Periodic sound player cleanup + full GC (every 5 seconds).
+    # Sound cleanup: .delete()s finished pyglet Players that hold native
+    # audio resources (prevents FPS degradation over minutes of combat).
+    # Full GC: frees arcade.Sprite objects with cross-generational circular
+    # references from inventory render-cache rebuilds. Cost is ~0.5–1 ms
+    # which is acceptable within a 16.7 ms frame budget at 60 FPS.
+    _sound_cleanup_timer += dt
+    if _sound_cleanup_timer >= 5.0:
+        _sound_cleanup_timer = 0.0
+        _cleanup_finished_sounds()
+        gc.collect()
     # FPS
     gv._hud.update_fps(dt)
     gv._hud._show_fps = audio.show_fps
@@ -378,11 +437,8 @@ def update_buildings(gv: GameView, dt: float) -> None:
 
     # Station info live update
     if gv._station_info.open:
-        gv._station_info.update_stats(
-            gv.inventory.total_iron,
-            len(gv.asteroid_list),
-            len(gv.alien_list),
-        )
+        from draw_logic import compute_world_stats
+        gv._station_info.update_stats(compute_world_stats(gv))
     if gv._station_info.open:
         near = any(
             math.hypot(gv.player.center_x - b.center_x,
@@ -465,7 +521,7 @@ def update_wormholes(gv: GameView, dt: float) -> None:
 
 def update_ability_meter(gv: GameView, dt: float) -> None:
     """Regen the special ability meter and update module cooldowns."""
-    from constants import ABILITY_REGEN_RATE, MISTY_STEP_COOLDOWN
+    from constants import ABILITY_REGEN_RATE
     if gv._ability_meter < gv._ability_meter_max:
         gv._ability_meter = min(gv._ability_meter_max,
                                 gv._ability_meter + ABILITY_REGEN_RATE * dt)
@@ -487,7 +543,6 @@ def update_force_walls(gv: GameView, dt: float) -> None:
 def update_missiles(gv: GameView, dt: float) -> None:
     """Update homing missiles and check hits."""
     from sprites.explosion import HitSpark
-    from constants import SHIP_RADIUS
 
     # Gather targets (aliens in current zone)
     from zones import ZoneID

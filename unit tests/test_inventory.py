@@ -218,3 +218,80 @@ class TestDragAndDrop:
         result = inv.on_mouse_release(cx, cy)
         assert result is None
         assert inv._items[(0, 0)] == ("iron", 15)
+
+
+class TestRenderCacheDirtyFlag:
+    """The dirty flag controls whether the cached SpriteList renderer rebuilds.
+
+    If a mutator forgets to call _mark_dirty, the inventory will silently
+    render stale icons — these tests lock down the contract so it can't
+    regress without a test failure.
+    """
+
+    def test_starts_dirty(self, inv):
+        # Newly constructed inventory has no cache yet → must be dirty
+        assert inv._render_dirty is True
+
+    def test_add_item_marks_dirty(self, inv):
+        inv._render_dirty = False
+        inv.add_item("iron", 5)
+        assert inv._render_dirty is True
+
+    def test_add_item_to_existing_stack_marks_dirty(self, inv):
+        inv.add_item("iron", 5)
+        inv._render_dirty = False
+        inv.add_item("iron", 3)  # bumps existing stack
+        assert inv._render_dirty is True
+
+    def test_remove_item_marks_dirty(self, inv):
+        inv.add_item("iron", 10)
+        inv._render_dirty = False
+        inv.remove_item("iron", 5)
+        assert inv._render_dirty is True
+
+    def test_remove_zero_does_not_mark_dirty(self, inv):
+        # Removing a non-existent item shouldn't dirty the cache
+        inv._render_dirty = False
+        inv.remove_item("missile", 1)  # nothing to remove
+        assert inv._render_dirty is False
+
+    def test_consolidate_marks_dirty(self, inv):
+        inv.add_item("iron", 5)
+        inv.add_item("iron", 3)
+        inv._render_dirty = False
+        inv.consolidate()
+        assert inv._render_dirty is True
+
+    def test_start_drag_marks_dirty(self, inv):
+        inv.add_item("iron", 5)
+        # add_item will have placed iron at (0, 0)
+        inv._render_dirty = False
+        inv._start_drag((0, 0), 100.0, 100.0)
+        assert inv._render_dirty is True
+
+    def test_finish_drag_marks_dirty(self, inv):
+        inv.add_item("iron", 5)
+        inv._start_drag((0, 0), 100.0, 100.0)
+        inv._render_dirty = False
+        inv._finish_drag((0, 1))
+        assert inv._render_dirty is True
+
+    def test_clear_drag_marks_dirty(self, inv):
+        inv.add_item("iron", 5)
+        inv._start_drag((0, 0), 100.0, 100.0)
+        inv._render_dirty = False
+        inv._clear_drag()
+        assert inv._render_dirty is True
+
+    def test_mark_dirty_helper(self, inv):
+        inv._render_dirty = False
+        inv._mark_dirty()
+        assert inv._render_dirty is True
+
+    def test_render_cache_attrs_initialised(self, inv):
+        # The cache fields should exist even before the first build
+        assert inv._cache_icon_list is None
+        assert inv._cache_fill_list is None
+        assert inv._cache_badge_list is None
+        assert inv._cache_origin == (-1, -1)
+

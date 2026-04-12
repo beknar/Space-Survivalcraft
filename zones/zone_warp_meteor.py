@@ -53,7 +53,6 @@ class MeteorWarpZone(WarpZoneBase):
 
     def setup(self, gv: GameView) -> None:
         super().setup(gv)
-        from constants import BOSS_MONSTER_PNG  # just need os
         import os
         _HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         path = os.path.join(

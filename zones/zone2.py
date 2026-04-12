@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import math
-import os
 import random
 from typing import TYPE_CHECKING
 
@@ -23,6 +22,7 @@ from constants import (
 from zones import ZoneID, ZoneState
 from sprites.wormhole import Wormhole
 from sprites.zone2_aliens import ShieldedAlien
+from collisions import resolve_overlap, reflect_velocity
 
 if TYPE_CHECKING:
     from game_view import GameView
@@ -60,13 +60,12 @@ class Zone2(ZoneState):
         self._iron_asteroids: arcade.SpriteList = arcade.SpriteList(use_spatial_hash=True)
         self._double_iron: arcade.SpriteList = arcade.SpriteList(use_spatial_hash=True)
         self._copper_asteroids: arcade.SpriteList = arcade.SpriteList(use_spatial_hash=True)
-        self._aliens: arcade.SpriteList = arcade.SpriteList(use_spatial_hash=True)
+        # Aliens move every frame — spatial hash would be rebuilt each tick
+        self._aliens: arcade.SpriteList = arcade.SpriteList()
         self._shielded_aliens: list = []
         self._alien_projectiles: arcade.SpriteList = arcade.SpriteList()
         self._gas_areas: arcade.SpriteList = arcade.SpriteList()
         self._wanderers: arcade.SpriteList = arcade.SpriteList()
-        # Visible-set SpriteLists for viewport-culled drawing
-        self._vis_draw: arcade.SpriteList = arcade.SpriteList()
         # Textures (loaded on setup)
         self._iron_tex: arcade.Texture | None = None
         self._copper_tex: arcade.Texture | None = None
@@ -324,56 +323,46 @@ class Zone2(ZoneState):
         # Player-asteroid collision
         if gv.player._collision_cd <= 0.0:
             for alist in (self._iron_asteroids, self._double_iron, self._copper_asteroids):
+                hit = False
                 for a in arcade.check_for_collision_with_list(gv.player, alist):
-                    ddx = gv.player.center_x - a.center_x
-                    ddy = gv.player.center_y - a.center_y
-                    ddist = math.hypot(ddx, ddy)
-                    if ddist > 0:
-                        a_radius = max(ASTEROID_RADIUS, a.width / 2 * 0.8)
-                        combined = a_radius + SHIP_RADIUS
-                        nx, ny = ddx / ddist, ddy / ddist
-                        overlap = combined - ddist
-                        if overlap > 0:
-                            gv.player.center_x += nx * overlap
-                            gv.player.center_y += ny * overlap
-                        dot = gv.player.vel_x * nx + gv.player.vel_y * ny
-                        if dot < 0:
-                            gv.player.vel_x -= (1 + SHIP_BOUNCE) * dot * nx
-                            gv.player.vel_y -= (1 + SHIP_BOUNCE) * dot * ny
-                        gv._apply_damage_to_player(SHIP_COLLISION_DAMAGE)
-                        gv.player._collision_cd = SHIP_COLLISION_COOLDOWN
-                        gv._trigger_shake()
-                        arcade.play_sound(gv._bump_snd, volume=0.4)
-                        break
-                else:
-                    continue
-                break
+                    a_radius = max(ASTEROID_RADIUS, a.width / 2 * 0.8)
+                    contact = resolve_overlap(
+                        gv.player, a, SHIP_RADIUS, a_radius,
+                        push_a=1.0, push_b=0.0)
+                    if contact is None:
+                        continue
+                    nx, ny = contact
+                    reflect_velocity(gv.player, nx, ny, SHIP_BOUNCE)
+                    gv._apply_damage_to_player(SHIP_COLLISION_DAMAGE)
+                    gv.player._collision_cd = SHIP_COLLISION_COOLDOWN
+                    gv._trigger_shake()
+                    arcade.play_sound(gv._bump_snd, volume=0.4)
+                    hit = True
+                    break
+                if hit:
+                    break
 
         # Alien-player collision
         for alien in arcade.check_for_collision_with_list(gv.player, self._aliens):
-            ddx = alien.center_x - gv.player.center_x
-            ddy = alien.center_y - gv.player.center_y
-            ddist = math.hypot(ddx, ddy)
-            combined = 20 + SHIP_RADIUS
-            if ddist > 0:
-                nx, ny = ddx / ddist, ddy / ddist
-                overlap = combined - ddist
-                if overlap > 0:
-                    alien.center_x += nx * overlap * 0.5
-                    alien.center_y += ny * overlap * 0.5
-                    gv.player.center_x -= nx * overlap * 0.5
-                    gv.player.center_y -= ny * overlap * 0.5
-                alien.vel_x += nx * 150
-                alien.vel_y += ny * 150
-                dot = gv.player.vel_x * (-nx) + gv.player.vel_y * (-ny)
-                if dot < 0:
-                    gv.player.vel_x -= (1 + ALIEN_BOUNCE) * dot * (-nx) * 0.4
-                    gv.player.vel_y -= (1 + ALIEN_BOUNCE) * dot * (-ny) * 0.4
-                if gv.player._collision_cd <= 0.0:
-                    gv._apply_damage_to_player(5)
-                    gv.player._collision_cd = SHIP_COLLISION_COOLDOWN
-                    gv._trigger_shake()
-                    arcade.play_sound(gv._bump_snd, volume=0.3)
+            contact = resolve_overlap(
+                alien, gv.player, 20.0, SHIP_RADIUS,
+                push_a=0.5, push_b=0.5)
+            if contact is None:
+                continue
+            nx, ny = contact
+            # Push aliens forward away from player and dampen player slightly
+            alien.vel_x += nx * 150
+            alien.vel_y += ny * 150
+            # Player gets a 0.4-weighted bounce against the same normal
+            dot = gv.player.vel_x * (-nx) + gv.player.vel_y * (-ny)
+            if dot < 0:
+                gv.player.vel_x -= (1 + ALIEN_BOUNCE) * dot * (-nx) * 0.4
+                gv.player.vel_y -= (1 + ALIEN_BOUNCE) * dot * (-ny) * 0.4
+            if gv.player._collision_cd <= 0.0:
+                gv._apply_damage_to_player(5)
+                gv.player._collision_cd = SHIP_COLLISION_COOLDOWN
+                gv._trigger_shake()
+                arcade.play_sound(gv._bump_snd, volume=0.3)
 
         # Buildings (turrets, repair, collisions)
         if len(gv.building_list) > 0:
@@ -415,80 +404,48 @@ class Zone2(ZoneState):
         if gv.player._collision_cd > 0.0:
             return
         for w in arcade.check_for_collision_with_list(gv.player, self._wanderers):
-            # Direction from wanderer to player
-            ddx = gv.player.center_x - w.center_x
-            ddy = gv.player.center_y - w.center_y
-            ddist = math.hypot(ddx, ddy)
-            if ddist > 0:
-                nx, ny = ddx / ddist, ddy / ddist
-                combined = WANDERING_RADIUS + SHIP_RADIUS
-                overlap = combined - ddist
-                # Push player and wanderer apart
-                if overlap > 0:
-                    gv.player.center_x += nx * overlap * 0.6
-                    gv.player.center_y += ny * overlap * 0.6
-                    w.center_x -= nx * overlap * 0.4
-                    w.center_y -= ny * overlap * 0.4
-                # Bounce player velocity away
-                dot = gv.player.vel_x * nx + gv.player.vel_y * ny
-                if dot < 0:
-                    gv.player.vel_x -= (1 + SHIP_BOUNCE) * dot * nx
-                    gv.player.vel_y -= (1 + SHIP_BOUNCE) * dot * ny
-                # Kick wanderer away from player, suppress magnet
-                w._wander_angle = math.atan2(-ny, -nx)
-                w._wander_timer = 1.5
-                w._repel_timer = 2.0
+            contact = resolve_overlap(
+                gv.player, w, SHIP_RADIUS, WANDERING_RADIUS,
+                push_a=0.6, push_b=0.4)
+            if contact is None:
+                continue
+            nx, ny = contact
+            reflect_velocity(gv.player, nx, ny, SHIP_BOUNCE)
+            # Kick wanderer away from player, suppress magnet
+            w._wander_angle = math.atan2(-ny, -nx)
+            w._wander_timer = 1.5
+            w._repel_timer = 2.0
             gv._apply_damage_to_player(WANDERING_DAMAGE)
             gv.player._collision_cd = SHIP_COLLISION_COOLDOWN
             gv._trigger_shake()
             arcade.play_sound(gv._bump_snd, volume=0.4)
             break
 
-    # ── Drawing (viewport-culled) ──────────────────────────────────────────
-
-    def _draw_visible(self, source: arcade.SpriteList,
-                      vx0: float, vx1: float, vy0: float, vy1: float) -> None:
-        """Draw only sprites from source that are within the visible rect."""
-        vis = self._vis_draw
-        vis.clear()
-        for s in source:
-            sx = s.center_x
-            if vx0 < sx < vx1:
-                sy = s.center_y
-                if vy0 < sy < vy1:
-                    vis.append(s)
-        if len(vis) > 0:
-            vis.draw()
+    # ── Drawing ────────────────────────────────────────────────────────────
 
     def draw_world(self, gv: GameView, cx: float, cy: float,
                    hw: float, hh: float) -> None:
-        # Compute visible rect with margin
-        m = _CULL_MARGIN
-        vx0 = cx - hw - m
-        vx1 = cx + hw + m
-        vy0 = cy - hh - m
-        vy1 = cy + hh + m
-
-        # Gas areas need wider margin (they can be large)
-        gm = m + 200
-        gvx0 = cx - hw - gm
-        gvx1 = cx + hw + gm
-        gvy0 = cy - hh - gm
-        gvy1 = cy + hh + gm
-        self._draw_visible(self._gas_areas, gvx0, gvx1, gvy0, gvy1)
-
-        # Asteroids, wanderers
-        self._draw_visible(self._iron_asteroids, vx0, vx1, vy0, vy1)
-        self._draw_visible(self._double_iron, vx0, vx1, vy0, vy1)
-        self._draw_visible(self._copper_asteroids, vx0, vx1, vy0, vy1)
-        self._draw_visible(self._wanderers, vx0, vx1, vy0, vy1)
+        # Static sprite lists upload their VBO once and Arcade's renderer
+        # handles per-frame draw efficiently — issuing one draw() per list
+        # is cheaper than per-frame visibility rebuilds.
+        self._gas_areas.draw()
+        self._iron_asteroids.draw()
+        self._double_iron.draw()
+        self._copper_asteroids.draw()
+        self._wanderers.draw()
 
         # Wormholes (few, always draw)
         if gv._wormholes:
             gv._wormhole_list.draw()
 
-        # Aliens (cull)
-        self._draw_visible(self._aliens, vx0, vx1, vy0, vy1)
+        # Aliens move every frame — draw the whole list (also cheap)
+        self._aliens.draw()
+        # cull bounds for shield overlays only
+        m = _CULL_MARGIN
+        vx0 = cx - hw - m
+        vx1 = cx + hw + m
+        vy0 = cy - hh - m
+        vy1 = cy + hh + m
         # Shield overlays (pre-filtered list, cull)
         for alien in self._shielded_aliens:
             ax = alien.center_x

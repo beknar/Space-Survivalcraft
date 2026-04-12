@@ -1,28 +1,22 @@
 """Zone 2 entity population and collision handling (extracted from Zone2)."""
 from __future__ import annotations
 
-import math
 import random
 from typing import TYPE_CHECKING
 
 import arcade
 
 from constants import (
-    ZONE2_WIDTH, ZONE2_HEIGHT,
     ASTEROID_COUNT, ASTEROID_IRON_YIELD,
     DOUBLE_IRON_COUNT, DOUBLE_IRON_HP, DOUBLE_IRON_YIELD, DOUBLE_IRON_SCALE,
     DOUBLE_IRON_XP, COPPER_ASTEROID_COUNT,
     COPPER_YIELD, COPPER_XP,
     GAS_AREA_COUNT,
-    WANDERING_COUNT, WANDERING_DAMAGE, WANDERING_RADIUS,
-    SHIP_RADIUS, SHIP_COLLISION_COOLDOWN,
-    Z2_SHIELDED_COUNT, Z2_SHIELDED_XP,
+    WANDERING_COUNT, Z2_SHIELDED_COUNT, Z2_SHIELDED_XP,
     Z2_FAST_COUNT, Z2_FAST_XP,
     Z2_GUNNER_COUNT, Z2_GUNNER_XP,
     Z2_RAMMER_COUNT, Z2_RAMMER_XP,
-    GAS_AREA_DAMAGE, GAS_AREA_SLOW,
     BLUEPRINT_DROP_CHANCE_ALIEN, BLUEPRINT_DROP_CHANCE_ASTEROID,
-    RESPAWN_INTERVAL,
 )
 from sprites.asteroid import IronAsteroid
 from sprites.explosion import HitSpark

@@ -1,7 +1,6 @@
 """Gas cloud warp zone — maze of damaging gaseous clouds."""
 from __future__ import annotations
 
-import math
 import random
 from typing import TYPE_CHECKING
 

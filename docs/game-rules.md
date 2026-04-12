@@ -15,7 +15,7 @@
 - **Asteroid mining** — destroy iron asteroids to collect ore
 - **5 x 5 cargo inventory** — drag-and-drop grid with item ejection into the game world
 - **Enemy AI** — alien scout ships that patrol, detect, pursue, and fire
-- **Collision physics** — elastic bounces with push-out resolution for all object pairs
+- **Collision physics** — elastic bounces with push-out resolution for all object pairs, all going through two shared primitives in `collisions.py`: `resolve_overlap()` (push-apart + contact normal) and `reflect_velocity()` (single-body reflection with restitution)
 - **Full HUD** — HP/shield bars, speed, heading, weapon indicator, mini-map, music track, station info overlay
 - **Save/load system** — 10 named save slots preserving full game state (includes module count)
 - **Background music** — shuffled playlist of loop tracks from two music packs
@@ -744,10 +744,13 @@ Players can spend mined iron to construct a modular space station. Press **B** t
 ### Station Info Panel (T Key)
 
 - Press **T** while within **300 px** of any station building to open the station info overlay.
-- Non-pausing right-side panel (280 x 420 px).
+- Non-pausing right-side panel (280 x 490 px).
 - Shows each building's type and HP (colour-coded: green > 50%, orange > 25%, red ≤ 25%).
 - Disabled modules shown in grey with "DISABLED" label.
 - Footer: "Modules: X / Y used" (used vs. capacity).
+- **World stats are zone-aware** (computed by `draw_logic.compute_world_stats()`):
+  - **Zone 1 (Double Star):** ASTEROIDS, ALIENS, BOSS HP (only when boss is active)
+  - **Zone 2 (Nebula):** IRON ROCK, BIG IRON, COPPER, WANDERERS, GAS AREAS, ALIENS
 - Auto-closes when the player moves beyond **400 px** from all buildings.
 - Press **T** again to close manually.
 

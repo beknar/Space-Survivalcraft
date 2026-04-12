@@ -23,6 +23,7 @@ A top-down space survival game built with Python and the Arcade framework. Pilot
 - **Trading station** for buying and selling items with credits
 - **10 named save slots** preserving full game state including fog of war and boss
 - **Fog of war**, minimap, HUD with character video, and equalizer visualizer
+- **Performance-optimized rendering** --- batched minimap dot draws (`arcade.draw_points`), inventory render cache with dirty-flag invalidation, PIL-rendered badge texture cache (one `SpriteList.draw()` replaces 100 per-frame `Text.draw()` calls), batched grid lines (`arcade.draw_lines`), and spatial hashing on static sprite lists only
 
 ## Documentation
 
@@ -75,10 +76,17 @@ Full game documentation is in the [docs/](docs/README.md) directory:
 ## Running Tests
 
 ```bash
+# Fast suite (373 tests, ~0.6s)
 python -m pytest "unit tests/" -v
+
+# Integration tests (63 tests — requires an Arcade window)
+python -m pytest "unit tests/integration/" -v
+
+# Soak/endurance tests only (~30 min, 5 min each)
+python -m pytest "unit tests/integration/test_soak.py" -v
 ```
 
-319 unit tests covering player physics, weapons, asteroids, aliens, pickups, blueprints, shields, explosions, contrails, inventory, damage routing, buildings, ship modules, respawn, fog of war, video scanning, and settings.
+373 fast unit tests covering player physics, weapons, asteroids, aliens, pickups, blueprints, shields, explosions, contrails, inventory (including render-cache dirty flag and badge texture cache), damage routing, buildings, ship modules, respawn, fog of war, video scanning, settings, collision physics primitives (`resolve_overlap` / `reflect_velocity`), save-restore helpers, zone-aware Station Info world stats, Zone 2 update loop branches, and CPU microbenchmarks. 63 integration tests cover full-frame FPS thresholds, GPU rendering microbenchmarks, resolution scaling across all 6 presets, and 5-minute soak/endurance tests measuring FPS and RSS stability. 436 tests total. Linted with [ruff](https://docs.astral.sh/ruff/) (`ruff.toml` — bug-focused rules).
 
 ## Project Structure
 
@@ -144,7 +152,7 @@ Space Survivalcraft/
 │   ├── force_wall.py    # ForceWall
 │   └── wormhole.py      # Wormhole
 ├── zones/               # Zone state machine (9 zone files incl. zone2_world.py)
-├── unit tests/          # 319 tests across 17 files
+├── unit tests/          # 373 fast tests across 21 files + 63 integration tests (436 total)
 ├── docs/                # Full game documentation
 ├── characters/          # Character videos and portraits
 ├── docs/game-rules.md   # Comprehensive rules reference

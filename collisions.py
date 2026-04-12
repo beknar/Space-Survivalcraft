@@ -50,6 +50,50 @@ def _apply_kill_rewards(
     gv._add_xp(xp)
 
 
+def resolve_overlap(
+    a, b, ra: float, rb: float,
+    push_a: float = 0.5, push_b: float = 0.5,
+) -> tuple[float, float] | None:
+    """Push two circle bodies apart along the contact normal.
+
+    Returns the contact normal ``(nx, ny)`` pointing FROM ``b`` TO ``a``,
+    or ``None`` if the bodies are not in contact. ``push_a`` / ``push_b``
+    weight the position correction (use ``1.0 / 0.0`` for static-vs-mover).
+    """
+    dx = a.center_x - b.center_x
+    dy = a.center_y - b.center_y
+    dist = math.hypot(dx, dy)
+    combined = ra + rb
+    if dist >= combined:
+        return None
+    if dist == 0.0:
+        dx, dy, dist = 1.0, 0.0, 1.0
+    nx = dx / dist
+    ny = dy / dist
+    overlap = combined - dist
+    if overlap > 0.0:
+        a.center_x += nx * overlap * push_a
+        a.center_y += ny * overlap * push_a
+        if push_b > 0.0:
+            b.center_x -= nx * overlap * push_b
+            b.center_y -= ny * overlap * push_b
+    return nx, ny
+
+
+def reflect_velocity(obj, nx: float, ny: float, bounce: float) -> float:
+    """Reflect a single body's velocity off a contact normal with restitution.
+
+    Returns the closing speed along the normal before reflection (``dot``);
+    negative means the body was approaching the surface. No-op when the body
+    is already moving away (``dot >= 0``).
+    """
+    dot = obj.vel_x * nx + obj.vel_y * ny
+    if dot < 0.0:
+        obj.vel_x -= (1.0 + bounce) * dot * nx
+        obj.vel_y -= (1.0 + bounce) * dot * ny
+    return dot
+
+
 def _alert_nearby_aliens(gv: GameView, x: float, y: float) -> None:
     """Alert all aliens within ALIEN_AGGRO_RANGE of (x, y) to pursue the player."""
     for alien in gv.alien_list:
@@ -104,24 +148,13 @@ def handle_ship_asteroid_collision(gv: GameView) -> None:
         gv.player, gv.asteroid_list
     )
     for asteroid in hit_list:
-        dx = gv.player.center_x - asteroid.center_x
-        dy = gv.player.center_y - asteroid.center_y
-        dist = math.hypot(dx, dy)
-        if dist == 0:
-            dx, dy, dist = 0.0, 1.0, 1.0
-        nx = dx / dist
-        ny = dy / dist
-        combined_r = SHIP_RADIUS + ASTEROID_RADIUS
-        overlap = combined_r - dist
-        if overlap > 0:
-            gv.player.center_x += nx * overlap
-            gv.player.center_y += ny * overlap
-
-        dot = gv.player.vel_x * nx + gv.player.vel_y * ny
-        if dot < 0:
-            gv.player.vel_x -= (1 + SHIP_BOUNCE) * dot * nx
-            gv.player.vel_y -= (1 + SHIP_BOUNCE) * dot * ny
-
+        contact = resolve_overlap(
+            gv.player, asteroid, SHIP_RADIUS, ASTEROID_RADIUS,
+            push_a=1.0, push_b=0.0)
+        if contact is None:
+            continue
+        nx, ny = contact
+        reflect_velocity(gv.player, nx, ny, SHIP_BOUNCE)
         if gv.player._collision_cd <= 0.0:
             gv._apply_damage_to_player(SHIP_COLLISION_DAMAGE)
             gv.player._collision_cd = SHIP_COLLISION_COOLDOWN
@@ -132,58 +165,53 @@ def handle_ship_asteroid_collision(gv: GameView) -> None:
 def handle_alien_player_collision(gv: GameView) -> None:
     """Alien ship vs player: push-apart, bounce, damage."""
     for alien in list(gv.alien_list):
-        ddx = alien.center_x - gv.player.center_x
-        ddy = alien.center_y - gv.player.center_y
-        ddist = math.hypot(ddx, ddy)
-        combined_r = ALIEN_RADIUS + SHIP_RADIUS
-        if ddist < combined_r and ddist > 0.0:
-            nx, ny = ddx / ddist, ddy / ddist
-            overlap = combined_r - ddist
-            alien.center_x += nx * overlap * 0.5
-            alien.center_y += ny * overlap * 0.5
-            gv.player.center_x -= nx * overlap * 0.5
-            gv.player.center_y -= ny * overlap * 0.5
-            rel_vx = alien.vel_x - gv.player.vel_x
-            rel_vy = alien.vel_y - gv.player.vel_y
-            dot = rel_vx * nx + rel_vy * ny
-            if dot < 0.0:
-                j = (1.0 + ALIEN_BOUNCE) * dot
-                alien.vel_x -= j * nx
-                alien.vel_y -= j * ny
-                gv.player.vel_x += j * nx * 0.4
-                gv.player.vel_y += j * ny * 0.4
-            if alien._col_cd <= 0.0:
-                alien._col_cd = ALIEN_COL_COOLDOWN
-                alien.collision_bump()
-            if gv.player._collision_cd <= 0.0:
-                gv._apply_damage_to_player(SHIP_COLLISION_DAMAGE)
-                gv.player._collision_cd = SHIP_COLLISION_COOLDOWN
-                arcade.play_sound(gv._bump_snd, volume=0.4)
-                gv._trigger_shake()
+        contact = resolve_overlap(
+            alien, gv.player, ALIEN_RADIUS, SHIP_RADIUS,
+            push_a=0.5, push_b=0.5)
+        if contact is None:
+            continue
+        nx, ny = contact
+        # Asymmetric impulse: alien gets full bounce, player only 0.4x
+        rel_vx = alien.vel_x - gv.player.vel_x
+        rel_vy = alien.vel_y - gv.player.vel_y
+        dot = rel_vx * nx + rel_vy * ny
+        if dot < 0.0:
+            j = (1.0 + ALIEN_BOUNCE) * dot
+            alien.vel_x -= j * nx
+            alien.vel_y -= j * ny
+            gv.player.vel_x += j * nx * 0.4
+            gv.player.vel_y += j * ny * 0.4
+        if alien._col_cd <= 0.0:
+            alien._col_cd = ALIEN_COL_COOLDOWN
+            alien.collision_bump()
+        if gv.player._collision_cd <= 0.0:
+            gv._apply_damage_to_player(SHIP_COLLISION_DAMAGE)
+            gv.player._collision_cd = SHIP_COLLISION_COOLDOWN
+            arcade.play_sound(gv._bump_snd, volume=0.4)
+            gv._trigger_shake()
 
 
 def handle_alien_asteroid_collision(gv: GameView) -> None:
-    """Alien ship vs asteroid: push-out, bounce."""
+    """Alien ship vs asteroid: push-out, bounce. Uses the asteroid's
+    base (un-shaken) position so collisions don't jitter while it shakes."""
     for alien in list(gv.alien_list):
         for asteroid in arcade.check_for_collision_with_list(
             alien, gv.asteroid_list
         ):
-            adx = alien.center_x - asteroid._base_x
-            ady = alien.center_y - asteroid._base_y
-            adist = math.hypot(adx, ady)
-            if adist == 0.0:
-                adx, ady, adist = 1.0, 0.0, 1.0
-            combined_r = ALIEN_RADIUS + ASTEROID_RADIUS
-            nx, ny = adx / adist, ady / adist
-            overlap = combined_r - adist
-            if overlap > 0.0:
-                alien.center_x += nx * overlap
-                alien.center_y += ny * overlap
-            dot = alien.vel_x * nx + alien.vel_y * ny
-            if dot < 0.0:
-                alien.vel_x -= (1.0 + ALIEN_BOUNCE) * dot * nx
-                alien.vel_y -= (1.0 + ALIEN_BOUNCE) * dot * ny
-            else:
+            # Temporarily snap asteroid to base position so resolve_overlap
+            # uses a stable centre (asteroid won't be moved — push_b=0).
+            saved_cx, saved_cy = asteroid.center_x, asteroid.center_y
+            asteroid.center_x, asteroid.center_y = asteroid._base_x, asteroid._base_y
+            contact = resolve_overlap(
+                alien, asteroid, ALIEN_RADIUS, ASTEROID_RADIUS,
+                push_a=1.0, push_b=0.0)
+            asteroid.center_x, asteroid.center_y = saved_cx, saved_cy
+            if contact is None:
+                continue
+            nx, ny = contact
+            dot = reflect_velocity(alien, nx, ny, ALIEN_BOUNCE)
+            if dot >= 0.0:
+                # Already moving away — give a gentle nudge so AI keeps clear
                 alien.vel_x += nx * ALIEN_SPEED * 0.4
                 alien.vel_y += ny * ALIEN_SPEED * 0.4
             if alien._col_cd <= 0.0:
@@ -194,35 +222,33 @@ def handle_alien_asteroid_collision(gv: GameView) -> None:
 def handle_alien_alien_collision(gv: GameView) -> None:
     """Alien ship vs alien ship: O(n²) pair check, push-apart, bounce."""
     aliens = list(gv.alien_list)
-    for i in range(len(aliens)):
-        for j in range(i + 1, len(aliens)):
-            a1, a2 = aliens[i], aliens[j]
-            ddx = a1.center_x - a2.center_x
-            ddy = a1.center_y - a2.center_y
-            ddist = math.hypot(ddx, ddy)
-            combined_r = ALIEN_RADIUS * 2.0
-            if ddist < combined_r and ddist > 0.0:
-                nx, ny = ddx / ddist, ddy / ddist
-                overlap = combined_r - ddist
-                a1.center_x += nx * overlap * 0.5
-                a1.center_y += ny * overlap * 0.5
-                a2.center_x -= nx * overlap * 0.5
-                a2.center_y -= ny * overlap * 0.5
-                rel_vx = a1.vel_x - a2.vel_x
-                rel_vy = a1.vel_y - a2.vel_y
-                dot = rel_vx * nx + rel_vy * ny
-                if dot < 0.0:
-                    j_imp = (1.0 + ALIEN_BOUNCE) * dot
-                    a1.vel_x -= j_imp * nx
-                    a1.vel_y -= j_imp * ny
-                    a2.vel_x += j_imp * nx
-                    a2.vel_y += j_imp * ny
-                if a1._col_cd <= 0.0:
-                    a1._col_cd = ALIEN_COL_COOLDOWN
-                    a1.collision_bump()
-                if a2._col_cd <= 0.0:
-                    a2._col_cd = ALIEN_COL_COOLDOWN
-                    a2.collision_bump()
+    n = len(aliens)
+    for i in range(n):
+        a1 = aliens[i]
+        for j in range(i + 1, n):
+            a2 = aliens[j]
+            contact = resolve_overlap(
+                a1, a2, ALIEN_RADIUS, ALIEN_RADIUS,
+                push_a=0.5, push_b=0.5)
+            if contact is None:
+                continue
+            nx, ny = contact
+            # Symmetric equal-and-opposite impulse using relative velocity
+            rel_vx = a1.vel_x - a2.vel_x
+            rel_vy = a1.vel_y - a2.vel_y
+            dot = rel_vx * nx + rel_vy * ny
+            if dot < 0.0:
+                j_imp = (1.0 + ALIEN_BOUNCE) * dot
+                a1.vel_x -= j_imp * nx
+                a1.vel_y -= j_imp * ny
+                a2.vel_x += j_imp * nx
+                a2.vel_y += j_imp * ny
+            if a1._col_cd <= 0.0:
+                a1._col_cd = ALIEN_COL_COOLDOWN
+                a1.collision_bump()
+            if a2._col_cd <= 0.0:
+                a2._col_cd = ALIEN_COL_COOLDOWN
+                a2.collision_bump()
 
 
 def handle_alien_laser_hits(gv: GameView) -> None:
@@ -269,22 +295,14 @@ def handle_alien_building_collision(gv: GameView) -> None:
         for building in arcade.check_for_collision_with_list(
             alien, gv.building_list
         ):
-            adx = alien.center_x - building.center_x
-            ady = alien.center_y - building.center_y
-            adist = math.hypot(adx, ady)
-            if adist == 0.0:
-                adx, ady, adist = 1.0, 0.0, 1.0
-            combined_r = ALIEN_RADIUS + BUILDING_RADIUS
-            nx, ny = adx / adist, ady / adist
-            overlap = combined_r - adist
-            if overlap > 0.0:
-                alien.center_x += nx * overlap
-                alien.center_y += ny * overlap
-            dot = alien.vel_x * nx + alien.vel_y * ny
-            if dot < 0.0:
-                alien.vel_x -= (1.0 + ALIEN_BOUNCE) * dot * nx
-                alien.vel_y -= (1.0 + ALIEN_BOUNCE) * dot * ny
-            else:
+            contact = resolve_overlap(
+                alien, building, ALIEN_RADIUS, BUILDING_RADIUS,
+                push_a=1.0, push_b=0.0)
+            if contact is None:
+                continue
+            nx, ny = contact
+            dot = reflect_velocity(alien, nx, ny, ALIEN_BOUNCE)
+            if dot >= 0.0:
                 alien.vel_x += nx * ALIEN_SPEED * 0.4
                 alien.vel_y += ny * ALIEN_SPEED * 0.4
             if alien._col_cd <= 0.0:
@@ -298,24 +316,14 @@ def handle_ship_building_collision(gv: GameView) -> None:
         gv.player, gv.building_list
     )
     for building in hit_list:
-        dx = gv.player.center_x - building.center_x
-        dy = gv.player.center_y - building.center_y
-        dist = math.hypot(dx, dy)
-        if dist == 0:
-            dx, dy, dist = 0.0, 1.0, 1.0
-        nx = dx / dist
-        ny = dy / dist
-        combined_r = SHIP_RADIUS + BUILDING_RADIUS
-        overlap = combined_r - dist
-        if overlap > 0:
-            gv.player.center_x += nx * overlap
-            gv.player.center_y += ny * overlap
-
+        contact = resolve_overlap(
+            gv.player, building, SHIP_RADIUS, BUILDING_RADIUS,
+            push_a=1.0, push_b=0.0)
+        if contact is None:
+            continue
+        nx, ny = contact
         # Zero velocity component toward the building (no bounce, no damage)
-        dot = gv.player.vel_x * nx + gv.player.vel_y * ny
-        if dot < 0:
-            gv.player.vel_x -= dot * nx
-            gv.player.vel_y -= dot * ny
+        reflect_velocity(gv.player, nx, ny, 0.0)
 
 
 def handle_turret_projectile_hits(gv: GameView) -> None:

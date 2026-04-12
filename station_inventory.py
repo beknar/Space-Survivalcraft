@@ -7,6 +7,7 @@ import arcade
 
 from constants import (
     STATION_INV_COLS, STATION_INV_ROWS, STATION_INV_CELL, STATION_INV_PAD,
+    SCREEN_WIDTH, SCREEN_HEIGHT,
 )
 from base_inventory import BaseInventoryData
 
@@ -210,42 +211,37 @@ class StationInventory(BaseInventoryData):
         grid_h = STATION_INV_ROWS * cs
         # Draw grid background in one call (empty cell colour)
         arcade.draw_rect_filled(arcade.LBWH(gx, gy, grid_w, grid_h), (30, 30, 60, 200))
-        # Grid lines (horizontal + vertical)
+        # Grid lines — single batched draw_lines call instead of N draw_line calls
+        line_pts: list[tuple[float, float]] = []
         for i in range(STATION_INV_COLS + 1):
             lx = gx + i * cs
-            arcade.draw_line(lx, gy, lx, gy + grid_h, (60, 80, 120), 1)
+            line_pts.append((lx, gy))
+            line_pts.append((lx, gy + grid_h))
         for i in range(STATION_INV_ROWS + 1):
             ly = gy + i * cs
-            arcade.draw_line(gx, ly, gx + grid_w, ly, (60, 80, 120), 1)
+            line_pts.append((gx, ly))
+            line_pts.append((gx + grid_w, ly))
+        arcade.draw_lines(line_pts, (60, 80, 120), 1)
 
-        # Only draw cells that have items (skip empty cells entirely)
-        for cell, (it, ct) in self._items.items():
-            r, c = cell
+        # Batched cell fills + icons + count badges via cached SpriteLists
+        # (rebuilt only when items change). Replaces ~300 GPU calls with 3.
+        self._ensure_render_cache(gx, gy, cs)
+        if self._cache_fill_list is not None and len(self._cache_fill_list) > 0:
+            self._cache_fill_list.draw()
+        if self._cache_icon_list is not None and len(self._cache_icon_list) > 0:
+            self._cache_icon_list.draw()
+        if self._cache_badge_list is not None and len(self._cache_badge_list) > 0:
+            self._cache_badge_list.draw()
+
+        # Drag-source highlight (only 1 cell, cheap per-frame).
+        if self._drag_src is not None and self._drag_src in self._items:
+            r, c = self._drag_src
             row_from_bottom = STATION_INV_ROWS - 1 - r
             cx = gx + c * cs
             cy = gy + row_from_bottom * cs
-            is_src = (cell == self._drag_src)
-
-            if is_src:
-                fill = (70, 90, 40, 200)
-            else:
-                fill = (50, 80, 50, 200)
-            arcade.draw_rect_filled(arcade.LBWH(cx + 1, cy + 1, cs - 2, cs - 2), fill)
-
-            if not is_src:
-                    it, ct = self._items[cell]
-                    icon = self._resolve_icon(it)
-                    if icon:
-                        arcade.draw_texture_rect(
-                            icon,
-                            arcade.LBWH(cx + 4, cy + 8, cs - 8, cs - 12),
-                        )
-                    else:
-                        self._t_label.text = it[:6]
-                        self._t_label.x = cx + 3
-                        self._t_label.y = cy + cs // 2
-                        self._t_label.draw()
-                    self._draw_count_badge(ct, cx, cy, cs)
+            arcade.draw_rect_filled(
+                arcade.LBWH(cx + 1, cy + 1, cs - 2, cs - 2),
+                (70, 90, 40, 200))
 
         # ── Hover tooltip ──────────────────────────────────────────────
         if self._drag_type is None:
@@ -320,3 +316,4 @@ class StationInventory(BaseInventoryData):
         for entry in data.get("items", []):
             r, c = entry["r"], entry["c"]
             self._items[(r, c)] = (entry["type"], entry["count"])
+        self._mark_dirty()

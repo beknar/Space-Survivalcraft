@@ -1,16 +1,12 @@
 """HUD status panel and mini-map drawing for Space Survivalcraft."""
 from __future__ import annotations
 
-import math
-import random
 
 import arcade
 
 from constants import (
-    SCREEN_WIDTH, SCREEN_HEIGHT, STATUS_WIDTH,
-    WORLD_WIDTH, WORLD_HEIGHT,
-    MINIMAP_PAD, MINIMAP_W, MINIMAP_H, MINIMAP_X, MINIMAP_Y,
-    FOG_CELL_SIZE, FOG_GRID_W, FOG_GRID_H,
+    STATUS_WIDTH,
+    MINIMAP_H, MINIMAP_Y,
 )
 from hud_equalizer import EqualizerState, EQ_MAX_H
 from hud_minimap import draw_minimap
@@ -185,7 +181,6 @@ class HUD:
         mod_total_w = self._mod_count * self._mod_cell + (self._mod_count - 1) * 4
         play_cx = STATUS_WIDTH + (win.width - STATUS_WIDTH) // 2
         mod_x = play_cx - mod_total_w // 2
-        qu_total_w = self._qu_count * self._qu_cell + (self._qu_count - 1) * 2
         qu_y = 10
         mod_y = qu_y + self._qu_cell + 26
         if y < mod_y or y > mod_y + self._mod_cell:
@@ -235,6 +230,22 @@ class HUD:
             self._fps = 0.9 * self._fps + 0.1 * (1.0 / delta_time)
         from settings import audio
         self._eq.update(delta_time, audio.music_volume)
+
+    def _draw_stat_bar(
+        self, y: int, current: int, maximum: int,
+        color: tuple, value_text: arcade.Text,
+        x: int = 10, width: int = 190, height: int = 10,
+    ) -> None:
+        """Draw a single stat bar (HP/shield/ability) at ``y`` with a numerical
+        ``current / maximum`` label using the cached ``value_text`` object.
+        Caches the formatted string to avoid arcade.Text texture rebuilds."""
+        frac = max(0.0, current / maximum) if maximum > 0 else 0.0
+        arcade.draw_rect_filled(
+            arcade.LBWH(x, y, int(width * frac), height), color)
+        label = f"{current} / {maximum}"
+        if value_text.text != label:
+            value_text.text = label
+        value_text.draw()
 
     def draw(
         self,
@@ -295,47 +306,24 @@ class HUD:
             self._t_wpn_name.text = weapon_name
         self._t_wpn_name.draw()
 
-        # HP bar
-        hp_frac = max(0.0, hp / max_hp) if max_hp > 0 else 0.0
+        # HP bar (colour shifts red as HP drops)
         hp_color = (
-            (0, 180, 0) if hp_frac > 0.5
-            else (220, 140, 0) if hp_frac > 0.25
+            (0, 180, 0) if (max_hp > 0 and hp / max_hp > 0.5)
+            else (220, 140, 0) if (max_hp > 0 and hp / max_hp > 0.25)
             else (200, 30, 30)
         )
-        arcade.draw_rect_filled(
-            arcade.LBWH(10, hp_y - 16, int(190 * hp_frac), 10),
-            hp_color,
-        )
-        # HP numerical value
-        _hp_str = f"{hp} / {max_hp}"
-        if self._t_hp_val.text != _hp_str:
-            self._t_hp_val.text = _hp_str
-        self._t_hp_val.draw()
+        self._draw_stat_bar(hp_y - 16, hp, max_hp, hp_color, self._t_hp_val)
 
         # Shield bar
-        shield_frac = max(0.0, shields / max_shields) if max_shields > 0 else 0.0
-        arcade.draw_rect_filled(
-            arcade.LBWH(10, hp_y - 60, int(190 * shield_frac), 10),
-            (0, 140, 210),
-        )
-        # Shield numerical value
-        _sh_str = f"{shields} / {max_shields}"
-        if self._t_shield_val.text != _sh_str:
-            self._t_shield_val.text = _sh_str
-        self._t_shield_val.draw()
+        self._draw_stat_bar(hp_y - 60, shields, max_shields,
+                            (0, 140, 210), self._t_shield_val)
 
         # Ability meter bar (yellow)
         if ability_meter_max > 0:
             self._t_ability.draw()
-            ability_frac = max(0.0, ability_meter / ability_meter_max)
-            arcade.draw_rect_filled(
-                arcade.LBWH(10, hp_y - 104, int(190 * ability_frac), 10),
-                (220, 200, 50),
-            )
-            _ab_str = f"{int(ability_meter)} / {int(ability_meter_max)}"
-            if self._t_ability_val.text != _ab_str:
-                self._t_ability_val.text = _ab_str
-            self._t_ability_val.draw()
+            self._draw_stat_bar(hp_y - 104, int(ability_meter),
+                                int(ability_meter_max),
+                                (220, 200, 50), self._t_ability_val)
 
         self._t_faction.draw()
         self._t_ship_type.draw()

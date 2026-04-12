@@ -7,7 +7,7 @@ import os
 import arcade
 
 from constants import (
-    MENU_W, MENU_BTN_W,
+    MENU_BTN_W,
     SAVE_MENU_W, SAVE_MENU_H, SAVE_SLOT_W, SAVE_SLOT_H, SAVE_SLOT_GAP,
     SAVE_SLOT_COUNT,
 )

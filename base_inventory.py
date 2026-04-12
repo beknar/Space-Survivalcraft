@@ -30,6 +30,21 @@ class BaseInventoryData:
         self._drag_y: float = 0.0
         self._mouse_x: float = 0.0
         self._mouse_y: float = 0.0
+        # Dirty-flag render cache: marked dirty on item change / drag state change
+        self._render_dirty: bool = True
+        self._cache_icon_list: Optional[arcade.SpriteList] = None
+        self._cache_fill_list: Optional[arcade.SpriteList] = None
+        self._cache_badge_list: Optional[arcade.SpriteList] = None
+        self._cache_origin: tuple[int, int] = (-1, -1)
+        # PIL-rendered count badge textures keyed by count string
+        self._badge_tex_cache: dict[str, arcade.Texture] = {}
+        # Cached fill texture (shared by all fill sprites across rebuilds
+        # to avoid leaking atlas entries — SpriteSolidColor creates a new
+        # atlas slot per instance)
+        self._fill_tex: arcade.Texture | None = None
+
+    def _mark_dirty(self) -> None:
+        self._render_dirty = True
 
     def _init_icons(
         self,
@@ -70,11 +85,13 @@ class BaseInventoryData:
         for cell, (it, ct) in list(self._items.items()):
             if it == item_type:
                 self._items[cell] = (it, ct + count)
+                self._mark_dirty()
                 return
         for r in range(self._rows):
             for c in range(self._cols):
                 if (r, c) not in self._items:
                     self._items[(r, c)] = (item_type, count)
+                    self._mark_dirty()
                     return
 
     def remove_item(self, item_type: str, count: int = 1) -> int:
@@ -90,6 +107,8 @@ class BaseInventoryData:
                     self._items[cell] = (it, remaining)
                 if removed >= count:
                     break
+        if removed > 0:
+            self._mark_dirty()
         return removed
 
     def consolidate(self) -> None:
@@ -106,6 +125,7 @@ class BaseInventoryData:
                 self._items[(r, c)] = (it, amt)
                 total -= amt
                 cell += 1
+        self._mark_dirty()
 
     def toggle(self) -> None:
         self.open = not self.open
@@ -144,6 +164,7 @@ class BaseInventoryData:
             del self._items[cell]
             self._drag_x = x
             self._drag_y = y
+            self._mark_dirty()
             return True
         return False
 
@@ -166,6 +187,7 @@ class BaseInventoryData:
         self._drag_type = None
         self._drag_amount = 0
         self._drag_src = None
+        self._mark_dirty()
 
     def _clear_drag(self) -> tuple[str, int]:
         """Clear drag state, returning (type, amount) of what was being dragged."""
@@ -173,7 +195,105 @@ class BaseInventoryData:
         self._drag_type = None
         self._drag_amount = 0
         self._drag_src = None
+        self._mark_dirty()
         return dt, da
+
+    def _get_badge_texture(self, count: int) -> arcade.Texture:
+        """Return a small PIL-rendered texture for a count badge number.
+
+        Cached per count string so each unique number (e.g. "5", "100") is
+        only rendered once across the lifetime of the inventory. This is
+        called during cache rebuild — NOT per frame.
+        """
+        key = str(count)
+        tex = self._badge_tex_cache.get(key)
+        if tex is not None:
+            return tex
+        from PIL import Image as PILImage, ImageDraw, ImageFont
+        # Render orange bold text on a transparent background
+        w, h = 32, 14
+        img = PILImage.new("RGBA", (w, h), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(img)
+        try:
+            font = ImageFont.truetype("arial.ttf", 11)
+        except (OSError, IOError):
+            font = ImageFont.load_default()
+        draw.text((w - 2, 1), key, fill=(255, 165, 0, 255),
+                  font=font, anchor="ra")
+        tex = arcade.Texture(img)
+        self._badge_tex_cache[key] = tex
+        return tex
+
+    def _build_render_cache(self, gx: int, gy: int, cs: int) -> None:
+        """Build batched SpriteList caches for cell fills, icons, AND
+        count badges.
+
+        Called from draw() only when _render_dirty is True or grid origin
+        changed. Replaces per-cell draw_rect_filled + draw_texture_rect +
+        arcade.Text.draw() calls with three GPU draw calls (one per
+        SpriteList).
+        """
+        from arcade import Sprite, SpriteList, SpriteSolidColor
+
+        # Reuse existing SpriteList objects (clear + repopulate) instead
+        # of creating fresh ones. This avoids allocating new GPU VBO
+        # buffers and texture atlas slots on every rebuild — Arcade's
+        # atlas never shrinks, so creating new SpriteLists on every
+        # dirty cycle would leak ~0.2 MB/rebuild of atlas memory.
+        if self._cache_fill_list is None:
+            self._cache_fill_list = SpriteList()
+        else:
+            self._cache_fill_list.clear()
+        if self._cache_icon_list is None:
+            self._cache_icon_list = SpriteList()
+        else:
+            self._cache_icon_list.clear()
+        if self._cache_badge_list is None:
+            self._cache_badge_list = SpriteList()
+        else:
+            self._cache_badge_list.clear()
+        fills = self._cache_fill_list
+        icons = self._cache_icon_list
+        badges = self._cache_badge_list
+        for cell, (it, ct) in self._items.items():
+            r, c = cell
+            row_from_bottom = self._rows - 1 - r
+            cx = gx + c * cs
+            cy = gy + row_from_bottom * cs
+            cell_cx = cx + cs / 2
+            cell_cy = cy + cs / 2
+            # Cell fill — reuse a single cached texture for all fills to
+            # avoid allocating a new atlas entry per sprite per rebuild.
+            if self._fill_tex is None:
+                _tmp = SpriteSolidColor(cs - 2, cs - 2, 0, 0,
+                                        (50, 80, 50, 200))
+                self._fill_tex = _tmp.texture
+            fill = Sprite(self._fill_tex, center_x=cell_cx, center_y=cell_cy)
+            fill.width = cs - 2
+            fill.height = cs - 2
+            fills.append(fill)
+            # Icon (if any)
+            icon_tex = self._resolve_icon(it)
+            if icon_tex is not None:
+                spr = Sprite(icon_tex, center_x=cell_cx, center_y=cell_cy)
+                isz = cs - 12
+                spr.width = isz
+                spr.height = isz
+                icons.append(spr)
+            # Count badge (PIL-rendered texture, batched into SpriteList)
+            badge_tex = self._get_badge_texture(ct)
+            badge = Sprite(badge_tex,
+                           center_x=cx + cs - badge_tex.width / 2 - 1,
+                           center_y=cy + badge_tex.height / 2 + 1)
+            badges.append(badge)
+        self._cache_origin = (gx, gy)
+        self._render_dirty = False
+
+    def _ensure_render_cache(self, gx: int, gy: int, cs: int) -> None:
+        """Rebuild the render cache if dirty or if the grid origin moved
+        (e.g. after a window resize)."""
+        if self._render_dirty or self._cache_origin != (gx, gy):
+            self._build_render_cache(gx, gy, cs)
 
     def _screen_size(self) -> tuple[int, int]:
         """Return current screen dimensions."""

@@ -5,8 +5,7 @@ import os
 
 import arcade
 
-import constants
-from constants import SCREEN_WIDTH, SCREEN_HEIGHT, SFX_INTERFACE_DIR, RESOLUTION_PRESETS
+from constants import SFX_INTERFACE_DIR, RESOLUTION_PRESETS
 from settings import audio, apply_resolution
 
 

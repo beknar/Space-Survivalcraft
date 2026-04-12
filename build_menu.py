@@ -6,8 +6,7 @@ from typing import Optional
 import arcade
 
 from constants import (
-    SCREEN_WIDTH, SCREEN_HEIGHT,
-    BUILD_MENU_W, BUILD_MENU_H, BUILD_MENU_ITEM_H, BUILD_MENU_PAD,
+    BUILD_MENU_W, BUILD_MENU_ITEM_H, BUILD_MENU_PAD,
     BUILDING_TYPES,
 )
 

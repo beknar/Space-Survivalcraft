@@ -6,9 +6,7 @@ import random
 
 import arcade
 
-import constants
 from constants import (
-    SCREEN_WIDTH, SCREEN_HEIGHT,
     SFX_INTERFACE_DIR, SAVE_SLOT_COUNT,
 )
 from settings import audio
@@ -92,7 +90,6 @@ class DeathScreen:
 
         # ── Button rects (centred on screen) ───────────────────────────
         self._window = arcade.get_window()
-        total_h = len(_BTN_LABELS) * _BTN_H + (len(_BTN_LABELS) - 1) * _BTN_GAP
         top_y = self._window.height // 2 - 60
         self._btn_rects: list[tuple[int, int, int, int]] = []
         for i in range(len(_BTN_LABELS)):

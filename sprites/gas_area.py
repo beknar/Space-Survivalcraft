@@ -4,7 +4,6 @@ import math
 import random
 import arcade
 from PIL import Image as PILImage, ImageDraw, ImageFilter
-from constants import GAS_AREA_DAMAGE, GAS_AREA_SLOW
 
 
 def generate_gas_texture(size: int) -> arcade.Texture:

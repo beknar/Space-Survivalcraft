@@ -222,7 +222,8 @@ def populate_aliens() -> tuple[arcade.SpriteList, arcade.Texture]:
     alien_laser_tex = arcade.Texture(_pil_laser.rotate(90, expand=True))
     _pil_fx.close()
 
-    slist = arcade.SpriteList(use_spatial_hash=True)
+    # Aliens move every frame — spatial hash would be rebuilt each tick
+    slist = arcade.SpriteList()
     cx_world, cy_world = WORLD_WIDTH / 2, WORLD_HEIGHT / 2
     placed = 0
     attempts = 0

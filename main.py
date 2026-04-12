@@ -4,7 +4,7 @@ from __future__ import annotations
 import arcade
 import pyglet.clock
 
-from constants import SCREEN_WIDTH, SCREEN_HEIGHT, SCREEN_TITLE
+from constants import SCREEN_TITLE
 from splash_view import SplashView
 
 

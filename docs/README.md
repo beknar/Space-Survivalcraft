@@ -67,7 +67,57 @@ The codebase follows an extraction pattern where GameView delegates to free-func
 - **`game_state.py`** --- state dataclasses (`BossState`, `FogState`, `CombatTimers`, `AbilityState`, `EffectState`) for future incremental adoption
 - **`game_save.py`** --- reusable serialization/deserialization helpers (`_serialize_asteroid`, `_restore_z1_aliens`, etc.) replacing repeated patterns
 - **`zones/zone2_world.py`** --- Zone 2 entity population and collision handling extracted from `zone2.py`
-- **`base_inventory.py`** --- shared drag state, icon resolution, and grid helpers used by both cargo and station inventories
+- **`base_inventory.py`** --- shared drag state, icon resolution, grid helpers, a dirty-flag render cache (`_render_dirty` + `_build_render_cache`) that batches cell fills and item icons into two `SpriteList`s rebuilt only when items change, and a badge texture cache (`_get_badge_texture` renders each unique count via PIL `ImageDraw`, cached in `_badge_tex_cache`) that batches all count badges into `_cache_badge_list` SpriteList. Used by both cargo and station inventories.
+- **`collisions.resolve_overlap` / `collisions.reflect_velocity`** --- two pure-math primitives extracted from six near-duplicate collision handlers. `resolve_overlap` returns the contact normal (or `None`) after pushing two bodies apart; `reflect_velocity` reflects one body's velocity along that normal with restitution. Eliminates ~150 lines of bounce/push duplication across `collisions.py` and `zones/zone2.py`.
+- **`game_save._restore_sprite_list`** --- generic clear-then-append helper used by Zone 1 asteroid restore and all four Zone 2 entity lists (iron, double iron, copper, wanderers). Factory closures may return `None` to skip a malformed entry.
+- **`hud.HUD._draw_stat_bar`** --- shared bar renderer for HP / shield / ability bars; replaces three near-identical 12-line drawing blocks. Numerical label uses the existing cached `arcade.Text` skip-on-unchanged optimization.
+- **`input_handlers._eject_to_*` helpers** --- the long `_handle_inventory_eject` routine is now a 4-line dispatch table calling `_eject_to_module_slot`, `_eject_to_quick_use`, `_eject_to_station_inv`, or `_eject_iron_to_world` based on what's under the cursor.
+- **`game_view.GameView` sectioned `__init__`** --- the 380-line constructor was split into 13 named init helpers (player/camera, abilities, text overlays, input devices, weapons/audio, world entities, boss, consumable textures, inventories, buildings/overlays, world state, HUD/audio/video, zones). The constructor body itself is now a 13-line list of phase calls; behaviour is identical.
+
+## Performance Notes
+
+Several large optimizations target the Nebula zone, which can populate hundreds of asteroids and dozens of aliens:
+
+- **Spatial hash on static lists only** --- alien sprite lists deliberately do NOT use `use_spatial_hash=True`. With ~50 moving aliens, the per-frame O(N) hash rebuild costs more than it saves. Asteroid and building lists are static and continue to use spatial hashing.
+- **Inventory render cache** --- both inventories build cached `SpriteList`s of cell fills and icons; rebuild is gated by a `_render_dirty` flag set on every mutation. Grid lines are batched into a single `arcade.draw_lines()` call. Count badges rendered as PIL text into `arcade.Texture` sprites batched into `_cache_badge_list` SpriteList (one `SpriteList.draw()` replaces 100 per-frame `arcade.Text.draw()` calls). Station inventory went from 26.7 FPS to 50.9 FPS with both inventories open.
+- **Minimap dot batching** --- `hud_minimap` collects per-colour point lists and draws each colour group with one `arcade.draw_points()` call instead of per-sprite `draw_circle_filled`.
+- **Direct Zone 2 sprite-list draws** --- `Zone2.draw_world` calls `SpriteList.draw()` on each entity list directly; the previous per-frame visibility-list rebuild has been removed (the dead `_draw_visible` helper and `_vis_draw` SpriteList have been deleted). Static VBOs upload once.
+
+## Tooling
+
+- **Ruff** --- `ruff.toml` configures bug-focused lint rules (F401, F811, F821, F823, F841, E9, B006/B008/B015/B018/B023). Initial pass cleaned 156 unused imports and 5 dead variables across 12 files, and caught 2 real bugs (missing imports in `station_inventory.py`).
+- **pytest.ini** --- excludes `integration/` from default test runs (`norecursedirs`).
+
+## Test Coverage
+
+The fast test suite (`unit tests/`, 373 tests across 21 files) runs in ~0.6 s and covers:
+
+- **Player physics** (`test_player.py`) — rotation, thrust, damping, clamping
+- **Weapons + projectiles** (`test_projectile.py`)
+- **Asteroids / aliens / pickups / blueprints / shields** — entity behaviour
+- **Inventory** (`test_inventory.py`) — grid math, drag-and-drop, ejection, **render-cache dirty flag invalidation** for every mutator
+- **Modules** (`test_modules.py`) — `apply_modules`, sideslip, consolidate, stack limits
+- **Damage routing** (`test_damage.py`) — shields → HP → death
+- **Buildings** (`test_building.py`) — modules, turret, repair, docking ports
+- **Respawn + fog of war** (`test_respawn.py`)
+- **Collision physics primitives** (`test_collision_helpers.py`) — `resolve_overlap` (4 detection + 3 push variants) and `reflect_velocity` (5 reflection cases) plus a full ship-vs-asteroid round trip
+- **Save restore helper** (`test_save_helpers.py`) — `_restore_sprite_list` clear/append/skip-None contract
+- **Zone-aware Station Info** (`test_world_stats.py`) — Zone 1 and Zone 2 stat lines, including a regression lock for the "0 iron / 0 roids" Nebula bug
+- **Zone 2 update loop** (`test_zone2_update.py`) — 7 tests covering update branches including the `UnboundLocalError` regression (missing module-level import in `zone2.py`)
+- **CPU microbenchmarks** (`test_perf_micro.py`) — 8 tests for collision, inventory, fog, alien AI, minimap, and save serialization (all windowless, ~0.11 s)
+- **Settings, video scanning, world setup helpers**
+
+The integration suite (`unit tests/integration/`, 63 tests across 5 files) requires an Arcade window and covers:
+
+- **Functional** (`test_zone2_real_gv.py`) — 18 tests exercising Zone 2 with a real GameView
+- **Full-frame FPS** (`test_performance.py`) — 17 tests at 40 FPS threshold (Zone 2 full pop, Zone 2+station, both inventories, Zone 1 boss, minimap, heavy combat, warp enemy zone, escape menu)
+- **GPU rendering** (`test_render_perf.py`) — 10 microbenchmarks isolating Text.draw, SpriteList.draw, draw_points, draw_lines, draw_rect_filled vs SpriteList, fog texture rebuild
+- **Resolution scaling** (`test_resolution_perf.py`) — 12 tests across all 6 RESOLUTION_PRESETS × 2 zones (Zone 1 + Zone 2); uses `apply_resolution` to resize a hidden window between tests; cannot run in parallel (one Arcade window per process)
+- **Soak/endurance** (`test_soak.py`) — 6 tests running 5 minutes each (~30 min total), measuring FPS + RSS every 30 s: Zone 1 combat, Zone 2 combat, video player, inventory churn (438 rebuilds, 80 MB threshold), fog texture rebuild, combined worst-case. Player made invulnerable to prevent premature death. Requires `psutil` dev dependency.
+
+Grand total: 436 tests (373 fast + 63 integration).
+
+Tests use PIL-generated dummy textures so no game assets are required. Fast tests need no Arcade window. `pytest` and `psutil` (for soak tests) are needed beyond the game's regular dependencies.
 
 See [Architecture](architecture.md) for the full dependency graph.
 

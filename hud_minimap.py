@@ -8,7 +8,7 @@ import arcade
 from constants import (
     WORLD_WIDTH, WORLD_HEIGHT,
     MINIMAP_X, MINIMAP_Y, MINIMAP_W, MINIMAP_H,
-    FOG_CELL_SIZE, FOG_GRID_W, FOG_GRID_H,
+    FOG_CELL_SIZE,
 )
 
 # Cached fog overlay texture — rebuilt only when fog_revealed changes
@@ -118,31 +118,48 @@ def draw_minimap(
             arcade.LBWH(mx, my, mw, mh),
         )
 
-    # Objects
+    # Objects — batch by colour using draw_points (one GPU call per group).
+    # This is dramatically faster than per-sprite draw_circle_filled when
+    # the minimap shows hundreds of asteroids and aliens.
+    sx_w = mw / zone_width
+    sy_h = mh / zone_height
+
+    asteroid_pts: list[tuple[float, float]] = []
     for asteroid in asteroid_list:
-        if not is_revealed(asteroid.center_x, asteroid.center_y, fog_grid):
+        ax_w, ay_w = asteroid.center_x, asteroid.center_y
+        if fog_grid is not None and not is_revealed(ax_w, ay_w, fog_grid):
             continue
-        ax, ay = to_map(asteroid.center_x, asteroid.center_y)
-        arcade.draw_circle_filled(ax, ay, 2.0, (150, 150, 150))
+        asteroid_pts.append((mx + ax_w * sx_w, my + ay_w * sy_h))
+    if asteroid_pts:
+        arcade.draw_points(asteroid_pts, (150, 150, 150), 4)
 
+    pickup_pts: list[tuple[float, float]] = []
     for pickup in iron_pickup_list:
-        if not is_revealed(pickup.center_x, pickup.center_y, fog_grid):
+        px_w, py_w = pickup.center_x, pickup.center_y
+        if fog_grid is not None and not is_revealed(px_w, py_w, fog_grid):
             continue
-        ppx, ppy = to_map(pickup.center_x, pickup.center_y)
-        arcade.draw_circle_filled(ppx, ppy, 2.0, (255, 165, 0))
+        pickup_pts.append((mx + px_w * sx_w, my + py_w * sy_h))
+    if pickup_pts:
+        arcade.draw_points(pickup_pts, (255, 165, 0), 4)
 
+    alien_pts: list[tuple[float, float]] = []
     for alien in alien_list:
-        if not is_revealed(alien.center_x, alien.center_y, fog_grid):
+        ax_w, ay_w = alien.center_x, alien.center_y
+        if fog_grid is not None and not is_revealed(ax_w, ay_w, fog_grid):
             continue
-        amx, amy = to_map(alien.center_x, alien.center_y)
-        arcade.draw_circle_filled(amx, amy, 2.0, (220, 50, 50))
+        alien_pts.append((mx + ax_w * sx_w, my + ay_w * sy_h))
+    if alien_pts:
+        arcade.draw_points(alien_pts, (220, 50, 50), 4)
 
     if building_list is not None:
+        building_pts: list[tuple[float, float]] = []
         for building in building_list:
-            if not is_revealed(building.center_x, building.center_y, fog_grid):
+            bx_w, by_w = building.center_x, building.center_y
+            if fog_grid is not None and not is_revealed(bx_w, by_w, fog_grid):
                 continue
-            bbx, bby = to_map(building.center_x, building.center_y)
-            arcade.draw_circle_filled(bbx, bby, 2.5, (100, 220, 255))
+            building_pts.append((mx + bx_w * sx_w, my + by_w * sy_h))
+        if building_pts:
+            arcade.draw_points(building_pts, (100, 220, 255), 5)
 
     # Trading station
     if trade_station_pos is not None:

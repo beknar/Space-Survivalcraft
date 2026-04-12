@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import arcade
 
-from constants import MENU_W, MENU_H, MENU_BTN_W
+from constants import MENU_W, MENU_H
 from escape_menu._context import MenuContext, MenuMode
 from escape_menu._ui import draw_panel, draw_back_button, back_button_hit
 

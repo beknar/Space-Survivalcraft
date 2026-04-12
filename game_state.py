@@ -5,9 +5,7 @@ from dataclasses import dataclass, field
 from typing import Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    import arcade
     from sprites.boss import BossAlienShip
-    from sprites.wormhole import Wormhole
 
 
 @dataclass
