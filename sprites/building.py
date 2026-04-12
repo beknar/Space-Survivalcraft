@@ -186,6 +186,10 @@ class Turret(StationModule):
         self._fire_cd: float = 0.0
         self._barrel_count: int = 2 if building_type == "Turret 2" else 1
         self.slots_used: int = BUILDING_TYPES[building_type]["slots_used"]
+        # Target caching — avoid scanning all aliens every frame
+        self._cached_target = None
+        self._target_rescan_cd: float = 0.0
+        _TURRET_RANGE_SQ = TURRET_RANGE * TURRET_RANGE
 
     def update_turret(
         self,
@@ -199,30 +203,47 @@ class Turret(StationModule):
             return
 
         self._fire_cd = max(0.0, self._fire_cd - dt)
+        self._target_rescan_cd = max(0.0, self._target_rescan_cd - dt)
 
-        # Find nearest enemy (aliens + boss) using fast distance check
-        best_dist = TURRET_RANGE + 1.0
-        best_dsq = best_dist * best_dist
-        target = None
-        tr = TURRET_RANGE
+        tr_sq = TURRET_RANGE * TURRET_RANGE
         tx, ty = self.center_x, self.center_y
-        for alien in alien_list:
-            dx = alien.center_x - tx
-            dy = alien.center_y - ty
-            dsq = dx * dx + dy * dy
-            if dsq < best_dsq:
-                best_dsq = dsq
-                target = alien
-        # Also consider the boss as a target
-        if boss is not None and boss.hp > 0:
-            dx = boss.center_x - tx
-            dy = boss.center_y - ty
-            dsq = dx * dx + dy * dy
-            if dsq < best_dsq:
-                best_dsq = dsq
-                target = boss
 
-        if target is None or best_dsq > tr * tr:
+        # Use cached target if still valid (alive and in range)
+        target = self._cached_target
+        if target is not None:
+            # Check if target is still alive and in a sprite list
+            if (not target.sprite_lists
+                    or getattr(target, 'hp', 0) <= 0):
+                target = None
+            else:
+                dx = target.center_x - tx
+                dy = target.center_y - ty
+                if dx * dx + dy * dy > tr_sq:
+                    target = None
+
+        # Full rescan if no valid cached target or rescan timer expired
+        if target is None or self._target_rescan_cd <= 0.0:
+            best_dsq = tr_sq + 1.0
+            target = None
+            for alien in alien_list:
+                dx = alien.center_x - tx
+                dy = alien.center_y - ty
+                dsq = dx * dx + dy * dy
+                if dsq < best_dsq:
+                    best_dsq = dsq
+                    target = alien
+            # Also consider the boss as a target
+            if boss is not None and boss.hp > 0:
+                dx = boss.center_x - tx
+                dy = boss.center_y - ty
+                dsq = dx * dx + dy * dy
+                if dsq < best_dsq:
+                    best_dsq = dsq
+                    target = boss
+            self._cached_target = target
+            self._target_rescan_cd = 0.25  # rescan 4x per second
+
+        if target is None:
             return
 
         # Rotate to face target
@@ -264,15 +285,19 @@ class Turret(StationModule):
 # ── Factory function ──────────────────────────────────────────────────────────
 
 _TYPE_MAP = {
-    "Home Station":   HomeStation,
-    "Service Module": ServiceModule,
-    "Power Receiver": PowerReceiver,
-    "Solar Array 1":  SolarArray,
-    "Solar Array 2":  SolarArray,
-    "Turret 1":       Turret,
-    "Turret 2":       Turret,
-    "Repair Module":  RepairModule,
-    "Basic Crafter":  BasicCrafter,
+    "Home Station":      HomeStation,
+    "Service Module":    ServiceModule,
+    "Power Receiver":    PowerReceiver,
+    "Solar Array 1":     SolarArray,
+    "Solar Array 2":     SolarArray,
+    "Turret 1":          Turret,
+    "Turret 2":          Turret,
+    "Repair Module":     RepairModule,
+    "Basic Crafter":     BasicCrafter,
+    "Advanced Crafter":  BasicCrafter,
+    "Fission Generator": SolarArray,
+    "Shield Generator":  StationModule,
+    "Missile Array":     StationModule,
 }
 
 

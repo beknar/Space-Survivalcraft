@@ -296,13 +296,23 @@ class Zone2(ZoneState):
             w.angle = (w.angle + w._rot_speed * dt) % 360
         self._update_wanderer_collision(gv, dt)
 
-        # Aliens — always update AI (they need to track player from afar)
+        # Aliens — full AI for nearby, cheap position-only for distant
         _alien_pre_count = len(self._aliens)
+        _ai_range_sq = (vx1 - vx0 + 500) ** 2  # viewport width + generous margin
         for alien in self._aliens:
-            projs = alien.update_alien(dt, px, py, self._iron_asteroids, self._aliens)
-            if projs:
-                for p in projs:
-                    self._alien_projectiles.append(p)
+            adx = alien.center_x - px
+            ady = alien.center_y - py
+            if adx * adx + ady * ady < _ai_range_sq:
+                projs = alien.update_alien(dt, px, py, self._iron_asteroids, self._aliens)
+                if projs:
+                    for p in projs:
+                        self._alien_projectiles.append(p)
+            else:
+                # Minimal update: velocity decay + position drift only
+                alien.center_x += alien.vel_x * dt
+                alien.center_y += alien.vel_y * dt
+                alien.vel_x *= 0.95
+                alien.vel_y *= 0.95
 
         # Alien projectiles
         for proj in self._alien_projectiles:
