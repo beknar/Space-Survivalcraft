@@ -52,15 +52,27 @@ class ConfigMode(MenuMode):
         ti.color = arcade.color.LIME_GREEN if on else (200, 60, 60)
         ti.draw()
 
+        # Simulate All Zones toggle
+        sim_y = py + MENU_H - 160; sim_x = px + MENU_W - 60
+        t.text = "Simulate All Zones"; t.x = px + 16; t.y = sim_y + 12
+        t.color = arcade.color.WHITE; t.bold = True; t.draw()
+        sim_on = audio.simulate_all_zones
+        arcade.draw_rect_filled(arcade.LBWH(sim_x, sim_y, 40, 24),
+                                (30, 80, 30, 220) if sim_on else (60, 30, 30, 220))
+        ti.text = "ON" if sim_on else "OFF"
+        ti.x = sim_x + 20; ti.y = sim_y + 12
+        ti.color = arcade.color.LIME_GREEN if sim_on else (200, 60, 60)
+        ti.draw()
+
         # Music slider
         slider_x = px + 60; slider_w = MENU_W - 80
-        music_y = py + MENU_H - 180
+        music_y = py + MENU_H - 210
         t.text = "Music"; t.x = px + 16; t.y = music_y + 12; t.bold = True
         t.color = arcade.color.WHITE; t.draw()
         self._draw_cfg_slider(slider_x, music_y, slider_w, audio.music_volume)
 
         # SFX slider
-        sfx_y = py + MENU_H - 230
+        sfx_y = py + MENU_H - 260
         t.text = "SFX"; t.x = px + 16; t.y = sfx_y + 12; t.draw()
         self._draw_cfg_slider(slider_x, sfx_y, slider_w, audio.sfx_volume)
 
@@ -101,9 +113,13 @@ class ConfigMode(MenuMode):
         fps_y = py + MENU_H - 130; fps_x = px + MENU_W - 60
         if fps_x <= x <= fps_x + 40 and fps_y <= y <= fps_y + 24:
             audio.show_fps = not audio.show_fps; return
+        # Simulate All Zones toggle
+        sim_y = py + MENU_H - 160; sim_x = px + MENU_W - 60
+        if sim_x <= x <= sim_x + 40 and sim_y <= y <= sim_y + 24:
+            audio.simulate_all_zones = not audio.simulate_all_zones; return
         # Sliders
         slider_x = px + 60; slider_w = MENU_W - 80
-        for name, sy in [("music", py + MENU_H - 180), ("sfx", py + MENU_H - 230)]:
+        for name, sy in [("music", py + MENU_H - 210), ("sfx", py + MENU_H - 260)]:
             if slider_x <= x <= slider_x + slider_w and sy - 10 <= y <= sy + 10:
                 self._slider_dragging = name
                 frac = max(0.0, min(1.0, (x - slider_x) / slider_w))

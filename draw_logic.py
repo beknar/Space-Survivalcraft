@@ -198,6 +198,12 @@ def compute_world_stats(gv: GameView) -> list[tuple[str, int, tuple]]:
     return stats
 
 
+def _gas_always_visible(gv: GameView) -> bool:
+    """Gas hazards are always shown on the minimap in warp zones."""
+    from zones.zone_warp_base import WarpZoneBase
+    return isinstance(gv._zone, WarpZoneBase)
+
+
 def _gas_positions(gv: GameView) -> list[tuple[float, float, float]]:
     """Return gas area (x, y, radius) for minimap (Zone 2 and gas warp zone)."""
     # Zone 2: use cached positions
@@ -249,6 +255,7 @@ def draw_ui(gv: GameView) -> None:
         ability_meter=gv._ability_meter,
         ability_meter_max=gv._ability_meter_max,
         gas_positions=_gas_positions(gv),
+        gas_always_visible=_gas_always_visible(gv),
     )
     # Video frame draws (skip when menu open)
     if not menu_open:
@@ -273,6 +280,7 @@ def draw_ui(gv: GameView) -> None:
         has_home=gv._has_home_station(),
         copper=gv.inventory.count_item("copper") + gv._station_inv.count_item("copper"),
         unlocked_blueprints=gv._craft_menu._unlocked,
+        ship_level=gv._ship_level,
     )
     gv._station_info.draw()
     gv._ship_stats.draw()

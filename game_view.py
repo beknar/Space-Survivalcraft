@@ -64,11 +64,13 @@ class GameView(arcade.View):
         faction: Optional[str] = None,
         ship_type: Optional[str] = None,
         skip_music: bool = False,
+        ship_level: int = 1,
     ) -> None:
         super().__init__()
         self._skip_music = skip_music
         self._faction = faction
         self._ship_type = ship_type
+        self._ship_level: int = ship_level
 
         # Sectioned init — each helper sets up one cohesive group of state
         # so the constructor stays scannable. Order matters: textures and
@@ -97,7 +99,8 @@ class GameView(arcade.View):
         self._char_xp: int = 0
         self._char_level: int = 1
 
-        self.player = PlayerShip(faction=faction, ship_type=self._ship_type)
+        self.player = PlayerShip(faction=faction, ship_type=self._ship_type,
+                                  ship_level=self._ship_level)
         self.player_list = arcade.SpriteList()
         self.player_list.append(self.player)
 
@@ -120,9 +123,10 @@ class GameView(arcade.View):
         self._use_glow: tuple[int, int, int, int] = (0, 0, 0, 0)
         self._use_glow_timer: float = 0.0
 
-        from constants import ABILITY_METER_MAX
-        self._ability_meter: float = ABILITY_METER_MAX
-        self._ability_meter_max: float = ABILITY_METER_MAX
+        from constants import ABILITY_METER_MAX, SHIP_LEVEL_ABILITY_BONUS
+        base_ability = ABILITY_METER_MAX + (self._ship_level - 1) * SHIP_LEVEL_ABILITY_BONUS
+        self._ability_meter: float = base_ability
+        self._ability_meter_max: float = base_ability
         self._misty_step_cd: float = 0.0
         self._force_walls: list = []
 
@@ -133,7 +137,6 @@ class GameView(arcade.View):
         self._missile_list: arcade.SpriteList = arcade.SpriteList()
         self._missile_tex: arcade.Texture | None = None
         self._rear_turret_cd: float = 0.0
-        self._ship_level: int = 1
 
     def _init_text_overlays(self) -> None:
         """Cached arcade.Text objects for flash messages and boss announce."""
@@ -232,7 +235,9 @@ class GameView(arcade.View):
 
     def _init_module_slots(self) -> None:
         """Module equipment slots and broadside laser texture."""
-        self._module_slots: list[str | None] = [None] * MODULE_SLOT_COUNT
+        from constants import SHIP_LEVEL_MODULE_BONUS
+        slot_count = MODULE_SLOT_COUNT + (self._ship_level - 1) * SHIP_LEVEL_MODULE_BONUS
+        self._module_slots: list[str | None] = [None] * slot_count
         self._broadside_cd: float = 0.0
         self._enhancer_angle: float = 0.0
         from constants import LASER_DIR
@@ -775,6 +780,12 @@ class GameView(arcade.View):
             _ul.update_wormholes(self, delta_time)
         else:
             self._zone.update(self, delta_time)
+        # Background simulation of inactive zones (if enabled)
+        if audio.simulate_all_zones:
+            if self._zone.zone_id != ZoneID.MAIN and self._main_zone is not None:
+                self._main_zone.background_update(self, delta_time)
+            if self._zone.zone_id != ZoneID.ZONE2 and self._zone2 is not None:
+                self._zone2.background_update(self, delta_time)
         _ul.update_ability_meter(self, delta_time)
         _ul.update_force_walls(self, delta_time)
         _ul.update_missiles(self, delta_time)

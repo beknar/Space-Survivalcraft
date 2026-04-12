@@ -86,6 +86,7 @@ def draw_minimap(
     zone_width: float = WORLD_WIDTH,
     zone_height: float = WORLD_HEIGHT,
     gas_positions: list[tuple[float, float, float]] | None = None,
+    gas_always_visible: bool = False,
 ) -> None:
     """Draw a scaled overview of the world inside the status panel."""
     global _fog_cache_tex, _fog_cache_revealed, _fog_cache_grid_id
@@ -215,14 +216,13 @@ def draw_minimap(
 
     # Gas areas (green octagonal outlines scaled to world radius)
     if gas_positions:
-        map_scale = mw / zone_width
         _oct_angles = [math.pi / 8 + i * math.pi / 4 for i in range(8)]
         _oct_cos = [math.cos(a) for a in _oct_angles]
         _oct_sin = [math.sin(a) for a in _oct_angles]
         gas_lines: list[tuple[float, float]] = []
         for entry in gas_positions:
             gpx, gpy = entry[0], entry[1]
-            if _has_fog:
+            if _has_fog and not gas_always_visible:
                 gx = int(gpx * _inv_cell)
                 gy = int(gpy * _inv_cell)
                 if not (0 <= gx < _fw and 0 <= gy < _fh and _fg[gy][gx]):
@@ -230,13 +230,14 @@ def draw_minimap(
             gmx = mx + gpx * sx_w
             gmy = my + gpy * sy_h
             grad = entry[2] if len(entry) > 2 else 50.0
-            dot_r = max(2.0, grad * map_scale)
+            dot_rx = max(2.0, grad * sx_w)
+            dot_ry = max(2.0, grad * sy_h)
             for i in range(8):
                 j = (i + 1) % 8
-                gas_lines.append((gmx + _oct_cos[i] * dot_r,
-                                  gmy + _oct_sin[i] * dot_r))
-                gas_lines.append((gmx + _oct_cos[j] * dot_r,
-                                  gmy + _oct_sin[j] * dot_r))
+                gas_lines.append((gmx + _oct_cos[i] * dot_rx,
+                                  gmy + _oct_sin[i] * dot_ry))
+                gas_lines.append((gmx + _oct_cos[j] * dot_rx,
+                                  gmy + _oct_sin[j] * dot_ry))
         if gas_lines:
             arcade.draw_lines(gas_lines, (100, 220, 60, 200), 1)
 

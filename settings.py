@@ -30,6 +30,7 @@ class AudioSettings:
         self.show_fps: bool = False        # FPS counter toggle
         self.autoplay_ost: bool = True     # play OST music on game start
         self.character_name: str = ""      # selected character from characters/
+        self.simulate_all_zones: bool = False  # tick inactive zones in background
 
 
 # Module-level instance used everywhere
@@ -48,6 +49,7 @@ def save_config() -> None:
         "show_fps": getattr(audio, "show_fps", False),
         "autoplay_ost": getattr(audio, "autoplay_ost", True),
         "character_name": audio.character_name,
+        "simulate_all_zones": getattr(audio, "simulate_all_zones", False),
     }
     with open(_CONFIG_PATH, "w") as f:
         json.dump(data, f, indent=2)
@@ -66,6 +68,7 @@ def load_config() -> None:
         audio.show_fps = data.get("show_fps", False)
         audio.autoplay_ost = data.get("autoplay_ost", True)
         audio.character_name = data.get("character_name", "")
+        audio.simulate_all_zones = data.get("simulate_all_zones", False)
     except (json.JSONDecodeError, OSError):
         pass  # corrupt or unreadable — use defaults
 

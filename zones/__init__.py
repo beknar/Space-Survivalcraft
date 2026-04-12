@@ -36,6 +36,13 @@ class ZoneState:
     def update(self, gv: GameView, dt: float) -> None:
         """Per-frame update for zone-specific entities."""
 
+    def background_update(self, gv: GameView, dt: float) -> None:
+        """Tick this zone while the player is in a different zone.
+
+        Only called when 'Simulate All Zones' is enabled. Runs cheap
+        updates (respawns, timers) without player interaction or drawing.
+        """
+
     def draw_world(self, gv: GameView, cx: float, cy: float,
                    hw: float, hh: float) -> None:
         """Draw zone-specific world-space entities."""

@@ -123,8 +123,9 @@ class HUD:
         self._qu_drag_x: float = 0.0
         self._qu_drag_y: float = 0.0
 
-        # Module slot state (4 slots above quick-use bar)
+        # Module slot state (slots above quick-use bar — count grows with ship level)
         from constants import MODULE_SLOT_COUNT, MODULE_SLOT_CELL, MODULE_TYPES
+        self._mod_base_count = MODULE_SLOT_COUNT
         self._mod_count = MODULE_SLOT_COUNT
         self._mod_cell = MODULE_SLOT_CELL
         self._mod_slots: list[str | None] = [None] * MODULE_SLOT_COUNT
@@ -165,6 +166,14 @@ class HUD:
     def char_video_rect(self) -> tuple[float, float, float]:
         """Return (x, y, max_w) for drawing the character video in the HUD."""
         return (10, self._char_vid_y - self._char_vid_h, STATUS_WIDTH - 20)
+
+    def set_module_count(self, count: int) -> None:
+        """Resize module slot list (e.g. after ship upgrade)."""
+        old = self._mod_slots
+        self._mod_count = count
+        self._mod_slots = [None] * count
+        for i in range(min(len(old), count)):
+            self._mod_slots[i] = old[i]
 
     def set_module_slot(self, slot: int, mod_type: str | None) -> None:
         if 0 <= slot < self._mod_count:
@@ -436,6 +445,7 @@ class HUD:
         ability_meter: float = 0.0,
         ability_meter_max: float = 100.0,
         gas_positions: list[tuple[float, float, float]] | None = None,
+        gas_always_visible: bool = False,
     ) -> None:
         """Draw the full HUD status panel."""
         # Panel background
@@ -522,4 +532,5 @@ class HUD:
             zone_width=zone_width,
             zone_height=zone_height,
             gas_positions=gas_positions,
+            gas_always_visible=gas_always_visible,
         )

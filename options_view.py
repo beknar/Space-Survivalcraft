@@ -343,7 +343,7 @@ class OptionsView(arcade.View):
     def _draw_config_overlay(self) -> None:
         """Draw the configuration panel overlay."""
         sw, sh = self.window.width, self.window.height
-        panel_w, panel_h = 380, 420
+        panel_w, panel_h = 380, 460
         px = (sw - panel_w) // 2
         py = (sh - panel_h) // 2
         arcade.draw_rect_filled(
@@ -425,6 +425,28 @@ class OptionsView(arcade.View):
         self._t_cfg_btn.draw()
         self._t_cfg_btn.font_size = 12
         self._cfg_ost_rect = (toggle_x, cur_y - 4, 40, 24)
+        cur_y -= 40
+        # Simulate All Zones toggle
+        self._t_cfg_label.text = "Simulate All Zones"
+        self._t_cfg_label.x = px + 16
+        self._t_cfg_label.y = cur_y + 6
+        self._t_cfg_label.draw()
+        sim_x = px + panel_w - 60
+        sim_on = audio.simulate_all_zones
+        sim_text = "ON" if sim_on else "OFF"
+        sim_color = arcade.color.LIME_GREEN if sim_on else (180, 60, 60)
+        arcade.draw_rect_filled(
+            arcade.LBWH(sim_x, cur_y - 4, 40, 24), (40, 40, 60))
+        arcade.draw_rect_outline(
+            arcade.LBWH(sim_x, cur_y - 4, 40, 24), sim_color, border_width=2)
+        self._t_cfg_btn.text = sim_text
+        self._t_cfg_btn.x = sim_x + 20
+        self._t_cfg_btn.y = cur_y + 8
+        self._t_cfg_btn.color = sim_color
+        self._t_cfg_btn.font_size = 10
+        self._t_cfg_btn.draw()
+        self._t_cfg_btn.font_size = 12
+        self._cfg_sim_rect = (sim_x, cur_y - 4, 40, 24)
         cur_y -= 50
         # Save Config button
         btn_w, btn_h = 160, 38
@@ -617,6 +639,12 @@ class OptionsView(arcade.View):
             tx, ty, tw, th = self._cfg_ost_rect
             if tx <= x <= tx + tw and ty <= y <= ty + th:
                 audio.autoplay_ost = not audio.autoplay_ost
+                return
+        # Simulate All Zones toggle
+        if hasattr(self, '_cfg_sim_rect'):
+            tx, ty, tw, th = self._cfg_sim_rect
+            if tx <= x <= tx + tw and ty <= y <= ty + th:
+                audio.simulate_all_zones = not audio.simulate_all_zones
                 return
         # Save Config button
         if hasattr(self, '_cfg_save_rect'):

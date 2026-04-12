@@ -77,6 +77,8 @@ class Zone2(ZoneState):
         self._gas_damage_cd: float = 0.0
         self._respawn_timer: float = 0.0
         self._alien_counts: dict[str, int] = {}
+        # Building stash — Zone 2 has its own buildings separate from Zone 1
+        self._building_stash: dict | None = None
 
     def _rebuild_shielded_list(self) -> None:
         self._shielded_aliens = [
@@ -129,14 +131,21 @@ class Zone2(ZoneState):
         gv._wormhole_list.clear()
         gv._wormhole_list.append(wh)
 
+        gv._fog_grid = self._fog_grid
+        gv._fog_revealed = self._fog_revealed
+
+        # Restore Zone 2 buildings (stashed when the player left)
+        if self._building_stash is not None:
+            gv.building_list = self._building_stash["building_list"]
+            gv.turret_projectile_list = self._building_stash["turret_projectile_list"]
+            gv._trade_station = self._building_stash["_trade_station"]
+            gv._hover_building = None
+            self._building_stash = None
+        # First visit or no trade station yet
         if gv._trade_station is None:
             gv._spawn_trade_station()
         else:
-            # Relocate if trade station overlaps a gas cloud or asteroid
             self._validate_trade_station(gv)
-
-        gv._fog_grid = self._fog_grid
-        gv._fog_revealed = self._fog_revealed
 
     def teardown(self, gv: GameView) -> None:
         self._fog_grid = gv._fog_grid
@@ -144,6 +153,18 @@ class Zone2(ZoneState):
         self._alien_projectiles.clear()
         gv._wormholes.clear()
         gv._wormhole_list.clear()
+
+        # Stash Zone 2 buildings so MainZone doesn't overwrite them
+        self._building_stash = {
+            "building_list": gv.building_list,
+            "turret_projectile_list": gv.turret_projectile_list,
+            "_trade_station": gv._trade_station,
+        }
+        # Give GameView empty lists so MainZone.setup doesn't merge them
+        gv.building_list = arcade.SpriteList()
+        gv.turret_projectile_list = arcade.SpriteList()
+        gv._trade_station = None
+        gv._hover_building = None
 
     def get_player_spawn(self, entry_side: str) -> tuple[float, float]:
         return self._find_clear_position(
@@ -473,6 +494,54 @@ class Zone2(ZoneState):
         self._alien_projectiles.draw()
         gv.iron_pickup_list.draw()
         gv.blueprint_pickup_list.draw()
+
+    def background_update(self, gv: GameView, dt: float) -> None:
+        """Tick Zone 2 while the player is elsewhere — respawns + alien patrol."""
+        if not self._populated:
+            return
+
+        from zones.zone2_world import try_respawn
+        from constants import ALIEN_VEL_DAMPING
+
+        # Respawn timer
+        self._respawn_timer += dt
+        if self._respawn_timer >= RESPAWN_INTERVAL:
+            self._respawn_timer = 0.0
+            try_respawn(self, gv)
+            self._rebuild_shielded_list()
+
+        # Tick alien patrol AI (no player — patrol only)
+        damp = ALIEN_VEL_DAMPING ** (dt * 60.0)
+        for alien in self._aliens:
+            alien.vel_x *= damp
+            alien.vel_y *= damp
+            alien.center_x += alien.vel_x * dt
+            alien.center_y += alien.vel_y * dt
+            if alien._state == alien._STATE_PURSUE:
+                alien._state = alien._STATE_PATROL
+                alien._pick_patrol_target()
+            # Patrol movement toward waypoint
+            tdx = alien._tgt_x - alien.center_x
+            tdy = alien._tgt_y - alien.center_y
+            tdist = math.hypot(tdx, tdy)
+            if tdist < 8.0:
+                alien._pick_patrol_target()
+            elif tdist > 0.001:
+                step = min(getattr(alien, '_speed', 80) * dt, tdist)
+                alien.center_x += tdx / tdist * step
+                alien.center_y += tdy / tdist * step
+
+        # Tick asteroids (rotation)
+        for a in self._iron_asteroids:
+            a.update_asteroid(dt)
+        for a in self._double_iron:
+            a.update_asteroid(dt)
+        for a in self._copper_asteroids:
+            a.update_asteroid(dt)
+
+        # Wanderers drift randomly (no player magnet)
+        for w in self._wanderers:
+            w.angle = (w.angle + w._rot_speed * dt) % 360
 
     def to_save_data(self) -> dict:
         return {}

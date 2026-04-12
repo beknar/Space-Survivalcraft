@@ -1,11 +1,16 @@
 """Main zone (Double Star) — wraps the existing 6400x6400 gameplay."""
 from __future__ import annotations
 
+import random
 from typing import TYPE_CHECKING
 
 import arcade
 
-from constants import WORLD_WIDTH, WORLD_HEIGHT
+from constants import (
+    WORLD_WIDTH, WORLD_HEIGHT,
+    RESPAWN_INTERVAL, ALIEN_DETECT_DIST,
+    ALIEN_VEL_DAMPING,
+)
 from zones import ZoneID, ZoneState
 
 if TYPE_CHECKING:
@@ -81,6 +86,89 @@ class MainZone(ZoneState):
             # Return to where the player was when they left
             return self._stash.get("_player_pos", (WORLD_WIDTH / 2, WORLD_HEIGHT / 2))
         return WORLD_WIDTH / 2, WORLD_HEIGHT / 2
+
+    def background_update(self, gv: GameView, dt: float) -> None:
+        """Tick Zone 1 while the player is elsewhere — respawns + alien patrol."""
+        if not self._stash:
+            return
+
+        asteroid_list = self._stash.get("asteroid_list")
+        alien_list = self._stash.get("alien_list")
+        building_list = self._stash.get("building_list")
+
+        # Advance respawn timers
+        ast_timer = self._stash.get("_asteroid_respawn_timer", 0.0) + dt
+        ali_timer = self._stash.get("_alien_respawn_timer", 0.0) + dt
+
+        if ast_timer >= RESPAWN_INTERVAL:
+            ast_timer = 0.0
+            self._bg_respawn_asteroid(gv, asteroid_list, building_list)
+        if ali_timer >= RESPAWN_INTERVAL:
+            ali_timer = 0.0
+            self._bg_respawn_alien(gv, alien_list, building_list)
+
+        self._stash["_asteroid_respawn_timer"] = ast_timer
+        self._stash["_alien_respawn_timer"] = ali_timer
+
+        # Tick alien patrol AI (no player target — patrol only)
+        damp = ALIEN_VEL_DAMPING ** (dt * 60.0)
+        for alien in alien_list:
+            alien.vel_x *= damp
+            alien.vel_y *= damp
+            alien.center_x += alien.vel_x * dt
+            alien.center_y += alien.vel_y * dt
+            # Keep aliens patrolling within bounds
+            if alien._state == alien._STATE_PURSUE:
+                alien._state = alien._STATE_PATROL
+                alien._pick_patrol_target()
+            alien._update_movement(dt, -9999, -9999, asteroid_list, alien_list)
+
+        # Tick asteroids (rotation only)
+        for asteroid in asteroid_list:
+            asteroid.update_asteroid(dt)
+
+    def _bg_respawn_asteroid(self, gv, asteroid_list, building_list):
+        """Respawn one asteroid into the stashed list (no sound/sparks)."""
+        import math
+        from constants import ASTEROID_COUNT, ASTEROID_MIN_DIST, RESPAWN_EXCLUSION_RADIUS
+        if len(asteroid_list) >= ASTEROID_COUNT:
+            return
+        from sprites.asteroid import IronAsteroid
+        margin = 100
+        for _ in range(200):
+            ax = random.uniform(margin, WORLD_WIDTH - margin)
+            ay = random.uniform(margin, WORLD_HEIGHT - margin)
+            if math.hypot(ax - WORLD_WIDTH / 2, ay - WORLD_HEIGHT / 2) < ASTEROID_MIN_DIST:
+                continue
+            if building_list and any(
+                math.hypot(ax - b.center_x, ay - b.center_y) < RESPAWN_EXCLUSION_RADIUS
+                for b in building_list
+            ):
+                continue
+            asteroid_list.append(IronAsteroid(gv._asteroid_tex, ax, ay))
+            return
+
+    def _bg_respawn_alien(self, gv, alien_list, building_list):
+        """Respawn one alien into the stashed list (no sound/sparks)."""
+        import math
+        from constants import ALIEN_COUNT, ALIEN_MIN_DIST, RESPAWN_EXCLUSION_RADIUS
+        if len(alien_list) >= ALIEN_COUNT:
+            return
+        from sprites.alien import SmallAlienShip
+        margin = 100
+        for _ in range(200):
+            ax = random.uniform(margin, WORLD_WIDTH - margin)
+            ay = random.uniform(margin, WORLD_HEIGHT - margin)
+            if math.hypot(ax - WORLD_WIDTH / 2, ay - WORLD_HEIGHT / 2) < ALIEN_MIN_DIST:
+                continue
+            if building_list and any(
+                math.hypot(ax - b.center_x, ay - b.center_y) < RESPAWN_EXCLUSION_RADIUS
+                for b in building_list
+            ):
+                continue
+            alien_list.append(
+                SmallAlienShip(gv._alien_ship_tex, gv._alien_laser_tex, ax, ay))
+            return
 
     def to_save_data(self) -> dict:
         return {}  # Zone 1 state is saved by game_save.py's existing logic
