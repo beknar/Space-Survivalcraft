@@ -881,3 +881,241 @@ class TestStationInfoMusicZone2:
             f"(music={'on' if music_on else 'off'}): "
             f"{fps:.1f} FPS < {MIN_FPS} FPS threshold"
         )
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  Helper: build a heavy station with multiple turrets firing at aliens
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _build_turret_station(gv):
+    """Build a 9-module station with 3 turrets near the player, and ensure
+    aliens are within turret range so the turrets actively fire."""
+    from sprites.building import create_building
+
+    gv.building_list.clear()
+    cx, cy = gv.player.center_x, gv.player.center_y
+    station_types = [
+        "Home Station",
+        "Service Module", "Service Module", "Service Module",
+        "Turret 1", "Turret 2", "Turret 1",
+        "Repair Module",
+        "Power Receiver",
+    ]
+    spacing = 60
+    for i, bt in enumerate(station_types):
+        tex = gv._building_textures[bt]
+        laser = gv._turret_laser_tex if "Turret" in bt else None
+        bx = cx + 200 + (i % 3) * spacing
+        by = cy + (i // 3) * spacing
+        b = create_building(bt, tex, bx, by, laser_tex=laser, scale=0.5)
+        gv.building_list.append(b)
+
+    # Move a few aliens within turret range so turrets actively fire
+    from constants import TURRET_RANGE
+    turret_x = cx + 200
+    turret_y = cy
+    alien_list = gv.alien_list
+    from zones import ZoneID
+    if gv._zone.zone_id == ZoneID.ZONE2 and hasattr(gv._zone, '_aliens'):
+        alien_list = gv._zone._aliens
+    moved = 0
+    for alien in alien_list:
+        if moved >= 8:
+            break
+        alien.center_x = turret_x + (moved % 3 - 1) * 100
+        alien.center_y = turret_y + (moved // 3) * 100 + 150
+        moved += 1
+
+
+def _open_station_info_turrets(gv):
+    """Build turret station and open Station Info panel."""
+    from sprites.building import compute_modules_used, compute_module_capacity
+    from draw_logic import compute_world_stats, compute_inactive_zone_stats
+
+    _build_turret_station(gv)
+    gv._station_info.toggle(
+        gv.building_list,
+        compute_modules_used(gv.building_list),
+        compute_module_capacity(gv.building_list),
+        stat_lines=compute_world_stats(gv),
+        inactive_zone_stats=compute_inactive_zone_stats(gv),
+    )
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  Test 22: Full scenario — Station Info + turrets + music + L2 ship, Zone 1
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestFullScenarioZone1:
+    def test_full_scenario_zone1_above_threshold(self, real_game_view):
+        """Zone 1 with 30 aliens, 75 asteroids, 9-module station with 3
+        turrets actively firing, Station Info panel open, level 2 ship,
+        and background music playing. This is the heaviest realistic
+        Zone 1 scenario combining all overlays and combat systems."""
+        gv = real_game_view
+        if gv._zone.zone_id != ZoneID.MAIN:
+            gv._transition_zone(ZoneID.MAIN, entry_side="wormhole_return")
+
+        if gv._zone2 is None:
+            gv._transition_zone(ZoneID.ZONE2)
+            gv._transition_zone(ZoneID.MAIN, entry_side="wormhole_return")
+
+        _set_ship_level_2(gv)
+        music_on = _start_music(gv)
+        _open_station_info_turrets(gv)
+        assert gv._station_info.open
+
+        fps = _measure_fps(gv, n_warmup=15)
+        gv._station_info.open = False
+        _stop_music(gv)
+
+        assert fps >= MIN_FPS, (
+            f"Full scenario Zone 1 (music={'on' if music_on else 'off'}): "
+            f"{fps:.1f} FPS < {MIN_FPS} FPS threshold"
+        )
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  Test 23: Full scenario — Station Info + turrets + music + L2 ship, Zone 2
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestFullScenarioZone2:
+    def test_full_scenario_zone2_above_threshold(self, real_game_view):
+        """Zone 2 with ~60 aliens, ~150 asteroids, gas areas, wanderers,
+        9-module station with 3 turrets actively firing, Station Info
+        panel open, level 2 ship, and background music playing. Absolute
+        heaviest realistic scenario — uses 35 FPS threshold (vs 40 for
+        lighter tests) because this combines every expensive system."""
+        gv = real_game_view
+        gv._transition_zone(ZoneID.ZONE2)
+
+        _set_ship_level_2(gv)
+        music_on = _start_music(gv)
+        _open_station_info_turrets(gv)
+        assert gv._station_info.open
+
+        fps = _measure_fps(gv, n_warmup=15)
+        gv._station_info.open = False
+        _stop_music(gv)
+
+        _FULL_SCENARIO_MIN = 35  # relaxed: absolute worst-case scenario
+        assert fps >= _FULL_SCENARIO_MIN, (
+            f"Full scenario Zone 2 (music={'on' if music_on else 'off'}): "
+            f"{fps:.1f} FPS < {_FULL_SCENARIO_MIN} FPS threshold"
+        )
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  Helper: warp zone setup with videos + player firing + fog reveal
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _setup_warp_zone_test(gv, zone_id):
+    """Transition to a warp zone, start both videos, hold fire,
+    and advance a few frames to populate hazards and reveal fog."""
+    import math
+    gv._transition_zone(zone_id, entry_side="bottom")
+    assert gv._zone.zone_id == zone_id
+
+    # Start both video players
+    _start_both_videos_or_skip(gv)
+
+    # Move player upward and hold fire to reveal fog + generate projectiles
+    gv.player.center_x = gv._zone.world_width / 2
+    gv.player.center_y = 400
+    gv._keys.add(arcade.key.SPACE)  # fire weapon
+    gv._keys.add(arcade.key.W)      # thrust forward
+
+    dt = 1 / 60
+    # Advance frames to populate hazards and reveal fog
+    for i in range(30):
+        # Slowly move player up to reveal fog cells
+        gv.player.center_y = min(gv.player.center_y + 20,
+                                  gv._zone.world_height - 200)
+        gv.on_update(dt)
+        gv.on_draw()
+
+    gv._keys.discard(arcade.key.W)
+    # Keep firing during measurement
+    # gv._keys still has SPACE
+
+
+def _teardown_warp_zone_test(gv):
+    """Stop videos and release keys."""
+    gv._keys.discard(arcade.key.SPACE)
+    _stop_both_videos(gv)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  Test 24–27: All four warp zones with videos + firing + fog
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestWarpMeteorFull:
+    def test_warp_meteor_full_above_threshold(self, real_game_view):
+        """Meteor warp zone with meteors raining from all edges, both
+        videos playing, player firing mining beam, and fog revealing.
+        Meteors spawn every 0.15s — after 30 warmup frames there are
+        ~30 meteors in flight."""
+        gv = real_game_view
+        _setup_warp_zone_test(gv, ZoneID.WARP_METEOR)
+
+        fps = _measure_fps(gv, n_warmup=10)
+        _teardown_warp_zone_test(gv)
+
+        assert fps >= MIN_FPS, (
+            f"Warp Meteor full: {fps:.1f} FPS < {MIN_FPS} FPS threshold"
+        )
+
+
+class TestWarpLightningFull:
+    def test_warp_lightning_full_above_threshold(self, real_game_view):
+        """Lightning warp zone with 10-20 bolts per volley firing every
+        0.3-1.5s, both videos playing, player firing basic laser, and
+        fog revealing. Each bolt is drawn as a 4-segment jagged line."""
+        gv = real_game_view
+        _setup_warp_zone_test(gv, ZoneID.WARP_LIGHTNING)
+
+        fps = _measure_fps(gv, n_warmup=10)
+        _teardown_warp_zone_test(gv)
+
+        assert fps >= MIN_FPS, (
+            f"Warp Lightning full: {fps:.1f} FPS < {MIN_FPS} FPS threshold"
+        )
+
+
+class TestWarpGasFull:
+    def test_warp_gas_full_above_threshold(self, real_game_view):
+        """Gas cloud warp zone with ~36 gas clouds (incl. 3 extra-large
+        at 1500px), both videos playing, player firing, and fog revealing.
+        Gas clouds drift with Brownian motion and damage on contact."""
+        gv = real_game_view
+        _setup_warp_zone_test(gv, ZoneID.WARP_GAS)
+
+        fps = _measure_fps(gv, n_warmup=10)
+        _teardown_warp_zone_test(gv)
+
+        assert fps >= MIN_FPS, (
+            f"Warp Gas full: {fps:.1f} FPS < {MIN_FPS} FPS threshold"
+        )
+
+
+class TestWarpEnemyFull:
+    def test_warp_enemy_full_above_threshold(self, real_game_view):
+        """Enemy spawner warp zone with 4 spawners, ~24 mini-aliens after
+        force-spawning waves, both videos playing, player firing basic
+        laser, and fog revealing. Spawners and aliens both fire at player."""
+        gv = real_game_view
+        _setup_warp_zone_test(gv, ZoneID.WARP_ENEMY)
+
+        # Force extra spawn waves for maximum alien count
+        zone = gv._zone
+        for _ in range(3):
+            zone._spawn_timer = 0.0
+            zone.update(gv, 1 / 60)
+
+        fps = _measure_fps(gv, n_warmup=10)
+        _teardown_warp_zone_test(gv)
+
+        assert fps >= MIN_FPS, (
+            f"Warp Enemy full ({len(zone._aliens)} aliens): "
+            f"{fps:.1f} FPS < {MIN_FPS} FPS threshold"
+        )

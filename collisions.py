@@ -263,6 +263,8 @@ def handle_alien_laser_hits(gv: GameView) -> None:
 
 def handle_alien_laser_building_hits(gv: GameView) -> None:
     """Alien laser projectiles hitting station buildings."""
+    if len(gv.building_list) == 0 or len(gv.alien_projectile_list) == 0:
+        return
     from sprites.building import HomeStation
 
     for proj in list(gv.alien_projectile_list):
@@ -291,7 +293,25 @@ def handle_alien_laser_building_hits(gv: GameView) -> None:
 
 def handle_alien_building_collision(gv: GameView) -> None:
     """Alien ship vs station building: push-apart, bounce."""
-    for alien in list(gv.alien_list):
+    if len(gv.building_list) == 0:
+        return
+    # Pre-compute building cluster AABB to skip distant aliens cheaply
+    _margin = BUILDING_RADIUS + ALIEN_RADIUS + 20.0
+    _bx0 = _by0 = float('inf')
+    _bx1 = _by1 = float('-inf')
+    for b in gv.building_list:
+        bx, by = b.center_x, b.center_y
+        if bx < _bx0: _bx0 = bx
+        if bx > _bx1: _bx1 = bx
+        if by < _by0: _by0 = by
+        if by > _by1: _by1 = by
+    _bx0 -= _margin; _by0 -= _margin
+    _bx1 += _margin; _by1 += _margin
+
+    for alien in gv.alien_list:
+        ax, ay = alien.center_x, alien.center_y
+        if ax < _bx0 or ax > _bx1 or ay < _by0 or ay > _by1:
+            continue
         for building in arcade.check_for_collision_with_list(
             alien, gv.building_list
         ):

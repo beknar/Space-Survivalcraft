@@ -241,7 +241,7 @@ class Turret(StationModule):
                     best_dsq = dsq
                     target = boss
             self._cached_target = target
-            self._target_rescan_cd = 0.25  # rescan 4x per second
+            self._target_rescan_cd = 0.5  # rescan 2x per second
 
         if target is None:
             return

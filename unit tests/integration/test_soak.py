@@ -84,7 +84,7 @@ def _simulate_churn(gv, dt: float) -> None:
     gv._keys.discard(arcade.key.SPACE)
 
 
-def _run_soak(gv, label: str) -> None:
+def _run_soak(gv, label: str, min_fps: int = MIN_FPS) -> None:
     """Core soak loop: warmup, then measure FPS + memory every
     SAMPLE_INTERVAL_S seconds for SOAK_DURATION_S total."""
     dt = 1 / 60
@@ -144,9 +144,9 @@ def _run_soak(gv, label: str) -> None:
           f"frames={frame_count}")
 
     # Assertions
-    assert fps_min >= MIN_FPS, (
+    assert fps_min >= min_fps, (
         f"{label}: FPS dropped to {fps_min:.1f} "
-        f"(threshold: {MIN_FPS})"
+        f"(threshold: {min_fps})"
     )
     assert mem_growth <= MAX_MEMORY_GROWTH_MB, (
         f"{label}: memory grew by {mem_growth:.1f} MB "
@@ -661,3 +661,305 @@ class TestSoakStationInfoMusicZone2:
 
         gv._station_info.open = False
         _stop_music_for_soak(gv)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  Helper: build turret station for soak tests
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _build_turret_station_for_soak(gv):
+    """Build a 9-module station with 3 turrets and move aliens into range."""
+    from sprites.building import create_building
+
+    gv.building_list.clear()
+    cx, cy = gv.player.center_x, gv.player.center_y
+    station_types = [
+        "Home Station",
+        "Service Module", "Service Module", "Service Module",
+        "Turret 1", "Turret 2", "Turret 1",
+        "Repair Module",
+        "Power Receiver",
+    ]
+    spacing = 60
+    for i, bt in enumerate(station_types):
+        tex = gv._building_textures[bt]
+        laser = gv._turret_laser_tex if "Turret" in bt else None
+        bx = cx + 200 + (i % 3) * spacing
+        by = cy + (i // 3) * spacing
+        b = create_building(bt, tex, bx, by, laser_tex=laser, scale=0.5)
+        gv.building_list.append(b)
+
+    # Move aliens within turret range so turrets actively fire
+    turret_x = cx + 200
+    turret_y = cy
+    alien_list = gv.alien_list
+    if gv._zone.zone_id == ZoneID.ZONE2 and hasattr(gv._zone, '_aliens'):
+        alien_list = gv._zone._aliens
+    moved = 0
+    for alien in alien_list:
+        if moved >= 8:
+            break
+        alien.center_x = turret_x + (moved % 3 - 1) * 100
+        alien.center_y = turret_y + (moved // 3) * 100 + 150
+        moved += 1
+
+
+def _open_station_info_turrets_for_soak(gv):
+    """Build turret station and open Station Info panel."""
+    from sprites.building import compute_modules_used, compute_module_capacity
+    from draw_logic import compute_world_stats, compute_inactive_zone_stats
+
+    _build_turret_station_for_soak(gv)
+    gv._station_info.toggle(
+        gv.building_list,
+        compute_modules_used(gv.building_list),
+        compute_module_capacity(gv.building_list),
+        stat_lines=compute_world_stats(gv),
+        inactive_zone_stats=compute_inactive_zone_stats(gv),
+    )
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  Test 11: Full scenario soak — turrets + music + L2 ship in Zone 1
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestSoakFullScenarioZone1:
+    def test_full_scenario_zone1_5min_soak(self, real_game_view):
+        """5-minute soak with 9-module station (3 turrets actively firing),
+        Station Info panel open, level 2 ship, and background music in
+        Zone 1 with continuous combat. Tests:
+        - Turret projectile creation/despawn churn over 5 minutes
+        - Turret target cache invalidation during alien deaths/respawns
+        - Combined overlay + music + turret fire + combat overhead
+        - No FPS degradation from turret projectile list growth"""
+        gv = real_game_view
+        _setup_soak(gv, ZoneID.MAIN)
+
+        if gv._zone2 is None:
+            gv._transition_zone(ZoneID.ZONE2)
+            gv._transition_zone(ZoneID.MAIN, entry_side="wormhole_return")
+            _make_invulnerable(gv)
+
+        _set_ship_level_2_for_soak(gv)
+        _make_invulnerable(gv)
+        music_on = _start_music_for_soak(gv)
+        _open_station_info_turrets_for_soak(gv)
+        assert gv._station_info.open
+
+        label = f"Full scenario Zone 1 (music={'on' if music_on else 'off'})"
+        _run_soak(gv, label)
+
+        gv._station_info.open = False
+        _stop_music_for_soak(gv)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  Test 12: Full scenario soak — turrets + music + L2 ship in Zone 2
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestSoakFullScenarioZone2:
+    def test_full_scenario_zone2_5min_soak(self, real_game_view):
+        """5-minute soak with 9-module station (3 turrets actively firing),
+        Station Info panel open, level 2 ship, ~60 aliens, ~150 asteroids,
+        gas areas, wanderers, and background music in Zone 2 with
+        continuous combat. Absolute worst-case scenario — uses 35 FPS
+        threshold. Tests:
+        - Zone 2 alien AI + turret targeting + projectile churn combined
+        - Turret target cache with 60 Zone 2 aliens (4 types)
+        - Music decode + Station Info + turret fire + full Nebula load
+        - No memory growth from combined projectile + overlay churn"""
+        gv = real_game_view
+        _setup_soak(gv, ZoneID.ZONE2)
+
+        _set_ship_level_2_for_soak(gv)
+        _make_invulnerable(gv)
+        music_on = _start_music_for_soak(gv)
+        _open_station_info_turrets_for_soak(gv)
+        assert gv._station_info.open
+
+        label = f"Full scenario Zone 2 (music={'on' if music_on else 'off'})"
+        _run_soak(gv, label, min_fps=35)  # relaxed: absolute worst-case
+
+        gv._station_info.open = False
+        _stop_music_for_soak(gv)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  Warp zone soak helpers
+# ═══════════════════════════════════════════════════════════════════════════
+
+_WARP_SOAK_DURATION = 120  # 2 minutes
+
+def _setup_warp_soak(gv, zone_id):
+    """Set up a warp zone soak: transition, start videos, make invulnerable."""
+    from video_player import scan_characters_dir, character_video_path
+
+    gv._transition_zone(zone_id, entry_side="bottom")
+    _make_invulnerable(gv)
+
+    # Start character video
+    chars = scan_characters_dir()
+    if chars:
+        path = character_video_path(chars[0])
+        if path:
+            gv._char_video_player.play_segments(path, volume=0.0)
+    # Start music video (use second character file as stand-in)
+    if chars and len(chars) > 1:
+        path2 = character_video_path(chars[1])
+        if path2:
+            gv._video_player.play(path2, volume=0.0)
+
+    dt = 1 / 60
+    for _ in range(15):
+        gv.on_update(dt)
+        gv.on_draw()
+
+
+def _run_warp_soak(gv, label: str, min_fps: int = MIN_FPS) -> None:
+    """2-minute soak loop for warp zones with player firing and moving."""
+    import math as _math
+
+    dt = 1 / 60
+    # Warmup
+    for _ in range(WARMUP_FRAMES):
+        _simulate_churn(gv, dt)
+
+    fps_start = _measure_fps_quick(gv)
+    mem_start = _get_rss_mb()
+    print(f"\n  [{label}] START: {fps_start:.1f} FPS, {mem_start:.0f} MB RSS")
+
+    fps_samples = [fps_start]
+    fps_min = fps_start
+
+    soak_start = time.perf_counter()
+    last_sample = soak_start
+    tick = 0
+
+    while True:
+        elapsed = time.perf_counter() - soak_start
+        if elapsed >= _WARP_SOAK_DURATION:
+            break
+
+        # Move player in a zigzag to reveal fog and encounter hazards
+        tick += 1
+        gv.player.center_y = min(
+            gv.player.center_y + 2.0,
+            gv._zone.world_height - 200)
+        gv.player.center_x = (gv._zone.world_width / 2
+                                + _math.sin(tick * 0.05) * 400)
+        gv.player.hp = gv.player.max_hp
+        gv.player.shields = gv.player.max_shields
+
+        gv._keys.add(arcade.key.SPACE)  # fire
+        gv.on_update(dt)
+        gv.on_draw()
+        gv._keys.discard(arcade.key.SPACE)
+
+        now = time.perf_counter()
+        if now - last_sample >= SAMPLE_INTERVAL_S:
+            fps = _measure_fps_quick(gv)
+            mem = _get_rss_mb()
+            fps_samples.append(fps)
+            fps_min = min(fps_min, fps)
+            print(f"  [{label}] {elapsed / 60:.1f}m: "
+                  f"{fps:.1f} FPS, {mem:.0f} MB RSS "
+                  f"(+{mem - mem_start:.1f} MB)")
+            last_sample = now
+
+    fps_end = _measure_fps_quick(gv)
+    mem_end = _get_rss_mb()
+    fps_min = min(fps_min, fps_end)
+    mem_growth = mem_end - mem_start
+
+    print(f"  [{label}] END: {fps_end:.1f} FPS, {mem_end:.0f} MB RSS")
+    print(f"  [{label}] Summary: min FPS={fps_min:.1f}, "
+          f"mem growth={mem_growth:+.1f} MB")
+
+    assert fps_min >= min_fps, (
+        f"{label}: FPS dropped to {fps_min:.1f} (threshold: {min_fps})"
+    )
+    # Video decode buffers + pyglet media players accumulate RSS even though
+    # the memory is reusable by Python. Use a generous threshold for dual-
+    # video warp tests — RSS includes residue from prior tests in the
+    # session (tests share a single process/window).
+    _warp_mem_threshold = 600
+    assert mem_growth <= _warp_mem_threshold, (
+        f"{label}: memory grew by {mem_growth:.1f} MB "
+        f"(threshold: {_warp_mem_threshold} MB)"
+    )
+
+
+def _teardown_warp_soak(gv):
+    """Stop videos after warp soak."""
+    gv._keys.discard(arcade.key.SPACE)
+    gv._char_video_player.stop()
+    gv._video_player.stop()
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  Tests 13–16: Warp zone 2-minute soaks
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestSoakWarpMeteor:
+    def test_warp_meteor_2min_soak(self, real_game_view):
+        """2-minute soak in the Meteor warp zone with both videos,
+        player firing and moving upward to reveal fog. Meteors spawn
+        continuously at 0.15s intervals from all edges. Tests:
+        - Meteor SpriteList growth/cleanup over 2 minutes
+        - Video decode + meteor rendering overhead stability
+        - Fog texture rebuilds as player moves through the zone"""
+        gv = real_game_view
+        _setup_warp_soak(gv, ZoneID.WARP_METEOR)
+        _run_warp_soak(gv, "Warp Meteor soak")
+        _teardown_warp_soak(gv)
+
+
+class TestSoakWarpLightning:
+    def test_warp_lightning_2min_soak(self, real_game_view):
+        """2-minute soak in the Lightning warp zone with both videos,
+        player firing and moving. Lightning volleys of 10-20 bolts fire
+        every 0.3-1.5s with warning lines. Tests:
+        - Lightning bolt list growth/cleanup (list comprehension filter)
+        - Per-bolt 4-segment line drawing overhead
+        - Warning line rendering pulse animation"""
+        gv = real_game_view
+        _setup_warp_soak(gv, ZoneID.WARP_LIGHTNING)
+        _run_warp_soak(gv, "Warp Lightning soak")
+        _teardown_warp_soak(gv)
+
+
+class TestSoakWarpGas:
+    def test_warp_gas_2min_soak(self, real_game_view):
+        """2-minute soak in the Gas Cloud warp zone with both videos,
+        player firing and moving through gas clouds. ~36 gas clouds
+        with Brownian drift, 3 extra-large at 1500px. Tests:
+        - Gas cloud Brownian motion + damage tick accumulation
+        - Gas minimap octagon rendering with always-visible flag
+        - Screen darkening overlay when inside gas"""
+        gv = real_game_view
+        _setup_warp_soak(gv, ZoneID.WARP_GAS)
+        _run_warp_soak(gv, "Warp Gas soak")
+        _teardown_warp_soak(gv)
+
+
+class TestSoakWarpEnemy:
+    def test_warp_enemy_2min_soak(self, real_game_view):
+        """2-minute soak in the Enemy Spawner warp zone with both videos,
+        player firing at spawners and aliens. 4 spawners produce 6 aliens
+        per wave every 15s, building to 20+ aliens. Tests:
+        - Alien SpriteList growth from continuous spawning
+        - Alien projectile creation/despawn churn
+        - Spawner turret fire + mini-alien pursue AI combined
+        - Player projectile vs alien/spawner collision overhead"""
+        gv = real_game_view
+        _setup_warp_soak(gv, ZoneID.WARP_METEOR)  # reset first
+        _setup_warp_soak(gv, ZoneID.WARP_ENEMY)
+
+        # Force initial spawn waves
+        zone = gv._zone
+        for _ in range(2):
+            zone._spawn_timer = 0.0
+            zone.update(gv, 1 / 60)
+
+        _run_warp_soak(gv, f"Warp Enemy soak ({len(zone._aliens)} aliens)")
+        _teardown_warp_soak(gv)
