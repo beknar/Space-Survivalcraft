@@ -102,8 +102,120 @@ def find_nearest_snap_port(
     return best
 
 
+def _upgrade_ship(gv: GameView) -> None:
+    """Upgrade the player ship to the next level.
+
+    Deducts iron + copper cost, upgrades the player sprite/stats,
+    expands module slots, increases ability meter max, and shows a
+    flash message. All existing modules and cargo are preserved.
+    """
+    from constants import (
+        SHIP_MAX_LEVEL, SHIP_LEVEL_MODULE_BONUS, SHIP_LEVEL_ABILITY_BONUS,
+        MODULE_SLOT_COUNT,
+    )
+    from character_data import build_cost_multiplier
+    bt = "Advanced Ship"
+    stats = BUILDING_TYPES[bt]
+    if gv._ship_level >= SHIP_MAX_LEVEL:
+        gv._flash_msg = "Ship already at maximum level!"
+        gv._flash_timer = 2.0
+        return
+    # Resource check
+    cost_mult = build_cost_multiplier(audio.character_name, gv._char_level)
+    cost = int(stats["cost"] * cost_mult)
+    copper_cost = int(stats.get("cost_copper", 0) * cost_mult)
+    total_iron = gv.inventory.total_iron + gv._station_inv.total_iron
+    if total_iron < cost:
+        gv._flash_msg = "Not enough iron!"
+        gv._flash_timer = 2.0
+        return
+    if copper_cost > 0:
+        total_copper = (gv.inventory.count_item("copper")
+                        + gv._station_inv.count_item("copper"))
+        if total_copper < copper_cost:
+            gv._flash_msg = "Not enough copper!"
+            gv._flash_timer = 2.0
+            return
+    # Deduct iron
+    remaining = cost
+    ship_iron = min(remaining, gv.inventory.total_iron)
+    if ship_iron > 0:
+        gv.inventory.remove_item("iron", ship_iron)
+        remaining -= ship_iron
+    if remaining > 0:
+        gv._station_inv.remove_item("iron", remaining)
+    # Deduct copper
+    if copper_cost > 0:
+        remaining_cu = copper_cost
+        ship_cu = min(remaining_cu, gv.inventory.count_item("copper"))
+        if ship_cu > 0:
+            gv.inventory.remove_item("copper", ship_cu)
+            remaining_cu -= ship_cu
+        if remaining_cu > 0:
+            gv._station_inv.remove_item("copper", remaining_cu)
+    # Upgrade the ship
+    gv._ship_level += 1
+    gv.player.upgrade_ship()
+    # Expand module slots
+    new_slot_count = MODULE_SLOT_COUNT + (gv._ship_level - 1) * SHIP_LEVEL_MODULE_BONUS
+    old_slots = gv._module_slots
+    gv._module_slots = [None] * new_slot_count
+    for i in range(min(len(old_slots), new_slot_count)):
+        gv._module_slots[i] = old_slots[i]
+    gv.player.apply_modules(gv._module_slots)
+    gv._hud.set_module_count(new_slot_count)
+    gv._hud._mod_slots = list(gv._module_slots)
+    # Increase ability meter max
+    gv._ability_meter_max += SHIP_LEVEL_ABILITY_BONUS
+    gv._ability_meter = gv._ability_meter_max
+    # Flash message
+    gv._flash_msg = f"Ship upgraded to level {gv._ship_level}!"
+    gv._flash_timer = 3.0
+
+
 def enter_placement_mode(gv: GameView, building_type: str) -> None:
-    """Start building placement -- create ghost sprite following cursor."""
+    """Start building placement -- create ghost sprite following cursor.
+
+    Advanced Ship enters placement mode with the next-level ship texture
+    instead of a building texture.  Resource check happens up front.
+    """
+    if building_type == "Advanced Ship":
+        # Resource check before entering placement mode
+        from constants import SHIP_MAX_LEVEL
+        from character_data import build_cost_multiplier
+        bt_stats = BUILDING_TYPES[building_type]
+        if gv._ship_level >= SHIP_MAX_LEVEL:
+            gv._flash_msg = "Ship already at maximum level!"
+            gv._flash_timer = 2.0
+            return
+        cost_mult = build_cost_multiplier(audio.character_name, gv._char_level)
+        cost = int(bt_stats["cost"] * cost_mult)
+        copper_cost = int(bt_stats.get("cost_copper", 0) * cost_mult)
+        total_iron = gv.inventory.total_iron + gv._station_inv.total_iron
+        if total_iron < cost:
+            gv._flash_msg = "Not enough iron!"
+            gv._flash_timer = 2.0
+            return
+        if copper_cost > 0:
+            total_copper = (gv.inventory.count_item("copper")
+                            + gv._station_inv.count_item("copper"))
+            if total_copper < copper_cost:
+                gv._flash_msg = "Not enough copper!"
+                gv._flash_timer = 2.0
+                return
+        # Use next-level ship texture as the ghost
+        from sprites.player import PlayerShip
+        next_level = gv._ship_level + 1
+        tex = PlayerShip._extract_ship_texture(
+            gv._faction, gv._ship_type, next_level)
+        gv._ghost_sprite = arcade.Sprite(path_or_texture=tex, scale=0.75)
+        gv._ghost_sprite.alpha = 140
+        gv._ghost_list = arcade.SpriteList()
+        gv._ghost_list.append(gv._ghost_sprite)
+        gv._ghost_rotation = 0.0
+        gv._placing_building = building_type
+        gv._build_menu.open = False
+        return
     gv._placing_building = building_type
     tex = gv._building_textures[building_type]
     gv._ghost_sprite = arcade.Sprite(path_or_texture=tex, scale=0.5)
@@ -171,6 +283,11 @@ def place_building(gv: GameView, wx: float, wy: float) -> None:
     """Attempt to place the building at world position (wx, wy)."""
     bt = gv._placing_building
     if bt is None:
+        return
+    # Advanced Ship — place a new ship in the world
+    if bt == "Advanced Ship":
+        _place_new_ship(gv, wx, wy)
+        cancel_placement(gv)
         return
     stats = BUILDING_TYPES[bt]
     from character_data import build_cost_multiplier, station_hp_multiplier
@@ -333,3 +450,168 @@ def place_building(gv: GameView, wx: float, wy: float) -> None:
                 break
 
     cancel_placement(gv)
+
+
+# ── Ship placement & switching ────────────────────────────────────────────
+
+def _place_new_ship(gv: GameView, wx: float, wy: float) -> None:
+    """Place a new level ship at (wx, wy), leaving the old ship parked."""
+    from constants import (
+        SHIP_MAX_LEVEL, SHIP_LEVEL_MODULE_BONUS, SHIP_LEVEL_ABILITY_BONUS,
+        MODULE_SLOT_COUNT,
+    )
+    from character_data import build_cost_multiplier
+    from sprites.parked_ship import ParkedShip
+
+    bt_stats = BUILDING_TYPES["Advanced Ship"]
+    cost_mult = build_cost_multiplier(audio.character_name, gv._char_level)
+    cost = int(bt_stats["cost"] * cost_mult)
+    copper_cost = int(bt_stats.get("cost_copper", 0) * cost_mult)
+
+    # Deduct iron
+    remaining = cost
+    ship_iron = min(remaining, gv.inventory.total_iron)
+    if ship_iron > 0:
+        gv.inventory.remove_item("iron", ship_iron)
+        remaining -= ship_iron
+    if remaining > 0:
+        gv._station_inv.remove_item("iron", remaining)
+
+    # Deduct copper
+    if copper_cost > 0:
+        remaining_cu = copper_cost
+        ship_cu = min(remaining_cu, gv.inventory.count_item("copper"))
+        if ship_cu > 0:
+            gv.inventory.remove_item("copper", ship_cu)
+            remaining_cu -= ship_cu
+        if remaining_cu > 0:
+            gv._station_inv.remove_item("copper", remaining_cu)
+
+    # Create parked ship from current player (empty cargo — player keeps it)
+    old_parked = ParkedShip(
+        faction=gv._faction,
+        ship_type=gv._ship_type,
+        ship_level=gv._ship_level,
+        x=gv.player.center_x,
+        y=gv.player.center_y,
+        heading=gv.player.heading,
+    )
+    old_parked.hp = gv.player.hp
+    old_parked.max_hp = gv.player.max_hp
+    old_parked.shields = gv.player.shields
+    old_parked.max_shields = gv.player.max_shields
+    gv._parked_ships.append(old_parked)
+
+    # Upgrade active ship
+    gv._ship_level += 1
+    gv.player.upgrade_ship()
+
+    # Expand module slots
+    new_slot_count = MODULE_SLOT_COUNT + (gv._ship_level - 1) * SHIP_LEVEL_MODULE_BONUS
+    old_slots = gv._module_slots
+    gv._module_slots = [None] * new_slot_count
+    for i in range(min(len(old_slots), new_slot_count)):
+        gv._module_slots[i] = old_slots[i]
+    gv.player.apply_modules(gv._module_slots)
+    gv._hud.set_module_count(new_slot_count)
+    gv._hud._mod_slots = list(gv._module_slots)
+
+    # Increase ability meter
+    gv._ability_meter_max += SHIP_LEVEL_ABILITY_BONUS
+    gv._ability_meter = gv._ability_meter_max
+
+    # Teleport player to placement position
+    gv.player.center_x = wx
+    gv.player.center_y = wy
+    gv.player.vel_x = 0.0
+    gv.player.vel_y = 0.0
+
+    gv._flash_msg = f"Ship upgraded to level {gv._ship_level}!"
+    gv._flash_timer = 3.0
+
+
+def switch_to_ship(gv: GameView, target) -> None:
+    """Swap control from the active PlayerShip to a parked ship."""
+    from constants import (
+        MODULE_SLOT_COUNT, SHIP_LEVEL_MODULE_BONUS,
+        ABILITY_METER_MAX, SHIP_LEVEL_ABILITY_BONUS,
+    )
+    from sprites.player import PlayerShip
+    from sprites.parked_ship import ParkedShip
+
+    old_player = gv.player
+
+    # Snapshot current player into a ParkedShip
+    old_parked = ParkedShip(
+        faction=gv._faction,
+        ship_type=gv._ship_type,
+        ship_level=gv._ship_level,
+        x=old_player.center_x,
+        y=old_player.center_y,
+        heading=old_player.heading,
+    )
+    old_parked.hp = old_player.hp
+    old_parked.max_hp = old_player.max_hp
+    old_parked.shields = old_player.shields
+    old_parked.max_shields = old_player.max_shields
+    old_parked.cargo_items = dict(gv.inventory._items)
+    old_parked.module_slots = list(gv._module_slots)
+
+    # Create new PlayerShip from the target
+    new_player = PlayerShip(
+        faction=target.faction,
+        ship_type=target.ship_type,
+        ship_level=target.ship_level,
+    )
+    new_player.center_x = target.center_x
+    new_player.center_y = target.center_y
+    new_player.heading = target.heading
+    new_player.angle = target.heading
+    new_player.hp = target.hp
+    new_player.max_hp = target.max_hp
+    new_player.shields = target.shields
+    new_player.max_shields = target.max_shields
+    new_player.vel_x = 0.0
+    new_player.vel_y = 0.0
+    new_player.world_width = gv._zone.world_width
+    new_player.world_height = gv._zone.world_height
+
+    # Swap player reference
+    gv.player_list.clear()
+    gv.player = new_player
+    gv.player_list.append(new_player)
+
+    # Restore inventory from target
+    gv.inventory._items = dict(target.cargo_items)
+    gv.inventory._mark_dirty()
+
+    # Restore module slots
+    gv._ship_level = target.ship_level
+    slot_count = MODULE_SLOT_COUNT + (target.ship_level - 1) * SHIP_LEVEL_MODULE_BONUS
+    gv._module_slots = list(target.module_slots)
+    while len(gv._module_slots) < slot_count:
+        gv._module_slots.append(None)
+    gv._module_slots = gv._module_slots[:slot_count]
+    new_player.apply_modules(gv._module_slots)
+    gv._hud.set_module_count(slot_count)
+    gv._hud._mod_slots = list(gv._module_slots)
+
+    # Recalculate ability meter
+    gv._ability_meter_max = ABILITY_METER_MAX + (gv._ship_level - 1) * SHIP_LEVEL_ABILITY_BONUS
+    gv._ability_meter = min(gv._ability_meter, gv._ability_meter_max)
+
+    # Reload weapons for new ship's gun count
+    from world_setup import load_weapons
+    gv._weapons = load_weapons(new_player.guns)
+    gv._weapon_idx = 0
+
+    # Swap parked ships list
+    gv._parked_ships.remove(target)
+    gv._parked_ships.append(old_parked)
+
+    # Reposition shield
+    gv.shield_sprite.center_x = new_player.center_x
+    gv.shield_sprite.center_y = new_player.center_y
+
+    gv._flash_msg = f"Switched to level {gv._ship_level} ship!"
+    gv._flash_timer = 2.0

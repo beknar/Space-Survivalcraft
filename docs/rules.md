@@ -173,6 +173,14 @@ Triggered when player enters 500 px, or player weapon fires within 160 px (4x sh
 - **Turrets** freely placed within 300 px of Home Station (no docking)
 - Mouse wheel rotates during placement; ESC cancels
 - Destroying Home Station disables all modules
+- **Advanced Ship** uses placement mode with the next-level ship texture as ghost; places a new ship and leaves the old one as a ParkedShip
+
+### Parked Ship Rules
+- Old ships persist in the world with their own HP, shields, cargo, and modules
+- Click a parked ship within 300 px to switch control (inventory/modules/weapons swap)
+- Parked ships take damage from alien lasers, boss projectiles, and player weapons
+- Destroyed ships drop cargo as iron/copper pickups and modules as blueprint pickups
+- Parked ships are stashed during zone transitions and serialized in save/load
 
 ### Module Capacity
 - Base: 4 (from Home Station)

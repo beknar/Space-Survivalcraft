@@ -53,6 +53,10 @@ Welcome to the full documentation for **Call of Orion**, a top-down space surviv
 
 Zone 2 is the second biome, accessed through warp zones that appear when the boss is defeated. It features copper asteroids, toxic gas clouds, wandering magnetic asteroids, and 4 new alien types. Ranged aliens orbit the player at ~300 px standoff distance instead of charging, while the Rammer alien still charges directly. Wandering asteroids bounce off the player on contact with full knockback physics. Gas areas are shown on the minimap as proportionally-sized green octagonal outlines. In warp zones, gas hazards are always visible on the minimap regardless of fog of war. See [Features](features.md) and [Statistics](statistics.md) for full details.
 
+## Multi-Ship System
+
+Upgrading a ship via "Advanced Ship" in the build menu now places the new ship in the world (placement mode with ghost ship texture) rather than swapping textures in-place. The old ship persists as a `ParkedShip` sprite with its own HP, shields, cargo inventory, and module slots. Players click a parked ship within range to switch control --- inventory, modules, weapons, and ability meter all swap. Parked ships take damage from any source (aliens, boss, player weapons) and drop cargo as pickups on destruction. They appear on the minimap as teal dots and are stashed/restored during zone transitions.
+
 ## Cross-Zone Save/Load
 
 All zones are saved and restored independently. When saving from any zone, both Zone 1 (Double Star) and Zone 2 (Nebula) state is fully serialized --- including asteroids, aliens, fog of war, buildings, and wanderers. Zone 1 data is pulled from the MainZone stash when the player is in another zone. Zone 2 buildings are separately stashed/restored during zone transitions to survive round trips through warp zones. Zone 2 entity population and collision handling are in `zones/zone2_world.py`.
@@ -103,7 +107,7 @@ Several large optimizations target the Nebula zone, which can populate hundreds 
 
 ## Test Coverage
 
-The fast test suite (`unit tests/`, 373 tests across 21 files) runs in ~0.6 s and covers:
+The fast test suite (`unit tests/`, 393 tests across 22 files) runs in ~0.6 s and covers:
 
 - **Player physics** (`test_player.py`) — rotation, thrust, damping, clamping
 - **Weapons + projectiles** (`test_projectile.py`)
@@ -118,6 +122,7 @@ The fast test suite (`unit tests/`, 373 tests across 21 files) runs in ~0.6 s an
 - **Zone-aware Station Info** (`test_world_stats.py`) — Zone 1 and Zone 2 stat lines, including a regression lock for the "0 iron / 0 roids" Nebula bug
 - **Zone 2 update loop** (`test_zone2_update.py`) — 7 tests covering update branches including the `UnboundLocalError` regression (missing module-level import in `zone2.py`)
 - **CPU microbenchmarks** (`test_perf_micro.py`) — 8 tests for collision, inventory, fog, alien AI, minimap, and save serialization (all windowless, ~0.11 s)
+- **Parked ships** (`test_parked_ship.py`) — construction by level, HP/shield damage routing, hit flash, cargo/module storage, collision handler (alien/player/boss projectiles), destruction drops, serialization round trip
 - **Settings, video scanning, world setup helpers**
 
 The integration suite (`unit tests/integration/`, 63 tests across 5 files) requires an Arcade window and covers:
@@ -128,7 +133,7 @@ The integration suite (`unit tests/integration/`, 63 tests across 5 files) requi
 - **Resolution scaling** (`test_resolution_perf.py`) — 12 tests across all 6 RESOLUTION_PRESETS × 2 zones (Zone 1 + Zone 2); uses `apply_resolution` to resize a hidden window between tests; cannot run in parallel (one Arcade window per process)
 - **Soak/endurance** (`test_soak.py`) — 6 tests running 5 minutes each (~30 min total), measuring FPS + RSS every 30 s: Zone 1 combat, Zone 2 combat, video player, inventory churn (438 rebuilds, 80 MB threshold), fog texture rebuild, combined worst-case. Player made invulnerable to prevent premature death. Requires `psutil` dev dependency.
 
-Grand total: 436 tests (373 fast + 63 integration).
+Grand total: 462 tests (393 fast + 69 integration).
 
 Tests use PIL-generated dummy textures so no game assets are required. Fast tests need no Arcade window. `pytest` and `psutil` (for soak tests) are needed beyond the game's regular dependencies.
 

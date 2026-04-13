@@ -303,6 +303,18 @@ def handle_mouse_press(gv: GameView, x: int, y: int, button: int, modifiers: int
                 _, item_type, qty_str = action.split(":")
                 gv.inventory.add_item(item_type, int(qty_str))
         return
+    # Click on parked ships (switch control)
+    if not gv._build_menu.open and not gv._player_dead:
+        wx = gv.world_cam.position[0] - gv.window.width / 2 + x
+        wy = gv.world_cam.position[1] - gv.window.height / 2 + y
+        for ps in gv._parked_ships:
+            if math.hypot(wx - ps.center_x, wy - ps.center_y) < 40:
+                dist = math.hypot(gv.player.center_x - ps.center_x,
+                                  gv.player.center_y - ps.center_y)
+                if dist < STATION_INFO_RANGE:
+                    from building_manager import switch_to_ship
+                    switch_to_ship(gv, ps)
+                    return
     # Click on world buildings
     if not gv._build_menu.open and not gv._player_dead:
         wx = gv.world_cam.position[0] - gv.window.width / 2 + x

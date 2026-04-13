@@ -9,7 +9,7 @@ import arcade
 
 from constants import (
     FOG_GRID_W, FOG_GRID_H,
-    MODULE_SLOT_COUNT, QUICK_USE_SLOTS,
+    QUICK_USE_SLOTS,
     WORLD_WIDTH, WORLD_HEIGHT,
     DOUBLE_IRON_SCALE,
     ASTEROID_COUNT, DOUBLE_IRON_COUNT, COPPER_ASTEROID_COUNT,
@@ -449,6 +449,47 @@ def _save_zone2_state(gv: GameView) -> dict | None:
     }
 
 
+# ── Parked ship serialization ─────────────────────────────────────────────
+
+def _serialize_parked_ships(gv: GameView) -> list[dict]:
+    """Serialize all parked ships (current zone + stashed zones)."""
+    ships = []
+    for ps in gv._parked_ships:
+        ships.append({
+            "faction": ps.faction, "ship_type": ps.ship_type,
+            "ship_level": ps.ship_level,
+            "x": ps.center_x, "y": ps.center_y, "heading": ps.heading,
+            "hp": ps.hp, "max_hp": ps.max_hp,
+            "shields": ps.shields, "max_shields": ps.max_shields,
+            "cargo_items": [
+                {"r": r, "c": c, "type": it, "count": ct}
+                for (r, c), (it, ct) in ps.cargo_items.items()
+            ],
+            "module_slots": ps.module_slots,
+        })
+    return ships
+
+
+def _restore_parked_ships(gv: GameView, data: list[dict]) -> None:
+    """Restore parked ships from save data."""
+    from sprites.parked_ship import ParkedShip
+    gv._parked_ships.clear()
+    for psd in data:
+        ps = ParkedShip(
+            faction=psd["faction"], ship_type=psd["ship_type"],
+            ship_level=psd["ship_level"],
+            x=psd["x"], y=psd["y"], heading=psd.get("heading", 0.0),
+        )
+        ps.hp = psd["hp"]
+        ps.max_hp = psd.get("max_hp", ps.max_hp)
+        ps.shields = psd.get("shields", 0)
+        ps.max_shields = psd.get("max_shields", ps.max_shields)
+        for entry in psd.get("cargo_items", []):
+            ps.cargo_items[(entry["r"], entry["c"])] = (entry["type"], entry["count"])
+        ps.module_slots = psd.get("module_slots", [])
+        gv._parked_ships.append(ps)
+
+
 # ── Main save/restore ─────────────────────────────────────────────────────
 
 def save_to_dict(gv: GameView, name: str = "") -> dict:
@@ -461,6 +502,7 @@ def save_to_dict(gv: GameView, name: str = "") -> dict:
         "save_name": name,
         "faction": gv._faction,
         "ship_type": gv._ship_type,
+        "ship_level": gv._ship_level,
         "character_name": audio.character_name,
         "character_xp": gv._char_xp,
         "player": {
@@ -489,6 +531,7 @@ def save_to_dict(gv: GameView, name: str = "") -> dict:
         "credits": gv._trade_menu.credits,
         "zone_id": gv._zone.zone_id.name,
         "zone2_state": _save_zone2_state(gv),
+        "parked_ships": _serialize_parked_ships(gv),
         # Legacy compat
         "zone_seed": getattr(gv._zone, '_world_seed', None),
         "zone2_aliens": [],
@@ -572,12 +615,13 @@ def restore_state(view: GameView, data: dict) -> None:
     if si_data:
         view._station_inv.from_save_data(si_data)
 
-    # Module slots
+    # Module slots — slot count is dynamic based on ship level
     saved_mods = data.get("module_slots")
     if saved_mods and isinstance(saved_mods, list):
-        for i in range(min(len(saved_mods), MODULE_SLOT_COUNT)):
+        for i in range(min(len(saved_mods), len(view._module_slots))):
             view._module_slots[i] = saved_mods[i]
         view.player.apply_modules(view._module_slots)
+        view._hud.set_module_count(len(view._module_slots))
         view._hud._mod_slots = list(view._module_slots)
 
     # Unlocked recipes
@@ -671,6 +715,9 @@ def restore_state(view: GameView, data: dict) -> None:
                 view._zone._fog_grid = saved_fog
                 view._zone._fog_revealed = view._fog_revealed
 
+    # Parked ships
+    _restore_parked_ships(view, data.get("parked_ships", []))
+
 
 def load_game(gv: GameView, slot: int) -> None:
     """Load game state from a numbered save slot and rebuild the view."""
@@ -684,6 +731,7 @@ def load_game(gv: GameView, slot: int) -> None:
     gv._cleanup()
     gc.collect()
     from game_view import GameView as GV
-    view = GV(faction=data.get("faction"), ship_type=data.get("ship_type"))
+    view = GV(faction=data.get("faction"), ship_type=data.get("ship_type"),
+              ship_level=data.get("ship_level", 1))
     restore_state(view, data)
     gv.window.show_view(view)

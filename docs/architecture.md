@@ -142,6 +142,7 @@ collisions.py
 - **Zone 2 building stash** --- `Zone2.teardown()` saves building state into `_building_stash` dict; `Zone2.setup()` restores it; prevents MainZone from overwriting Zone 2 buildings during zone transitions
 - **Background zone simulation** --- `ZoneState.background_update(gv, dt)` virtual method; `MainZone` operates on stashed sprite lists, `Zone2` on its own lists; called from `GameView.on_update` when `audio.simulate_all_zones` is True
 - **Inactive zone info panel** --- `draw_logic.compute_inactive_zone_stats()` reads Zone 1 stash and Zone 2 sprite list counts; `StationInfo._draw_inactive_zones()` renders a dynamically-sized "Other Zones" panel with pre-pooled `arcade.Text` objects
+- **Multi-ship system** --- `ParkedShip(arcade.Sprite)` in `sprites/parked_ship.py` stores faction, type, level, HP, shields, `cargo_items` dict, and `module_slots` list. NOT a StationModule subclass. `building_manager._place_new_ship()` creates a ParkedShip from the current player and upgrades the active ship. `building_manager.switch_to_ship()` snapshots the current player into a new ParkedShip, creates a new PlayerShip from the target, and swaps inventory/modules/weapons/ability meter. `collisions.handle_parked_ship_damage()` checks alien, player, and boss projectiles against `gv._parked_ships`. `_destroy_parked_ship()` drops cargo and modules. Parked ships stashed in `_ZONE1_LISTS` and Zone 2's `_building_stash`; serialized via `game_save._serialize_parked_ships()`.
 
 ## View Flow
 

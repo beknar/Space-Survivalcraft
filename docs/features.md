@@ -114,6 +114,16 @@
 - **Ship Stats panel** (C key, 380x520) shows stats with module modifications and all character benefits up to level 10
 - **Character Bio panel** (360x520) alongside Ship Stats with random portrait and backstory
 
+## Multi-Ship System
+
+- **Ship upgrades via build menu** --- "Advanced Ship" enters placement mode with the next-level ship texture as a ghost; place near the station to upgrade
+- **Old ship persists** --- the previous ship stays in the world as a `ParkedShip` with its own HP, shields, cargo, and module slots
+- **Click to switch** --- fly near a parked ship and left-click to transfer control; inventory, modules, weapons, and ability meter all swap
+- **Damage from any source** --- parked ships take damage from alien lasers, boss projectiles, and player weapons (friendly fire)
+- **Destruction drops** --- destroyed ships drop cargo as iron/copper pickups and equipped modules as blueprint pickups
+- **Minimap markers** --- parked ships shown as teal dots on the minimap
+- **Zone-aware** --- parked ships stashed/restored during zone transitions and fully serialized in save/load
+
 ## Space Station Building System
 
 - Build menu (B key) with iron cost from ship + station inventory

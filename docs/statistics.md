@@ -334,6 +334,20 @@ Settings stored in `config.json` (gitignored):
 
 ---
 
+## Parked Ship Stats
+
+Parked ships inherit HP and shields from `SHIP_TYPES[ship_type]` + level bonuses (`SHIP_LEVEL_HP_BONUS = 25`, `SHIP_LEVEL_SHIELD_BONUS = 25` per level above 1). Shields absorb damage first, overflow hits HP. On destruction, all cargo drops as pickups and equipped modules drop as blueprint pickups.
+
+| Attribute | Source |
+|---|---|
+| HP | `SHIP_TYPES[ship_type]["hp"] + (level - 1) * 25` |
+| Shields | `SHIP_TYPES[ship_type]["shields"] + (level - 1) * 25` |
+| Switch range | 300 px (same as `STATION_INFO_RANGE`) |
+| Click radius | 40 px |
+| Minimap marker | Teal dot, size 6 |
+
+---
+
 ## Item Stack Limits
 
 | Item | Max Stack |

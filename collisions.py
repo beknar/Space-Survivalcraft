@@ -510,3 +510,64 @@ def handle_boss_charge_hit(gv: GameView) -> None:
                 gv.player.vel_y += ny * 400.0
             arcade.play_sound(gv._bump_snd, volume=0.8)
             gv._trigger_shake()
+
+
+# ── Parked ship collision handlers ────────────────────────────────────────
+
+
+def _destroy_parked_ship(gv: GameView, ship) -> None:
+    """Destroy a parked ship, dropping cargo as pickups."""
+    gv._spawn_explosion(ship.center_x, ship.center_y)
+    arcade.play_sound(gv._explosion_snd, volume=0.7)
+    # Drop cargo as iron/copper pickups
+    for (_r, _c), (item_type, count) in ship.cargo_items.items():
+        if item_type == "iron" and count > 0:
+            gv._spawn_iron_pickup(ship.center_x, ship.center_y, amount=count)
+        elif item_type == "copper" and count > 0:
+            gv._spawn_iron_pickup(ship.center_x, ship.center_y, amount=count)
+    # Drop modules as blueprint pickups
+    for mod in ship.module_slots:
+        if mod is not None:
+            from sprites.pickup import BlueprintPickup
+            bp = BlueprintPickup(
+                gv._blueprint_tex, ship.center_x, ship.center_y,
+                module_type=mod)
+            gv.blueprint_pickup_list.append(bp)
+    ship.remove_from_sprite_lists()
+
+
+def handle_parked_ship_damage(gv: GameView) -> None:
+    """All projectiles (alien, player, boss, turret) vs parked ships."""
+    if len(gv._parked_ships) == 0:
+        return
+    # Alien lasers
+    for proj in list(gv.alien_projectile_list):
+        hits = arcade.check_for_collision_with_list(proj, gv._parked_ships)
+        if hits:
+            ship = hits[0]
+            gv.hit_sparks.append(HitSpark(proj.center_x, proj.center_y))
+            proj.remove_from_sprite_lists()
+            ship.take_damage(int(proj.damage))
+            if ship.hp <= 0:
+                _destroy_parked_ship(gv, ship)
+    # Player projectiles (friendly fire)
+    for proj in list(gv.projectile_list):
+        hits = arcade.check_for_collision_with_list(proj, gv._parked_ships)
+        if hits:
+            ship = hits[0]
+            gv.hit_sparks.append(HitSpark(proj.center_x, proj.center_y))
+            proj.remove_from_sprite_lists()
+            ship.take_damage(int(proj.damage))
+            if ship.hp <= 0:
+                _destroy_parked_ship(gv, ship)
+    # Boss projectiles
+    if gv._boss is not None:
+        for proj in list(gv._boss_projectile_list):
+            hits = arcade.check_for_collision_with_list(proj, gv._parked_ships)
+            if hits:
+                ship = hits[0]
+                gv.hit_sparks.append(HitSpark(proj.center_x, proj.center_y))
+                proj.remove_from_sprite_lists()
+                ship.take_damage(int(proj.damage))
+                if ship.hp <= 0:
+                    _destroy_parked_ship(gv, ship)

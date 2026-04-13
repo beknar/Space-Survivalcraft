@@ -8,6 +8,7 @@ from sprites.alien import SmallAlienShip
 from sprites.boss import BossAlienShip
 from sprites.wormhole import Wormhole
 from sprites.player import PlayerShip
+from sprites.parked_ship import ParkedShip
 from sprites.contrail import ContrailParticle
 from sprites.building import (
     StationModule, HomeStation, ServiceModule, PowerReceiver,
@@ -27,6 +28,7 @@ __all__ = [
     "BossAlienShip",
     "Wormhole",
     "PlayerShip",
+    "ParkedShip",
     "ContrailParticle",
     "StationModule",
     "HomeStation",

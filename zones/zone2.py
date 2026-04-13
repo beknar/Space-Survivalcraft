@@ -139,6 +139,8 @@ class Zone2(ZoneState):
             gv.building_list = self._building_stash["building_list"]
             gv.turret_projectile_list = self._building_stash["turret_projectile_list"]
             gv._trade_station = self._building_stash["_trade_station"]
+            gv._parked_ships = self._building_stash.get(
+                "_parked_ships", arcade.SpriteList())
             gv._hover_building = None
             self._building_stash = None
         # First visit or no trade station yet
@@ -159,9 +161,11 @@ class Zone2(ZoneState):
             "building_list": gv.building_list,
             "turret_projectile_list": gv.turret_projectile_list,
             "_trade_station": gv._trade_station,
+            "_parked_ships": gv._parked_ships,
         }
         # Give GameView empty lists so MainZone.setup doesn't merge them
         gv.building_list = arcade.SpriteList()
+        gv._parked_ships = arcade.SpriteList()
         gv.turret_projectile_list = arcade.SpriteList()
         gv._trade_station = None
         gv._hover_building = None

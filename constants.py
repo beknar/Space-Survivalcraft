@@ -275,6 +275,13 @@ SHIP_TYPES = {
                     "max_speed": 400.0, "damping": 0.98875, "guns": 2},
 }
 
+# Ship level upgrade bonuses (per level above 1)
+SHIP_LEVEL_HP_BONUS: int = 25          # +25 max HP per upgrade
+SHIP_LEVEL_SHIELD_BONUS: int = 25      # +25 max shields per upgrade
+SHIP_LEVEL_ABILITY_BONUS: float = 25.0 # +25 ability meter max per upgrade
+SHIP_LEVEL_MODULE_BONUS: int = 2       # +2 module slots per upgrade
+SHIP_MAX_LEVEL: int = 8                # columns 0-7 in faction sprite sheet
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # 8. Ship Module System
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -457,8 +464,9 @@ BUILDING_TYPES = {
                         "free_place": False, "slots_used": 2},
     "Advanced Ship":   {"png": "spaceBuilding_006.png", "hp": 100, "cost": 1000,
                         "cost_copper": 500,
-                        "max": 1,    "module_slots": 0, "connectable": True,
-                        "free_place": False, "slots_used": 1},
+                        "max": None, "module_slots": 0, "connectable": False,
+                        "free_place": True, "slots_used": 0,
+                        "is_ship": True},
     "Shield Generator": {"png": "spaceBuilding_002.png", "hp": 150, "cost": 800,
                         "cost_copper": 400,
                         "max": 1,    "module_slots": 0, "connectable": True,

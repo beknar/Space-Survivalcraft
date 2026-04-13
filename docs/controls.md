@@ -44,3 +44,4 @@ Gamepad dead zone: 0.15
 - **Craft menu**: Left-click a placed Basic Crafter within 300 px
 - **Trade menu**: Left-click the Trading Station within 300 px
 - **Destroy mode**: Open build menu (B), click DESTROY, then left-click buildings to remove them
+- **Ship switching**: Fly within 300 px of a parked ship and left-click to transfer control

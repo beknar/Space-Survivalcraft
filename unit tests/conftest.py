@@ -100,6 +100,8 @@ class StubGameView(SimpleNamespace):
             asteroid_list=arcade.SpriteList(),
             projectile_list=arcade.SpriteList(),
             turret_projectile_list=arcade.SpriteList(),
+            _boss_projectile_list=arcade.SpriteList(),
+            _parked_ships=arcade.SpriteList(),
             hit_sparks=[],
 
             # Wormhole / zone state

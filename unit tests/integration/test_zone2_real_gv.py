@@ -534,3 +534,251 @@ class TestMultiZoneChain:
         assert gv._fog_grid is not None
         # Building list should have at least the Home Station
         assert any(b.building_type == "Home Station" for b in gv.building_list)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  #11 — Parked ship placement via _place_new_ship
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestParkedShipPlacement:
+    def test_place_new_ship_creates_parked_and_upgrades(self, real_game_view):
+        """Placing an Advanced Ship creates a ParkedShip at the player's
+        old position and upgrades the active ship to the next level."""
+        from building_manager import _place_new_ship
+        from sprites.building import create_building
+
+        gv = real_game_view
+        if gv._zone.zone_id != ZoneID.MAIN:
+            gv._transition_zone(ZoneID.MAIN, entry_side="wormhole_return")
+
+        # Build Home Station (required for upgrade)
+        gv.building_list.clear()
+        tex = gv._building_textures["Home Station"]
+        gv.building_list.append(
+            create_building("Home Station", tex,
+                            WORLD_WIDTH / 2, WORLD_HEIGHT / 2, scale=0.5))
+
+        # Give enough resources
+        gv.inventory.add_item("iron", 5000)
+        gv._station_inv.add_item("copper", 5000)
+
+        old_level = gv._ship_level
+        old_x = gv.player.center_x
+        old_y = gv.player.center_y
+
+        _place_new_ship(gv, WORLD_WIDTH / 2 + 200, WORLD_HEIGHT / 2 + 200)
+
+        # Active ship upgraded
+        assert gv._ship_level == old_level + 1
+        # Player teleported to placement position
+        assert abs(gv.player.center_x - (WORLD_WIDTH / 2 + 200)) < 1.0
+        assert abs(gv.player.center_y - (WORLD_HEIGHT / 2 + 200)) < 1.0
+        # Old ship left as parked
+        assert len(gv._parked_ships) == 1
+        ps = gv._parked_ships[0]
+        assert ps.ship_level == old_level
+        assert abs(ps.center_x - old_x) < 1.0
+        assert abs(ps.center_y - old_y) < 1.0
+
+    def test_place_new_ship_deducts_resources(self, real_game_view):
+        """Placing an Advanced Ship deducts iron and copper."""
+        from building_manager import _place_new_ship
+        from sprites.building import create_building
+
+        gv = real_game_view
+        if gv._zone.zone_id != ZoneID.MAIN:
+            gv._transition_zone(ZoneID.MAIN, entry_side="wormhole_return")
+
+        gv.building_list.clear()
+        tex = gv._building_textures["Home Station"]
+        gv.building_list.append(
+            create_building("Home Station", tex,
+                            WORLD_WIDTH / 2, WORLD_HEIGHT / 2, scale=0.5))
+
+        gv.inventory._items.clear()
+        gv.inventory.add_item("iron", 5000)
+        gv.inventory._mark_dirty()
+        gv._station_inv._items.clear()
+        gv._station_inv.add_item("copper", 5000)
+        gv._station_inv._mark_dirty()
+
+        iron_before = gv.inventory.total_iron + gv._station_inv.total_iron
+        copper_before = (gv.inventory.count_item("copper")
+                         + gv._station_inv.count_item("copper"))
+
+        _place_new_ship(gv, 3200, 3200)
+
+        iron_after = gv.inventory.total_iron + gv._station_inv.total_iron
+        copper_after = (gv.inventory.count_item("copper")
+                        + gv._station_inv.count_item("copper"))
+
+        assert iron_after < iron_before
+        assert copper_after < copper_before
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  #12 — Ship switching
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestShipSwitching:
+    def test_switch_to_ship_swaps_player(self, real_game_view):
+        """Switching to a parked ship replaces the active player and
+        creates a new parked ship from the old player."""
+        from building_manager import switch_to_ship, _place_new_ship
+        from sprites.building import create_building
+
+        gv = real_game_view
+        if gv._zone.zone_id != ZoneID.MAIN:
+            gv._transition_zone(ZoneID.MAIN, entry_side="wormhole_return")
+
+        gv.building_list.clear()
+        tex = gv._building_textures["Home Station"]
+        gv.building_list.append(
+            create_building("Home Station", tex,
+                            WORLD_WIDTH / 2, WORLD_HEIGHT / 2, scale=0.5))
+
+        gv.inventory.add_item("iron", 5000)
+        gv._station_inv.add_item("copper", 5000)
+
+        # Place an upgrade (creates parked ship)
+        _place_new_ship(gv, WORLD_WIDTH / 2 + 200, WORLD_HEIGHT / 2)
+        assert len(gv._parked_ships) == 1
+        assert gv._ship_level == 2
+
+        # Put some cargo in active ship's inventory
+        gv.inventory.add_item("iron", 100)
+        l2_iron = gv.inventory.total_iron
+
+        # Switch back to the parked level 1 ship
+        target = gv._parked_ships[0]
+        switch_to_ship(gv, target)
+
+        # Now piloting level 1
+        assert gv._ship_level == 1
+        # Parked ship is now the level 2
+        assert len(gv._parked_ships) == 1
+        ps = gv._parked_ships[0]
+        assert ps.ship_level == 2
+        # Level 2 ship's cargo should have the iron we added
+        total_parked_iron = sum(
+            ct for (_, ct) in ps.cargo_items.values()
+            if ct > 0)
+        assert total_parked_iron == l2_iron
+
+    def test_switch_preserves_modules(self, real_game_view):
+        """Module slots are preserved through a switch round trip."""
+        from building_manager import switch_to_ship, _place_new_ship
+        from sprites.building import create_building
+
+        gv = real_game_view
+        if gv._zone.zone_id != ZoneID.MAIN:
+            gv._transition_zone(ZoneID.MAIN, entry_side="wormhole_return")
+
+        gv.building_list.clear()
+        tex = gv._building_textures["Home Station"]
+        gv.building_list.append(
+            create_building("Home Station", tex,
+                            WORLD_WIDTH / 2, WORLD_HEIGHT / 2, scale=0.5))
+        gv.inventory.add_item("iron", 5000)
+        gv._station_inv.add_item("copper", 5000)
+
+        # Equip a module before upgrading
+        gv._module_slots[0] = "armor_plate"
+        gv.player.apply_modules(gv._module_slots)
+
+        _place_new_ship(gv, WORLD_WIDTH / 2 + 200, WORLD_HEIGHT / 2)
+
+        # Level 2 ship should have the armor plate
+        assert "armor_plate" in gv._module_slots
+
+        # Switch to level 1 (empty modules)
+        target = gv._parked_ships[0]
+        switch_to_ship(gv, target)
+        assert gv._module_slots == target.module_slots or gv._module_slots[0] is None
+
+        # Switch back to level 2 (should have armor plate)
+        target2 = gv._parked_ships[0]
+        switch_to_ship(gv, target2)
+        assert "armor_plate" in gv._module_slots
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  #13 — Parked ship save/load round trip
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestParkedShipSaveLoad:
+    def test_parked_ships_survive_save_load(self, real_game_view):
+        """Parked ships persist through a full save → load cycle."""
+        import json
+        from game_save import save_to_dict, restore_state
+        from building_manager import _place_new_ship
+        from sprites.building import create_building
+
+        gv = real_game_view
+        if gv._zone.zone_id != ZoneID.MAIN:
+            gv._transition_zone(ZoneID.MAIN, entry_side="wormhole_return")
+
+        gv.building_list.clear()
+        tex = gv._building_textures["Home Station"]
+        gv.building_list.append(
+            create_building("Home Station", tex,
+                            WORLD_WIDTH / 2, WORLD_HEIGHT / 2, scale=0.5))
+        gv.inventory.add_item("iron", 5000)
+        gv._station_inv.add_item("copper", 5000)
+
+        _place_new_ship(gv, WORLD_WIDTH / 2 + 200, WORLD_HEIGHT / 2)
+        assert len(gv._parked_ships) == 1
+        ps = gv._parked_ships[0]
+        ps.cargo_items[(0, 0)] = ("iron", 42)
+        ps.module_slots = ["armor_plate", None]
+
+        # Save
+        data = json.loads(json.dumps(save_to_dict(gv, "test_parked")))
+        assert "parked_ships" in data
+        assert len(data["parked_ships"]) == 1
+
+        # Clobber state
+        gv._parked_ships.clear()
+        assert len(gv._parked_ships) == 0
+
+        # Restore
+        restore_state(gv, data)
+        assert len(gv._parked_ships) == 1
+        restored = gv._parked_ships[0]
+        assert restored.ship_level == ps.ship_level
+        assert restored.cargo_items[(0, 0)] == ("iron", 42)
+        assert restored.module_slots == ["armor_plate", None]
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  #14 — Parked ships stashed across zone transitions
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestParkedShipZoneTransition:
+    def test_parked_ships_survive_zone2_round_trip(self, real_game_view):
+        """Parked ships in Zone 1 survive a Zone 1 → Zone 2 → Zone 1
+        round trip via the zone stash system."""
+        from building_manager import _place_new_ship
+        from sprites.building import create_building
+
+        gv = real_game_view
+        if gv._zone.zone_id != ZoneID.MAIN:
+            gv._transition_zone(ZoneID.MAIN, entry_side="wormhole_return")
+
+        gv.building_list.clear()
+        tex = gv._building_textures["Home Station"]
+        gv.building_list.append(
+            create_building("Home Station", tex,
+                            WORLD_WIDTH / 2, WORLD_HEIGHT / 2, scale=0.5))
+        gv.inventory.add_item("iron", 5000)
+        gv._station_inv.add_item("copper", 5000)
+
+        _place_new_ship(gv, WORLD_WIDTH / 2 + 200, WORLD_HEIGHT / 2)
+        assert len(gv._parked_ships) == 1
+
+        # Go to Zone 2 and back
+        gv._transition_zone(ZoneID.ZONE2)
+        assert len(gv._parked_ships) == 0  # stashed with Zone 1
+
+        gv._transition_zone(ZoneID.MAIN, entry_side="wormhole_return")
+        assert len(gv._parked_ships) == 1  # restored

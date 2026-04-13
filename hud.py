@@ -446,6 +446,7 @@ class HUD:
         ability_meter_max: float = 100.0,
         gas_positions: list[tuple[float, float, float]] | None = None,
         gas_always_visible: bool = False,
+        parked_ship_positions: list[tuple[float, float]] | None = None,
     ) -> None:
         """Draw the full HUD status panel."""
         # Panel background
@@ -533,4 +534,5 @@ class HUD:
             zone_height=zone_height,
             gas_positions=gas_positions,
             gas_always_visible=gas_always_visible,
+            parked_ship_positions=parked_ship_positions,
         )

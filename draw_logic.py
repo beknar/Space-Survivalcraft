@@ -59,6 +59,7 @@ def draw_world(gv: GameView, cx: float, cy: float, hw: float, hh: float) -> None
         gv.blueprint_pickup_list.draw()
         gv.explosion_list.draw()
         gv.building_list.draw()
+        gv._parked_ships.draw()
         if gv._wormholes:
             gv._wormhole_list.draw()
         gv.turret_projectile_list.draw()
@@ -70,6 +71,7 @@ def draw_world(gv: GameView, cx: float, cy: float, hw: float, hh: float) -> None
     else:
         gv.explosion_list.draw()
         gv._zone.draw_world(gv, cx, cy, hw, hh)
+        gv._parked_ships.draw()
 
     # Trade station (shared across all zones — drawn after zone entities)
     _draw_trade_station(gv)
@@ -119,6 +121,22 @@ def draw_world(gv: GameView, cx: float, cy: float, hw: float, hh: float) -> None
         arcade.draw_circle_filled(
             gv.player.center_x, gv.player.center_y,
             radius, (r, g, b, alpha))
+    # Parked ship HP bars (world space)
+    for ps in gv._parked_ships:
+        if ps.hp < ps.max_hp:
+            bw, bh = 40, 4
+            bx = ps.center_x - bw / 2
+            by = ps.center_y + 30
+            arcade.draw_rect_filled(arcade.LBWH(bx, by, bw, bh), (40, 40, 40, 200))
+            fill = max(1, int(bw * ps.hp / ps.max_hp))
+            arcade.draw_rect_filled(arcade.LBWH(bx, by, fill, bh), (0, 200, 0, 220))
+    # Hover tooltip for parked ships
+    if gv._hover_parked_ship is not None:
+        ps = gv._hover_parked_ship
+        tx, ty = ps.center_x, ps.center_y + 45
+        label = f"Level {ps.ship_level} Ship (HP {ps.hp}/{ps.max_hp}) — Click to board"
+        arcade.draw_text(label, tx, ty, arcade.color.WHITE, 9, bold=True,
+                         anchor_x="center", anchor_y="bottom")
     for spark in gv.hit_sparks:
         spark.draw()
     for fs in gv.fire_sparks:
@@ -306,6 +324,7 @@ def draw_ui(gv: GameView) -> None:
         ability_meter_max=gv._ability_meter_max,
         gas_positions=_gas_positions(gv),
         gas_always_visible=_gas_always_visible(gv),
+        parked_ship_positions=[(ps.center_x, ps.center_y) for ps in gv._parked_ships],
     )
     # Video frame draws (skip when menu open)
     if not menu_open:

@@ -39,6 +39,7 @@ from collisions import (
     handle_boss_laser_hits,
     handle_boss_building_hits,
     handle_boss_charge_hit,
+    handle_parked_ship_damage,
 )
 
 if TYPE_CHECKING:
@@ -416,6 +417,11 @@ def update_entities(gv: GameView, dt: float) -> None:
     for proj in list(gv.alien_projectile_list):
         proj.update_projectile(dt)
     handle_alien_laser_hits(gv)
+
+    # Parked ship damage + animation update
+    handle_parked_ship_damage(gv)
+    for ps in gv._parked_ships:
+        ps.update_parked(dt)
 
 
 def update_buildings(gv: GameView, dt: float) -> None:

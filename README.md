@@ -20,6 +20,7 @@ A top-down space survival game built with Python and the Arcade framework. Pilot
 - **30 alien scouts** with patrol/pursue/orbit AI and obstacle avoidance
 - **75 minable asteroids** that drop iron and copper ore for crafting
 - **Modular space station** with 8 building types, turrets, repair module, and crafter
+- **Multi-ship system** --- upgrade ships via build menu placement; old ship persists in the world with its own HP, cargo, and modules; click a parked ship to switch control; ships take damage from any source and drop cargo on destruction
 - **12 ship modules** crafted from blueprint drops (armor, engine, shield, absorber, broadside, and advanced modules)
 - **5x5 cargo inventory** and **10x10 station inventory** with drag-and-drop
 - **Trading station** for buying and selling items with credits
@@ -78,7 +79,7 @@ Full game documentation is in the [docs/](docs/README.md) directory:
 ## Running Tests
 
 ```bash
-# Fast suite (373 tests, ~0.6s)
+# Fast suite (393 tests, ~0.6s)
 python -m pytest "unit tests/" -v
 
 # Integration tests (63 tests — requires an Arcade window)
@@ -88,7 +89,7 @@ python -m pytest "unit tests/integration/" -v
 python -m pytest "unit tests/integration/test_soak.py" -v
 ```
 
-373 fast unit tests covering player physics, weapons, asteroids, aliens, pickups, blueprints, shields, explosions, contrails, inventory (including render-cache dirty flag and badge texture cache), damage routing, buildings, ship modules, respawn, fog of war, video scanning, settings, collision physics primitives (`resolve_overlap` / `reflect_velocity`), save-restore helpers, zone-aware Station Info world stats, Zone 2 update loop branches, and CPU microbenchmarks. 63 integration tests cover full-frame FPS thresholds, GPU rendering microbenchmarks, resolution scaling across all 6 presets, and 5-minute soak/endurance tests measuring FPS and RSS stability. 436 tests total. Linted with [ruff](https://docs.astral.sh/ruff/) (`ruff.toml` — bug-focused rules).
+393 fast unit tests covering player physics, weapons, asteroids, aliens, pickups, blueprints, shields, explosions, contrails, inventory (including render-cache dirty flag and badge texture cache), damage routing, buildings, ship modules, respawn, fog of war, video scanning, settings, collision physics primitives (`resolve_overlap` / `reflect_velocity`), save-restore helpers, zone-aware Station Info world stats, Zone 2 update loop branches, and CPU microbenchmarks. 63 integration tests cover full-frame FPS thresholds, GPU rendering microbenchmarks, resolution scaling across all 6 presets, and 5-minute soak/endurance tests measuring FPS and RSS stability. 462 tests total. Linted with [ruff](https://docs.astral.sh/ruff/) (`ruff.toml` — bug-focused rules).
 
 ## Project Structure
 
@@ -152,9 +153,10 @@ Space Survivalcraft/
 │   ├── zone2_aliens.py  # ShieldedAlien, FastAlien, GunnerAlien, RammerAlien
 │   ├── missile.py       # HomingMissile
 │   ├── force_wall.py    # ForceWall
-│   └── wormhole.py      # Wormhole
+│   ├── wormhole.py      # Wormhole
+│   └── parked_ship.py   # ParkedShip (multi-ship system)
 ├── zones/               # Zone state machine (9 zone files incl. zone2_world.py)
-├── unit tests/          # 373 fast tests across 21 files + 63 integration tests (436 total)
+├── unit tests/          # 393 fast tests across 22 files + 69 integration tests (462 total)
 ├── docs/                # Full game documentation
 ├── characters/          # Character videos and portraits
 ├── docs/game-rules.md   # Comprehensive rules reference

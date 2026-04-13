@@ -24,6 +24,7 @@ _ZONE1_LISTS = [
     "alien_projectile_list", "turret_projectile_list",
     "iron_pickup_list", "blueprint_pickup_list",
     "explosion_list",
+    "_parked_ships",
 ]
 _ZONE1_SCALARS = [
     "_fog_grid", "_fog_revealed",

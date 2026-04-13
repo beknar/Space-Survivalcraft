@@ -342,6 +342,9 @@ class GameView(arcade.View):
         self._hover_building: Optional[StationModule] = None
         self._hover_screen_x: float = 0.0
         self._hover_screen_y: float = 0.0
+        # Parked ships (persistent world entities the player can switch to)
+        self._parked_ships: arcade.SpriteList = arcade.SpriteList()
+        self._hover_parked_ship = None
         self._t_building_tip = arcade.Text(
             "", 0, 0, arcade.color.WHITE, 10, bold=True,
             anchor_x="center", anchor_y="bottom",

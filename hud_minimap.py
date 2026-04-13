@@ -87,6 +87,7 @@ def draw_minimap(
     zone_height: float = WORLD_HEIGHT,
     gas_positions: list[tuple[float, float, float]] | None = None,
     gas_always_visible: bool = False,
+    parked_ship_positions: list[tuple[float, float]] | None = None,
 ) -> None:
     """Draw a scaled overview of the world inside the status panel."""
     global _fog_cache_tex, _fog_cache_revealed, _fog_cache_grid_id
@@ -253,6 +254,19 @@ def draw_minimap(
                 wmx, wmy = to_map(wpx, wpy)
                 arcade.draw_circle_filled(wmx, wmy, 4.0, (160, 80, 255))
                 arcade.draw_circle_outline(wmx, wmy, 5.5, (200, 140, 255), 1)
+
+    # Parked ships (teal dots)
+    if parked_ship_positions:
+        ps_pts: list[tuple[float, float]] = []
+        for spx, spy in parked_ship_positions:
+            if _has_fog:
+                gx = int(spx * _inv_cell)
+                gy = int(spy * _inv_cell)
+                if not (0 <= gx < _fw and 0 <= gy < _fh and _fg[gy][gx]):
+                    continue
+            ps_pts.append((mx + spx * sx_w, my + spy * sy_h))
+        if ps_pts:
+            arcade.draw_points(ps_pts, (0, 255, 200), 6)
 
     # Player dot
     sx, sy = to_map(player_x, player_y)

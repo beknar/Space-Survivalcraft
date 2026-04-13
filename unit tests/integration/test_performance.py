@@ -1119,3 +1119,38 @@ class TestWarpEnemyFull:
             f"Warp Enemy full ({len(zone._aliens)} aliens): "
             f"{fps:.1f} FPS < {MIN_FPS} FPS threshold"
         )
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  Test 28: Zone 2 with parked ships (multi-ship collision + rendering)
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestParkedShipsZone2:
+    def test_parked_ships_zone2_above_threshold(self, real_game_view):
+        """Zone 2 with 3 parked ships (each with cargo and modules), full
+        alien population, and turrets firing. Tests rendering overhead of
+        parked ships + collision checks against all projectile types."""
+        from sprites.parked_ship import ParkedShip
+        from sprites.player import PlayerShip
+
+        gv = real_game_view
+        gv._transition_zone(ZoneID.ZONE2)
+
+        # Place 3 parked ships with cargo and modules
+        cx, cy = gv.player.center_x, gv.player.center_y
+        for i in range(3):
+            ps = ParkedShip(
+                gv._faction, gv._ship_type, i + 1,
+                cx + 200 + i * 100, cy + 100)
+            ps.cargo_items[(0, 0)] = ("iron", 50)
+            ps.module_slots = ["armor_plate", "engine_booster"]
+            gv._parked_ships.append(ps)
+
+        # Also build turrets so projectile lists are active
+        _open_station_info_turrets(gv)
+        gv._station_info.open = False
+
+        fps = _measure_fps(gv)
+        assert fps >= MIN_FPS, (
+            f"Zone 2 + 3 parked ships: {fps:.1f} FPS < {MIN_FPS} FPS threshold"
+        )
