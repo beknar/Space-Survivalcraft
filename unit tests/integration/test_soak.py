@@ -478,3 +478,186 @@ class TestSoakCombined:
         gv._station_inv.open = False
         if video_active:
             gv._char_video_player.stop()
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  Test 7: Station Info soak — panel open with full population + combat
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _open_station_info_for_soak(gv):
+    """Open Station Info with buildings and inactive zone stats."""
+    from sprites.building import create_building, compute_modules_used, compute_module_capacity
+    from draw_logic import compute_world_stats, compute_inactive_zone_stats
+
+    if not any(b.building_type == "Home Station" for b in gv.building_list):
+        gv.building_list.clear()
+        cx, cy = gv.player.center_x, gv.player.center_y
+        for i, bt in enumerate([
+            "Home Station", "Service Module", "Service Module",
+            "Turret 1", "Repair Module",
+        ]):
+            tex = gv._building_textures[bt]
+            laser = gv._turret_laser_tex if "Turret" in bt else None
+            b = create_building(bt, tex, cx + 200 + i * 60, cy,
+                                laser_tex=laser, scale=0.5)
+            gv.building_list.append(b)
+
+    gv._station_info.toggle(
+        gv.building_list,
+        compute_modules_used(gv.building_list),
+        compute_module_capacity(gv.building_list),
+        stat_lines=compute_world_stats(gv),
+        inactive_zone_stats=compute_inactive_zone_stats(gv),
+    )
+
+
+class TestSoakStationInfoZone1:
+    def test_station_info_zone1_5min_soak(self, real_game_view):
+        """5-minute soak with Station Info panel open in Zone 1 with
+        continuous combat. Tests for:
+        - Station Info live update cost stability (compute_world_stats
+          + compute_inactive_zone_stats called every frame)
+        - Inactive zone panel rendering with pre-pooled Text objects
+        - No FPS degradation from repeated stat line updates
+        - Building update loop + turret targeting with panel open"""
+        gv = real_game_view
+        _setup_soak(gv, ZoneID.MAIN)
+
+        # Ensure Zone 2 exists for inactive stats
+        if gv._zone2 is None:
+            gv._transition_zone(ZoneID.ZONE2)
+            gv._transition_zone(ZoneID.MAIN, entry_side="wormhole_return")
+            _make_invulnerable(gv)
+
+        _open_station_info_for_soak(gv)
+        assert gv._station_info.open
+
+        _run_soak(gv, "Station Info Zone 1")
+        gv._station_info.open = False
+
+
+class TestSoakStationInfoZone2:
+    def test_station_info_zone2_5min_soak(self, real_game_view):
+        """5-minute soak with Station Info panel open in Zone 2 with
+        ~60 aliens, ~150 asteroids, gas areas, wanderers, and continuous
+        combat. Tests for:
+        - Zone 2 entity count computation cost per frame
+        - Inactive Double Star panel with stash data
+        - Turret targeting + combat with overlay drawing overhead
+        - No memory growth from repeated stat line string formatting"""
+        gv = real_game_view
+        _setup_soak(gv, ZoneID.ZONE2)
+
+        _open_station_info_for_soak(gv)
+        assert gv._station_info.open
+
+        _run_soak(gv, "Station Info Zone 2")
+        gv._station_info.open = False
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  Helpers: music + level 2 ship for soak tests
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _start_music_for_soak(gv) -> bool:
+    """Start OST music playback if tracks are available."""
+    if gv._music_tracks:
+        from settings import audio as _audio
+        sound, name = gv._music_tracks[0]
+        gv._current_track_name = name
+        gv._music_player = arcade.play_sound(sound, volume=_audio.music_volume)
+        return gv._music_player is not None
+    return False
+
+
+def _stop_music_for_soak(gv) -> None:
+    """Stop music playback."""
+    if gv._music_player is not None:
+        try:
+            arcade.stop_sound(gv._music_player)
+        except Exception:
+            pass
+        gv._music_player = None
+
+
+def _set_ship_level_2_for_soak(gv) -> None:
+    """Upgrade the player ship to level 2."""
+    from sprites.player import PlayerShip
+    gv._ship_level = 2
+    old = gv.player
+    new_player = PlayerShip(
+        faction=gv._faction, ship_type=gv._ship_type, ship_level=2)
+    new_player.center_x = old.center_x
+    new_player.center_y = old.center_y
+    new_player.vel_x = old.vel_x
+    new_player.vel_y = old.vel_y
+    new_player.hp = old.hp
+    new_player.max_hp = old.max_hp
+    new_player.shields = old.shields
+    new_player.max_shields = old.max_shields
+    gv.player_list.clear()
+    gv.player = new_player
+    gv.player_list.append(new_player)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  Test 9: Station Info + music + L2 ship soak in Zone 1
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestSoakStationInfoMusicZone1:
+    def test_station_info_music_zone1_5min_soak(self, real_game_view):
+        """5-minute soak with Station Info panel open in Zone 1, level 2
+        ship, and background music playing during continuous combat. Tests:
+        - Combined overlay + music decode + L2 texture overhead
+        - Music track looping / advance stability over 5 minutes
+        - No FPS degradation from music player + Station Info together
+        - Sound player cleanup interacting with music player"""
+        gv = real_game_view
+        _setup_soak(gv, ZoneID.MAIN)
+
+        # Ensure Zone 2 exists for inactive stats
+        if gv._zone2 is None:
+            gv._transition_zone(ZoneID.ZONE2)
+            gv._transition_zone(ZoneID.MAIN, entry_side="wormhole_return")
+            _make_invulnerable(gv)
+
+        _set_ship_level_2_for_soak(gv)
+        _make_invulnerable(gv)
+        music_on = _start_music_for_soak(gv)
+        _open_station_info_for_soak(gv)
+        assert gv._station_info.open
+
+        label = f"Station Info + music + L2 Zone 1 (music={'on' if music_on else 'off'})"
+        _run_soak(gv, label)
+
+        gv._station_info.open = False
+        _stop_music_for_soak(gv)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  Test 10: Station Info + music + L2 ship soak in Zone 2
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestSoakStationInfoMusicZone2:
+    def test_station_info_music_zone2_5min_soak(self, real_game_view):
+        """5-minute soak with Station Info panel open in Zone 2, level 2
+        ship, ~60 aliens, ~150 asteroids, gas areas, wanderers, and
+        background music playing during continuous combat. Tests:
+        - Heaviest combined scenario: Zone 2 entities + overlay + music
+        - Music decode overhead with Zone 2 alien AI and turret targeting
+        - No memory growth from music player + stat string formatting
+        - Level 2 ship texture rendering under combat load"""
+        gv = real_game_view
+        _setup_soak(gv, ZoneID.ZONE2)
+
+        _set_ship_level_2_for_soak(gv)
+        _make_invulnerable(gv)
+        music_on = _start_music_for_soak(gv)
+        _open_station_info_for_soak(gv)
+        assert gv._station_info.open
+
+        label = f"Station Info + music + L2 Zone 2 (music={'on' if music_on else 'off'})"
+        _run_soak(gv, label)
+
+        gv._station_info.open = False
+        _stop_music_for_soak(gv)

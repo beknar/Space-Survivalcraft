@@ -169,26 +169,29 @@ class StationInfo:
             if i < len(self._building_data):
                 btype, hp, max_hp, disabled = self._building_data[i]
                 if disabled:
-                    t.text = f"{btype}  —  DISABLED"
-                    t.color = (128, 128, 128, 255)
+                    new_text = f"{btype}  —  DISABLED"
+                    new_color = (128, 128, 128, 255)
                 else:
                     hp_frac = hp / max_hp if max_hp > 0 else 0.0
                     if hp_frac > 0.5:
-                        color = (0, 200, 0, 255)
+                        new_color = (0, 200, 0, 255)
                     elif hp_frac > 0.25:
-                        color = (220, 160, 0, 255)
+                        new_color = (220, 160, 0, 255)
                     else:
-                        color = (220, 50, 50, 255)
-                    t.text = f"{btype}  —  HP {hp}/{max_hp}"
-                    t.color = color
+                        new_color = (220, 50, 50, 255)
+                    new_text = f"{btype}  —  HP {hp}/{max_hp}"
+                if t.text != new_text:
+                    t.text = new_text
+                if t.color != new_color:
+                    t.color = new_color
                 t.draw()
 
         # Footer
         self._t_footer.x = self._px + _PANEL_W // 2
         self._t_footer.y = self._py + 100
-        self._t_footer.text = (
-            f"Modules: {self._modules_used} / {self._module_capacity} used"
-        )
+        new_footer = f"Modules: {self._modules_used} / {self._module_capacity} used"
+        if self._t_footer.text != new_footer:
+            self._t_footer.text = new_footer
         self._t_footer.draw()
 
         # World stats — render up to _MAX_STAT_LINES rows
@@ -197,8 +200,11 @@ class StationInfo:
                 label, count, color = self._stat_lines[i]
                 t.x = self._px + _PANEL_PAD
                 t.y = self._py + 80 - i * 18
-                t.text = f"{label:<11} {count:>5}"
-                t.color = color
+                new_text = f"{label:<11} {count:>5}"
+                if t.text != new_text:
+                    t.text = new_text
+                if t.color != color:
+                    t.color = color
                 t.draw()
 
         # ── Inactive zones panel (left of main panel) ──────────────────
@@ -234,7 +240,8 @@ class StationInfo:
                 break
             # Zone name header
             zt = self._iz_zone_titles[zi]
-            zt.text = zone_name
+            if zt.text != zone_name:
+                zt.text = zone_name
             zt.x = iz_x + _PANEL_PAD
             zt.y = cur_y
             zt.draw()
@@ -245,8 +252,11 @@ class StationInfo:
                 if li >= _IZ_MAX_LINES_PER_ZONE:
                     break
                 lt = self._iz_lines[zi][li]
-                lt.text = f"  {label:<11} {count:>5}"
-                lt.color = color
+                new_text = f"  {label:<11} {count:>5}"
+                if lt.text != new_text:
+                    lt.text = new_text
+                if lt.color != color:
+                    lt.color = color
                 lt.x = iz_x + _PANEL_PAD
                 lt.y = cur_y
                 lt.draw()

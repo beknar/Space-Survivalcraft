@@ -435,14 +435,17 @@ def update_buildings(gv: GameView, dt: float) -> None:
     handle_alien_building_collision(gv)
     handle_ship_building_collision(gv)
 
-    # Station info live update
+    # Station info live update (throttled to 2x/sec to avoid GC stalls)
     if gv._station_info.open:
-        from draw_logic import compute_world_stats, compute_inactive_zone_stats
-        gv._station_info.update_stats(
-            compute_world_stats(gv),
-            inactive_zone_stats=compute_inactive_zone_stats(gv),
-        )
-    if gv._station_info.open:
+        gv._station_info._update_cd = getattr(
+            gv._station_info, '_update_cd', 0.0) - dt
+        if gv._station_info._update_cd <= 0.0:
+            gv._station_info._update_cd = 0.5
+            from draw_logic import compute_world_stats, compute_inactive_zone_stats
+            gv._station_info.update_stats(
+                compute_world_stats(gv),
+                inactive_zone_stats=compute_inactive_zone_stats(gv),
+            )
         near = any(
             math.hypot(gv.player.center_x - b.center_x,
                        gv.player.center_y - b.center_y) < 400.0

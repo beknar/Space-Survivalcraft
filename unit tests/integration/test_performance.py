@@ -687,3 +687,197 @@ class TestRealMusicVideoInventories:
             f"Inventories + real music video + char video: "
             f"{fps:.1f} FPS < {MIN_FPS} FPS threshold"
         )
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  Test 18: Station Info panel open in Zone 1 with full population
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _open_station_info(gv):
+    """Open Station Info panel with full stats and inactive zone data."""
+    from sprites.building import create_building, compute_modules_used, compute_module_capacity
+    from draw_logic import compute_world_stats, compute_inactive_zone_stats
+
+    # Build a station near the player so the panel can open
+    if not any(b.building_type == "Home Station" for b in gv.building_list):
+        gv.building_list.clear()
+        cx, cy = gv.player.center_x, gv.player.center_y
+        for i, bt in enumerate([
+            "Home Station", "Service Module", "Service Module",
+            "Turret 1", "Repair Module",
+        ]):
+            tex = gv._building_textures[bt]
+            laser = gv._turret_laser_tex if "Turret" in bt else None
+            b = create_building(bt, tex, cx + 200 + i * 60, cy,
+                                laser_tex=laser, scale=0.5)
+            gv.building_list.append(b)
+
+    gv._station_info.toggle(
+        gv.building_list,
+        compute_modules_used(gv.building_list),
+        compute_module_capacity(gv.building_list),
+        stat_lines=compute_world_stats(gv),
+        inactive_zone_stats=compute_inactive_zone_stats(gv),
+    )
+
+
+class TestStationInfoZone1:
+    def test_station_info_zone1_above_threshold(self, real_game_view):
+        """Zone 1 with 30 aliens, 75 asteroids, station buildings, and
+        Station Info panel open showing current zone stats + inactive
+        Zone 2 stats. Stresses the Station Info panel rendering and
+        live update loop."""
+        gv = real_game_view
+        if gv._zone.zone_id != ZoneID.MAIN:
+            gv._transition_zone(ZoneID.MAIN, entry_side="wormhole_return")
+
+        # Ensure Zone 2 exists so the inactive panel has data
+        if gv._zone2 is None:
+            gv._transition_zone(ZoneID.ZONE2)
+            gv._transition_zone(ZoneID.MAIN, entry_side="wormhole_return")
+
+        _open_station_info(gv)
+        assert gv._station_info.open
+
+        fps = _measure_fps(gv)
+        gv._station_info.open = False
+
+        assert fps >= MIN_FPS, (
+            f"Station Info Zone 1: {fps:.1f} FPS < {MIN_FPS} FPS threshold"
+        )
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  Test 19: Station Info panel open in Zone 2 with full population
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestStationInfoZone2:
+    def test_station_info_zone2_above_threshold(self, real_game_view):
+        """Zone 2 with ~60 aliens, ~150 asteroids, gas areas, wanderers,
+        station buildings, and Station Info panel open showing current
+        zone stats + inactive Double Star stats. This is the heaviest
+        Station Info scenario."""
+        gv = real_game_view
+        gv._transition_zone(ZoneID.ZONE2)
+
+        _open_station_info(gv)
+        assert gv._station_info.open
+
+        fps = _measure_fps(gv)
+        gv._station_info.open = False
+
+        assert fps >= MIN_FPS, (
+            f"Station Info Zone 2: {fps:.1f} FPS < {MIN_FPS} FPS threshold"
+        )
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  Helper: start music + set ship level 2
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _start_music(gv):
+    """Start OST music playback if tracks are available. Returns True if
+    music is playing."""
+    if gv._music_tracks:
+        from settings import audio as _audio
+        sound, name = gv._music_tracks[0]
+        gv._current_track_name = name
+        gv._music_player = arcade.play_sound(sound, volume=_audio.music_volume)
+        return gv._music_player is not None
+    return False
+
+
+def _set_ship_level_2(gv):
+    """Upgrade the player ship to level 2 by swapping its texture."""
+    from sprites.player import PlayerShip
+    gv._ship_level = 2
+    # Rebuild the player with level 2 texture
+    old = gv.player
+    new_player = PlayerShip(
+        faction=gv._faction, ship_type=gv._ship_type, ship_level=2)
+    new_player.center_x = old.center_x
+    new_player.center_y = old.center_y
+    new_player.vel_x = old.vel_x
+    new_player.vel_y = old.vel_y
+    new_player.hp = old.hp
+    new_player.max_hp = old.max_hp
+    new_player.shields = old.shields
+    new_player.max_shields = old.max_shields
+    gv.player_list.clear()
+    gv.player = new_player
+    gv.player_list.append(new_player)
+
+
+def _stop_music(gv):
+    """Stop music playback."""
+    if gv._music_player is not None:
+        try:
+            arcade.stop_sound(gv._music_player)
+        except Exception:
+            pass
+        gv._music_player = None
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  Test 20: Station Info + music + level 2 ship in Zone 1
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestStationInfoMusicZone1:
+    def test_station_info_music_zone1_above_threshold(self, real_game_view):
+        """Zone 1 with 30 aliens, 75 asteroids, station buildings, Station
+        Info panel open, level 2 ship, and background music playing. This
+        combines the Station Info overlay, music decode overhead, and the
+        higher-res level 2 ship texture."""
+        gv = real_game_view
+        if gv._zone.zone_id != ZoneID.MAIN:
+            gv._transition_zone(ZoneID.MAIN, entry_side="wormhole_return")
+
+        # Ensure Zone 2 exists for inactive panel
+        if gv._zone2 is None:
+            gv._transition_zone(ZoneID.ZONE2)
+            gv._transition_zone(ZoneID.MAIN, entry_side="wormhole_return")
+
+        _set_ship_level_2(gv)
+        music_on = _start_music(gv)
+        _open_station_info(gv)
+        assert gv._station_info.open
+
+        # Extra warmup to absorb music player initialization spike
+        fps = _measure_fps(gv, n_warmup=15)
+        gv._station_info.open = False
+        _stop_music(gv)
+
+        assert fps >= MIN_FPS, (
+            f"Station Info + music + L2 ship Zone 1 "
+            f"(music={'on' if music_on else 'off'}): "
+            f"{fps:.1f} FPS < {MIN_FPS} FPS threshold"
+        )
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  Test 21: Station Info + music + level 2 ship in Zone 2
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestStationInfoMusicZone2:
+    def test_station_info_music_zone2_above_threshold(self, real_game_view):
+        """Zone 2 with ~60 aliens, ~150 asteroids, gas areas, wanderers,
+        station buildings, Station Info panel open, level 2 ship, and
+        background music playing. Heaviest combined Station Info scenario."""
+        gv = real_game_view
+        gv._transition_zone(ZoneID.ZONE2)
+
+        _set_ship_level_2(gv)
+        music_on = _start_music(gv)
+        _open_station_info(gv)
+        assert gv._station_info.open
+
+        # Extra warmup to absorb music player initialization spike
+        fps = _measure_fps(gv, n_warmup=15)
+        gv._station_info.open = False
+        _stop_music(gv)
+
+        assert fps >= MIN_FPS, (
+            f"Station Info + music + L2 ship Zone 2 "
+            f"(music={'on' if music_on else 'off'}): "
+            f"{fps:.1f} FPS < {MIN_FPS} FPS threshold"
+        )
