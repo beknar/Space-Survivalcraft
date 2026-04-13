@@ -399,6 +399,38 @@ class Zone2(ZoneState):
                 gv._trigger_shake()
                 arcade.play_sound(gv._bump_snd, volume=0.3)
 
+        # Alien-asteroid collisions (damage + bounce)
+        from constants import ALIEN_ASTEROID_DAMAGE, ALIEN_COL_COOLDOWN
+        for alien in list(self._aliens):
+            for alist in (self._iron_asteroids, self._double_iron,
+                          self._copper_asteroids):
+                for a in arcade.check_for_collision_with_list(alien, alist):
+                    a_radius = max(ASTEROID_RADIUS, a.width / 2 * 0.8)
+                    contact = resolve_overlap(
+                        alien, a, 20.0, a_radius, push_a=1.0, push_b=0.0)
+                    if contact is None:
+                        continue
+                    nx, ny = contact
+                    reflect_velocity(alien, nx, ny, ALIEN_BOUNCE)
+                    if alien._col_cd <= 0.0:
+                        alien._col_cd = ALIEN_COL_COOLDOWN
+                        alien.collision_bump()
+                        alien.take_damage(ALIEN_ASTEROID_DAMAGE)
+                        if alien.hp <= 0:
+                            from collisions import _apply_kill_rewards
+                            from constants import (
+                                ALIEN_IRON_DROP, BLUEPRINT_DROP_CHANCE_ALIEN,
+                            )
+                            from character_data import bonus_iron_enemy
+                            _apply_kill_rewards(
+                                gv, alien.center_x, alien.center_y,
+                                ALIEN_IRON_DROP, bonus_iron_enemy,
+                                BLUEPRINT_DROP_CHANCE_ALIEN)
+                            alien.remove_from_sprite_lists()
+                    break  # one collision per alien per frame
+                if not alien.sprite_lists:
+                    break  # alien was killed
+
         # Buildings (turrets, repair, collisions)
         if len(gv.building_list) > 0:
             from update_logic import update_buildings

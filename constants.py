@@ -369,6 +369,7 @@ ALIEN_MIN_DIST: float = 400.0           # min spawn distance from world centre  
 ALIEN_BOUNCE: float = 0.65             # velocity restitution on collision bounce
 ALIEN_VEL_DAMPING: float = 0.97        # per-frame physics velocity decay (@ 60 fps)
 ALIEN_COL_COOLDOWN: float = 0.40       # seconds before another bounce can re-trigger
+ALIEN_ASTEROID_DAMAGE: int = 10        # damage to alien from asteroid collision
 ALIEN_AVOIDANCE_RADIUS: float = 65.0   # px beyond obstacle edge where steering begins
 ALIEN_AVOIDANCE_FORCE: float = 2.5     # avoidance repulsion weight relative to pursuit
 ALIEN_BUMP_FLASH: float = 0.15         # seconds of orange tint on collision bump
@@ -526,6 +527,7 @@ DOUBLE_IRON_XP: int = 10
 COPPER_ASTEROID_COUNT: int = 75
 COPPER_ASTEROID_HP: int = 100
 COPPER_YIELD: int = 10
+COPPER_IRON_YIELD: int = 5
 COPPER_XP: int = 10
 COPPER_ASTEROID_PNG = os.path.join(
     _HERE, "assets", "gamedevmarket assets",
@@ -546,6 +548,7 @@ GAS_AREA_MAX_SIZE: int = 384
 # Wandering magnetic asteroids
 WANDERING_COUNT: int = 15
 WANDERING_HP: int = 150
+WANDERING_IRON_YIELD: int = 15
 WANDERING_SPEED: float = 80.0       # wander speed px/s
 WANDERING_MAGNET_DIST: float = 80.0 # px attraction range
 WANDERING_MAGNET_SPEED: float = 200.0

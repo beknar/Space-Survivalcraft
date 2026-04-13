@@ -12,6 +12,7 @@ from constants import (
     ALIEN_LASER_SPEED, ALIEN_FIRE_COOLDOWN, ALIEN_STANDOFF_DIST,
     ALIEN_VEL_DAMPING, ALIEN_BUMP_FLASH,
     ALIEN_STUCK_TIME, ALIEN_STUCK_DIST,
+    ALIEN_AVOIDANCE_RADIUS, ALIEN_AVOIDANCE_FORCE, ASTEROID_RADIUS,
     Z2_SHIELDED_SHIELD, Z2_FAST_SPEED, Z2_RAMMER_HP, Z2_RAMMER_SHIELD,
     WORLD_WIDTH, WORLD_HEIGHT,
 )
@@ -93,6 +94,23 @@ class Zone2Alien(arcade.Sprite):
                                      self._home_x + math.cos(angle) * r))
         self._tgt_y = max(50.0, min(self._world_h - 50.0,
                                      self._home_y + math.sin(angle) * r))
+
+    def _compute_avoidance(
+        self, base_x: float, base_y: float,
+        asteroid_list: arcade.SpriteList,
+    ) -> tuple[float, float]:
+        """Return avoidance-adjusted steering from a base direction."""
+        steer_x, steer_y = base_x, base_y
+        thresh = ALIEN_RADIUS + ASTEROID_RADIUS + ALIEN_AVOIDANCE_RADIUS
+        for asteroid in asteroid_list:
+            adx = self.center_x - asteroid.center_x
+            ady = self.center_y - asteroid.center_y
+            adist = math.hypot(adx, ady)
+            if 0.0 < adist < thresh:
+                w = ALIEN_AVOIDANCE_FORCE * (1.0 - adist / thresh)
+                steer_x += adx / adist * w
+                steer_y += ady / adist * w
+        return steer_x, steer_y
 
     def alert(self) -> None:
         if self._state == self._STATE_PATROL:
@@ -191,7 +209,8 @@ class Zone2Alien(arcade.Sprite):
 
     def _move(self, dt, player_x, player_y, dist, dx, dy,
               asteroid_list, alien_list) -> None:
-        """Movement — patrol wanders; pursue orbits at standoff range."""
+        """Movement — patrol wanders; pursue orbits at standoff range.
+        Both modes steer around nearby asteroids."""
         if self._state == self._STATE_PATROL:
             tdx = self._tgt_x - self.center_x
             tdy = self._tgt_y - self.center_y
@@ -199,39 +218,45 @@ class Zone2Alien(arcade.Sprite):
             if tdist < 8.0:
                 self._pick_patrol_target()
             elif tdist > 0.001:
-                step = min(self._speed * dt, tdist)
-                self.center_x += tdx / tdist * step
-                self.center_y += tdy / tdist * step
-                self._heading = math.degrees(math.atan2(tdx / tdist, tdy / tdist)) % 360
-                self.angle = self._heading
+                base_x = tdx / tdist
+                base_y = tdy / tdist
+                sx, sy = self._compute_avoidance(base_x, base_y, asteroid_list)
+                smag = math.hypot(sx, sy)
+                if smag > 0.001:
+                    step = min(self._speed * dt, tdist)
+                    self.center_x += sx / smag * step
+                    self.center_y += sy / smag * step
+                    self._heading = math.degrees(math.atan2(sx / smag, sy / smag)) % 360
+                    self.angle = self._heading
         else:
             if dist > 1.0:
                 nx, ny = dx / dist, dy / dist
-                # Ranged aliens orbit at standoff distance; face the player
                 if self._has_guns:
                     perp_x = -ny * self._orbit_dir
                     perp_y = nx * self._orbit_dir
                     if dist > ALIEN_STANDOFF_DIST * 1.2:
-                        radial = 1.0      # close in
+                        radial = 1.0
                     elif dist < ALIEN_STANDOFF_DIST * 0.7:
-                        radial = -0.6     # back off
+                        radial = -0.6
                     else:
-                        radial = 0.0      # hold distance
+                        radial = 0.0
                     mx = nx * radial + perp_x * 0.9
                     my = ny * radial + perp_y * 0.9
-                    mag = math.hypot(mx, my)
-                    if mag > 0.001:
+                    sx, sy = self._compute_avoidance(mx, my, asteroid_list)
+                    smag = math.hypot(sx, sy)
+                    if smag > 0.001:
                         step = self._speed * dt
-                        self.center_x += mx / mag * step
-                        self.center_y += my / mag * step
-                    # Always face the player
+                        self.center_x += sx / smag * step
+                        self.center_y += sy / smag * step
                     self._heading = math.degrees(math.atan2(nx, ny)) % 360
                     self.angle = self._heading
                 else:
-                    # Non-ranged aliens charge directly
-                    step = self._speed * dt
-                    self.center_x += nx * step
-                    self.center_y += ny * step
+                    sx, sy = self._compute_avoidance(nx, ny, asteroid_list)
+                    smag = math.hypot(sx, sy)
+                    if smag > 0.001:
+                        step = self._speed * dt
+                        self.center_x += sx / smag * step
+                        self.center_y += sy / smag * step
                     self._heading = math.degrees(math.atan2(nx, ny)) % 360
                     self.angle = self._heading
 

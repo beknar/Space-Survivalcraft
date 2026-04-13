@@ -10,7 +10,7 @@ import arcade
 from constants import (
     SHIP_RADIUS, ASTEROID_RADIUS, ALIEN_RADIUS,
     SHIP_COLLISION_DAMAGE, SHIP_COLLISION_COOLDOWN, SHIP_BOUNCE,
-    ALIEN_BOUNCE, ALIEN_SPEED, ALIEN_COL_COOLDOWN,
+    ALIEN_BOUNCE, ALIEN_SPEED, ALIEN_COL_COOLDOWN, ALIEN_ASTEROID_DAMAGE,
     BUILDING_RADIUS, ALIEN_IRON_DROP, ASTEROID_IRON_YIELD,
     BUILDING_TYPES, ALIEN_AGGRO_RANGE,
     BLUEPRINT_DROP_CHANCE_ALIEN, BLUEPRINT_DROP_CHANCE_ASTEROID,
@@ -192,8 +192,8 @@ def handle_alien_player_collision(gv: GameView) -> None:
 
 
 def handle_alien_asteroid_collision(gv: GameView) -> None:
-    """Alien ship vs asteroid: push-out, bounce. Uses the asteroid's
-    base (un-shaken) position so collisions don't jitter while it shakes."""
+    """Alien ship vs asteroid: push-out, bounce, and damage. Uses the
+    asteroid's base (un-shaken) position for stable collision physics."""
     for alien in list(gv.alien_list):
         for asteroid in arcade.check_for_collision_with_list(
             alien, gv.asteroid_list
@@ -211,12 +211,19 @@ def handle_alien_asteroid_collision(gv: GameView) -> None:
             nx, ny = contact
             dot = reflect_velocity(alien, nx, ny, ALIEN_BOUNCE)
             if dot >= 0.0:
-                # Already moving away — give a gentle nudge so AI keeps clear
                 alien.vel_x += nx * ALIEN_SPEED * 0.4
                 alien.vel_y += ny * ALIEN_SPEED * 0.4
             if alien._col_cd <= 0.0:
                 alien._col_cd = ALIEN_COL_COOLDOWN
                 alien.collision_bump()
+                alien.take_damage(ALIEN_ASTEROID_DAMAGE)
+                if alien.hp <= 0:
+                    _apply_kill_rewards(
+                        gv, alien.center_x, alien.center_y,
+                        ALIEN_IRON_DROP, bonus_iron_enemy,
+                        BLUEPRINT_DROP_CHANCE_ALIEN)
+                    alien.remove_from_sprite_lists()
+                    break  # alien dead, skip remaining asteroids
 
 
 def handle_alien_alien_collision(gv: GameView) -> None:

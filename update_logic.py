@@ -28,7 +28,6 @@ from collisions import (
     handle_ship_asteroid_collision,
     handle_alien_player_collision,
     handle_alien_asteroid_collision,
-    handle_alien_alien_collision,
     handle_alien_laser_hits,
     handle_alien_laser_building_hits,
     handle_alien_building_collision,
@@ -408,10 +407,9 @@ def update_entities(gv: GameView, dt: float) -> None:
         if proj is not None:
             gv.alien_projectile_list.append(proj)
 
-    # Alien collisions
+    # Alien collisions (aliens pass through each other but collide with asteroids)
     handle_alien_player_collision(gv)
     handle_alien_asteroid_collision(gv)
-    handle_alien_alien_collision(gv)
 
     # Alien projectiles
     for proj in list(gv.alien_projectile_list):

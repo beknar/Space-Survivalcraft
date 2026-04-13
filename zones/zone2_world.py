@@ -172,12 +172,17 @@ def _check_mining_hits(z: Zone2, gv: GameView, proj) -> None:
         a.take_damage(int(proj.damage))
         if a.hp <= 0:
             gv._spawn_explosion(a.center_x, a.center_y)
+            # Drop copper
             base = COPPER_YIELD
             extra = bonus_copper_asteroid(_audio.character_name, gv._char_level)
             pickup = IronPickup(z._copper_pickup_tex, a.center_x, a.center_y,
                                 amount=base + extra)
             pickup.item_type = "copper"
             gv.iron_pickup_list.append(pickup)
+            # Also drop iron
+            from constants import COPPER_IRON_YIELD
+            gv._spawn_iron_pickup(a.center_x, a.center_y,
+                                  amount=COPPER_IRON_YIELD)
             gv._add_xp(COPPER_XP)
             a.remove_from_sprite_lists()
         return
@@ -189,6 +194,9 @@ def _check_mining_hits(z: Zone2, gv: GameView, proj) -> None:
         w.take_damage(int(proj.damage))
         if w.hp <= 0:
             gv._spawn_explosion(w.center_x, w.center_y)
+            from constants import WANDERING_IRON_YIELD
+            gv._spawn_iron_pickup(w.center_x, w.center_y,
+                                  amount=WANDERING_IRON_YIELD)
             w.remove_from_sprite_lists()
         return
 

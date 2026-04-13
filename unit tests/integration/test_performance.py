@@ -1154,3 +1154,30 @@ class TestParkedShipsZone2:
         assert fps >= MIN_FPS, (
             f"Zone 2 + 3 parked ships: {fps:.1f} FPS < {MIN_FPS} FPS threshold"
         )
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  Test 29: Zone 2 alien-asteroid collisions + obstacle avoidance
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestAlienAsteroidZone2:
+    def test_alien_asteroid_collision_zone2_above_threshold(self, real_game_view):
+        """Zone 2 with ~60 aliens colliding with ~150 asteroids (damage +
+        bounce + obstacle avoidance). Tests that the new alien-asteroid
+        collision handler + avoidance steering don't cause FPS drops."""
+        gv = real_game_view
+        gv._transition_zone(ZoneID.ZONE2)
+
+        # Move some aliens near asteroids to trigger collisions
+        zone = gv._zone
+        aliens = list(zone._aliens)[:10]
+        asteroids = list(zone._iron_asteroids)[:10]
+        for alien, ast in zip(aliens, asteroids):
+            alien.center_x = ast.center_x + 20
+            alien.center_y = ast.center_y
+
+        fps = _measure_fps(gv)
+        assert fps >= MIN_FPS, (
+            f"Zone 2 alien-asteroid collisions: "
+            f"{fps:.1f} FPS < {MIN_FPS} FPS threshold"
+        )
