@@ -199,6 +199,7 @@ class BuildMenu(MenuOverlay):
         has_home: bool,
         copper: int = 0,
         unlocked_blueprints: set | None = None,
+        ship_level: int = 1,
     ) -> Optional[str]:
         """Handle a click. Returns building type name, or "__destroy__" for destroy mode."""
         self._update_layout()

@@ -64,6 +64,8 @@ class PlayerShip(arcade.Sprite):
     ) -> None:
         self._use_legacy: bool = (faction is None or ship_type is None)
         self.ship_level: int = ship_level
+        self._faction: Optional[str] = faction
+        self._ship_type: Optional[str] = ship_type
 
         if self._use_legacy:
             # ── Legacy shmup_player sprite ──────────────────────────────────
@@ -227,6 +229,20 @@ class PlayerShip(arcade.Sprite):
     def nose_y(self) -> float:
         """World Y of the ship's nose tip (projectile spawn point)."""
         return self.center_y + math.cos(math.radians(self.heading)) * NOSE_OFFSET
+
+    def upgrade_ship(self) -> None:
+        """Bump ship level by 1: swap texture, raise base HP/shields, full heal."""
+        if self._use_legacy or self.ship_level >= SHIP_MAX_LEVEL:
+            return
+        self.ship_level += 1
+        self.texture = self._extract_ship_texture(
+            self._faction, self._ship_type, self.ship_level)
+        self._base_max_hp += SHIP_LEVEL_HP_BONUS
+        self._base_max_shields += SHIP_LEVEL_SHIELD_BONUS
+        self.max_hp = self._base_max_hp
+        self.max_shields = self._base_max_shields
+        self.hp = self.max_hp
+        self.shields = self.max_shields
 
     def apply_modules(self, modules: list) -> None:
         """Recompute stats from base values + equipped modules."""
