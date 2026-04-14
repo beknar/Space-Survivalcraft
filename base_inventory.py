@@ -81,7 +81,25 @@ class BaseInventoryData:
                 total += ct
         return total
 
+    def migrate_legacy_keys(self) -> None:
+        """Rewrite stale item-type keys left over from earlier versions."""
+        legacy_map = {"mod_homing_missile": "missile"}
+        legacy_cells = [
+            (cell, legacy_map[it], ct)
+            for cell, (it, ct) in self._items.items()
+            if it in legacy_map
+        ]
+        for cell, _, _ in legacy_cells:
+            del self._items[cell]
+        for _, new_it, ct in legacy_cells:
+            self.add_item(new_it, ct)
+        if legacy_cells:
+            self._mark_dirty()
+
     def add_item(self, item_type: str, count: int = 1) -> None:
+        # Migrate stale keys from earlier versions
+        if item_type == "mod_homing_missile":
+            item_type = "missile"
         for cell, (it, ct) in list(self._items.items()):
             if it == item_type:
                 self._items[cell] = (it, ct + count)

@@ -574,6 +574,7 @@ def restore_state(view: GameView, data: dict) -> None:
         old_iron = data.get("iron", 0)
         if old_iron > 0:
             view.inventory.add_item("iron", old_iron)
+    view.inventory.migrate_legacy_keys()
     view.inventory._mark_dirty()
 
     # Zone 1 entities
@@ -614,6 +615,7 @@ def restore_state(view: GameView, data: dict) -> None:
     si_data = data.get("station_inventory")
     if si_data:
         view._station_inv.from_save_data(si_data)
+    view._station_inv.migrate_legacy_keys()
 
     # Module slots — slot count is dynamic based on ship level
     saved_mods = data.get("module_slots")
