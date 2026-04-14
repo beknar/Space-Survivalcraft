@@ -20,6 +20,9 @@ _HELP_LINES = [
     ("T", "Station info"),
     ("C", "Ship stats"),
     ("F", "Toggle FPS"),
+    ("G", "Force Wall (ability)"),
+    ("X", "Death Blossom (ability)"),
+    ("WASD x2", "Misty Step (ability)"),
     ("ESC", "Menu"),
 ]
 _GAMEPAD_LINES = [

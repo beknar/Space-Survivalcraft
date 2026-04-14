@@ -598,9 +598,10 @@ MISTY_STEP_COST: float = 20.0
 MISTY_STEP_COOLDOWN: float = 2.0
 
 # Force wall module
-FORCE_WALL_LENGTH: float = 100.0
+FORCE_WALL_LENGTH: float = 200.0
 FORCE_WALL_DURATION: float = 20.0
 FORCE_WALL_COST: float = 30.0
+FORCE_WALL_COOLDOWN: float = 2.0
 
 # Death blossom module
 DEATH_BLOSSOM_FIRE_RATE: float = 2.0   # seconds between volleys

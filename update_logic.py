@@ -121,6 +121,8 @@ def update_preamble(gv: GameView, dt: float) -> None:
     cooling: set[str] = set()
     if getattr(gv, "_misty_step_cd", 0.0) > 0.0:
         cooling.add("misty_step")
+    if getattr(gv, "_force_wall_cd", 0.0) > 0.0:
+        cooling.add("force_wall")
     if getattr(gv, "_death_blossom_active", False):
         cooling.add("death_blossom")
     gv._hud._mod_cooldowns = cooling
@@ -165,6 +167,22 @@ def update_timers(gv: GameView, dt: float) -> None:
         gv._boss_announce_timer = max(0.0, gv._boss_announce_timer - dt)
     if gv._use_glow_timer > 0.0:
         gv._use_glow_timer = max(0.0, gv._use_glow_timer - dt)
+    # Hold-to-sell loop: consume timer and drain inventory if held.
+    if gv._trade_menu.open:
+        action = gv._trade_menu.on_update(
+            dt, inventory=gv.inventory, station_inv=gv._station_inv,
+        )
+        if action is not None and action.startswith("sell:"):
+            _, item_type, amt_str = action.split(":")
+            amt = int(amt_str)
+            ship_has = gv.inventory.count_item(item_type)
+            if ship_has >= amt:
+                gv.inventory.remove_item(item_type, amt)
+            else:
+                if ship_has > 0:
+                    gv.inventory.remove_item(item_type, ship_has)
+                gv._station_inv.remove_item(item_type, amt - ship_has)
+            gv._trade_menu._refresh_sell_list(gv.inventory, gv._station_inv)
 
 
 def update_repair_and_shields(gv: GameView, dt: float) -> None:
@@ -558,6 +576,8 @@ def update_ability_meter(gv: GameView, dt: float) -> None:
                                 gv._ability_meter + ABILITY_REGEN_RATE * dt)
     if gv._misty_step_cd > 0:
         gv._misty_step_cd = max(0.0, gv._misty_step_cd - dt)
+    if getattr(gv, '_force_wall_cd', 0.0) > 0:
+        gv._force_wall_cd = max(0.0, gv._force_wall_cd - dt)
     if gv._rear_turret_cd > 0:
         gv._rear_turret_cd = max(0.0, gv._rear_turret_cd - dt)
     if hasattr(gv, '_missile_fire_cd') and gv._missile_fire_cd > 0:

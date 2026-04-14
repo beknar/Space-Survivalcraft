@@ -128,6 +128,7 @@ class GameView(arcade.View):
         self._ability_meter: float = base_ability
         self._ability_meter_max: float = base_ability
         self._misty_step_cd: float = 0.0
+        self._force_wall_cd: float = 0.0
         self._force_walls: list = []
 
         self._death_blossom_active: bool = False

@@ -65,6 +65,11 @@ class TradeMenu(MenuOverlay):
         # Sell list (populated on open)
         self._sell_items: list[tuple[str, str, int, int]] = []  # (type, name, price, count)
         self._sell_scroll: int = 0
+        # Hold-to-sell state: while the left mouse button is held over a
+        # sell row, tick off one unit every _HOLD_SELL_INTERVAL seconds.
+        self._held_sell_item: str | None = None
+        self._held_sell_timer: float = 0.0
+        self._HOLD_SELL_INTERVAL: float = 0.15
 
     @property
     def credits(self) -> int:
@@ -269,6 +274,10 @@ class TradeMenu(MenuOverlay):
                 it, name, price, count = self._sell_items[idx]
                 # Sell 1 unit
                 self._credits += price
+                # Start the hold-to-sell loop so dragging / holding the
+                # left mouse button keeps selling this item.
+                self._held_sell_item = it
+                self._held_sell_timer = self._HOLD_SELL_INTERVAL
                 return f"sell:{it}:1"
         return None
 
@@ -288,6 +297,37 @@ class TradeMenu(MenuOverlay):
                 self._credits -= cost
                 return f"buy:{it}:{qty}"
         return None
+
+    def on_mouse_release(self, x: float, y: float) -> None:
+        """End any hold-to-sell loop when the mouse button is released."""
+        self._held_sell_item = None
+        self._held_sell_timer = 0.0
+
+    def on_update(self, dt: float,
+                  inventory=None, station_inv=None) -> Optional[str]:
+        """Tick the hold-to-sell timer. Returns ``sell:it:1`` when a
+        held item should sell one more unit, or ``None`` otherwise.
+
+        Clears the hold if the item runs out in both inventories so the
+        loop doesn't linger after the stock is gone.
+        """
+        if self._held_sell_item is None or not self.open or self._mode != "sell":
+            return None
+        have = 0
+        for inv in (inventory, station_inv):
+            if inv is not None:
+                have += inv.count_item(self._held_sell_item)
+        if have <= 0:
+            self._held_sell_item = None
+            self._held_sell_timer = 0.0
+            return None
+        self._held_sell_timer -= dt
+        if self._held_sell_timer > 0.0:
+            return None
+        self._held_sell_timer = self._HOLD_SELL_INTERVAL
+        price = SELL_PRICES.get(self._held_sell_item, 1)
+        self._credits += price
+        return f"sell:{self._held_sell_item}:1"
 
     def on_key_press(self, key: int) -> None:
         if key == arcade.key.ESCAPE:

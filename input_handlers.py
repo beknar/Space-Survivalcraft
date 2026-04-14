@@ -120,10 +120,12 @@ def handle_key_press(gv: GameView, key: int, modifiers: int) -> None:
     elif key == arcade.key.G:
         if (not gv._escape_menu.open and not gv._player_dead
                 and "force_wall" in gv._module_slots):
-            from constants import FORCE_WALL_COST
+            from constants import FORCE_WALL_COST, FORCE_WALL_COOLDOWN
             from sprites.force_wall import ForceWall
-            if gv._ability_meter >= FORCE_WALL_COST:
+            if (gv._ability_meter >= FORCE_WALL_COST
+                    and gv._force_wall_cd <= 0.0):
                 gv._ability_meter -= FORCE_WALL_COST
+                gv._force_wall_cd = FORCE_WALL_COOLDOWN
                 # Spawn wall behind the ship
                 rad = math.radians(gv.player.heading)
                 behind_x = gv.player.center_x - math.sin(rad) * 60
@@ -394,6 +396,9 @@ def handle_mouse_release(gv: GameView, x: int, y: int, button: int, modifiers: i
         return
     if button != arcade.MOUSE_BUTTON_LEFT:
         return
+    # Clear any hold-to-sell loop in the trade menu.
+    if gv._trade_menu.open:
+        gv._trade_menu.on_mouse_release(x, y)
     # Module drag release
     if gv._hud._mod_drag_src is not None:
         src = gv._hud._mod_drag_src
