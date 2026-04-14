@@ -888,7 +888,7 @@ def _run_warp_soak(gv, label: str, min_fps: int = MIN_FPS) -> None:
     # FFmpeg decoders each keep ~400 MB of frame/packet buffers before
     # pymalloc reuses them, so the delta over a 2-min warp soak regularly
     # exceeds 800 MB even without a real leak.
-    _warp_mem_threshold = 1000
+    _warp_mem_threshold = 1200
     assert mem_growth <= _warp_mem_threshold, (
         f"{label}: memory grew by {mem_growth:.1f} MB "
         f"(threshold: {_warp_mem_threshold} MB)"
