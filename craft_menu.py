@@ -63,6 +63,9 @@ class CraftMenu(MenuOverlay):
         ``is_advanced`` gates recipes flagged ``"advanced": True``.
         """
         self._is_advanced = is_advanced
+        title = "ADVANCED CRAFTER" if is_advanced else "BASIC CRAFTER"
+        if self._t_title.text != title:
+            self._t_title.text = title
         # Unlock any new blueprints found in station inv
         for key in MODULE_TYPES:
             if station_inv.count_item(f"bp_{key}") > 0:
@@ -253,7 +256,8 @@ class CraftMenu(MenuOverlay):
         elif self._selected - 2 < len(self._recipes):
             recipe = self._recipes[self._selected - 2]
             info = MODULE_TYPES[recipe["key"]]
-            _dt = f"{info['label']}: {_effect_desc(info)} ({int(CRAFT_TIME)}s)"
+            craft_time = int(info.get("craft_time", CRAFT_TIME))
+            _dt = f"{info['label']}: {_effect_desc(info)} ({craft_time}s)"
             icon = self.item_icons.get(recipe["key"])
         else:
             _dt = ""
@@ -318,6 +322,9 @@ def _effect_desc(info: dict) -> str:
     """Short description of a module's effect."""
     eff = info["effect"]
     val = info["value"]
+    if info.get("consumable"):
+        count = info.get("craft_count", 1)
+        return f"produces {count}x per craft"
     descs = {
         "max_hp": f"+{val} HP",
         "max_speed": f"+{val} speed",

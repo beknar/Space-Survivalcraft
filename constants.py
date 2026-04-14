@@ -591,7 +591,7 @@ ABILITY_METER_MAX: float = 100.0
 ABILITY_REGEN_RATE: float = 5.0     # points per second
 
 # Misty step module
-MISTY_STEP_DISTANCE: float = 100.0
+MISTY_STEP_DISTANCE: float = 300.0
 MISTY_STEP_COST: float = 20.0
 MISTY_STEP_COOLDOWN: float = 2.0
 

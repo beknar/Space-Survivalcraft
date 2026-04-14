@@ -447,8 +447,32 @@ def _handle_station_drop(
 ) -> None:
     """Handle an item dropped from station inventory."""
     item_type, amount = drop
-    mod_slot = gv._hud.module_slot_at(x, y)
     is_module = item_type.startswith("mod_") or item_type.startswith("bp_")
+    # Drop onto a parked ship installs one module into that ship's slots
+    if is_module and item_type.startswith("mod_"):
+        from constants import MODULE_SLOT_COUNT, SHIP_LEVEL_MODULE_BONUS
+        wx = gv.world_cam.position[0] - gv.window.width / 2 + x
+        wy = gv.world_cam.position[1] - gv.window.height / 2 + y
+        for ps in gv._parked_ships:
+            if math.hypot(wx - ps.center_x, wy - ps.center_y) < 40:
+                mod_key = item_type[len("mod_"):]
+                slot_count = MODULE_SLOT_COUNT + (
+                    ps.ship_level - 1) * SHIP_LEVEL_MODULE_BONUS
+                while len(ps.module_slots) < slot_count:
+                    ps.module_slots.append(None)
+                if mod_key in ps.module_slots:
+                    gv._station_inv.add_item(item_type, amount)
+                    return
+                for i, existing in enumerate(ps.module_slots):
+                    if existing is None:
+                        ps.module_slots[i] = mod_key
+                        if amount > 1:
+                            gv._station_inv.add_item(item_type, amount - 1)
+                        return
+                # No empty slot
+                gv._station_inv.add_item(item_type, amount)
+                return
+    mod_slot = gv._hud.module_slot_at(x, y)
     if mod_slot is not None and is_module:
         prefix = "mod_" if item_type.startswith("mod_") else "bp_"
         mod_key = item_type[len(prefix):]
