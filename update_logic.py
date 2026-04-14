@@ -231,7 +231,13 @@ def update_crafting(gv: GameView, dt: float) -> None:
                 b.craft_timer = 0.0
                 target = gv._craft_menu._craft_target
                 if target and target in MODULE_TYPES:
-                    gv._station_inv.add_item(f"mod_{target}", 1)
+                    info = MODULE_TYPES[target]
+                    if info.get("consumable"):
+                        item_key = info.get("item_key", target)
+                        gv._station_inv.add_item(
+                            item_key, info.get("craft_count", 1))
+                    else:
+                        gv._station_inv.add_item(f"mod_{target}", 1)
                 elif target == "shield_recharge":
                     gv._station_inv.add_item("shield_recharge", CRAFT_RESULT_COUNT)
                 else:

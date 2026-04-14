@@ -280,7 +280,7 @@ SHIP_LEVEL_HP_BONUS: int = 25          # +25 max HP per upgrade
 SHIP_LEVEL_SHIELD_BONUS: int = 25      # +25 max shields per upgrade
 SHIP_LEVEL_ABILITY_BONUS: float = 25.0 # +25 ability meter max per upgrade
 SHIP_LEVEL_MODULE_BONUS: int = 2       # +2 module slots per upgrade
-SHIP_MAX_LEVEL: int = 8                # columns 0-7 in faction sprite sheet
+SHIP_MAX_LEVEL: int = 2                # cap while only Double Star + Nebula exist
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 8. Ship Module System
@@ -316,7 +316,8 @@ MODULE_TYPES: dict[str, dict] = {
     "homing_missile":  {"label": "Homing Missiles",   "effect": "homing",        "value": 1,
                         "craft_cost": 50, "craft_cost_copper": 25,
                         "icon": MISSILE_PNG, "advanced": True,
-                        "consumable": True, "craft_time": 30.0, "craft_count": 1},
+                        "consumable": True, "craft_time": 30.0, "craft_count": 20,
+                        "item_key": "missile"},
     "misty_step":      {"label": "Misty Step",        "effect": "misty_step",    "value": 1,
                         "craft_cost": 400, "craft_cost_copper": 200,
                         "icon": os.path.join(_MODULE_ITEMS_DIR, "Energy.png"),

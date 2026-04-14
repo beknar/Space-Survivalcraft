@@ -35,6 +35,7 @@ class CraftMenu(MenuOverlay):
         self._crafting: bool = False
         self._progress: float = 0.0
         self._craft_target: str = ""  # "" = repair pack, "shield_recharge", or module key
+        self._is_advanced: bool = False
 
         # Available module recipes
         self._recipes: list[dict] = []
@@ -55,11 +56,13 @@ class CraftMenu(MenuOverlay):
         self.repair_pack_icon: Optional[arcade.Texture] = None
         self.shield_recharge_icon: Optional[arcade.Texture] = None
 
-    def refresh_recipes(self, station_inv) -> None:
+    def refresh_recipes(self, station_inv, is_advanced: bool = False) -> None:
         """Scan station inventory for blueprints and build recipe list.
 
         Once a blueprint is deposited, the recipe is permanently unlocked.
+        ``is_advanced`` gates recipes flagged ``"advanced": True``.
         """
+        self._is_advanced = is_advanced
         # Unlock any new blueprints found in station inv
         for key in MODULE_TYPES:
             if station_inv.count_item(f"bp_{key}") > 0:
@@ -69,6 +72,8 @@ class CraftMenu(MenuOverlay):
         for key in MODULE_TYPES:
             if key in self._unlocked:
                 info = MODULE_TYPES[key]
+                if info.get("advanced") and not is_advanced:
+                    continue
                 self._recipes.append({
                     "key": key,
                     "label": info["label"],

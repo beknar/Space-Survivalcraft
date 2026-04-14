@@ -10,6 +10,7 @@ from constants import (
     STATUS_WIDTH, BG_TILE,
     SHIELD_SCALE,
     MINIMAP_Y, MINIMAP_H,
+    SHIP_MAX_LEVEL,
 )
 from settings import audio
 
@@ -349,6 +350,9 @@ def draw_ui(gv: GameView) -> None:
         copper=gv.inventory.count_item("copper") + gv._station_inv.count_item("copper"),
         unlocked_blueprints=gv._craft_menu._unlocked,
         ship_level=gv._ship_level,
+        max_ship_exists=any(
+            p.ship_level >= SHIP_MAX_LEVEL for p in gv._parked_ships
+        ) or gv._ship_level >= SHIP_MAX_LEVEL,
     )
     gv._station_info.draw()
     gv._ship_stats.draw()

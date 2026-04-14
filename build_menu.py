@@ -50,6 +50,7 @@ class BuildMenu(MenuOverlay):
         self._mouse_x: float = 0.0
         self._mouse_y: float = 0.0
         self._ship_level: int = 1
+        self._max_ship_exists: bool = False
 
         # Panel geometry — right side of screen, vertically centred
         item_count = len(_MENU_ORDER)
@@ -131,6 +132,7 @@ class BuildMenu(MenuOverlay):
         copper: int = 0,
         unlocked_blueprints: set | None = None,
         ship_level: int = 1,
+        max_ship_exists: bool = False,
     ) -> tuple[bool, str]:
         """Return (available, reason) for a building type."""
         from constants import SHIP_MAX_LEVEL
@@ -151,8 +153,11 @@ class BuildMenu(MenuOverlay):
         if not has_home:
             return False, "Need Home Station"
 
-        if name == "Advanced Ship" and ship_level >= SHIP_MAX_LEVEL:
-            return False, "Ship already at max level"
+        if name == "Advanced Ship":
+            if ship_level >= SHIP_MAX_LEVEL:
+                return False, "Ship already at max level"
+            if max_ship_exists:
+                return False, "Max-level ship already exists"
 
         # Blueprint gate
         bp_key = stats.get("requires_blueprint")
@@ -206,10 +211,12 @@ class BuildMenu(MenuOverlay):
         copper: int = 0,
         unlocked_blueprints: set | None = None,
         ship_level: int = 1,
+        max_ship_exists: bool = False,
     ) -> Optional[str]:
         """Handle a click. Returns building type name, or "__destroy__" for destroy mode."""
         self._update_layout()
         self._ship_level = ship_level
+        self._max_ship_exists = max_ship_exists
         if not self.open:
             return None
         for i, name in enumerate(_MENU_ORDER):
@@ -219,6 +226,7 @@ class BuildMenu(MenuOverlay):
                     name, iron, building_counts,
                     modules_used, module_capacity, has_home,
                     copper, unlocked_blueprints, ship_level,
+                    max_ship_exists,
                 )
                 if avail:
                     return name
@@ -242,11 +250,13 @@ class BuildMenu(MenuOverlay):
         copper: int = 0,
         unlocked_blueprints: set | None = None,
         ship_level: int = 1,
+        max_ship_exists: bool = False,
     ) -> None:
         if not self.open:
             return
         self._update_layout()
         self._ship_level = ship_level
+        self._max_ship_exists = max_ship_exists
         # Update text positions for current layout
         cx = self._panel_x + self._panel_w // 2
         self._t_title.x = cx
@@ -302,6 +312,7 @@ class BuildMenu(MenuOverlay):
                 name, iron, building_counts,
                 modules_used, module_capacity, has_home,
                 copper, unlocked_blueprints, self._ship_level,
+                self._max_ship_exists,
             )
 
             # Row background

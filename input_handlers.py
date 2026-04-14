@@ -13,6 +13,7 @@ from constants import (
     BUILDING_TYPES, STATION_INFO_RANGE, TURRET_FREE_PLACE_RADIUS,
     CRAFT_TIME, CRAFT_IRON_COST,
     MODULE_TYPES, QUICK_USE_SLOTS,
+    SHIP_MAX_LEVEL,
 )
 from settings import audio
 from sprites.building import (
@@ -231,6 +232,9 @@ def handle_mouse_press(gv: GameView, x: int, y: int, button: int, modifiers: int
             copper=gv.inventory.count_item("copper") + gv._station_inv.count_item("copper"),
             unlocked_blueprints=gv._craft_menu._unlocked,
             ship_level=gv._ship_level,
+            max_ship_exists=any(
+                p.ship_level >= SHIP_MAX_LEVEL for p in gv._parked_ships
+            ) or gv._ship_level >= SHIP_MAX_LEVEL,
         )
         if selected is not None:
             if selected == "__destroy__":
@@ -341,7 +345,10 @@ def handle_mouse_press(gv: GameView, x: int, y: int, button: int, modifiers: int
                         return
                     if isinstance(b, BasicCrafter) and not b.disabled:
                         gv._active_crafter = b
-                        gv._craft_menu.refresh_recipes(gv._station_inv)
+                        gv._craft_menu.refresh_recipes(
+                            gv._station_inv,
+                            is_advanced=(b.building_type == "Advanced Crafter"),
+                        )
                         gv._craft_menu.toggle()
                         gv._craft_menu.update(
                             b.craft_progress, b.crafting,
