@@ -14,7 +14,8 @@ from constants import (
     NOSE_OFFSET, GUN_LATERAL_OFFSET,
     PLAYER_MAX_HP, PLAYER_MAX_SHIELD,
     FACTION_SHIPS_DIR, FACTIONS, SHIP_TYPES,
-    SHIP_FRAME_SIZE,
+    SHIP_FRAME_SIZE, SHIP_MAX_LEVEL,
+    SHIP_LEVEL_HP_BONUS, SHIP_LEVEL_SHIELD_BONUS,
 )
 
 
@@ -33,12 +34,36 @@ class PlayerShip(arcade.Sprite):
     _LEGACY_ROWS = 3
     _ANIM_FPS = 8
 
+    @staticmethod
+    def _extract_ship_texture(
+        faction: str, ship_type: str, ship_level: int
+    ) -> arcade.Texture:
+        """Crop and rotate the ship frame for the given faction/type/level.
+
+        Column index in the faction sheet = ship_level - 1 (clamped to
+        SHIP_MAX_LEVEL - 1).  Ships face RIGHT in the sheet; rotated 90° CCW
+        so nose points UP at angle=0.
+        """
+        stats = SHIP_TYPES[ship_type]
+        filename = FACTIONS[faction]
+        path = os.path.join(FACTION_SHIPS_DIR, filename)
+        pil_img = PILImage.open(path).convert("RGBA")
+        col = max(0, min(ship_level - 1, SHIP_MAX_LEVEL - 1))
+        x0 = col * SHIP_FRAME_SIZE
+        y0 = stats["row"] * SHIP_FRAME_SIZE
+        frame = pil_img.crop((x0, y0, x0 + SHIP_FRAME_SIZE, y0 + SHIP_FRAME_SIZE))
+        frame = frame.rotate(90, expand=True)
+        pil_img.close()
+        return arcade.Texture(frame)
+
     def __init__(
         self,
         faction: Optional[str] = None,
         ship_type: Optional[str] = None,
+        ship_level: int = 1,
     ) -> None:
         self._use_legacy: bool = (faction is None or ship_type is None)
+        self.ship_level: int = ship_level
 
         if self._use_legacy:
             # ── Legacy shmup_player sprite ──────────────────────────────────
@@ -69,20 +94,7 @@ class PlayerShip(arcade.Sprite):
             # ── Faction-based ship sprite ───────────────────────────────────
             self._frames = []   # not used for animation in faction mode
             stats = SHIP_TYPES[ship_type]
-            filename = FACTIONS[faction]
-            path = os.path.join(FACTION_SHIPS_DIR, filename)
-            pil_img = PILImage.open(path).convert("RGBA")
-            row = stats["row"]
-            # Column 0 = starting (un-upgraded) ship
-            x0 = 0
-            y0 = row * SHIP_FRAME_SIZE
-            frame = pil_img.crop((x0, y0, x0 + SHIP_FRAME_SIZE, y0 + SHIP_FRAME_SIZE))
-            # Faction ships face RIGHT in the sheet; rotate 90° CCW so nose
-            # points UP at angle=0, matching Arcade's CW-positive convention
-            # and our sin(heading)/cos(heading) physics.
-            frame = frame.rotate(90, expand=True)
-            pil_img.close()
-            tex = arcade.Texture(frame)
+            tex = self._extract_ship_texture(faction, ship_type, ship_level)
             super().__init__(path_or_texture=tex, scale=0.75)
 
             self._rot_speed = stats["rot_speed"]
@@ -90,8 +102,9 @@ class PlayerShip(arcade.Sprite):
             self._brake = stats["brake"]
             self._max_spd = stats["max_speed"]
             self._damping = stats["damping"]
-            hp = stats["hp"]
-            shields = stats["shields"]
+            level_bonus = max(0, ship_level - 1)
+            hp = stats["hp"] + level_bonus * SHIP_LEVEL_HP_BONUS
+            shields = stats["shields"] + level_bonus * SHIP_LEVEL_SHIELD_BONUS
             self._shield_regen = stats["shield_regen"]
             self.guns = stats["guns"]
 

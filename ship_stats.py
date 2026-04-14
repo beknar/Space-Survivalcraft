@@ -16,7 +16,8 @@ _BIO_PANEL_W = 360
 _BIO_PANEL_H = 520
 _PORTRAIT_H = 220
 
-_PORTRAITS_DIR = os.path.join("characters", "portraits")
+_PORTRAITS_DIR = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "characters", "portraits")
 
 _BACKSTORIES: dict[str, str] = {
     "Debra": (

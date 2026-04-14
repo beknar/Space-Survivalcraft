@@ -233,10 +233,12 @@ class BuildMenu(MenuOverlay):
         has_home: bool,
         copper: int = 0,
         unlocked_blueprints: set | None = None,
+        ship_level: int = 1,
     ) -> None:
         if not self.open:
             return
         self._update_layout()
+        self._ship_level = ship_level
         # Update text positions for current layout
         cx = self._panel_x + self._panel_w // 2
         self._t_title.x = cx

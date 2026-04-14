@@ -118,22 +118,28 @@ class VideoMode(MenuMode):
                     self.ctx.video_play_fn(os.path.join(audio.video_dir, fname))
                 return
 
+    def _commit_dir(self) -> None:
+        audio.video_dir = self._dir_text.strip()
+        self._files = scan_video_dir(audio.video_dir)
+        self._scroll = 0
+
     def on_key_press(self, key: int, modifiers: int = 0) -> None:
         if key == arcade.key.ESCAPE:
             self._editing_dir = False; self.ctx.set_mode("songs")
         elif self._editing_dir:
             if key == arcade.key.BACKSPACE:
                 self._dir_text = self._dir_text[:-1]
+                self._commit_dir()
             elif key in (arcade.key.RETURN, arcade.key.ENTER):
-                audio.video_dir = self._dir_text
+                self._commit_dir()
                 self._editing_dir = False
-                self._files = scan_video_dir(audio.video_dir)
 
     def on_text(self, text: str) -> None:
         if self._editing_dir:
             for ch in text:
                 if ch.isprintable() and len(self._dir_text) < 200:
                     self._dir_text += ch
+            self._commit_dir()
 
     def on_mouse_scroll(self, scroll_y: float) -> None:
         if self._files:
