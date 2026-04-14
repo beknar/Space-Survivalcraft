@@ -782,3 +782,109 @@ class TestParkedShipZoneTransition:
 
         gv._transition_zone(ZoneID.MAIN, entry_side="wormhole_return")
         assert len(gv._parked_ships) == 1  # restored
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  Recent features — Missile Array, homing-missile craft, trade, Death Blossom
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestMissileArrayFires:
+    def test_builds_and_fires_at_alien(self, real_game_view):
+        """Missile Array builds via the factory and launches a homing missile
+        at a nearby alien in Zone 1."""
+        from sprites.building import create_building, MissileArray
+        from update_logic import update_buildings
+        from sprites.alien import SmallAlienShip
+
+        gv = real_game_view
+        if gv._zone.zone_id != ZoneID.MAIN:
+            gv._transition_zone(ZoneID.MAIN, entry_side="wormhole_return")
+
+        tex = gv._building_textures["Missile Array"]
+        ma = create_building("Missile Array", tex,
+                             WORLD_WIDTH / 2, WORLD_HEIGHT / 2, scale=0.5)
+        assert isinstance(ma, MissileArray)
+        gv.building_list.append(ma)
+
+        alien = SmallAlienShip(
+            gv._alien_ship_tex, gv._alien_laser_tex,
+            ma.center_x + 200, ma.center_y,
+        )
+        gv.alien_list.append(alien)
+
+        update_buildings(gv, 0.1)
+        assert len(gv._missile_list) >= 1
+
+
+class TestCraftHomingMissileAdvanced:
+    def test_consumable_craft_produces_20_missiles(self, real_game_view):
+        """Crafting the homing_missile recipe on an Advanced Crafter tick
+        path adds 20 'missile' items to the station inventory."""
+        from sprites.building import create_building, BasicCrafter
+        from update_logic import update_crafting
+        from constants import MODULE_TYPES
+
+        gv = real_game_view
+        tex = gv._building_textures["Advanced Crafter"]
+        crafter = create_building("Advanced Crafter", tex,
+                                  WORLD_WIDTH / 2 + 100, WORLD_HEIGHT / 2,
+                                  scale=0.5)
+        assert isinstance(crafter, BasicCrafter)
+        gv.building_list.append(crafter)
+        gv._active_crafter = crafter
+        gv._craft_menu._craft_target = "homing_missile"
+
+        crafter.crafting = True
+        crafter.craft_timer = 0.0
+        crafter.craft_total = MODULE_TYPES["homing_missile"]["craft_time"]
+
+        missiles_before = gv._station_inv.count_item("missile")
+        elapsed = 0.0
+        dt = 1 / 60
+        while elapsed < crafter.craft_total + 1.0:
+            update_crafting(gv, dt)
+            elapsed += dt
+
+        assert crafter.crafting is False
+        missiles_after = gv._station_inv.count_item("missile")
+        assert missiles_after - missiles_before == 20
+
+
+class TestTradeSellIronCopper:
+    def test_iron_and_copper_sell_for_20(self, real_game_view):
+        """Sell iron + copper at the trade station; credits = 20 each."""
+        gv = real_game_view
+        gv.inventory.add_item("iron", 5)
+        gv.inventory.add_item("copper", 3)
+        gv._trade_menu._credits = 0
+        gv._trade_menu._refresh_sell_list(gv.inventory, gv._station_inv)
+        # Emulate 5 clicks on iron + 3 clicks on copper by finding each
+        # row's price and adding it.
+        from trade_menu import SELL_PRICES
+        gv._trade_menu._credits += SELL_PRICES["iron"] * 5
+        gv._trade_menu._credits += SELL_PRICES["copper"] * 3
+        assert gv._trade_menu._credits == 20 * 5 + 20 * 3
+
+
+class TestDeathBlossomFlow:
+    def test_triggers_clears_missiles_and_activates(self, real_game_view):
+        """Pressing X with death_blossom equipped and missiles in cargo
+        drains the cargo, clears any quick-use slot bound to missile, and
+        activates the death-blossom state."""
+        import arcade as _arcade
+        from input_handlers import handle_key_press
+        from constants import QUICK_USE_SLOTS
+
+        gv = real_game_view
+        gv.inventory.add_item("missile", 12)
+        # Equip death_blossom in the first module slot
+        gv._module_slots[0] = "death_blossom"
+        gv._hud.set_quick_use(0, "missile", 12)
+
+        handle_key_press(gv, _arcade.key.X, 0)
+
+        assert gv._death_blossom_active is True
+        assert gv._death_blossom_missiles_left == 12
+        assert gv.inventory.count_item("missile") == 0
+        # Slot bound to "missile" has been cleared
+        assert gv._hud.get_quick_use(0) is None

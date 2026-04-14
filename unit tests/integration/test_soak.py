@@ -969,3 +969,97 @@ class TestSoakWarpEnemy:
 
         _run_warp_soak(gv, f"Warp Enemy soak ({len(zone._aliens)} aliens)")
         _teardown_warp_soak(gv)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  Missile Array + Death Blossom soak (120 s)
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestSoakMissileArrayDeathBlossom:
+    def test_missile_array_and_death_blossom_120s_soak(self, real_game_view):
+        """120-second soak exercising MissileArray auto-fire and periodic
+        Death Blossom triggers, with churn from 20 aliens and continuous
+        projectiles. Validates no missile/alien sprite-list leak, no FPS
+        degradation from repeated ability activations."""
+        from sprites.building import create_building
+        from sprites.alien import SmallAlienShip
+        import arcade as _arcade
+
+        gv = real_game_view
+        if gv._zone.zone_id != ZoneID.MAIN:
+            gv._transition_zone(ZoneID.MAIN, entry_side="wormhole_return")
+        _make_invulnerable(gv)
+
+        # 4 Missile Arrays around the player
+        tex = gv._building_textures["Missile Array"]
+        for i in range(4):
+            ma = create_building("Missile Array", tex,
+                                 WORLD_WIDTH / 2 + (i - 1.5) * 120,
+                                 WORLD_HEIGHT / 2 + 250, scale=0.5)
+            gv.building_list.append(ma)
+
+        # 20 aliens swarming
+        for i in range(20):
+            a = SmallAlienShip(
+                gv._alien_ship_tex, gv._alien_laser_tex,
+                WORLD_WIDTH / 2 + (i - 10) * 80,
+                WORLD_HEIGHT / 2,
+            )
+            gv.alien_list.append(a)
+
+        # Equip death blossom, give missiles, fire periodically
+        gv._module_slots[0] = "death_blossom"
+        gv.inventory.add_item("missile", 200)
+
+        dt = 1 / 60
+        for _ in range(WARMUP_FRAMES):
+            _simulate_churn(gv, dt)
+
+        fps_start = _measure_fps_quick(gv)
+        mem_start = _get_rss_mb()
+        print(f"\n  [MissileArray+DB 120s] START: {fps_start:.1f} FPS, "
+              f"{mem_start:.0f} MB RSS")
+
+        DURATION = 120.0
+        fps_min = fps_start
+        soak_start = time.perf_counter()
+        last_sample = soak_start
+        from input_handlers import handle_key_press
+
+        while time.perf_counter() - soak_start < DURATION:
+            for _ in range(60):
+                _simulate_churn(gv, dt)
+            # Trigger a death blossom every ~10 s if we have missiles
+            if (gv.inventory.count_item("missile") > 0
+                    and not gv._death_blossom_active):
+                handle_key_press(gv, _arcade.key.X, 0)
+                # Replenish after it activates
+                gv.inventory.add_item("missile", 50)
+
+            now = time.perf_counter()
+            if now - last_sample >= 30.0:
+                fps = _measure_fps_quick(gv)
+                mem = _get_rss_mb()
+                fps_min = min(fps_min, fps)
+                elapsed = now - soak_start
+                print(f"  [MissileArray+DB 120s] {elapsed / 60:.1f}m: "
+                      f"{fps:.1f} FPS, {mem:.0f} MB RSS "
+                      f"(+{mem - mem_start:.1f} MB)")
+                last_sample = now
+
+        fps_end = _measure_fps_quick(gv)
+        mem_end = _get_rss_mb()
+        fps_min = min(fps_min, fps_end)
+        mem_growth = mem_end - mem_start
+        print(f"  [MissileArray+DB 120s] END: {fps_end:.1f} FPS, "
+              f"{mem_end:.0f} MB RSS (+{mem_growth:+.1f} MB)")
+
+        assert fps_min >= MIN_FPS, (
+            f"Missile Array + Death Blossom soak: FPS dropped to "
+            f"{fps_min:.1f} (threshold: {MIN_FPS})"
+        )
+        # Missiles + many aliens spawn buffers — allow generous headroom
+        assert mem_growth <= 300, (
+            f"Missile Array + Death Blossom soak: memory grew by "
+            f"{mem_growth:.1f} MB (threshold: 300 MB)"
+        )

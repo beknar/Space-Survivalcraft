@@ -1181,3 +1181,40 @@ class TestAlienAsteroidZone2:
             f"Zone 2 alien-asteroid collisions: "
             f"{fps:.1f} FPS < {MIN_FPS} FPS threshold"
         )
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  Missile Array perf: 8 arrays + 30 aliens
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestMissileArrayPerf:
+    def test_missile_arrays_above_threshold(self, real_game_view):
+        """8 Missile Arrays periodically firing at 30 aliens should sustain
+        at least the standard FPS threshold."""
+        from sprites.building import create_building
+        from sprites.alien import SmallAlienShip
+
+        gv = real_game_view
+        if gv._zone.zone_id != ZoneID.MAIN:
+            gv._transition_zone(ZoneID.MAIN, entry_side="wormhole_return")
+
+        tex = gv._building_textures["Missile Array"]
+        for i in range(8):
+            ma = create_building("Missile Array", tex,
+                                 WORLD_WIDTH / 2 + (i - 4) * 80,
+                                 WORLD_HEIGHT / 2 + 200,
+                                 scale=0.5)
+            gv.building_list.append(ma)
+
+        for i in range(30):
+            a = SmallAlienShip(
+                gv._alien_ship_tex, gv._alien_laser_tex,
+                WORLD_WIDTH / 2 + (i - 15) * 60,
+                WORLD_HEIGHT / 2,
+            )
+            gv.alien_list.append(a)
+
+        fps = _measure_fps(gv)
+        assert fps >= MIN_FPS, (
+            f"Missile Arrays + 30 aliens: {fps:.1f} FPS < {MIN_FPS}"
+        )
