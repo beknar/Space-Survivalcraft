@@ -49,6 +49,7 @@ class BuildMenu(MenuOverlay):
         self._hover_destroy: bool = False
         self._mouse_x: float = 0.0
         self._mouse_y: float = 0.0
+        self._ship_level: int = 1
 
         # Panel geometry — right side of screen, vertically centred
         item_count = len(_MENU_ORDER)
@@ -129,8 +130,10 @@ class BuildMenu(MenuOverlay):
         has_home: bool,
         copper: int = 0,
         unlocked_blueprints: set | None = None,
+        ship_level: int = 1,
     ) -> tuple[bool, str]:
         """Return (available, reason) for a building type."""
+        from constants import SHIP_MAX_LEVEL
         stats = BUILDING_TYPES[name]
         cost = stats["cost"]
         copper_cost = stats.get("cost_copper", 0)
@@ -147,6 +150,9 @@ class BuildMenu(MenuOverlay):
         # All other buildings require a Home Station
         if not has_home:
             return False, "Need Home Station"
+
+        if name == "Advanced Ship" and ship_level >= SHIP_MAX_LEVEL:
+            return False, "Ship already at max level"
 
         # Blueprint gate
         bp_key = stats.get("requires_blueprint")
@@ -199,9 +205,11 @@ class BuildMenu(MenuOverlay):
         has_home: bool,
         copper: int = 0,
         unlocked_blueprints: set | None = None,
+        ship_level: int = 1,
     ) -> Optional[str]:
         """Handle a click. Returns building type name, or "__destroy__" for destroy mode."""
         self._update_layout()
+        self._ship_level = ship_level
         if not self.open:
             return None
         for i, name in enumerate(_MENU_ORDER):
@@ -210,7 +218,7 @@ class BuildMenu(MenuOverlay):
                 avail, _ = self._check_availability(
                     name, iron, building_counts,
                     modules_used, module_capacity, has_home,
-                    copper, unlocked_blueprints,
+                    copper, unlocked_blueprints, ship_level,
                 )
                 if avail:
                     return name
@@ -293,7 +301,7 @@ class BuildMenu(MenuOverlay):
             avail, reason = self._check_availability(
                 name, iron, building_counts,
                 modules_used, module_capacity, has_home,
-                copper, unlocked_blueprints,
+                copper, unlocked_blueprints, self._ship_level,
             )
 
             # Row background

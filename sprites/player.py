@@ -93,6 +93,8 @@ class PlayerShip(arcade.Sprite):
         else:
             # ── Faction-based ship sprite ───────────────────────────────────
             self._frames = []   # not used for animation in faction mode
+            self._faction = faction
+            self._ship_type = ship_type
             stats = SHIP_TYPES[ship_type]
             tex = self._extract_ship_texture(faction, ship_type, ship_level)
             super().__init__(path_or_texture=tex, scale=0.75)
@@ -137,6 +139,23 @@ class PlayerShip(arcade.Sprite):
         self._intensity: float = 0.0
         self._anim_timer: float = 0.0
         self._anim_col: int = 0
+
+    def upgrade_ship(self) -> None:
+        """Advance to the next ship level — new texture + stat bonuses."""
+        if self._use_legacy or self.ship_level >= SHIP_MAX_LEVEL:
+            return
+        self.ship_level += 1
+        self.texture = self._extract_ship_texture(
+            self._faction, self._ship_type, self.ship_level)
+        stats = SHIP_TYPES[self._ship_type]
+        level_bonus = self.ship_level - 1
+        self._base_max_hp = stats["hp"] + level_bonus * SHIP_LEVEL_HP_BONUS
+        self._base_max_shields = (
+            stats["shields"] + level_bonus * SHIP_LEVEL_SHIELD_BONUS)
+        self.max_hp = self._base_max_hp
+        self.max_shields = self._base_max_shields
+        self.hp = self.max_hp
+        self.shields = self.max_shields
 
     def apply_input(
         self,

@@ -38,15 +38,15 @@ def _apply_kill_rewards(
     """Spawn explosion, drop iron (base + character bonus), maybe blueprint, award XP."""
     gv._spawn_explosion(x, y)
     arcade.play_sound(gv._explosion_snd, volume=0.7)
-    gv._spawn_iron_pickup(x, y, amount=base_iron)
+    gv._spawn_iron_pickup(x - 20, y, amount=base_iron)
     _cn = _audio.character_name
     _cl = gv._char_level
     _extra = iron_bonus_fn(_cn, _cl)
     if _extra > 0:
-        gv._spawn_iron_pickup(x, y, amount=_extra)
+        gv._spawn_iron_pickup(x + 20, y, amount=_extra)
     _bp_chance = bp_base_chance + blueprint_drop_bonus(_cn, _cl)
     if random.random() < _bp_chance:
-        gv._spawn_blueprint_pickup(x, y)
+        gv._spawn_blueprint_pickup(x, y + 25)
     gv._add_xp(xp)
 
 
