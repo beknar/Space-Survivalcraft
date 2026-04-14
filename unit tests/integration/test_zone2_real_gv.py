@@ -888,3 +888,96 @@ class TestDeathBlossomFlow:
         assert gv.inventory.count_item("missile") == 0
         # Slot bound to "missile" has been cleared
         assert gv._hud.get_quick_use(0) is None
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  Recent features with videos running
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _start_video_pipeline(gv):
+    """Start both character + music video players for an integration test.
+    Skips the test if no .mp4 files are available or FFmpeg can't decode."""
+    from video_player import scan_characters_dir, character_video_path
+    chars = scan_characters_dir()
+    if not chars:
+        pytest.skip("No character video files found in characters/")
+    paths = []
+    for name in chars:
+        p = character_video_path(name)
+        if p is not None:
+            paths.append(p)
+        if len(paths) >= 2:
+            break
+    if not paths:
+        pytest.skip("No character video file paths resolved")
+    gv._char_video_player.play_segments(paths[0], volume=0.0)
+    music_path = paths[1] if len(paths) > 1 else paths[0]
+    gv._video_player.play(music_path, volume=0.0)
+    dt = 1 / 60
+    for _ in range(10):
+        gv.on_update(dt)
+        gv.on_draw()
+    if not gv._char_video_player.active and not gv._video_player.active:
+        pytest.skip("Neither video player started (no FFmpeg?)")
+
+
+def _stop_video_pipeline(gv):
+    gv._char_video_player.stop()
+    gv._video_player.stop()
+
+
+class TestMissileArrayFiresWithVideos:
+    def test_builds_and_fires_at_alien_with_videos(self, real_game_view):
+        """Same as TestMissileArrayFires but with both video decoders
+        running to ensure they don't interfere with building tick order
+        or missile spawning."""
+        from sprites.building import create_building, MissileArray
+        from update_logic import update_buildings
+        from sprites.alien import SmallAlienShip
+
+        gv = real_game_view
+        if gv._zone.zone_id != ZoneID.MAIN:
+            gv._transition_zone(ZoneID.MAIN, entry_side="wormhole_return")
+        _start_video_pipeline(gv)
+        try:
+            tex = gv._building_textures["Missile Array"]
+            ma = create_building("Missile Array", tex,
+                                 WORLD_WIDTH / 2, WORLD_HEIGHT / 2, scale=0.5)
+            assert isinstance(ma, MissileArray)
+            gv.building_list.append(ma)
+
+            alien = SmallAlienShip(
+                gv._alien_ship_tex, gv._alien_laser_tex,
+                ma.center_x + 200, ma.center_y,
+            )
+            gv.alien_list.append(alien)
+
+            update_buildings(gv, 0.1)
+            assert len(gv._missile_list) >= 1
+        finally:
+            _stop_video_pipeline(gv)
+
+
+class TestDeathBlossomFlowWithVideos:
+    def test_triggers_with_videos_running(self, real_game_view):
+        """Death Blossom trigger flow exercised while both video decoders
+        are active — verifies input routing + inventory drain + quick-use
+        slot clearing survive the two-frame video pipeline."""
+        import arcade as _arcade
+        from input_handlers import handle_key_press
+
+        gv = real_game_view
+        _start_video_pipeline(gv)
+        try:
+            gv.inventory.add_item("missile", 12)
+            gv._module_slots[0] = "death_blossom"
+            gv._hud.set_quick_use(0, "missile", 12)
+
+            handle_key_press(gv, _arcade.key.X, 0)
+
+            assert gv._death_blossom_active is True
+            assert gv._death_blossom_missiles_left == 12
+            assert gv.inventory.count_item("missile") == 0
+            assert gv._hud.get_quick_use(0) is None
+        finally:
+            _stop_video_pipeline(gv)

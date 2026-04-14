@@ -1063,3 +1063,120 @@ class TestSoakMissileArrayDeathBlossom:
             f"Missile Array + Death Blossom soak: memory grew by "
             f"{mem_growth:.1f} MB (threshold: 300 MB)"
         )
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  Missile Array + Death Blossom soak with both videos (120 s)
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestSoakMissileArrayDeathBlossomWithVideos:
+    def test_missile_array_and_death_blossom_with_videos_120s_soak(
+        self, real_game_view
+    ):
+        """120-second soak — Missile Arrays auto-firing, periodic Death
+        Blossom triggers, 20 aliens swarming, AND both character +
+        music video decoders running concurrently.
+
+        Catches any leak or FPS drop from the interaction between ability
+        activation churn and the two-frame video decode pipeline.
+        """
+        from sprites.building import create_building
+        from sprites.alien import SmallAlienShip
+        from video_player import scan_characters_dir, character_video_path
+        import arcade as _arcade
+
+        gv = real_game_view
+        if gv._zone.zone_id != ZoneID.MAIN:
+            gv._transition_zone(ZoneID.MAIN, entry_side="wormhole_return")
+        _make_invulnerable(gv)
+
+        # Start videos (skip if no .mp4 assets / FFmpeg)
+        chars = scan_characters_dir()
+        if not chars:
+            pytest.skip("No character video files found in characters/")
+        paths = [p for p in (character_video_path(c) for c in chars) if p]
+        if not paths:
+            pytest.skip("No character video file paths resolved")
+        gv._char_video_player.play_segments(paths[0], volume=0.0)
+        gv._video_player.play(
+            paths[1] if len(paths) > 1 else paths[0], volume=0.0)
+        dt = 1 / 60
+        for _ in range(15):
+            gv.on_update(dt); gv.on_draw()
+        if not gv._char_video_player.active and not gv._video_player.active:
+            pytest.skip("Neither video player started (no FFmpeg?)")
+
+        try:
+            # 4 Missile Arrays around the player
+            tex = gv._building_textures["Missile Array"]
+            for i in range(4):
+                ma = create_building("Missile Array", tex,
+                                     WORLD_WIDTH / 2 + (i - 1.5) * 120,
+                                     WORLD_HEIGHT / 2 + 250, scale=0.5)
+                gv.building_list.append(ma)
+
+            # 20 aliens
+            for i in range(20):
+                a = SmallAlienShip(
+                    gv._alien_ship_tex, gv._alien_laser_tex,
+                    WORLD_WIDTH / 2 + (i - 10) * 80,
+                    WORLD_HEIGHT / 2,
+                )
+                gv.alien_list.append(a)
+
+            gv._module_slots[0] = "death_blossom"
+            gv.inventory.add_item("missile", 200)
+
+            for _ in range(WARMUP_FRAMES):
+                _simulate_churn(gv, dt)
+
+            fps_start = _measure_fps_quick(gv)
+            mem_start = _get_rss_mb()
+            print(f"\n  [MissileArray+DB+Videos 120s] START: "
+                  f"{fps_start:.1f} FPS, {mem_start:.0f} MB RSS")
+
+            DURATION = 120.0
+            fps_min = fps_start
+            soak_start = time.perf_counter()
+            last_sample = soak_start
+            from input_handlers import handle_key_press
+
+            while time.perf_counter() - soak_start < DURATION:
+                for _ in range(60):
+                    _simulate_churn(gv, dt)
+                if (gv.inventory.count_item("missile") > 0
+                        and not gv._death_blossom_active):
+                    handle_key_press(gv, _arcade.key.X, 0)
+                    gv.inventory.add_item("missile", 50)
+
+                now = time.perf_counter()
+                if now - last_sample >= 30.0:
+                    fps = _measure_fps_quick(gv)
+                    mem = _get_rss_mb()
+                    fps_min = min(fps_min, fps)
+                    elapsed = now - soak_start
+                    print(f"  [MissileArray+DB+Videos 120s] "
+                          f"{elapsed / 60:.1f}m: {fps:.1f} FPS, "
+                          f"{mem:.0f} MB RSS (+{mem - mem_start:.1f} MB)")
+                    last_sample = now
+
+            fps_end = _measure_fps_quick(gv)
+            mem_end = _get_rss_mb()
+            fps_min = min(fps_min, fps_end)
+            mem_growth = mem_end - mem_start
+            print(f"  [MissileArray+DB+Videos 120s] END: {fps_end:.1f} FPS, "
+                  f"{mem_end:.0f} MB RSS (+{mem_growth:+.1f} MB)")
+
+            assert fps_min >= MIN_FPS, (
+                f"Missile Array + Death Blossom + videos soak: FPS dropped "
+                f"to {fps_min:.1f} (threshold: {MIN_FPS})"
+            )
+            # Dual video decode residue — allow headroom similar to warp soaks
+            _mem_threshold = 1000
+            assert mem_growth <= _mem_threshold, (
+                f"Missile Array + Death Blossom + videos soak: memory grew "
+                f"by {mem_growth:.1f} MB (threshold: {_mem_threshold} MB)"
+            )
+        finally:
+            gv._char_video_player.stop()
+            gv._video_player.stop()
