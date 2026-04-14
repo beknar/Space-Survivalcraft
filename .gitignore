@@ -2,6 +2,7 @@
 PROPOSAL.md
 .markdownlint*
 venv/
+.venv/
 __pycache__/
 *.pyc
 assets/
