@@ -267,9 +267,8 @@ def compute_inactive_zone_stats(gv: GameView) -> list[tuple[str, list[tuple[str,
 
 
 def _gas_always_visible(gv: GameView) -> bool:
-    """Gas hazards are always shown on the minimap in warp zones."""
-    from zones.zone_warp_base import WarpZoneBase
-    return isinstance(gv._zone, WarpZoneBase)
+    """Gas hazards respect fog of war in all zones, including warp zones."""
+    return False
 
 
 def _gas_positions(gv: GameView) -> list[tuple[float, float, float]]:
