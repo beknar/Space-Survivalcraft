@@ -9,15 +9,18 @@ from menu_overlay import MenuOverlay
 from constants import SCREEN_WIDTH, SCREEN_HEIGHT, CRAFT_IRON_COST, CRAFT_RESULT_COUNT, MODULE_TYPES
 
 _PANEL_W = 340
-_PANEL_H = 400
+_PANEL_H = 400       # main/buy modes; sell mode computes a dynamic height
+_PANEL_H_MIN = 400
 _ITEM_H = 26
+_SELL_HEADER_H = 85  # pixels above the first item row (title + credits + hint)
+_SELL_FOOTER_H = 60  # pixels below the last item row (back button area)
 
 # Sell prices (credits per unit)
 SELL_PRICES: dict[str, int] = {
-    "iron": 1,
+    "iron": 20,
     "repair_pack": 100,
     "shield_recharge": 100,
-    "copper": 5,
+    "copper": 20,
     "missile": 200,
 }
 # Add blueprint sell prices (half the module craft cost)
@@ -27,7 +30,7 @@ for _k, _info in MODULE_TYPES.items():
 
 # Buy catalog: item_type → (label, credit cost, stack produced)
 BUY_CATALOG: list[tuple[str, str, int, int]] = [
-    ("iron", "Iron x50", 100, 50),
+    ("iron", "Iron x50", 1500, 50),
     ("repair_pack", "Repair Pack", CRAFT_IRON_COST * 2, CRAFT_RESULT_COUNT),
     ("shield_recharge", "Shield Recharge", CRAFT_IRON_COST * 2, CRAFT_RESULT_COUNT),
     ("missile", "Homing Missile x10", 500, 10),
@@ -87,48 +90,69 @@ class TradeMenu(MenuOverlay):
             for (it, ct) in inv._items.values():
                 if it in SELL_PRICES:
                     seen[it] = seen.get(it, 0) + ct
-        for it, ct in sorted(seen.items()):
+        # Sort priority: raw resources → consumables → modules → blueprints.
+        # Alphabetical within each group. Without this, bp_* entries flooded
+        # the top of the 10-row window and pushed copper/iron out of view.
+        def _sort_key(it: str) -> tuple[int, str]:
+            if it in ("iron", "copper"):
+                return (0, it)
+            if it in ("repair_pack", "shield_recharge", "missile"):
+                return (1, it)
+            if it.startswith("mod_"):
+                return (2, it)
+            return (3, it)  # bp_* and anything else
+        for it, ct in sorted(seen.items(), key=lambda kv: _sort_key(kv[0])):
             name = _ITEM_NAMES.get(it, it)
             price = SELL_PRICES.get(it, 1)
             self._sell_items.append((it, name, price, ct))
         self._sell_scroll = 0
 
+    def _panel_height(self) -> int:
+        """Dynamic height — in sell mode grows to fit every row."""
+        if self._mode == "sell":
+            rows = max(1, len(self._sell_items))
+            needed = _SELL_HEADER_H + rows * _ITEM_H + _SELL_FOOTER_H
+            sh = self._window.height if self._window else SCREEN_HEIGHT
+            return max(_PANEL_H_MIN, min(needed, sh - 40))
+        return _PANEL_H
+
     def _panel_origin(self) -> tuple[int, int]:
         sw = self._window.width if self._window else SCREEN_WIDTH
         sh = self._window.height if self._window else SCREEN_HEIGHT
-        return (sw - _PANEL_W) // 2, (sh - _PANEL_H) // 2
+        return (sw - _PANEL_W) // 2, (sh - self._panel_height()) // 2
 
     def draw(self) -> None:
         if not self.open:
             return
         px, py = self._panel_origin()
-        arcade.draw_rect_filled(arcade.LBWH(px, py, _PANEL_W, _PANEL_H), (15, 20, 45, 240))
-        arcade.draw_rect_outline(arcade.LBWH(px, py, _PANEL_W, _PANEL_H),
+        ph = self._panel_height()
+        arcade.draw_rect_filled(arcade.LBWH(px, py, _PANEL_W, ph), (15, 20, 45, 240))
+        arcade.draw_rect_outline(arcade.LBWH(px, py, _PANEL_W, ph),
                                  arcade.color.STEEL_BLUE, border_width=2)
         cx = px + _PANEL_W // 2
-        self._t_title.x = cx; self._t_title.y = py + _PANEL_H - 20
+        self._t_title.x = cx; self._t_title.y = py + ph - 20
         self._t_title.draw()
         self._t_credits.text = f"Credits: {self._credits}"
-        self._t_credits.x = cx; self._t_credits.y = py + _PANEL_H - 42
+        self._t_credits.x = cx; self._t_credits.y = py + ph - 42
         self._t_credits.draw()
 
         if self._mode == "main":
-            self._draw_main(px, py, cx)
+            self._draw_main(px, py, ph, cx)
         elif self._mode == "sell":
-            self._draw_sell(px, py, cx)
+            self._draw_sell(px, py, ph, cx)
         elif self._mode == "buy":
-            self._draw_buy(px, py, cx)
+            self._draw_buy(px, py, ph, cx)
 
         self._t_close.x = cx; self._t_close.y = py + 10
         self._t_close.draw()
 
-    def _draw_main(self, px: int, py: int, cx: int) -> None:
+    def _draw_main(self, px: int, py: int, ph: int, cx: int) -> None:
         for i, (label, color) in enumerate([
             ("SELL Items", arcade.color.ORANGE),
             ("BUY Items", arcade.color.LIME_GREEN),
         ]):
             bx = px + (_PANEL_W - 200) // 2
-            by = py + _PANEL_H - 90 - i * 50
+            by = py + ph - 90 - i * 50
             arcade.draw_rect_filled(arcade.LBWH(bx, by, 200, 36),
                                     (30, 50, 80, 220))
             arcade.draw_rect_outline(arcade.LBWH(bx, by, 200, 36),
@@ -137,13 +161,14 @@ class TradeMenu(MenuOverlay):
             self._t_btn.x = bx + 100; self._t_btn.y = by + 18
             self._t_btn.draw()
 
-    def _draw_sell(self, px: int, py: int, cx: int) -> None:
+    def _draw_sell(self, px: int, py: int, ph: int, cx: int) -> None:
         self._t_line.text = "Click an item to sell 1 unit"
-        self._t_line.x = cx; self._t_line.y = py + _PANEL_H - 65
+        self._t_line.x = cx; self._t_line.y = py + ph - 65
         self._t_line.color = (160, 160, 160)
         self._t_line.anchor_x = "center"; self._t_line.draw()
         self._t_line.anchor_x = "left"
-        list_y = py + _PANEL_H - 85; max_vis = 10
+        list_y = py + ph - _SELL_HEADER_H
+        max_vis = max(1, (ph - _SELL_HEADER_H - _SELL_FOOTER_H) // _ITEM_H)
         if not self._sell_items:
             self._t_line.text = "Nothing to sell"
             self._t_line.x = cx; self._t_line.y = list_y - 20
@@ -169,13 +194,13 @@ class TradeMenu(MenuOverlay):
         self._t_btn.text = "Back"; self._t_btn.color = arcade.color.WHITE
         self._t_btn.x = bx + 50; self._t_btn.y = by + 14; self._t_btn.draw()
 
-    def _draw_buy(self, px: int, py: int, cx: int) -> None:
+    def _draw_buy(self, px: int, py: int, ph: int, cx: int) -> None:
         self._t_line.text = "Click an item to buy"
-        self._t_line.x = cx; self._t_line.y = py + _PANEL_H - 65
+        self._t_line.x = cx; self._t_line.y = py + ph - 65
         self._t_line.color = (160, 160, 160)
         self._t_line.anchor_x = "center"; self._t_line.draw()
         self._t_line.anchor_x = "left"
-        list_y = py + _PANEL_H - 85
+        list_y = py + ph - _SELL_HEADER_H
         for i, (it, name, cost, qty) in enumerate(BUY_CATALOG):
             iy = list_y - i * _ITEM_H
             affordable = self._credits >= cost
@@ -199,34 +224,35 @@ class TradeMenu(MenuOverlay):
         if not self.open:
             return None
         px, py = self._panel_origin()
-        if not (px <= x <= px + _PANEL_W and py <= y <= py + _PANEL_H):
+        ph = self._panel_height()
+        if not (px <= x <= px + _PANEL_W and py <= y <= py + ph):
             self.open = False
             return None
 
         if self._mode == "main":
             bx = px + (_PANEL_W - 200) // 2
             # Sell button
-            by = py + _PANEL_H - 90
+            by = py + ph - 90
             if bx <= x <= bx + 200 and by <= y <= by + 36:
                 self._mode = "sell"
                 self._refresh_sell_list(inventory, station_inv)
                 return None
             # Buy button
-            by2 = py + _PANEL_H - 140
+            by2 = py + ph - 140
             if bx <= x <= bx + 200 and by2 <= y <= by2 + 36:
                 self._mode = "buy"
                 return None
 
         elif self._mode == "sell":
-            return self._handle_sell_click(x, y, px, py)
+            return self._handle_sell_click(x, y, px, py, ph)
 
         elif self._mode == "buy":
-            return self._handle_buy_click(x, y, px, py)
+            return self._handle_buy_click(x, y, px, py, ph)
 
         return None
 
     def _handle_sell_click(self, x: float, y: float,
-                           px: int, py: int) -> Optional[str]:
+                           px: int, py: int, ph: int) -> Optional[str]:
         """Process a click in sell mode (back button or item list)."""
         # Back button
         bx = px + (_PANEL_W - 100) // 2; by = py + 30
@@ -234,7 +260,8 @@ class TradeMenu(MenuOverlay):
             self._mode = "main"
             return None
         # Item list
-        list_y = py + _PANEL_H - 85; max_vis = 10
+        list_y = py + ph - _SELL_HEADER_H
+        max_vis = max(1, (ph - _SELL_HEADER_H - _SELL_FOOTER_H) // _ITEM_H)
         for i in range(min(max_vis, len(self._sell_items) - self._sell_scroll)):
             idx = self._sell_scroll + i
             iy = list_y - i * _ITEM_H
@@ -246,13 +273,13 @@ class TradeMenu(MenuOverlay):
         return None
 
     def _handle_buy_click(self, x: float, y: float,
-                          px: int, py: int) -> Optional[str]:
+                          px: int, py: int, ph: int) -> Optional[str]:
         """Process a click in buy mode (back button or catalog item)."""
         bx = px + (_PANEL_W - 100) // 2; by = py + 30
         if bx <= x <= bx + 100 and by <= y <= by + 28:
             self._mode = "main"
             return None
-        list_y = py + _PANEL_H - 85
+        list_y = py + ph - _SELL_HEADER_H
         for i, (it, name, cost, qty) in enumerate(BUY_CATALOG):
             iy = list_y - i * _ITEM_H
             if (px + 10 <= x <= px + _PANEL_W - 10
@@ -271,5 +298,7 @@ class TradeMenu(MenuOverlay):
 
     def on_mouse_scroll(self, scroll_y: float) -> None:
         if self._mode == "sell" and self._sell_items:
-            mx = max(0, len(self._sell_items) - 10)
+            ph = self._panel_height()
+            max_vis = max(1, (ph - _SELL_HEADER_H - _SELL_FOOTER_H) // _ITEM_H)
+            mx = max(0, len(self._sell_items) - max_vis)
             self._sell_scroll = int(max(0, min(mx, self._sell_scroll - scroll_y)))
