@@ -166,12 +166,36 @@ class TradeMenu(MenuOverlay):
             self._t_btn.x = bx + 100; self._t_btn.y = by + 18
             self._t_btn.draw()
 
-    def _draw_sell(self, px: int, py: int, ph: int, cx: int) -> None:
-        self._t_line.text = "Click an item to sell 1 unit"
-        self._t_line.x = cx; self._t_line.y = py + ph - 65
+    def _draw_hint(self, cx: int, y: int, text: str) -> None:
+        """Draw a centered grey hint line."""
+        self._t_line.text = text
+        self._t_line.x = cx; self._t_line.y = y
         self._t_line.color = (160, 160, 160)
         self._t_line.anchor_x = "center"; self._t_line.draw()
         self._t_line.anchor_x = "left"
+
+    def _draw_list_row(self, px: int, iy: int, text: str,
+                       fill: tuple[int, int, int, int],
+                       text_color: tuple[int, int, int]) -> None:
+        """Draw one row in the sell/buy list."""
+        arcade.draw_rect_filled(
+            arcade.LBWH(px + 10, iy, _PANEL_W - 20, _ITEM_H - 2), fill)
+        self._t_line.text = text
+        self._t_line.x = px + 16; self._t_line.y = iy + _ITEM_H // 2
+        self._t_line.color = text_color
+        self._t_line.draw()
+
+    def _draw_back_button(self, px: int, py: int) -> None:
+        """Draw the bottom Back button."""
+        bx = px + (_PANEL_W - 100) // 2; by = py + 30
+        arcade.draw_rect_filled(arcade.LBWH(bx, by, 100, 28), (50, 40, 40, 220))
+        arcade.draw_rect_outline(arcade.LBWH(bx, by, 100, 28),
+                                 arcade.color.STEEL_BLUE, border_width=1)
+        self._t_btn.text = "Back"; self._t_btn.color = arcade.color.WHITE
+        self._t_btn.x = bx + 50; self._t_btn.y = by + 14; self._t_btn.draw()
+
+    def _draw_sell(self, px: int, py: int, ph: int, cx: int) -> None:
+        self._draw_hint(cx, py + ph - 65, "Click an item to sell 1 unit")
         list_y = py + ph - _SELL_HEADER_H
         max_vis = max(1, (ph - _SELL_HEADER_H - _SELL_FOOTER_H) // _ITEM_H)
         if not self._sell_items:
@@ -185,43 +209,25 @@ class TradeMenu(MenuOverlay):
                 idx = self._sell_scroll + i
                 it, name, price, count = self._sell_items[idx]
                 iy = list_y - i * _ITEM_H
-                arcade.draw_rect_filled(arcade.LBWH(px + 10, iy, _PANEL_W - 20, _ITEM_H - 2),
-                                        (30, 40, 60, 200))
-                self._t_line.text = f"{name} x{count}  —  {price} cr/ea"
-                self._t_line.x = px + 16; self._t_line.y = iy + _ITEM_H // 2
-                self._t_line.color = arcade.color.WHITE
-                self._t_line.draw()
-        # Back button
-        bx = px + (_PANEL_W - 100) // 2; by = py + 30
-        arcade.draw_rect_filled(arcade.LBWH(bx, by, 100, 28), (50, 40, 40, 220))
-        arcade.draw_rect_outline(arcade.LBWH(bx, by, 100, 28),
-                                 arcade.color.STEEL_BLUE, border_width=1)
-        self._t_btn.text = "Back"; self._t_btn.color = arcade.color.WHITE
-        self._t_btn.x = bx + 50; self._t_btn.y = by + 14; self._t_btn.draw()
+                self._draw_list_row(
+                    px, iy,
+                    f"{name} x{count}  —  {price} cr/ea",
+                    (30, 40, 60, 200),
+                    arcade.color.WHITE,
+                )
+        self._draw_back_button(px, py)
 
     def _draw_buy(self, px: int, py: int, ph: int, cx: int) -> None:
-        self._t_line.text = "Click an item to buy"
-        self._t_line.x = cx; self._t_line.y = py + ph - 65
-        self._t_line.color = (160, 160, 160)
-        self._t_line.anchor_x = "center"; self._t_line.draw()
-        self._t_line.anchor_x = "left"
+        self._draw_hint(cx, py + ph - 65, "Click an item to buy")
         list_y = py + ph - _SELL_HEADER_H
         for i, (it, name, cost, qty) in enumerate(BUY_CATALOG):
             iy = list_y - i * _ITEM_H
             affordable = self._credits >= cost
             fill = (30, 60, 30, 200) if affordable else (50, 30, 30, 200)
-            arcade.draw_rect_filled(arcade.LBWH(px + 10, iy, _PANEL_W - 20, _ITEM_H - 2), fill)
-            self._t_line.text = f"{name} x{qty}  —  {cost} credits"
-            self._t_line.x = px + 16; self._t_line.y = iy + _ITEM_H // 2
-            self._t_line.color = arcade.color.WHITE if affordable else (150, 80, 80)
-            self._t_line.draw()
-        # Back button
-        bx = px + (_PANEL_W - 100) // 2; by = py + 30
-        arcade.draw_rect_filled(arcade.LBWH(bx, by, 100, 28), (50, 40, 40, 220))
-        arcade.draw_rect_outline(arcade.LBWH(bx, by, 100, 28),
-                                 arcade.color.STEEL_BLUE, border_width=1)
-        self._t_btn.text = "Back"; self._t_btn.color = arcade.color.WHITE
-        self._t_btn.x = bx + 50; self._t_btn.y = by + 14; self._t_btn.draw()
+            color = arcade.color.WHITE if affordable else (150, 80, 80)
+            self._draw_list_row(
+                px, iy, f"{name} x{qty}  —  {cost} credits", fill, color)
+        self._draw_back_button(px, py)
 
     def on_mouse_press(self, x: float, y: float, inventory=None,
                        station_inv=None) -> Optional[str]:

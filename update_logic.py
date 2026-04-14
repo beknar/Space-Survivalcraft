@@ -172,17 +172,9 @@ def update_timers(gv: GameView, dt: float) -> None:
         action = gv._trade_menu.on_update(
             dt, inventory=gv.inventory, station_inv=gv._station_inv,
         )
-        if action is not None and action.startswith("sell:"):
-            _, item_type, amt_str = action.split(":")
-            amt = int(amt_str)
-            ship_has = gv.inventory.count_item(item_type)
-            if ship_has >= amt:
-                gv.inventory.remove_item(item_type, amt)
-            else:
-                if ship_has > 0:
-                    gv.inventory.remove_item(item_type, ship_has)
-                gv._station_inv.remove_item(item_type, amt - ship_has)
-            gv._trade_menu._refresh_sell_list(gv.inventory, gv._station_inv)
+        if action is not None:
+            from input_handlers import apply_trade_action
+            apply_trade_action(gv, action)
 
 
 def update_repair_and_shields(gv: GameView, dt: float) -> None:

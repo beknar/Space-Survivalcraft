@@ -116,68 +116,84 @@ def handle_key_press(gv: GameView, key: int, modifiers: int) -> None:
                 gv._use_shield_recharge(slot)
             elif item == "missile":
                 gv._fire_missile(slot)
-    # Force wall (G key)
     elif key == arcade.key.G:
-        if (not gv._escape_menu.open and not gv._player_dead
-                and "force_wall" in gv._module_slots):
-            from constants import FORCE_WALL_COST, FORCE_WALL_COOLDOWN
-            from sprites.force_wall import ForceWall
-            if (gv._ability_meter >= FORCE_WALL_COST
-                    and gv._force_wall_cd <= 0.0):
-                gv._ability_meter -= FORCE_WALL_COST
-                gv._force_wall_cd = FORCE_WALL_COOLDOWN
-                # Spawn wall behind the ship
-                rad = math.radians(gv.player.heading)
-                behind_x = gv.player.center_x - math.sin(rad) * 60
-                behind_y = gv.player.center_y - math.cos(rad) * 60
-                gv._force_walls.append(ForceWall(behind_x, behind_y, gv.player.heading))
-                arcade.play_sound(gv._force_wall_snd, volume=0.5)
-    # Death blossom (X key)
+        _try_force_wall(gv)
     elif key == arcade.key.X:
-        if (not gv._escape_menu.open and not gv._player_dead
-                and "death_blossom" in gv._module_slots
-                and not gv._death_blossom_active):
-            missile_count = gv.inventory.count_item("missile")
-            if missile_count > 0:
-                gv._death_blossom_active = True
-                gv._death_blossom_timer = 0.0
-                gv._death_blossom_missiles_left = missile_count
-                gv.inventory.remove_item("missile", missile_count)
-                # Clear any quick-use slot bound to missiles
-                for s in range(QUICK_USE_SLOTS):
-                    if gv._hud.get_quick_use(s) == "missile":
-                        gv._hud.set_quick_use(s, None, 0)
-    # Misty step (double-tap WASD)
+        _try_death_blossom(gv)
     elif key in (arcade.key.W, arcade.key.A, arcade.key.S, arcade.key.D):
-        if (not gv._escape_menu.open and not gv._player_dead
-                and "misty_step" in gv._module_slots):
-            import time
-            from constants import MISTY_STEP_DISTANCE, MISTY_STEP_COST, MISTY_STEP_COOLDOWN
-            now = time.monotonic()
-            last = getattr(gv, '_misty_last_tap', {}).get(key, 0)
-            if not hasattr(gv, '_misty_last_tap'):
-                gv._misty_last_tap = {}
-            if now - last < 0.3 and gv._misty_step_cd <= 0 and gv._ability_meter >= MISTY_STEP_COST:
-                # Double tap detected — teleport
-                gv._ability_meter -= MISTY_STEP_COST
-                gv._misty_step_cd = MISTY_STEP_COOLDOWN
-                rad = math.radians(gv.player.heading)
-                if key == arcade.key.W:
-                    dx, dy = math.sin(rad), math.cos(rad)
-                elif key == arcade.key.S:
-                    dx, dy = -math.sin(rad), -math.cos(rad)
-                elif key == arcade.key.A:
-                    dx, dy = -math.cos(rad), math.sin(rad)
-                else:  # D
-                    dx, dy = math.cos(rad), -math.sin(rad)
-                gv.player.center_x += dx * MISTY_STEP_DISTANCE
-                gv.player.center_y += dy * MISTY_STEP_DISTANCE
-                gv._use_glow = (160, 80, 255, 160)
-                gv._use_glow_timer = 0.3
-                arcade.play_sound(gv._misty_step_snd, volume=0.4)
-                gv._misty_last_tap[key] = 0
-            else:
-                gv._misty_last_tap[key] = now
+        _try_misty_step(gv, key)
+
+
+def _try_force_wall(gv: GameView) -> None:
+    """Deploy a force wall behind the ship if G is pressed and available."""
+    if gv._escape_menu.open or gv._player_dead:
+        return
+    if "force_wall" not in gv._module_slots:
+        return
+    from constants import FORCE_WALL_COST, FORCE_WALL_COOLDOWN
+    from sprites.force_wall import ForceWall
+    if gv._ability_meter < FORCE_WALL_COST or gv._force_wall_cd > 0.0:
+        return
+    gv._ability_meter -= FORCE_WALL_COST
+    gv._force_wall_cd = FORCE_WALL_COOLDOWN
+    rad = math.radians(gv.player.heading)
+    behind_x = gv.player.center_x - math.sin(rad) * 60
+    behind_y = gv.player.center_y - math.cos(rad) * 60
+    gv._force_walls.append(ForceWall(behind_x, behind_y, gv.player.heading))
+    arcade.play_sound(gv._force_wall_snd, volume=0.5)
+
+
+def _try_death_blossom(gv: GameView) -> None:
+    """Activate Death Blossom if X is pressed and missiles are available."""
+    if gv._escape_menu.open or gv._player_dead:
+        return
+    if "death_blossom" not in gv._module_slots or gv._death_blossom_active:
+        return
+    missile_count = gv.inventory.count_item("missile")
+    if missile_count <= 0:
+        return
+    gv._death_blossom_active = True
+    gv._death_blossom_timer = 0.0
+    gv._death_blossom_missiles_left = missile_count
+    gv.inventory.remove_item("missile", missile_count)
+    for s in range(QUICK_USE_SLOTS):
+        if gv._hud.get_quick_use(s) == "missile":
+            gv._hud.set_quick_use(s, None, 0)
+
+
+def _try_misty_step(gv: GameView, key: int) -> None:
+    """Handle WASD key-press — double-tap within 0.3s triggers teleport."""
+    if gv._escape_menu.open or gv._player_dead:
+        return
+    if "misty_step" not in gv._module_slots:
+        return
+    import time
+    from constants import MISTY_STEP_DISTANCE, MISTY_STEP_COST, MISTY_STEP_COOLDOWN
+    if not hasattr(gv, '_misty_last_tap'):
+        gv._misty_last_tap = {}
+    now = time.monotonic()
+    last = gv._misty_last_tap.get(key, 0)
+    if (now - last < 0.3 and gv._misty_step_cd <= 0
+            and gv._ability_meter >= MISTY_STEP_COST):
+        gv._ability_meter -= MISTY_STEP_COST
+        gv._misty_step_cd = MISTY_STEP_COOLDOWN
+        rad = math.radians(gv.player.heading)
+        if key == arcade.key.W:
+            dx, dy = math.sin(rad), math.cos(rad)
+        elif key == arcade.key.S:
+            dx, dy = -math.sin(rad), -math.cos(rad)
+        elif key == arcade.key.A:
+            dx, dy = -math.cos(rad), math.sin(rad)
+        else:  # D
+            dx, dy = math.cos(rad), -math.sin(rad)
+        gv.player.center_x += dx * MISTY_STEP_DISTANCE
+        gv.player.center_y += dy * MISTY_STEP_DISTANCE
+        gv._use_glow = (160, 80, 255, 160)
+        gv._use_glow_timer = 0.3
+        arcade.play_sound(gv._misty_step_snd, volume=0.4)
+        gv._misty_last_tap[key] = 0
+    else:
+        gv._misty_last_tap[key] = now
 
 
 def handle_mouse_press(gv: GameView, x: int, y: int, button: int, modifiers: int) -> None:
@@ -258,38 +274,7 @@ def handle_mouse_press(gv: GameView, x: int, y: int, button: int, modifiers: int
             x, y, gv._station_inv.total_iron
         )
         if action is not None and gv._active_crafter is not None:
-            if action == "cancel_craft":
-                from character_data import craft_cost_multiplier
-                target = gv._craft_menu._craft_target
-                _ccm = craft_cost_multiplier(audio.character_name, gv._char_level)
-                if target and target in MODULE_TYPES:
-                    refund = int(MODULE_TYPES[target]["craft_cost"] * _ccm)
-                else:
-                    refund = int(CRAFT_IRON_COST * _ccm)
-                gv._station_inv.add_item("iron", refund)
-                gv._active_crafter.crafting = False
-                gv._active_crafter.craft_timer = 0.0
-                gv._craft_menu._craft_target = ""
-            elif action == "craft":
-                from character_data import craft_cost_multiplier
-                _craft_cost = int(CRAFT_IRON_COST * craft_cost_multiplier(
-                    audio.character_name, gv._char_level))
-                gv._station_inv.remove_item("iron", _craft_cost)
-                gv._active_crafter.crafting = True
-                gv._active_crafter.craft_timer = 0.0
-                gv._active_crafter.craft_total = CRAFT_TIME
-                # _craft_target already set by craft_menu.on_mouse_press
-            elif action.startswith("craft_module:"):
-                from character_data import craft_cost_multiplier
-                mod_key = action.split(":", 1)[1]
-                info = MODULE_TYPES[mod_key]
-                _craft_cost = int(info["craft_cost"] * craft_cost_multiplier(
-                    audio.character_name, gv._char_level))
-                gv._station_inv.remove_item("iron", _craft_cost)
-                gv._active_crafter.crafting = True
-                gv._active_crafter.craft_timer = 0.0
-                gv._active_crafter.craft_total = CRAFT_TIME
-                gv._craft_menu._craft_target = mod_key
+            _apply_craft_action(gv, action)
         if not gv._craft_menu.open:
             gv._active_crafter = None
         return
@@ -298,69 +283,124 @@ def handle_mouse_press(gv: GameView, x: int, y: int, button: int, modifiers: int
         action = gv._trade_menu.on_mouse_press(
             x, y, inventory=gv.inventory, station_inv=gv._station_inv)
         if action is not None:
-            if action.startswith("sell:"):
-                _, item_type, amt_str = action.split(":")
-                amt = int(amt_str)
-                ship_has = gv.inventory.count_item(item_type)
-                if ship_has >= amt:
-                    gv.inventory.remove_item(item_type, amt)
-                else:
-                    if ship_has > 0:
-                        gv.inventory.remove_item(item_type, ship_has)
-                    gv._station_inv.remove_item(item_type, amt - ship_has)
-                gv._trade_menu._refresh_sell_list(gv.inventory, gv._station_inv)
-            elif action.startswith("buy:"):
-                _, item_type, qty_str = action.split(":")
-                gv.inventory.add_item(item_type, int(qty_str))
+            apply_trade_action(gv, action)
         return
-    # Click on parked ships (switch control)
+    # World clicks (parked ships, trade station, buildings)
     if not gv._build_menu.open and not gv._player_dead:
-        wx = gv.world_cam.position[0] - gv.window.width / 2 + x
-        wy = gv.world_cam.position[1] - gv.window.height / 2 + y
-        for ps in gv._parked_ships:
-            if math.hypot(wx - ps.center_x, wy - ps.center_y) < 40:
-                dist = math.hypot(gv.player.center_x - ps.center_x,
-                                  gv.player.center_y - ps.center_y)
-                if dist < STATION_INFO_RANGE:
-                    from building_manager import switch_to_ship
-                    switch_to_ship(gv, ps)
-                    return
-    # Click on world buildings
-    if not gv._build_menu.open and not gv._player_dead:
-        wx = gv.world_cam.position[0] - gv.window.width / 2 + x
-        wy = gv.world_cam.position[1] - gv.window.height / 2 + y
-        if gv._trade_station is not None:
-            ts = gv._trade_station
-            if math.hypot(wx - ts.center_x, wy - ts.center_y) < 80:
-                dist = math.hypot(gv.player.center_x - ts.center_x,
-                                  gv.player.center_y - ts.center_y)
-                if dist < STATION_INFO_RANGE:
-                    gv._trade_menu.toggle(
-                        inventory=gv.inventory,
-                        station_inv=gv._station_inv)
-                    return
-        for b in gv.building_list:
-            if math.hypot(wx - b.center_x, wy - b.center_y) < 40:
-                dist_to_player = math.hypot(
-                    gv.player.center_x - b.center_x,
-                    gv.player.center_y - b.center_y,
-                )
-                if dist_to_player < STATION_INFO_RANGE:
-                    if isinstance(b, HomeStation) and not b.disabled:
-                        gv._station_inv.toggle()
-                        return
-                    if isinstance(b, BasicCrafter) and not b.disabled:
-                        gv._active_crafter = b
-                        gv._craft_menu.refresh_recipes(
-                            gv._station_inv,
-                            is_advanced=(b.building_type == "Advanced Crafter"),
-                        )
-                        gv._craft_menu.toggle()
-                        gv._craft_menu.update(
-                            b.craft_progress, b.crafting,
-                        )
-                        return
+        if _handle_world_click(gv, x, y):
+            return
     gv.inventory.on_mouse_press(x, y)
+
+
+def _apply_craft_action(gv: GameView, action: str) -> None:
+    """Apply a craft-menu action (``cancel_craft``, ``craft``, or
+    ``craft_module:<key>``) to the active crafter."""
+    from character_data import craft_cost_multiplier
+    crafter = gv._active_crafter
+    if action == "cancel_craft":
+        target = gv._craft_menu._craft_target
+        ccm = craft_cost_multiplier(audio.character_name, gv._char_level)
+        if target and target in MODULE_TYPES:
+            refund = int(MODULE_TYPES[target]["craft_cost"] * ccm)
+        else:
+            refund = int(CRAFT_IRON_COST * ccm)
+        gv._station_inv.add_item("iron", refund)
+        crafter.crafting = False
+        crafter.craft_timer = 0.0
+        gv._craft_menu._craft_target = ""
+        return
+    if action == "craft":
+        cost = int(CRAFT_IRON_COST * craft_cost_multiplier(
+            audio.character_name, gv._char_level))
+        gv._station_inv.remove_item("iron", cost)
+        crafter.crafting = True
+        crafter.craft_timer = 0.0
+        crafter.craft_total = CRAFT_TIME
+        return
+    if action.startswith("craft_module:"):
+        mod_key = action.split(":", 1)[1]
+        info = MODULE_TYPES[mod_key]
+        cost = int(info["craft_cost"] * craft_cost_multiplier(
+            audio.character_name, gv._char_level))
+        gv._station_inv.remove_item("iron", cost)
+        crafter.crafting = True
+        crafter.craft_timer = 0.0
+        crafter.craft_total = CRAFT_TIME
+        gv._craft_menu._craft_target = mod_key
+
+
+def _screen_to_world(gv: GameView, x: int, y: int) -> tuple[float, float]:
+    wx = gv.world_cam.position[0] - gv.window.width / 2 + x
+    wy = gv.world_cam.position[1] - gv.window.height / 2 + y
+    return wx, wy
+
+
+def _handle_world_click(gv: GameView, x: int, y: int) -> bool:
+    """Check world clicks (parked ship → switch; trade station → trade menu;
+    building → station inv or craft menu). Returns True if consumed."""
+    wx, wy = _screen_to_world(gv, x, y)
+    px, py = gv.player.center_x, gv.player.center_y
+
+    # Parked ship — click within 40px and player within STATION_INFO_RANGE
+    for ps in gv._parked_ships:
+        if math.hypot(wx - ps.center_x, wy - ps.center_y) >= 40:
+            continue
+        if math.hypot(px - ps.center_x, py - ps.center_y) >= STATION_INFO_RANGE:
+            continue
+        from building_manager import switch_to_ship
+        switch_to_ship(gv, ps)
+        return True
+
+    # Trade station
+    ts = gv._trade_station
+    if ts is not None and math.hypot(wx - ts.center_x, wy - ts.center_y) < 80:
+        if math.hypot(px - ts.center_x, py - ts.center_y) < STATION_INFO_RANGE:
+            gv._trade_menu.toggle(
+                inventory=gv.inventory, station_inv=gv._station_inv)
+            return True
+
+    # Buildings — Home Station opens station inv, BasicCrafter opens craft menu
+    for b in gv.building_list:
+        if math.hypot(wx - b.center_x, wy - b.center_y) >= 40:
+            continue
+        if math.hypot(px - b.center_x, py - b.center_y) >= STATION_INFO_RANGE:
+            continue
+        if isinstance(b, HomeStation) and not b.disabled:
+            gv._station_inv.toggle()
+            return True
+        if isinstance(b, BasicCrafter) and not b.disabled:
+            gv._active_crafter = b
+            gv._craft_menu.refresh_recipes(
+                gv._station_inv,
+                is_advanced=(b.building_type == "Advanced Crafter"),
+            )
+            gv._craft_menu.toggle()
+            gv._craft_menu.update(b.craft_progress, b.crafting)
+            return True
+    return False
+
+
+def apply_trade_action(gv: GameView, action: str) -> None:
+    """Apply a trade-menu action string (``sell:*:N`` or ``buy:*:N``).
+
+    Shared by mouse-press handling and the hold-to-sell update loop.
+    Sell drains the ship inventory first, then the station inventory,
+    and refreshes the sell list so empty rows disappear.
+    """
+    if action.startswith("sell:"):
+        _, item_type, amt_str = action.split(":")
+        amt = int(amt_str)
+        ship_has = gv.inventory.count_item(item_type)
+        if ship_has >= amt:
+            gv.inventory.remove_item(item_type, amt)
+        else:
+            if ship_has > 0:
+                gv.inventory.remove_item(item_type, ship_has)
+            gv._station_inv.remove_item(item_type, amt - ship_has)
+        gv._trade_menu._refresh_sell_list(gv.inventory, gv._station_inv)
+    elif action.startswith("buy:"):
+        _, item_type, qty_str = action.split(":")
+        gv.inventory.add_item(item_type, int(qty_str))
 
 
 def _handle_death_action(gv: GameView, action: str) -> None:
