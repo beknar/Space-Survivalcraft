@@ -585,6 +585,8 @@ MISSILE_DAMAGE: float = 50.0
 MISSILE_SPEED: float = 400.0
 MISSILE_RANGE: float = 1500.0
 MISSILE_TURN_RATE: float = 180.0    # deg/s homing turn rate
+MISSILE_ARRAY_RANGE: float = 600.0  # scan range for Missile Array
+MISSILE_ARRAY_COOLDOWN: float = 3.0 # seconds between launches
 
 # Special ability meter
 ABILITY_METER_MAX: float = 100.0

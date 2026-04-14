@@ -12,6 +12,7 @@ from constants import (
     TURRET_RANGE, TURRET_DAMAGE, TURRET_COOLDOWN,
     TURRET_LASER_SPEED, TURRET_LASER_RANGE,
     GUN_LATERAL_OFFSET, BASE_MODULE_CAPACITY,
+    MISSILE_ARRAY_RANGE, MISSILE_ARRAY_COOLDOWN,
 )
 from sprites.projectile import Projectile
 
@@ -282,6 +283,80 @@ class Turret(StationModule):
                 ))
 
 
+class MissileArray(StationModule):
+    """Fires homing missiles at nearby aliens."""
+
+    def __init__(
+        self,
+        texture: arcade.Texture,
+        x: float, y: float,
+        building_type: str,
+        scale: float = 0.5,
+    ) -> None:
+        super().__init__(texture, x, y, building_type, scale)
+        self._fire_cd: float = 0.0
+        self._cached_target = None
+        self._target_rescan_cd: float = 0.0
+
+    def update_missile_array(
+        self,
+        dt: float,
+        alien_list: arcade.SpriteList,
+        missile_list: arcade.SpriteList,
+        missile_tex: arcade.Texture,
+        boss=None,
+    ) -> None:
+        if self.disabled or missile_tex is None:
+            return
+        self._fire_cd = max(0.0, self._fire_cd - dt)
+        self._target_rescan_cd = max(0.0, self._target_rescan_cd - dt)
+
+        mr_sq = MISSILE_ARRAY_RANGE * MISSILE_ARRAY_RANGE
+        tx, ty = self.center_x, self.center_y
+
+        target = self._cached_target
+        if target is not None:
+            if not target.sprite_lists or getattr(target, 'hp', 0) <= 0:
+                target = None
+            else:
+                dx = target.center_x - tx
+                dy = target.center_y - ty
+                if dx * dx + dy * dy > mr_sq:
+                    target = None
+
+        if target is None or self._target_rescan_cd <= 0.0:
+            best = mr_sq + 1.0
+            target = None
+            for a in alien_list:
+                dx = a.center_x - tx
+                dy = a.center_y - ty
+                dsq = dx * dx + dy * dy
+                if dsq < best:
+                    best = dsq
+                    target = a
+            if boss is not None and boss.hp > 0:
+                dx = boss.center_x - tx
+                dy = boss.center_y - ty
+                dsq = dx * dx + dy * dy
+                if dsq < best:
+                    best = dsq
+                    target = boss
+            self._cached_target = target
+            self._target_rescan_cd = 0.5
+
+        if target is None or self._fire_cd > 0.0:
+            return
+
+        self._fire_cd = MISSILE_ARRAY_COOLDOWN
+        dx = target.center_x - tx
+        dy = target.center_y - ty
+        heading = math.degrees(math.atan2(dx, dy)) % 360.0
+        self.angle = heading
+        from sprites.missile import HomingMissile
+        missile_list.append(
+            HomingMissile(missile_tex, tx, ty, heading))
+
+
 # ── Factory function ──────────────────────────────────────────────────────────
 
 _TYPE_MAP = {
@@ -297,7 +372,7 @@ _TYPE_MAP = {
     "Advanced Crafter":  BasicCrafter,
     "Fission Generator": SolarArray,
     "Shield Generator":  StationModule,
-    "Missile Array":     StationModule,
+    "Missile Array":     MissileArray,
 }
 
 

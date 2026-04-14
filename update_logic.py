@@ -116,6 +116,15 @@ def update_preamble(gv: GameView, dt: float) -> None:
     # FPS
     gv._hud.update_fps(dt)
     gv._hud._show_fps = audio.show_fps
+    # Module-slot cooldown flash: track which ability modules are
+    # currently in cooldown so the HUD can tint their slot red.
+    cooling: set[str] = set()
+    if getattr(gv, "_misty_step_cd", 0.0) > 0.0:
+        cooling.add("misty_step")
+    if getattr(gv, "_death_blossom_active", False):
+        cooling.add("death_blossom")
+    gv._hud._mod_cooldowns = cooling
+    gv._hud._mod_flash_t += dt
     # Character video
     if gv._char_video_player.active:
         gv._char_video_player.update_volume(0.0)
@@ -430,12 +439,18 @@ def update_entities(gv: GameView, dt: float) -> None:
 
 def update_buildings(gv: GameView, dt: float) -> None:
     """Update buildings, turrets, and station info."""
+    from sprites.building import MissileArray
     for b in list(gv.building_list):
         b.update_building(dt)
         if isinstance(b, Turret):
             b.update_turret(dt, gv.alien_list,
                             gv.turret_projectile_list,
                             boss=gv._boss)
+        elif isinstance(b, MissileArray):
+            b.update_missile_array(
+                dt, gv.alien_list, gv._missile_list,
+                gv._missile_tex, boss=gv._boss,
+            )
 
     for proj in list(gv.turret_projectile_list):
         proj.update_projectile(dt)
@@ -572,6 +587,9 @@ def update_missiles(gv: GameView, dt: float) -> None:
         for a in gv._zone._aliens:
             targets.append((a.center_x, a.center_y))
 
+    from collisions import _apply_kill_rewards
+    from character_data import bonus_iron_enemy
+    from constants import ALIEN_IRON_DROP, BLUEPRINT_DROP_CHANCE_ALIEN
     for m in list(gv._missile_list):
         m.update_missile(dt, targets)
         # Check hits on aliens
@@ -582,21 +600,23 @@ def update_missiles(gv: GameView, dt: float) -> None:
                     gv._spawn_explosion(m.center_x, m.center_y)
                     a.take_damage(int(m.damage))
                     if a.hp <= 0:
-                        gv._spawn_explosion(a.center_x, a.center_y)
-                        gv._add_xp(25)
+                        _apply_kill_rewards(
+                            gv, a.center_x, a.center_y,
+                            ALIEN_IRON_DROP, bonus_iron_enemy,
+                            BLUEPRINT_DROP_CHANCE_ALIEN,
+                        )
                         a.remove_from_sprite_lists()
                     m.remove_from_sprite_lists()
                     break
         elif hasattr(gv._zone, '_aliens'):
+            from zones.zone2_world import drop_zone2_alien_loot
             for a in list(gv._zone._aliens):
                 if math.hypot(m.center_x - a.center_x, m.center_y - a.center_y) < 25:
                     gv.hit_sparks.append(HitSpark(m.center_x, m.center_y))
                     gv._spawn_explosion(m.center_x, m.center_y)
                     a.take_damage(int(m.damage))
                     if a.hp <= 0:
-                        gv._spawn_explosion(a.center_x, a.center_y)
-                        gv._add_xp(50)
-                        a.remove_from_sprite_lists()
+                        drop_zone2_alien_loot(gv._zone, gv, a)
                     m.remove_from_sprite_lists()
                     break
 

@@ -130,6 +130,8 @@ class HUD:
         self._mod_cell = MODULE_SLOT_CELL
         self._mod_slots: list[str | None] = [None] * MODULE_SLOT_COUNT
         self._mod_types = MODULE_TYPES
+        self._mod_cooldowns: set[str] = set()
+        self._mod_flash_t: float = 0.0
         self._t_mod_label = arcade.Text("MODULES", 0, 0,
                                         arcade.color.LIGHT_GRAY, 8,
                                         anchor_x="center")
@@ -264,13 +266,20 @@ class HUD:
         self._t_mod_label.x = play_cx
         self._t_mod_label.y = mod_y + self._mod_cell + 6
         self._t_mod_label.draw()
+        # Flash phase advances each frame; 0.0..1.0 sawtooth at ~3 Hz
+        import math as _math
+        flash_on = _math.sin(self._mod_flash_t * 6.28 * 3.0) > 0.0
         for i in range(self._mod_count):
             sx = mod_x + i * (self._mod_cell + 4)
             mod = self._mod_slots[i]
             is_drag = (i == self._mod_drag_src)
+            cooling = (mod is not None and mod in self._mod_cooldowns)
             if is_drag:
                 fill = (60, 60, 20, 200)
                 outline = (200, 180, 80)
+            elif cooling and flash_on:
+                fill = (120, 25, 25, 230)
+                outline = (255, 60, 60)
             elif mod is not None:
                 fill = (40, 60, 80, 230)
                 outline = (200, 180, 80)

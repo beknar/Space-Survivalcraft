@@ -202,6 +202,26 @@ def _check_mining_hits(z: Zone2, gv: GameView, proj) -> None:
         return
 
 
+def drop_zone2_alien_loot(z: Zone2, gv: GameView, alien) -> None:
+    """Spawn explosion + iron/copper/blueprint drops + award XP for a Zone 2 alien kill."""
+    gv._spawn_explosion(alien.center_x, alien.center_y)
+    gv._spawn_iron_pickup(alien.center_x - 20, alien.center_y, amount=5)
+    copper_extra = bonus_copper_enemy(_audio.character_name, gv._char_level)
+    if copper_extra > 0:
+        cp = IronPickup(z._copper_pickup_tex,
+                        alien.center_x + 20, alien.center_y,
+                        amount=copper_extra)
+        cp.item_type = "copper"
+        gv.iron_pickup_list.append(cp)
+    xp = _get_alien_xp().get(type(alien), 25)
+    gv._add_xp(xp)
+    bp_chance = BLUEPRINT_DROP_CHANCE_ALIEN + blueprint_drop_bonus(
+        _audio.character_name, gv._char_level)
+    if random.random() < bp_chance:
+        gv._spawn_blueprint_pickup(alien.center_x, alien.center_y + 25)
+    alien.remove_from_sprite_lists()
+
+
 def _check_laser_vs_aliens(z: Zone2, gv: GameView, proj) -> None:
     """Check laser projectile against Zone 2 aliens."""
     for alien in arcade.check_for_collision_with_list(proj, z._aliens):
@@ -210,22 +230,7 @@ def _check_laser_vs_aliens(z: Zone2, gv: GameView, proj) -> None:
         proj.remove_from_sprite_lists()
         alien.take_damage(int(proj.damage))
         if alien.hp <= 0:
-            gv._spawn_explosion(alien.center_x, alien.center_y)
-            gv._spawn_iron_pickup(alien.center_x - 20, alien.center_y, amount=5)
-            copper_extra = bonus_copper_enemy(_audio.character_name, gv._char_level)
-            if copper_extra > 0:
-                cp = IronPickup(z._copper_pickup_tex,
-                                alien.center_x + 20, alien.center_y,
-                                amount=copper_extra)
-                cp.item_type = "copper"
-                gv.iron_pickup_list.append(cp)
-            xp = _get_alien_xp().get(type(alien), 25)
-            gv._add_xp(xp)
-            bp_chance = BLUEPRINT_DROP_CHANCE_ALIEN + blueprint_drop_bonus(
-                _audio.character_name, gv._char_level)
-            if random.random() < bp_chance:
-                gv._spawn_blueprint_pickup(alien.center_x, alien.center_y + 25)
-            alien.remove_from_sprite_lists()
+            drop_zone2_alien_loot(z, gv, alien)
         break
 
 
