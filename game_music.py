@@ -18,10 +18,10 @@ def play_next_track(gv: GameView) -> None:
     if not gv._music_tracks:
         return
     gv._music_idx = (gv._music_idx + 1) % len(gv._music_tracks)
-    path, name = gv._music_tracks[gv._music_idx]
+    sound, name = gv._music_tracks[gv._music_idx]
     gv._current_track_name = name
     gv._music_player = arcade.play_sound(
-        arcade.load_sound(path), volume=audio.music_volume, looping=False)
+        sound, volume=audio.music_volume, loop=False)
 
 
 def stop_music(gv: GameView) -> None:
