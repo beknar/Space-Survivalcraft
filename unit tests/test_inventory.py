@@ -12,7 +12,12 @@ from inventory import Inventory
 
 @pytest.fixture
 def inv():
-    return Inventory(iron_icon=None)
+    # Force fallback to default SCREEN_WIDTH/SCREEN_HEIGHT geometry so the
+    # grid-math assertions below hold regardless of whether an earlier
+    # integration test left an arcade.Window (of a different size) open.
+    iv = Inventory(iron_icon=None)
+    iv._window = None
+    return iv
 
 
 class TestInventoryToggle:
@@ -79,12 +84,26 @@ class TestItemStacking:
         assert len(inv._items) == 2
 
 
+def _inv_window_dims(inv):
+    """Use the inventory's own window (matches what _cell_at sees).
+
+    Tests used to hardcode SCREEN_WIDTH/SCREEN_HEIGHT, but Inventory reads
+    from `arcade.get_window()` when available. If an earlier integration
+    test created a real Window with different dimensions, the test-side
+    grid math drifts from the production-side grid math.
+    """
+    sw = inv._window.width if inv._window else SCREEN_WIDTH
+    sh = inv._window.height if inv._window else SCREEN_HEIGHT
+    return sw, sh
+
+
 class TestCellAt:
     """Test the _cell_at method for mapping screen coords to grid cells."""
 
     def _grid_origin(self, inv):
-        ox = (SCREEN_WIDTH - INV_W) // 2
-        oy = (SCREEN_HEIGHT - INV_H) // 2
+        sw, sh = _inv_window_dims(inv)
+        ox = (sw - INV_W) // 2
+        oy = (sh - INV_H) // 2
         return ox + INV_PAD, oy + INV_PAD + INV_FOOTER
 
     def test_valid_cell_top_left(self, inv):
@@ -125,8 +144,9 @@ class TestCellAt:
 
 class TestPanelContains:
     def test_inside_panel(self, inv):
-        cx = SCREEN_WIDTH // 2
-        cy = SCREEN_HEIGHT // 2
+        sw, sh = _inv_window_dims(inv)
+        cx = sw // 2
+        cy = sh // 2
         assert inv._panel_contains(cx, cy) is True
 
     def test_outside_panel(self, inv):
@@ -135,8 +155,9 @@ class TestPanelContains:
 
 class TestDragAndDrop:
     def _grid_origin(self, inv):
-        ox = (SCREEN_WIDTH - INV_W) // 2
-        oy = (SCREEN_HEIGHT - INV_H) // 2
+        sw, sh = _inv_window_dims(inv)
+        ox = (sw - INV_W) // 2
+        oy = (sh - INV_H) // 2
         return ox + INV_PAD, oy + INV_PAD + INV_FOOTER
 
     def test_pick_up_iron(self, inv):
@@ -192,8 +213,9 @@ class TestDragAndDrop:
         inv._drag_amount = 10
         inv._drag_src = (0, 0)
         # Drop inside panel but outside grid (on header area)
-        ox = (SCREEN_WIDTH - INV_W) // 2
-        oy = (SCREEN_HEIGHT - INV_H) // 2
+        sw, sh = _inv_window_dims(inv)
+        ox = (sw - INV_W) // 2
+        oy = (sh - INV_H) // 2
         result = inv.on_mouse_release(ox + INV_W // 2, oy + INV_H - 5)
         assert result is None
         assert inv._items[(0, 0)] == ("iron", 10)
@@ -201,7 +223,8 @@ class TestDragAndDrop:
     def test_no_drag_when_closed(self, inv):
         inv.open = False
         inv.add_item("iron", 10)
-        result = inv.on_mouse_press(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2)
+        sw, sh = _inv_window_dims(inv)
+        result = inv.on_mouse_press(sw // 2, sh // 2)
         assert result is False
 
     def test_stack_on_drop(self, inv):
