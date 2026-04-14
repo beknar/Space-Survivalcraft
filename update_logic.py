@@ -628,6 +628,10 @@ def update_death_blossom(gv: GameView, dt: float) -> None:
     from constants import DEATH_BLOSSOM_FIRE_RATE, DEATH_BLOSSOM_MISSILES_PER_VOLLEY, DEATH_BLOSSOM_HP_AFTER
     from sprites.missile import HomingMissile
 
+    # Continuous spin at the ship's max rotation rate while active
+    gv.player.heading = (gv.player.heading + gv.player._rot_speed * dt) % 360
+    gv.player.angle = gv.player.heading
+
     gv._death_blossom_timer -= dt
     if gv._death_blossom_timer <= 0 and gv._death_blossom_missiles_left > 0:
         gv._death_blossom_timer = DEATH_BLOSSOM_FIRE_RATE
@@ -639,8 +643,6 @@ def update_death_blossom(gv: GameView, dt: float) -> None:
                               gv.player.center_x, gv.player.center_y, angle)
             gv._missile_list.append(m)
         gv._death_blossom_missiles_left -= count
-        # Spin the ship
-        gv.player.heading = (gv.player.heading + 90 * dt * 10) % 360
 
     if gv._death_blossom_missiles_left <= 0:
         # End death blossom — power down

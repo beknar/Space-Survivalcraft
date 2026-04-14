@@ -141,6 +141,10 @@ def handle_key_press(gv: GameView, key: int, modifiers: int) -> None:
                 gv._death_blossom_timer = 0.0
                 gv._death_blossom_missiles_left = missile_count
                 gv.inventory.remove_item("missile", missile_count)
+                # Clear any quick-use slot bound to missiles
+                for s in range(QUICK_USE_SLOTS):
+                    if gv._hud.get_quick_use(s) == "missile":
+                        gv._hud.set_quick_use(s, None, 0)
     # Misty step (double-tap WASD)
     elif key in (arcade.key.W, arcade.key.A, arcade.key.S, arcade.key.D):
         if (not gv._escape_menu.open and not gv._player_dead

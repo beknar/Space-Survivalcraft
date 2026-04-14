@@ -17,7 +17,7 @@ SELL_PRICES: dict[str, int] = {
     "iron": 1,
     "repair_pack": 100,
     "shield_recharge": 100,
-    "copper": 2,
+    "copper": 5,
     "missile": 200,
 }
 # Add blueprint sell prices (half the module craft cost)

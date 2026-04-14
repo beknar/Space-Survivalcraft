@@ -758,7 +758,7 @@ class GameView(arcade.View):
         _ul.update_crafting(self, delta_time)
         fire = _ul.update_movement(self, delta_time)
         _ul.update_contrail(self, delta_time)
-        _ul.update_weapons(self, delta_time, fire)
+        _ul.update_weapons(self, delta_time, fire or self._death_blossom_active)
         # Always advance player projectiles (shared across all zones)
         for proj in list(self.projectile_list):
             proj.update_projectile(delta_time)

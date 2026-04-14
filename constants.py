@@ -603,8 +603,8 @@ FORCE_WALL_DURATION: float = 20.0
 FORCE_WALL_COST: float = 30.0
 
 # Death blossom module
-DEATH_BLOSSOM_FIRE_RATE: float = 0.3   # seconds between volleys
-DEATH_BLOSSOM_MISSILES_PER_VOLLEY: int = 8
+DEATH_BLOSSOM_FIRE_RATE: float = 2.0   # seconds between volleys
+DEATH_BLOSSOM_MISSILES_PER_VOLLEY: int = 4
 DEATH_BLOSSOM_HP_AFTER: int = 10
 
 # ═══════════════════════════════════════════════════════════════════════════════
