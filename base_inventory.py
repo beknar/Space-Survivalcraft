@@ -253,11 +253,13 @@ class BaseInventoryData:
         """
         from arcade import Sprite, SpriteList, SpriteSolidColor
 
-        # Reuse existing SpriteList objects (clear + repopulate) instead
-        # of creating fresh ones. This avoids allocating new GPU VBO
-        # buffers and texture atlas slots on every rebuild — Arcade's
-        # atlas never shrinks, so creating new SpriteLists on every
-        # dirty cycle would leak ~0.2 MB/rebuild of atlas memory.
+        # Reuse existing SpriteList objects AND individual Sprite objects
+        # across rebuilds. Creating 375+ new Sprite instances per dirty
+        # cycle piles up Python/GL overhead that isn't reclaimed between
+        # rebuilds; mutating pooled sprites in place avoids that churn.
+        # The pools (_fill_pool/_icon_pool/_badge_pool) grow once to the
+        # high-water mark, then sprites are rebound to new textures and
+        # positions on subsequent rebuilds.
         if self._cache_fill_list is None:
             self._cache_fill_list = SpriteList()
         else:
@@ -270,9 +272,22 @@ class BaseInventoryData:
             self._cache_badge_list = SpriteList()
         else:
             self._cache_badge_list.clear()
+        if not hasattr(self, "_fill_pool"):
+            self._fill_pool: list = []
+            self._icon_pool: list = []
+            self._badge_pool: list = []
         fills = self._cache_fill_list
         icons = self._cache_icon_list
         badges = self._cache_badge_list
+        fill_pool = self._fill_pool
+        icon_pool = self._icon_pool
+        badge_pool = self._badge_pool
+        if self._fill_tex is None:
+            _tmp = SpriteSolidColor(cs - 2, cs - 2, 0, 0, (255, 255, 255))
+            self._fill_tex = _tmp.texture
+        fill_idx = 0
+        icon_idx = 0
+        badge_idx = 0
         for cell, (it, ct) in self._items.items():
             r, c = cell
             row_from_bottom = self._rows - 1 - r
@@ -282,28 +297,49 @@ class BaseInventoryData:
             cell_cy = cy + cs / 2
             # Cell fill — SpriteSolidColor stores color as a sprite TINT on
             # a white texture, so we must set the color on each fill sprite.
-            if self._fill_tex is None:
-                _tmp = SpriteSolidColor(cs - 2, cs - 2, 0, 0, (255, 255, 255))
-                self._fill_tex = _tmp.texture
-            fill = Sprite(self._fill_tex, center_x=cell_cx, center_y=cell_cy)
+            if fill_idx < len(fill_pool):
+                fill = fill_pool[fill_idx]
+                fill.texture = self._fill_tex
+                fill.center_x = cell_cx
+                fill.center_y = cell_cy
+            else:
+                fill = Sprite(self._fill_tex, center_x=cell_cx, center_y=cell_cy)
+                fill_pool.append(fill)
             fill.width = cs - 2
             fill.height = cs - 2
             fill.color = (50, 80, 50, 200)
             fills.append(fill)
+            fill_idx += 1
             # Icon (if any)
             icon_tex = self._resolve_icon(it)
             if icon_tex is not None:
-                spr = Sprite(icon_tex, center_x=cell_cx, center_y=cell_cy)
                 isz = cs - 12
+                if icon_idx < len(icon_pool):
+                    spr = icon_pool[icon_idx]
+                    spr.texture = icon_tex
+                    spr.center_x = cell_cx
+                    spr.center_y = cell_cy
+                else:
+                    spr = Sprite(icon_tex, center_x=cell_cx, center_y=cell_cy)
+                    icon_pool.append(spr)
                 spr.width = isz
                 spr.height = isz
                 icons.append(spr)
+                icon_idx += 1
             # Count badge (PIL-rendered texture, batched into SpriteList)
             badge_tex = self._get_badge_texture(ct)
-            badge = Sprite(badge_tex,
-                           center_x=cx + cs - badge_tex.width / 2 - 1,
-                           center_y=cy + badge_tex.height / 2 + 1)
+            bx = cx + cs - badge_tex.width / 2 - 1
+            by = cy + badge_tex.height / 2 + 1
+            if badge_idx < len(badge_pool):
+                badge = badge_pool[badge_idx]
+                badge.texture = badge_tex
+                badge.center_x = bx
+                badge.center_y = by
+            else:
+                badge = Sprite(badge_tex, center_x=bx, center_y=by)
+                badge_pool.append(badge)
             badges.append(badge)
+            badge_idx += 1
         self._cache_origin = (gx, gy)
         self._render_dirty = False
 
