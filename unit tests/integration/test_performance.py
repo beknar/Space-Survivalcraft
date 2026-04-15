@@ -1355,3 +1355,94 @@ class TestTradeSellPanelZone2:
             )
         finally:
             gv._trade_menu.open = False
+
+
+# ── Trade panels + BOTH videos playing ─────────────────────────────────────
+# These capture the realistic worst case: the trade panel is open while the
+# character portrait video and the music video are both decoding, the full
+# gameplay loop is ticking (asteroids, aliens, pickups, projectiles), and
+# the minimap is rendering. If these regress, something in the panel draw
+# or the object-update path has started costing too much per frame.
+
+class TestTradeSellPanelZone1WithVideos:
+    def test_trade_sell_panel_zone1_with_videos_above_threshold(
+            self, real_game_view):
+        gv = real_game_view
+        if gv._zone.zone_id != ZoneID.MAIN:
+            gv._transition_zone(ZoneID.MAIN, entry_side="wormhole_return")
+        _populate_trade_sell_inventories(gv)
+        gv._trade_menu.toggle(inventory=gv.inventory,
+                              station_inv=gv._station_inv)
+        gv._trade_menu._mode = "sell"
+        gv._trade_menu._refresh_sell_list(gv.inventory, gv._station_inv)
+        _start_both_videos_or_skip(gv)
+        try:
+            fps = _measure_fps(gv)
+            assert fps >= MIN_FPS, (
+                f"Zone 1 sell panel + both videos: {fps:.1f} FPS < {MIN_FPS}"
+            )
+        finally:
+            _stop_both_videos(gv)
+            gv._trade_menu.open = False
+
+
+class TestTradeBuyPanelZone1WithVideos:
+    def test_trade_buy_panel_zone1_with_videos_above_threshold(
+            self, real_game_view):
+        gv = real_game_view
+        if gv._zone.zone_id != ZoneID.MAIN:
+            gv._transition_zone(ZoneID.MAIN, entry_side="wormhole_return")
+        gv._trade_menu.credits = 5000
+        gv._trade_menu.toggle(inventory=gv.inventory,
+                              station_inv=gv._station_inv)
+        gv._trade_menu._mode = "buy"
+        _start_both_videos_or_skip(gv)
+        try:
+            fps = _measure_fps(gv)
+            assert fps >= MIN_FPS, (
+                f"Zone 1 buy panel + both videos: {fps:.1f} FPS < {MIN_FPS}"
+            )
+        finally:
+            _stop_both_videos(gv)
+            gv._trade_menu.open = False
+
+
+class TestTradeBuyPanelZone2WithVideos:
+    def test_trade_buy_panel_zone2_with_videos_above_threshold(
+            self, real_game_view):
+        gv = real_game_view
+        gv._transition_zone(ZoneID.ZONE2)
+        gv._trade_menu.credits = 5000
+        gv._trade_menu.toggle(inventory=gv.inventory,
+                              station_inv=gv._station_inv)
+        gv._trade_menu._mode = "buy"
+        _start_both_videos_or_skip(gv)
+        try:
+            fps = _measure_fps(gv)
+            assert fps >= MIN_FPS, (
+                f"Zone 2 buy panel + both videos: {fps:.1f} FPS < {MIN_FPS}"
+            )
+        finally:
+            _stop_both_videos(gv)
+            gv._trade_menu.open = False
+
+
+class TestTradeSellPanelZone2WithVideos:
+    def test_trade_sell_panel_zone2_with_videos_above_threshold(
+            self, real_game_view):
+        gv = real_game_view
+        gv._transition_zone(ZoneID.ZONE2)
+        _populate_trade_sell_inventories(gv)
+        gv._trade_menu.toggle(inventory=gv.inventory,
+                              station_inv=gv._station_inv)
+        gv._trade_menu._mode = "sell"
+        gv._trade_menu._refresh_sell_list(gv.inventory, gv._station_inv)
+        _start_both_videos_or_skip(gv)
+        try:
+            fps = _measure_fps(gv)
+            assert fps >= MIN_FPS, (
+                f"Zone 2 sell panel + both videos: {fps:.1f} FPS < {MIN_FPS}"
+            )
+        finally:
+            _stop_both_videos(gv)
+            gv._trade_menu.open = False
