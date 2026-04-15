@@ -878,3 +878,41 @@ The world starts fully hidden. As the player travels, areas are revealed in a ci
 - The player's own position and heading are always shown on the mini-map regardless of fog.
 - Each frame, cells within `FOG_REVEAL_RADIUS` (400 px) of the player's position are marked as revealed.
 - Fog is stored as a 128 x 128 boolean grid; each cell covers a 50 x 50 px area of the world.
+
+---
+
+## 14. Advanced Systems (added after the initial spec)
+
+The sections above cover the core gameplay. Several systems landed later
+and are documented more thoroughly in `docs/features.md`, `docs/rules.md`,
+and `docs/statistics.md`. Quick summary of the pieces most likely to
+surprise a reader of the core rules:
+
+- **Multi-zone world** — beyond the 6400×6400 Zone 1, the player can warp
+  to a Nebula (Zone 2) biome and to four warp zones (Meteor, Lightning,
+  Gas Cloud, Enemy Spawner). Each zone has its own entity lists, fog of
+  war grid, and save state.
+- **Boss encounter** — triggered when the player reaches level 5, has all
+  modules equipped, 5+ repair packs, and a Home Station. 3-phase AI.
+- **Ship modules + advanced abilities** — Misty Step (double-tap WASD
+  teleport), Force Wall (G — 400 px barrier that blocks enemy lasers,
+  boss projectiles, AND enemy movement via route-around AI), and Death
+  Blossom (X — radial homing-missile barrage). Consume a shared 100-point
+  ability meter (+5/s regen).
+- **Multi-ship system** — Advanced Ship enters a placement mode that
+  parks the current ship in the world (HP/cargo/modules persist on the
+  ParkedShip). Click another parked ship within 300 px to switch control.
+  Hover surfaces an HP tooltip.
+- **Turret / Missile-Array long-press move** — hold LMB on a placed
+  turret or missile array for >= 0.4 s to drag it; clamped to within
+  `TURRET_FREE_PLACE_RADIUS` (300 px) of the Home Station.
+- **Trading station** — spawns on first Repair Module build. Sells items
+  for credits; buys consumables. The sell panel scrolls (scrollbar
+  thumb visible) when the item list exceeds visible rows.
+- **Character progression** — 3 characters (Debra/Ellie/Tara), 10-level
+  XP trees with per-character bonuses (build cost, craft cost, copper
+  yield, etc.).
+- **Homing missiles** — craftable at Advanced Crafter; fired from
+  quick-use bar, Missile Arrays, or Death Blossom.
+
+See `ROADMAP.md` for the full chronology of shipped features.

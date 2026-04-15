@@ -170,7 +170,8 @@ Triggered when player enters 500 px, or player weapon fires within 160 px (4x sh
 - **Edge-to-edge snap**: modules sit adjacent, not overlapping
 - **Post-placement connectivity**: remaining ports auto-connect to nearby modules
 - **Overlap prevention**: cannot place within 60 px of existing buildings
-- **Turrets** freely placed within 300 px of Home Station (no docking)
+- **Turrets and Missile Arrays** freely placed within 300 px (`TURRET_FREE_PLACE_RADIUS`) of Home Station (no docking)
+- **Long-press LMB (>= 0.4 s) on an existing Turret or Missile Array** enters move mode; the building follows the cursor clamped to within 300 px of the Home Station. Release drops it (overlap-checked); a short click does nothing; ESC snaps back to the original position
 - Mouse wheel rotates during placement; ESC cancels
 - Destroying Home Station disables all modules
 - **Advanced Ship** uses placement mode with the next-level ship texture as ghost; places a new ship and leaves the old one as a ParkedShip
@@ -298,13 +299,20 @@ Triggered when player enters 500 px, or player weapon fires within 160 px (4x sh
 
 ## Force Wall Mechanics
 
-- Activated by pressing G
-- Deploys a 100 px-wide barrier in front of the ship
+- Activated by pressing G (2-second cooldown)
+- Deploys a 400 px-wide shimmering barrier behind the ship,
+  perpendicular to the ship's heading
 - Costs 30 ability points per use
 - Requires the Force Wall module to be equipped
-- Barrier blocks enemy projectiles and alien movement
-- Barrier lasts 5 seconds before dissipating
-- Only one Force Wall can be active at a time
+- Lifetime: 20 seconds, with shimmering alpha falloff
+- Blocks alien projectiles and boss projectiles — each hit is absorbed
+  and spawns a hit spark
+- Aliens steer around the wall via an extra 2× repulsion term in their
+  avoidance; any movement segment that would cross the wall is reverted
+  to the alien's pre-move position (hard block)
+- Rammer aliens' charge path is clipped the same way
+- Multiple walls can be active at once (the oldest drops first when its
+  20 s lifetime expires)
 
 ---
 

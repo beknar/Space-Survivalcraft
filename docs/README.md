@@ -107,7 +107,7 @@ Several large optimizations target the Nebula zone, which can populate hundreds 
 
 ## Test Coverage
 
-The fast test suite (`unit tests/`, 393 tests across 22 files) runs in ~0.6 s and covers:
+The fast test suite (`unit tests/`, 440 tests across 22 files) runs in ~1.5 s and covers:
 
 - **Player physics** (`test_player.py`) — rotation, thrust, damping, clamping
 - **Weapons + projectiles** (`test_projectile.py`)
@@ -125,15 +125,15 @@ The fast test suite (`unit tests/`, 393 tests across 22 files) runs in ~0.6 s an
 - **Parked ships** (`test_parked_ship.py`) — construction by level, HP/shield damage routing, hit flash, cargo/module storage, collision handler (alien/player/boss projectiles), destruction drops, serialization round trip
 - **Settings, video scanning, world setup helpers**
 
-The integration suite (`unit tests/integration/`, 63 tests across 5 files) requires an Arcade window and covers:
+The integration suite (`unit tests/integration/`, 110 tests) requires an Arcade window and covers:
 
-- **Functional** (`test_zone2_real_gv.py`) — 18 tests exercising Zone 2 with a real GameView
-- **Full-frame FPS** (`test_performance.py`) — 17 tests at 40 FPS threshold (Zone 2 full pop, Zone 2+station, both inventories, Zone 1 boss, minimap, heavy combat, warp enemy zone, escape menu)
-- **GPU rendering** (`test_render_perf.py`) — 10 microbenchmarks isolating Text.draw, SpriteList.draw, draw_points, draw_lines, draw_rect_filled vs SpriteList, fog texture rebuild
+- **Functional** (`test_zone2_real_gv.py`) — Zone 2 exercised with a real GameView, including Death Blossom flow with both videos running
+- **Full-frame FPS** (`test_performance.py`) — 40 FPS-threshold tests across Zone 1 + Zone 2 (full population, buildings, boss, heavy combat, minimap), warp zones, station info with and without music, inventories, parked ships, Missile Array, real music + character video, and the **trade sell / buy panels in both zones with and without both videos playing plus a buy↔sell churn scenario**
+- **GPU rendering** (`test_render_perf.py`) — microbenchmarks isolating Text.draw, SpriteList.draw, draw_points, draw_lines, draw_rect_filled vs SpriteList, fog texture rebuild
 - **Resolution scaling** (`test_resolution_perf.py`) — 12 tests across all 6 RESOLUTION_PRESETS × 2 zones (Zone 1 + Zone 2); uses `apply_resolution` to resize a hidden window between tests; cannot run in parallel (one Arcade window per process)
-- **Soak/endurance** (`test_soak.py`) — 6 tests running 5 minutes each (~30 min total), measuring FPS + RSS every 30 s: Zone 1 combat, Zone 2 combat, video player, inventory churn (438 rebuilds, 80 MB threshold), fog texture rebuild, combined worst-case. Player made invulnerable to prevent premature death. Requires `psutil` dev dependency.
+- **Soak/endurance** (`test_soak.py`) — 5-minute soak tests measuring FPS + RSS every 30 s: Zone 1 combat, Zone 2 combat, video player, inventory churn, fog texture rebuild, combined worst-case. Player made invulnerable to prevent premature death. Requires `psutil` dev dependency.
 
-Grand total: 462 tests (393 fast + 69 integration).
+Grand total: 550 tests (440 fast + 110 integration). Real music-video tests load `.mp4` files from `./yvideos` (gitignored) relative to the project root.
 
 Tests use PIL-generated dummy textures so no game assets are required. Fast tests need no Arcade window. `pytest` and `psutil` (for soak tests) are needed beyond the game's regular dependencies.
 

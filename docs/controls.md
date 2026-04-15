@@ -44,4 +44,6 @@ Gamepad dead zone: 0.15
 - **Craft menu**: Left-click a placed Basic Crafter within 300 px
 - **Trade menu**: Left-click the Trading Station within 300 px
 - **Destroy mode**: Open build menu (B), click DESTROY, then left-click buildings to remove them
-- **Ship switching**: Fly within 300 px of a parked ship and left-click to transfer control
+- **Ship switching**: Fly within 300 px of a parked ship and left-click to transfer control. Hovering a parked ship shows its HP and a "Click to board" hint.
+- **Move turret / missile array**: Left-click-and-hold (>= 0.4 s) on a placed Turret or Missile Array to pick it up; drag to a new position within 300 px of the Home Station and release to drop it. A short click does nothing; ESC snaps it back to the original position.
+- **Trade sell panel**: Mouse-wheel scrolls the sell list (scrollbar thumb visible); hold left-click on a row to sell one unit every 0.15 s.

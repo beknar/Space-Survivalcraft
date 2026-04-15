@@ -73,7 +73,7 @@
 ## Advanced Modules
 
 - **Misty Step** --- double-tap WASD to teleport 100 px in that direction; costs 20 ability points
-- **Force Wall** --- press G to deploy a 100 px barrier in front of the ship; costs 30 ability points
+- **Force Wall** --- press G to deploy a 400 px shimmering barrier behind the ship; costs 30 ability points. Blocks enemy lasers and boss projectiles on contact; aliens steer around the wall and cannot cross it (any movement that would cut through the wall is reverted)
 - **Death Blossom** --- press X to fire all homing missiles in a radial burst
 
 ## Homing Missiles
@@ -122,6 +122,7 @@
 - **Damage from any source** --- parked ships take damage from alien lasers, boss projectiles, and player weapons (friendly fire)
 - **Destruction drops** --- destroyed ships drop cargo as iron/copper pickups and equipped modules as blueprint pickups
 - **Minimap markers** --- parked ships shown as teal dots on the minimap
+- **Hover tooltip** --- hovering a parked ship surfaces "Level N Ship (HP X/Y) — Click to board"
 - **Zone-aware** --- parked ships stashed/restored during zone transitions and fully serialized in save/load
 
 ## Space Station Building System
@@ -131,8 +132,10 @@
 - Edge-to-edge docking port snap system
 - Deconstruction mode with iron refund
 - Turrets auto-target nearest alien within range
+- Missile Arrays auto-fire homing missiles at aliens within 600 px
 - Repair Module heals player HP and boosts shield regen
 - Building hover tooltip shows type and HP
+- **Long-press LMB on a Turret or Missile Array** to drag-move it; clamped to within 300 px of the Home Station and overlap-checked against other buildings
 - Base capacity of 4, expandable with Solar Arrays
 
 ## Station Inventory & Crafting
@@ -146,6 +149,9 @@
 
 - Spawns when the player builds their first Repair Module
 - Sell items for credits; buy consumables with credits
+- Sell panel scrolls (with a visible scrollbar thumb) when the
+  sellable-item list exceeds the visible rows
+- Hold LMB on a sell row to tick off one unit every 0.15 s
 - Shown on minimap as a bright yellow square
 
 ## Quick Use Bar

@@ -13,6 +13,7 @@ The codebase follows a modular extraction pattern where the central `GameView` c
 | `game_view.py` | ~830 | Thin dispatcher: `__init__` (split into 13 sectioned init helpers), delegate methods, fog of war, weapon helpers |
 | `combat_helpers.py` | ~237 | Damage, death, spawning, respawn, XP, boss spawn |
 | `building_manager.py` | ~235 | Building placement, destruction, port snapping, trade station |
+| `ship_manager.py` | ~220 | Ship upgrade, new-ship placement, switch-to-ship; `_deduct_ship_cost` + `_resize_module_slots` shared helpers; re-exported via `building_manager` for legacy imports |
 | `draw_logic.py` | ~390 | `draw_world()`, `draw_ui()`, `compute_world_stats()` |
 | `update_logic.py` | ~570 | 11 update sub-functions for the game loop |
 | `input_handlers.py` | ~690 | All keyboard and mouse event handling; eject routing split into 4 helpers |
@@ -58,7 +59,7 @@ def _spawn_explosion(self, x, y):
 | `escape_menu/` | ~10 files | Escape menu with sub-mode pattern |
 | `build_menu.py` | ~337 | Station building overlay |
 | `craft_menu.py` | ~283 | Crafting UI |
-| `trade_menu.py` | ~276 | Trading station overlay |
+| `trade_menu.py` | ~360 | Trading station overlay with scrollable sell panel, pooled row Text objects, and batched `SpriteList` fills for the panel chrome |
 
 ### Sprite AI
 
@@ -85,7 +86,7 @@ ui_helpers.py  <-- splash_view, death_screen, options_view, escape_menu, hud (sh
 
 game_view.py (thin dispatcher)
   +-- combat_helpers.py
-  +-- building_manager.py
+  +-- building_manager.py --> ship_manager.py (upgrade / place / switch)
   +-- draw_logic.py
   +-- update_logic.py --> collisions.py
   +-- input_handlers.py
@@ -127,7 +128,7 @@ collisions.py
 - **Sound throttling** --- min 0.15s between pyglet media player creations
 - **BaseInventoryData mixin** --- shared item storage, drag state, icon resolution, badge texture cache (`_get_badge_texture`/`_badge_tex_cache`/`_cache_badge_list`) inherited by both inventory classes; subclasses set `_rows`/`_cols`
 - **Ruff linter** --- `ruff.toml` with bug-focused rules; catches unused imports, dead variables, and real import bugs
-- **Test infrastructure** --- `pytest.ini` excludes `integration/`; `conftest.py` provides `StubPlayer` and `StubGameView` for windowless zone testing; `psutil` dev dependency for soak tests; 373 fast + 63 integration = 436 total tests. Integration: 18 functional, 17 FPS, 10 GPU render, 12 resolution scaling (6 presets x 2 zones), 6 soak/endurance (5 min each)
+- **Test infrastructure** --- `pytest.ini` excludes `integration/`; `conftest.py` provides `StubPlayer` and `StubGameView` for windowless zone testing; `psutil` dev dependency for soak tests; 440 fast + 110 integration = 550 total tests. Integration covers functional, FPS (including trade sell/buy panels × {Zone 1, Zone 2} × {no video, both videos} plus a buy↔sell churn scenario), GPU render, resolution scaling (6 presets × 2 zones), and soak/endurance (5 min each). Real music-video tests load `./yvideos/*.mp4` (gitignored)
 - **EqualizerState class** --- encapsulates equalizer animation with `update(dt, volume)` and `draw(y)`
 - **MenuContext + MenuMode** --- escape menu sub-mode pattern with shared state and per-mode draw/input
 - **TYPE_CHECKING imports** --- all extracted modules avoid circular imports at runtime
@@ -142,7 +143,11 @@ collisions.py
 - **Zone 2 building stash** --- `Zone2.teardown()` saves building state into `_building_stash` dict; `Zone2.setup()` restores it; prevents MainZone from overwriting Zone 2 buildings during zone transitions
 - **Background zone simulation** --- `ZoneState.background_update(gv, dt)` virtual method; `MainZone` operates on stashed sprite lists, `Zone2` on its own lists; called from `GameView.on_update` when `audio.simulate_all_zones` is True
 - **Inactive zone info panel** --- `draw_logic.compute_inactive_zone_stats()` reads Zone 1 stash and Zone 2 sprite list counts; `StationInfo._draw_inactive_zones()` renders a dynamically-sized "Other Zones" panel with pre-pooled `arcade.Text` objects
-- **Multi-ship system** --- `ParkedShip(arcade.Sprite)` in `sprites/parked_ship.py` stores faction, type, level, HP, shields, `cargo_items` dict, and `module_slots` list. NOT a StationModule subclass. `building_manager._place_new_ship()` creates a ParkedShip from the current player and upgrades the active ship. `building_manager.switch_to_ship()` snapshots the current player into a new ParkedShip, creates a new PlayerShip from the target, and swaps inventory/modules/weapons/ability meter. `collisions.handle_parked_ship_damage()` checks alien, player, and boss projectiles against `gv._parked_ships`. `_destroy_parked_ship()` drops cargo and modules. Parked ships stashed in `_ZONE1_LISTS` and Zone 2's `_building_stash`; serialized via `game_save._serialize_parked_ships()`.
+- **Multi-ship system** --- `ParkedShip(arcade.Sprite)` in `sprites/parked_ship.py` stores faction, type, level, HP, shields, `cargo_items` dict, and `module_slots` list. NOT a StationModule subclass. `ship_manager._place_new_ship()` creates a ParkedShip from the current player and upgrades the active ship. `ship_manager.switch_to_ship()` snapshots the current player into a new ParkedShip, creates a new PlayerShip from the target, and swaps inventory/modules/weapons/ability meter. `collisions.handle_parked_ship_damage()` checks alien, player, and boss projectiles against `gv._parked_ships`. `_destroy_parked_ship()` drops cargo and modules. Parked ships stashed in `_ZONE1_LISTS` and Zone 2's `_building_stash`; serialized via `game_save._serialize_parked_ships()`. A cached `gv._t_parked_ship_tip` renders the HP hover tooltip.
+- **Force wall routing** --- `sprites/force_wall.py` exposes `closest_point`, `blocks_point`, and `segment_crosses`. `update_logic.update_force_walls` consumes projectiles from `alien_projectile_list`, `_boss_projectile_list`, and the Zone 2 stashed list. Alien AI classes (`sprites/alien.py`, `sprites/zone2_aliens.py`) take a `force_walls` kwarg through `update_alien` / `_update_movement` / `_move` and add a 2× repulsion term plus a post-move segment-crossing revert so aliens route around the wall instead of passing through.
+- **Long-press turret move** --- `input_handlers._try_start_building_move` starts a timer on LMB-down over a Turret/MissileArray; `update_logic.update_timers` (and `handle_mouse_drag`) promote the pending move after `MOVE_LONG_PRESS_TIME` (0.4 s). `_clamp_turret_position` clamps each frame to within `TURRET_FREE_PLACE_RADIUS` (300 px) of the Home Station. Release runs overlap validation; ESC snaps back.
+- **Trade panel batching** --- `TradeMenu._rect_sprites` is a pooled `arcade.SpriteList` of `SpriteSolidColor` objects reused every frame via `_rect_reset/_rect_add/_rect_flush`. Per-mode drawers split into a fills phase and a text/outline phase; a second pool of `arcade.Text` objects (`_row_texts`) handles row labels, only re-laying-out on text change. Cut ~15 immediate-mode rect calls per frame down to a single `SpriteList.draw()`.
+- **Streaming music loops + alien texture cache** --- `world_setup.collect_music_tracks` loads each WAV with `streaming=True` to avoid a pyglet `MemoryError` on long loops. `world_setup._alien_tex_cache` memoises the cropped Ship.png / Effects.png textures; `populate_aliens` now returns `(slist, ship_tex, laser_tex)` and `GameView._init_aliens` reuses them instead of re-decoding both sheets (~200 MB of redundant PIL allocation per load). `splash_view._do_load` additionally runs `gc.collect()` before constructing the replacement GameView.
 
 ## View Flow
 

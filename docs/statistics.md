@@ -67,7 +67,7 @@ All ships start at world centre. Ships rendered at 0.75x scale (96 px in-game). 
 | Damage Absorber | -3 damage to shields | 150 iron |
 | Broadside Module | Auto-fires perpendicular lasers | 200 iron |
 | Misty Step | Double-tap WASD to teleport 100 px | 150 iron + 50 copper |
-| Force Wall | Deploy 100 px barrier (G key) | 200 iron + 75 copper |
+| Force Wall | Deploy 400 px barrier (G key); 20 s lifetime; blocks enemy projectiles + movement | 200 iron + 75 copper |
 | Death Blossom | Fire all missiles radially (X key) | 250 iron + 100 copper |
 | Missile Rack | +100 missile capacity | 100 iron + 50 copper |
 | Ability Capacitor | +25 max ability points | 175 iron + 75 copper |
@@ -207,6 +207,10 @@ All ships start at world centre. Ships rendered at 0.75x scale (96 px in-game). 
 | Regen rate | 5 pts/s |
 | Misty Step cost | 20 |
 | Force Wall cost | 30 |
+| Force Wall cooldown | 2 s |
+| Force Wall length | 400 px |
+| Force Wall lifetime | 20 s |
+| Long-press-to-move threshold | 0.4 s (`MOVE_LONG_PRESS_TIME`) |
 
 ---
 
