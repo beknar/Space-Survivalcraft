@@ -17,7 +17,7 @@ from constants import (
 )
 from settings import audio
 from sprites.building import (
-    HomeStation, BasicCrafter, DockingPort,
+    HomeStation, BasicCrafter, DockingPort, Turret, MissileArray,
     compute_modules_used, compute_module_capacity,
 )
 
@@ -46,7 +46,12 @@ def handle_key_press(gv: GameView, key: int, modifiers: int) -> None:
         if gv._ship_stats.open:
             gv._ship_stats.open = False
             return
-        if gv._destroy_mode:
+        if gv._moving_building is not None:
+            gv._moving_building.center_x = gv._move_origin_x
+            gv._moving_building.center_y = gv._move_origin_y
+            gv._moving_building = None
+            gv._move_candidate = None
+        elif gv._destroy_mode:
             gv._exit_destroy_mode()
         elif gv._placing_building is not None:
             gv._cancel_placement()
@@ -287,6 +292,8 @@ def handle_mouse_press(gv: GameView, x: int, y: int, button: int, modifiers: int
         return
     # World clicks (parked ships, trade station, buildings)
     if not gv._build_menu.open and not gv._player_dead:
+        if _try_start_building_move(gv, x, y):
+            return
         if _handle_world_click(gv, x, y):
             return
     gv.inventory.on_mouse_press(x, y)
@@ -333,6 +340,90 @@ def _screen_to_world(gv: GameView, x: int, y: int) -> tuple[float, float]:
     wx = gv.world_cam.position[0] - gv.window.width / 2 + x
     wy = gv.world_cam.position[1] - gv.window.height / 2 + y
     return wx, wy
+
+
+def _try_start_building_move(gv: GameView, x: int, y: int) -> bool:
+    """If the click is over a movable building (Turret or MissileArray)
+    close to the player, arm the long-press timer and consume the click.
+
+    Release before the threshold cancels; holding past it enters move mode.
+    """
+    import time as _time
+    wx, wy = _screen_to_world(gv, x, y)
+    px, py = gv.player.center_x, gv.player.center_y
+    best = None
+    best_dist = 40.0
+    for b in gv.building_list:
+        if not isinstance(b, (Turret, MissileArray)):
+            continue
+        d = math.hypot(wx - b.center_x, wy - b.center_y)
+        if d < best_dist:
+            best_dist = d
+            best = b
+    if best is None:
+        return False
+    if math.hypot(px - best.center_x, py - best.center_y) >= STATION_INFO_RANGE:
+        return False
+    gv._move_candidate = best
+    gv._move_press_time = _time.monotonic()
+    gv._move_origin_x = best.center_x
+    gv._move_origin_y = best.center_y
+    return True
+
+
+def _update_pending_building_move(gv: GameView, x: int, y: int) -> None:
+    """Promote a held LMB into active move mode once the threshold elapses,
+    and keep the moving building's position synced with the cursor."""
+    import time as _time
+    from constants import MOVE_LONG_PRESS_TIME
+    if gv._move_candidate is not None and gv._moving_building is None:
+        if (_time.monotonic() - gv._move_press_time) >= MOVE_LONG_PRESS_TIME:
+            gv._moving_building = gv._move_candidate
+            gv._move_candidate = None
+    if gv._moving_building is not None:
+        wx, wy = _screen_to_world(gv, x, y)
+        gv._moving_building.center_x = wx
+        gv._moving_building.center_y = wy
+
+
+def _finish_building_move(gv: GameView, x: int, y: int) -> bool:
+    """LMB release while a move is pending or active. Returns True if the
+    release was consumed (i.e. the caller should skip other release logic)."""
+    if gv._moving_building is not None:
+        building = gv._moving_building
+        gv._moving_building = None
+        wx, wy = _screen_to_world(gv, x, y)
+        if _is_valid_move_target(gv, building, wx, wy):
+            building.center_x = wx
+            building.center_y = wy
+        else:
+            building.center_x = gv._move_origin_x
+            building.center_y = gv._move_origin_y
+        return True
+    if gv._move_candidate is not None:
+        # Short press — treat as a normal click (no action for turrets
+        # today, but keep the hook so future click behaviours work).
+        gv._move_candidate = None
+        return True
+    return False
+
+
+def _is_valid_move_target(gv, building, wx: float, wy: float) -> bool:
+    """Turret/MissileArray must stay within TURRET_FREE_PLACE_RADIUS of an
+    active Home Station and clear of other buildings."""
+    from constants import BUILDING_RADIUS
+    home = next((b for b in gv.building_list if isinstance(b, HomeStation)), None)
+    if home is None or home.disabled:
+        return False
+    if math.hypot(wx - home.center_x, wy - home.center_y) > TURRET_FREE_PLACE_RADIUS:
+        return False
+    for other in gv.building_list:
+        if other is building:
+            continue
+        if math.hypot(wx - other.center_x,
+                      wy - other.center_y) < BUILDING_RADIUS * 2:
+            return False
+    return True
 
 
 def _handle_world_click(gv: GameView, x: int, y: int) -> bool:
@@ -426,6 +517,8 @@ def handle_mouse_drag(
     if gv._hud._mod_drag_src is not None:
         gv._hud._mod_drag_x = x
         gv._hud._mod_drag_y = y
+    if gv._move_candidate is not None or gv._moving_building is not None:
+        _update_pending_building_move(gv, x, y)
     gv._station_inv.on_mouse_drag(x, y)
     gv.inventory.on_mouse_drag(x, y)
 
@@ -439,6 +532,9 @@ def handle_mouse_release(gv: GameView, x: int, y: int, button: int, modifiers: i
     # Clear any hold-to-sell loop in the trade menu.
     if gv._trade_menu.open:
         gv._trade_menu.on_mouse_release(x, y)
+    # Finish a long-press building move (if any).
+    if _finish_building_move(gv, x, y):
+        return
     # Module drag release
     if gv._hud._mod_drag_src is not None:
         src = gv._hud._mod_drag_src
@@ -780,3 +876,12 @@ def handle_mouse_motion(gv: GameView, x: int, y: int, dx: int, dy: int) -> None:
         gv._hover_building = best
         gv._hover_screen_x = x
         gv._hover_screen_y = y
+        # Parked ship hover — show tooltip when cursor is over a parked ship
+        hover_ps = None
+        hover_dist = 40.0
+        for ps in gv._parked_ships:
+            d = math.hypot(wx - ps.center_x, wy - ps.center_y)
+            if d < hover_dist:
+                hover_dist = d
+                hover_ps = ps
+        gv._hover_parked_ship = hover_ps

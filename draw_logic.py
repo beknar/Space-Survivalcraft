@@ -334,7 +334,7 @@ def draw_ui(gv: GameView) -> None:
         if gv._video_player.active:
             vid_size = STATUS_WIDTH - 20
             vid_x = 10
-            vid_y = MINIMAP_Y + MINIMAP_H + 20
+            vid_y = MINIMAP_Y + MINIMAP_H + 6
             gv._video_player.draw_in_hud(vid_x, vid_y, vid_size)
 
     # Overlays

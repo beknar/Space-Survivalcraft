@@ -404,7 +404,7 @@ MINIMAP_PAD: int = 10
 MINIMAP_W: int = STATUS_WIDTH - 2 * MINIMAP_PAD   # 193 px wide
 MINIMAP_H: int = MINIMAP_W                         # square
 MINIMAP_X: int = MINIMAP_PAD
-MINIMAP_Y: int = MINIMAP_PAD + 16                  # 26 px from bottom; label sits below
+MINIMAP_Y: int = MINIMAP_PAD                       # flush with bottom padding so the music video title is visible above the minimap
 
 MENU_W: int = 320
 MENU_H: int = 770
@@ -486,6 +486,7 @@ TURRET_COOLDOWN: float = 1.5        # seconds between turret shots
 TURRET_LASER_SPEED: float = 700.0   # turret projectile speed  px/s
 TURRET_LASER_RANGE: float = 500.0   # turret projectile max range  px
 TURRET_FREE_PLACE_RADIUS: float = 300.0  # max distance from Home Station for turrets
+MOVE_LONG_PRESS_TIME: float = 0.4  # seconds of held LMB on turret/missile array to enter move mode
 
 # Repair module
 REPAIR_RANGE: float = 300.0             # px — distance from Home Station for repair to activate
@@ -598,7 +599,7 @@ MISTY_STEP_COST: float = 20.0
 MISTY_STEP_COOLDOWN: float = 2.0
 
 # Force wall module
-FORCE_WALL_LENGTH: float = 200.0
+FORCE_WALL_LENGTH: float = 400.0
 FORCE_WALL_DURATION: float = 20.0
 FORCE_WALL_COST: float = 30.0
 FORCE_WALL_COOLDOWN: float = 2.0

@@ -574,13 +574,38 @@ def update_ability_meter(gv: GameView, dt: float) -> None:
         gv._rear_turret_cd = max(0.0, gv._rear_turret_cd - dt)
     if hasattr(gv, '_missile_fire_cd') and gv._missile_fire_cd > 0:
         gv._missile_fire_cd = max(0.0, gv._missile_fire_cd - dt)
+    # Promote a held-LMB long press into an active move even if the mouse
+    # never moves. The drag handler also promotes, so position stays fresh
+    # once the cursor does move.
+    if gv._move_candidate is not None and gv._moving_building is None:
+        import time as _time
+        from constants import MOVE_LONG_PRESS_TIME
+        if (_time.monotonic() - gv._move_press_time) >= MOVE_LONG_PRESS_TIME:
+            gv._moving_building = gv._move_candidate
+            gv._move_candidate = None
 
 
 def update_force_walls(gv: GameView, dt: float) -> None:
-    """Update force wall lifetimes."""
+    """Update force wall lifetimes and absorb enemy projectiles they block."""
     for wall in gv._force_walls:
         wall.update(dt)
     gv._force_walls = [w for w in gv._force_walls if not w.dead]
+    if not gv._force_walls:
+        return
+    from sprites.explosion import HitSpark
+    walls = gv._force_walls
+    plists = [gv.alien_projectile_list, gv._boss_projectile_list]
+    zone = getattr(gv, '_zone', None)
+    z2_alien_projs = getattr(zone, '_alien_projectiles', None)
+    if z2_alien_projs is not None and z2_alien_projs is not gv.alien_projectile_list:
+        plists.append(z2_alien_projs)
+    for plist in plists:
+        for proj in list(plist):
+            for wall in walls:
+                if wall.blocks_point(proj.center_x, proj.center_y, radius=14.0):
+                    gv.hit_sparks.append(HitSpark(proj.center_x, proj.center_y))
+                    proj.remove_from_sprite_lists()
+                    break
 
 
 def update_missiles(gv: GameView, dt: float) -> None:

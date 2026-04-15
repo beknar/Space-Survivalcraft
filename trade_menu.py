@@ -11,9 +11,11 @@ from constants import SCREEN_WIDTH, SCREEN_HEIGHT, CRAFT_IRON_COST, CRAFT_RESULT
 _PANEL_W = 340
 _PANEL_H = 400       # main/buy modes; sell mode computes a dynamic height
 _PANEL_H_MIN = 400
+_PANEL_H_MAX = 500   # cap so the panel scrolls rather than filling the screen
 _ITEM_H = 26
 _SELL_HEADER_H = 85  # pixels above the first item row (title + credits + hint)
 _SELL_FOOTER_H = 60  # pixels below the last item row (back button area)
+_SCROLL_W = 8        # scrollbar track width
 
 # Sell prices (credits per unit)
 SELL_PRICES: dict[str, int] = {
@@ -118,7 +120,7 @@ class TradeMenu(MenuOverlay):
             rows = max(1, len(self._sell_items))
             needed = _SELL_HEADER_H + rows * _ITEM_H + _SELL_FOOTER_H
             sh = self._window.height if self._window else SCREEN_HEIGHT
-            return max(_PANEL_H_MIN, min(needed, sh - 40))
+            return max(_PANEL_H_MIN, min(needed, _PANEL_H_MAX, sh - 40))
         return _PANEL_H
 
     def _panel_origin(self) -> tuple[int, int]:
@@ -198,6 +200,11 @@ class TradeMenu(MenuOverlay):
         self._draw_hint(cx, py + ph - 65, "Click an item to sell 1 unit")
         list_y = py + ph - _SELL_HEADER_H
         max_vis = max(1, (ph - _SELL_HEADER_H - _SELL_FOOTER_H) // _ITEM_H)
+        total = len(self._sell_items)
+        # Clamp scroll so the last row never lands in the footer/back-button area.
+        max_scroll = max(0, total - max_vis)
+        if self._sell_scroll > max_scroll:
+            self._sell_scroll = max_scroll
         if not self._sell_items:
             self._t_line.text = "Nothing to sell"
             self._t_line.x = cx; self._t_line.y = list_y - 20
@@ -205,7 +212,7 @@ class TradeMenu(MenuOverlay):
             self._t_line.anchor_x = "center"; self._t_line.draw()
             self._t_line.anchor_x = "left"
         else:
-            for i in range(min(max_vis, len(self._sell_items) - self._sell_scroll)):
+            for i in range(min(max_vis, total - self._sell_scroll)):
                 idx = self._sell_scroll + i
                 it, name, price, count = self._sell_items[idx]
                 iy = list_y - i * _ITEM_H
@@ -215,7 +222,26 @@ class TradeMenu(MenuOverlay):
                     (30, 40, 60, 200),
                     arcade.color.WHITE,
                 )
+            if total > max_vis:
+                self._draw_scrollbar(px, py, ph, total, max_vis)
         self._draw_back_button(px, py)
+
+    def _draw_scrollbar(self, px: int, py: int, ph: int,
+                        total: int, max_vis: int) -> None:
+        """Draw a vertical scrollbar indicating the current view window."""
+        track_x = px + _PANEL_W - 10 - _SCROLL_W
+        track_y = py + _SELL_FOOTER_H
+        track_h = ph - _SELL_HEADER_H - _SELL_FOOTER_H
+        arcade.draw_rect_filled(
+            arcade.LBWH(track_x, track_y, _SCROLL_W, track_h), (20, 30, 50, 220))
+        thumb_h = max(20, int(track_h * max_vis / total))
+        max_scroll = max(1, total - max_vis)
+        # Scroll 0 → thumb at top; scroll max → thumb at bottom.
+        thumb_y = track_y + track_h - thumb_h - int(
+            (track_h - thumb_h) * self._sell_scroll / max_scroll)
+        arcade.draw_rect_filled(
+            arcade.LBWH(track_x, thumb_y, _SCROLL_W, thumb_h),
+            (120, 160, 220, 240))
 
     def _draw_buy(self, px: int, py: int, ph: int, cx: int) -> None:
         self._draw_hint(cx, py + ph - 65, "Click an item to buy")

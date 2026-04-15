@@ -338,6 +338,15 @@ class GameView(arcade.View):
         self._destroy_mode: bool = False
         self._destroy_cursor_x: float = 0.0
         self._destroy_cursor_y: float = 0.0
+        # Long-press to move turrets/missile arrays.
+        # _move_candidate: building under LMB whose hold timer is counting down.
+        # _moving_building: building actively following the cursor after the
+        # hold threshold elapsed. _move_origin_* remember where to snap back.
+        self._move_candidate = None
+        self._move_press_time: float = 0.0
+        self._moving_building = None
+        self._move_origin_x: float = 0.0
+        self._move_origin_y: float = 0.0
         self._repair_acc: float = 0.0
         self._building_repair_acc: float = 0.0
         self._hover_building: Optional[StationModule] = None
