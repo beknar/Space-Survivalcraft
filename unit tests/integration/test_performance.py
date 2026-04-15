@@ -1427,6 +1427,110 @@ class TestTradeBuyPanelZone2WithVideos:
             gv._trade_menu.open = False
 
 
+class TestTradePanelSwitchingWithVideos:
+    """Toggle between BUY and SELL modes every frame while both videos play
+    and gameplay simulates. Catches any regression that makes mode
+    switching (refresh_sell_list, row-text pool grow/shrink) allocate per
+    frame or blow past the FPS budget."""
+
+    def test_trade_panel_mode_switch_zone1_above_threshold(
+            self, real_game_view):
+        import time as _time
+        gv = real_game_view
+        if gv._zone.zone_id != ZoneID.MAIN:
+            gv._transition_zone(ZoneID.MAIN, entry_side="wormhole_return")
+        _populate_trade_sell_inventories(gv)
+        gv._trade_menu.credits = 5000
+        gv._trade_menu.toggle(inventory=gv.inventory,
+                              station_inv=gv._station_inv)
+        gv._trade_menu._refresh_sell_list(gv.inventory, gv._station_inv)
+        _start_both_videos_or_skip(gv)
+        try:
+            dt = 1 / 60
+            # Warm-up in sell mode so caches/pools are warm
+            gv._trade_menu._mode = "sell"
+            for _ in range(5):
+                gv.on_update(dt)
+                gv.on_draw()
+            # Measure: buy -> sell -> buy -> sell -> ... each frame
+            # Switch modes every 10 frames — approximates a human clicking
+            # the buy/sell buttons a few times per second. Refresh the sell
+            # list exactly on the transition (that's all real clicks do).
+            modes = ("buy", "sell")
+            n = 60
+            prev_mode = None
+            start = _time.perf_counter()
+            for i in range(n):
+                m = modes[(i // 10) % 2]
+                if m != prev_mode:
+                    gv._trade_menu._mode = m
+                    if m == "sell":
+                        gv._trade_menu._refresh_sell_list(
+                            gv.inventory, gv._station_inv)
+                    prev_mode = m
+                gv.on_update(dt)
+                gv.on_draw()
+            elapsed = _time.perf_counter() - start
+            fps = n / elapsed if elapsed > 0 else 999.0
+            print(f"  [perf] trade switch: {fps:.1f} FPS "
+                  f"({n} frames in {elapsed:.3f}s)")
+            assert fps >= MIN_FPS, (
+                f"Zone 1 trade panel switch + both videos: "
+                f"{fps:.1f} FPS < {MIN_FPS}"
+            )
+        finally:
+            _stop_both_videos(gv)
+            gv._trade_menu.open = False
+
+    def test_trade_panel_mode_switch_zone2_above_threshold(
+            self, real_game_view):
+        """Same buy<->sell-per-frame churn as the Zone 1 variant but in
+        the Nebula, which has the heavier entity and minimap load."""
+        import time as _time
+        gv = real_game_view
+        gv._transition_zone(ZoneID.ZONE2)
+        _populate_trade_sell_inventories(gv)
+        gv._trade_menu.credits = 5000
+        gv._trade_menu.toggle(inventory=gv.inventory,
+                              station_inv=gv._station_inv)
+        gv._trade_menu._refresh_sell_list(gv.inventory, gv._station_inv)
+        _start_both_videos_or_skip(gv)
+        try:
+            dt = 1 / 60
+            gv._trade_menu._mode = "sell"
+            for _ in range(5):
+                gv.on_update(dt)
+                gv.on_draw()
+            # Switch modes every 10 frames — approximates a human clicking
+            # the buy/sell buttons a few times per second. Refresh the sell
+            # list exactly on the transition (that's all real clicks do).
+            modes = ("buy", "sell")
+            n = 60
+            prev_mode = None
+            start = _time.perf_counter()
+            for i in range(n):
+                m = modes[(i // 10) % 2]
+                if m != prev_mode:
+                    gv._trade_menu._mode = m
+                    if m == "sell":
+                        gv._trade_menu._refresh_sell_list(
+                            gv.inventory, gv._station_inv)
+                    prev_mode = m
+                gv.on_update(dt)
+                gv.on_draw()
+            elapsed = _time.perf_counter() - start
+            fps = n / elapsed if elapsed > 0 else 999.0
+            print(f"  [perf] trade switch z2: {fps:.1f} FPS "
+                  f"({n} frames in {elapsed:.3f}s)")
+            assert fps >= MIN_FPS, (
+                f"Zone 2 trade panel switch + both videos: "
+                f"{fps:.1f} FPS < {MIN_FPS}"
+            )
+        finally:
+            _stop_both_videos(gv)
+            gv._trade_menu.open = False
+
+
 class TestTradeSellPanelZone2WithVideos:
     def test_trade_sell_panel_zone2_with_videos_above_threshold(
             self, real_game_view):

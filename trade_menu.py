@@ -75,6 +75,11 @@ class TradeMenu(MenuOverlay):
             "", 0, 0, (160, 160, 160), 10, anchor_x="center")
         self._empty_text = arcade.Text(
             "Nothing to sell", 0, 0, (200, 80, 80), 10, anchor_x="center")
+        # Batched filled-rectangle draws — a single SpriteList.draw() call
+        # replaces the 15+ immediate-mode arcade.draw_rect_filled calls the
+        # panel used to issue per frame. Sprites are pooled and reused.
+        self._rect_sprites: arcade.SpriteList = arcade.SpriteList()
+        self._rect_slot: int = 0
         # Hold-to-sell state: while the left mouse button is held over a
         # sell row, tick off one unit every _HOLD_SELL_INTERVAL seconds.
         self._held_sell_item: str | None = None
@@ -131,6 +136,35 @@ class TradeMenu(MenuOverlay):
             return max(_PANEL_H_MIN, min(needed, _PANEL_H_MAX, sh - 40))
         return _PANEL_H
 
+    def _rect_reset(self) -> None:
+        """Begin a new frame's rectangle pool usage."""
+        self._rect_slot = 0
+
+    def _rect_add(self, x: float, y: float, w: float, h: float,
+                  color: tuple[int, int, int, int]) -> None:
+        """Enqueue one filled rectangle for batched drawing this frame.
+
+        x/y is the bottom-left corner (LBWH), matching the immediate-mode
+        call sites we replaced.
+        """
+        if self._rect_slot >= len(self._rect_sprites):
+            s = arcade.SpriteSolidColor(int(w), int(h), 0, 0, color)
+            self._rect_sprites.append(s)
+        s = self._rect_sprites[self._rect_slot]
+        s.width = w
+        s.height = h
+        s.center_x = x + w / 2
+        s.center_y = y + h / 2
+        s.color = color
+        s.visible = True
+        self._rect_slot += 1
+
+    def _rect_flush(self) -> None:
+        """Hide any unused sprites in the pool and draw the batch."""
+        for i in range(self._rect_slot, len(self._rect_sprites)):
+            self._rect_sprites[i].visible = False
+        self._rect_sprites.draw()
+
     def _panel_origin(self) -> tuple[int, int]:
         sw = self._window.width if self._window else SCREEN_WIDTH
         sh = self._window.height if self._window else SCREEN_HEIGHT
@@ -141,15 +175,9 @@ class TradeMenu(MenuOverlay):
             return
         px, py = self._panel_origin()
         ph = self._panel_height()
-        arcade.draw_rect_filled(arcade.LBWH(px, py, _PANEL_W, ph), (15, 20, 45, 240))
-        arcade.draw_rect_outline(arcade.LBWH(px, py, _PANEL_W, ph),
-                                 arcade.color.STEEL_BLUE, border_width=2)
+        self._rect_reset()
+        self._rect_add(px, py, _PANEL_W, ph, (15, 20, 45, 240))
         cx = px + _PANEL_W // 2
-        self._t_title.x = cx; self._t_title.y = py + ph - 20
-        self._t_title.draw()
-        self._t_credits.text = f"Credits: {self._credits}"
-        self._t_credits.x = cx; self._t_credits.y = py + ph - 42
-        self._t_credits.draw()
 
         if self._mode == "main":
             self._draw_main(px, py, ph, cx)
@@ -158,18 +186,44 @@ class TradeMenu(MenuOverlay):
         elif self._mode == "buy":
             self._draw_buy(px, py, ph, cx)
 
+        # One SpriteList.draw() replaces all the filled-rect immediate calls.
+        self._rect_flush()
+
+        # Outlines + text happen after fills so they sit on top.
+        arcade.draw_rect_outline(arcade.LBWH(px, py, _PANEL_W, ph),
+                                 arcade.color.STEEL_BLUE, border_width=2)
+        self._t_title.x = cx; self._t_title.y = py + ph - 20
+        self._t_title.draw()
+        self._t_credits.text = f"Credits: {self._credits}"
+        self._t_credits.x = cx; self._t_credits.y = py + ph - 42
+        self._t_credits.draw()
+
+        if self._mode == "main":
+            self._draw_main_text(px, py, ph, cx)
+        elif self._mode == "sell":
+            self._draw_sell_text(px, py, ph, cx)
+        elif self._mode == "buy":
+            self._draw_buy_text(px, py, ph, cx)
+
         self._t_close.x = cx; self._t_close.y = py + 10
         self._t_close.draw()
 
+    _MAIN_BUTTONS: tuple = (
+        ("SELL Items", arcade.color.ORANGE),
+        ("BUY Items", arcade.color.LIME_GREEN),
+    )
+
     def _draw_main(self, px: int, py: int, ph: int, cx: int) -> None:
-        for i, (label, color) in enumerate([
-            ("SELL Items", arcade.color.ORANGE),
-            ("BUY Items", arcade.color.LIME_GREEN),
-        ]):
+        # Fills phase: enqueue button backgrounds.
+        for i in range(len(self._MAIN_BUTTONS)):
             bx = px + (_PANEL_W - 200) // 2
             by = py + ph - 90 - i * 50
-            arcade.draw_rect_filled(arcade.LBWH(bx, by, 200, 36),
-                                    (30, 50, 80, 220))
+            self._rect_add(bx, by, 200, 36, (30, 50, 80, 220))
+
+    def _draw_main_text(self, px: int, py: int, ph: int, cx: int) -> None:
+        for i, (label, color) in enumerate(self._MAIN_BUTTONS):
+            bx = px + (_PANEL_W - 200) // 2
+            by = py + ph - 90 - i * 50
             arcade.draw_rect_outline(arcade.LBWH(bx, by, 200, 36),
                                      arcade.color.STEEL_BLUE, border_width=1)
             self._t_btn.text = label; self._t_btn.color = color
@@ -191,12 +245,12 @@ class TradeMenu(MenuOverlay):
                 "", 0, 0, arcade.color.WHITE, 10, anchor_x="left"))
         return self._row_texts[idx]
 
-    def _draw_list_row(self, row_idx: int, px: int, iy: int, text: str,
-                       fill: tuple[int, int, int, int],
+    def _enqueue_row_fill(self, px: int, iy: int,
+                          fill: tuple[int, int, int, int]) -> None:
+        self._rect_add(px + 10, iy, _PANEL_W - 20, _ITEM_H - 2, fill)
+
+    def _draw_row_text(self, row_idx: int, px: int, iy: int, text: str,
                        text_color: tuple[int, int, int]) -> None:
-        """Draw one row in the sell/buy list."""
-        arcade.draw_rect_filled(
-            arcade.LBWH(px + 10, iy, _PANEL_W - 20, _ITEM_H - 2), fill)
         t = self._get_row_text(row_idx)
         if t.text != text:
             t.text = text
@@ -205,24 +259,40 @@ class TradeMenu(MenuOverlay):
             t.color = text_color
         t.draw()
 
-    def _draw_back_button(self, px: int, py: int) -> None:
-        """Draw the bottom Back button."""
+    def _enqueue_back_button_fill(self, px: int, py: int) -> None:
         bx = px + (_PANEL_W - 100) // 2; by = py + 30
-        arcade.draw_rect_filled(arcade.LBWH(bx, by, 100, 28), (50, 40, 40, 220))
+        self._rect_add(bx, by, 100, 28, (50, 40, 40, 220))
+
+    def _draw_back_button_chrome(self, px: int, py: int) -> None:
+        """Outline + label — fill is already enqueued via the batch."""
+        bx = px + (_PANEL_W - 100) // 2; by = py + 30
         arcade.draw_rect_outline(arcade.LBWH(bx, by, 100, 28),
                                  arcade.color.STEEL_BLUE, border_width=1)
         self._t_btn.text = "Back"; self._t_btn.color = arcade.color.WHITE
         self._t_btn.x = bx + 50; self._t_btn.y = by + 14; self._t_btn.draw()
 
     def _draw_sell(self, px: int, py: int, ph: int, cx: int) -> None:
+        """Fills phase — enqueue row + scrollbar + back-button backgrounds."""
+        list_y = py + ph - _SELL_HEADER_H
+        max_vis = max(1, (ph - _SELL_HEADER_H - _SELL_FOOTER_H) // _ITEM_H)
+        total = len(self._sell_items)
+        max_scroll = max(0, total - max_vis)
+        if self._sell_scroll > max_scroll:
+            self._sell_scroll = max_scroll
+        if self._sell_items:
+            for i in range(min(max_vis, total - self._sell_scroll)):
+                iy = list_y - i * _ITEM_H
+                self._enqueue_row_fill(px, iy, (30, 40, 60, 200))
+            if total > max_vis:
+                self._enqueue_scrollbar_fills(px, py, ph, total, max_vis)
+        self._enqueue_back_button_fill(px, py)
+
+    def _draw_sell_text(self, px: int, py: int, ph: int, cx: int) -> None:
+        """Text phase — draws labels and outlines on top of the fills."""
         self._draw_hint(cx, py + ph - 65, "Click an item to sell 1 unit")
         list_y = py + ph - _SELL_HEADER_H
         max_vis = max(1, (ph - _SELL_HEADER_H - _SELL_FOOTER_H) // _ITEM_H)
         total = len(self._sell_items)
-        # Clamp scroll so the last row never lands in the footer/back-button area.
-        max_scroll = max(0, total - max_vis)
-        if self._sell_scroll > max_scroll:
-            self._sell_scroll = max_scroll
         if not self._sell_items:
             self._empty_text.x = cx; self._empty_text.y = list_y - 20
             self._empty_text.draw()
@@ -231,44 +301,46 @@ class TradeMenu(MenuOverlay):
                 idx = self._sell_scroll + i
                 it, name, price, count = self._sell_items[idx]
                 iy = list_y - i * _ITEM_H
-                self._draw_list_row(
+                self._draw_row_text(
                     i, px, iy,
                     f"{name} x{count}  —  {price} cr/ea",
-                    (30, 40, 60, 200),
                     arcade.color.WHITE,
                 )
-            if total > max_vis:
-                self._draw_scrollbar(px, py, ph, total, max_vis)
-        self._draw_back_button(px, py)
+        self._draw_back_button_chrome(px, py)
 
-    def _draw_scrollbar(self, px: int, py: int, ph: int,
-                        total: int, max_vis: int) -> None:
-        """Draw a vertical scrollbar indicating the current view window."""
+    def _enqueue_scrollbar_fills(self, px: int, py: int, ph: int,
+                                 total: int, max_vis: int) -> None:
         track_x = px + _PANEL_W - 10 - _SCROLL_W
         track_y = py + _SELL_FOOTER_H
         track_h = ph - _SELL_HEADER_H - _SELL_FOOTER_H
-        arcade.draw_rect_filled(
-            arcade.LBWH(track_x, track_y, _SCROLL_W, track_h), (20, 30, 50, 220))
+        self._rect_add(track_x, track_y, _SCROLL_W, track_h,
+                       (20, 30, 50, 220))
         thumb_h = max(20, int(track_h * max_vis / total))
         max_scroll = max(1, total - max_vis)
-        # Scroll 0 → thumb at top; scroll max → thumb at bottom.
         thumb_y = track_y + track_h - thumb_h - int(
             (track_h - thumb_h) * self._sell_scroll / max_scroll)
-        arcade.draw_rect_filled(
-            arcade.LBWH(track_x, thumb_y, _SCROLL_W, thumb_h),
-            (120, 160, 220, 240))
+        self._rect_add(track_x, thumb_y, _SCROLL_W, thumb_h,
+                       (120, 160, 220, 240))
 
     def _draw_buy(self, px: int, py: int, ph: int, cx: int) -> None:
-        self._draw_hint(cx, py + ph - 65, "Click an item to buy")
         list_y = py + ph - _SELL_HEADER_H
         for i, (it, name, cost, qty) in enumerate(BUY_CATALOG):
             iy = list_y - i * _ITEM_H
             affordable = self._credits >= cost
             fill = (30, 60, 30, 200) if affordable else (50, 30, 30, 200)
+            self._enqueue_row_fill(px, iy, fill)
+        self._enqueue_back_button_fill(px, py)
+
+    def _draw_buy_text(self, px: int, py: int, ph: int, cx: int) -> None:
+        self._draw_hint(cx, py + ph - 65, "Click an item to buy")
+        list_y = py + ph - _SELL_HEADER_H
+        for i, (it, name, cost, qty) in enumerate(BUY_CATALOG):
+            iy = list_y - i * _ITEM_H
+            affordable = self._credits >= cost
             color = arcade.color.WHITE if affordable else (150, 80, 80)
-            self._draw_list_row(
-                i, px, iy, f"{name} x{qty}  —  {cost} credits", fill, color)
-        self._draw_back_button(px, py)
+            self._draw_row_text(
+                i, px, iy, f"{name} x{qty}  —  {cost} credits", color)
+        self._draw_back_button_chrome(px, py)
 
     def on_mouse_press(self, x: float, y: float, inventory=None,
                        station_inv=None) -> Optional[str]:
