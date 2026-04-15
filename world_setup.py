@@ -167,7 +167,13 @@ def collect_music_tracks() -> list[tuple[arcade.Sound, str]]:
         # Vol 2: subdirectories — each contains a "*_loop.wav"
         for f in _glob.glob(os.path.join(MUSIC_VOL2_DIR, "*", "*_loop.wav")):
             paths.append(f)
-        _music_cache = [(arcade.load_sound(p), _track_name_from_path(p)) for p in paths]
+        # Stream music tracks instead of static-loading them — pyglet's
+        # default WAV decoder slurps the entire file into memory, which
+        # raises MemoryError on long loops.
+        _music_cache = [
+            (arcade.load_sound(p, streaming=True), _track_name_from_path(p))
+            for p in paths
+        ]
     # Return a fresh shuffled copy each time
     tracks = list(_music_cache)
     random.shuffle(tracks)
