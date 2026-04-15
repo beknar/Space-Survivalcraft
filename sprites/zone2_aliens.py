@@ -98,6 +98,7 @@ class Zone2Alien(arcade.Sprite):
     def _compute_avoidance(
         self, base_x: float, base_y: float,
         asteroid_list: arcade.SpriteList,
+        force_walls: list | None = None,
     ) -> tuple[float, float]:
         """Return avoidance-adjusted steering from a base direction."""
         steer_x, steer_y = base_x, base_y
@@ -110,6 +111,16 @@ class Zone2Alien(arcade.Sprite):
                 w = ALIEN_AVOIDANCE_FORCE * (1.0 - adist / thresh)
                 steer_x += adx / adist * w
                 steer_y += ady / adist * w
+        if force_walls:
+            wall_thresh = ALIEN_RADIUS + ALIEN_AVOIDANCE_RADIUS + 30.0
+            for wall in force_walls:
+                cx, cy, wdist = wall.closest_point(self.center_x, self.center_y)
+                if 0.0 < wdist < wall_thresh:
+                    w = ALIEN_AVOIDANCE_FORCE * 2.0 * (1.0 - wdist / wall_thresh)
+                    wdx = self.center_x - cx
+                    wdy = self.center_y - cy
+                    steer_x += wdx / wdist * w
+                    steer_y += wdy / wdist * w
         return steer_x, steer_y
 
     def alert(self) -> None:
@@ -136,6 +147,7 @@ class Zone2Alien(arcade.Sprite):
         player_y: float,
         asteroid_list: arcade.SpriteList,
         alien_list: arcade.SpriteList,
+        force_walls: list | None = None,
     ) -> list[Projectile]:
         """Advance AI. Returns list of fired projectiles."""
         fired: list[Projectile] = []
@@ -167,7 +179,8 @@ class Zone2Alien(arcade.Sprite):
                 self._pick_patrol_target()
 
         # Movement
-        self._move(dt, player_x, player_y, dist, dx, dy, asteroid_list, alien_list)
+        self._move(dt, player_x, player_y, dist, dx, dy,
+                   asteroid_list, alien_list, force_walls)
 
         # Stuck detection
         self._stuck_timer += dt
@@ -208,9 +221,10 @@ class Zone2Alien(arcade.Sprite):
         return fired
 
     def _move(self, dt, player_x, player_y, dist, dx, dy,
-              asteroid_list, alien_list) -> None:
+              asteroid_list, alien_list, force_walls=None) -> None:
         """Movement — patrol wanders; pursue orbits at standoff range.
-        Both modes steer around nearby asteroids."""
+        Both modes steer around nearby asteroids and force walls."""
+        prev_x, prev_y = self.center_x, self.center_y
         if self._state == self._STATE_PATROL:
             tdx = self._tgt_x - self.center_x
             tdy = self._tgt_y - self.center_y
@@ -220,7 +234,8 @@ class Zone2Alien(arcade.Sprite):
             elif tdist > 0.001:
                 base_x = tdx / tdist
                 base_y = tdy / tdist
-                sx, sy = self._compute_avoidance(base_x, base_y, asteroid_list)
+                sx, sy = self._compute_avoidance(base_x, base_y, asteroid_list,
+                                                 force_walls)
                 smag = math.hypot(sx, sy)
                 if smag > 0.001:
                     step = min(self._speed * dt, tdist)
@@ -242,7 +257,8 @@ class Zone2Alien(arcade.Sprite):
                         radial = 0.0
                     mx = nx * radial + perp_x * 0.9
                     my = ny * radial + perp_y * 0.9
-                    sx, sy = self._compute_avoidance(mx, my, asteroid_list)
+                    sx, sy = self._compute_avoidance(mx, my, asteroid_list,
+                                                     force_walls)
                     smag = math.hypot(sx, sy)
                     if smag > 0.001:
                         step = self._speed * dt
@@ -251,7 +267,8 @@ class Zone2Alien(arcade.Sprite):
                     self._heading = math.degrees(math.atan2(nx, ny)) % 360
                     self.angle = self._heading
                 else:
-                    sx, sy = self._compute_avoidance(nx, ny, asteroid_list)
+                    sx, sy = self._compute_avoidance(nx, ny, asteroid_list,
+                                                     force_walls)
                     smag = math.hypot(sx, sy)
                     if smag > 0.001:
                         step = self._speed * dt
@@ -259,6 +276,13 @@ class Zone2Alien(arcade.Sprite):
                         self.center_y += sy / smag * step
                     self._heading = math.degrees(math.atan2(nx, ny)) % 360
                     self.angle = self._heading
+
+        if force_walls:
+            for wall in force_walls:
+                if wall.segment_crosses(prev_x, prev_y,
+                                        self.center_x, self.center_y):
+                    self.center_x, self.center_y = prev_x, prev_y
+                    break
 
 
 class ShieldedAlien(Zone2Alien):
@@ -269,9 +293,11 @@ class ShieldedAlien(Zone2Alien):
                          shields=Z2_SHIELDED_SHIELD, **kw)
         self._shield_angle: float = 0.0
 
-    def update_alien(self, dt, player_x, player_y, asteroid_list, alien_list):
+    def update_alien(self, dt, player_x, player_y, asteroid_list, alien_list,
+                     force_walls=None):
         self._shield_angle = (self._shield_angle + 90.0 * dt) % 360
-        return super().update_alien(dt, player_x, player_y, asteroid_list, alien_list)
+        return super().update_alien(dt, player_x, player_y, asteroid_list,
+                                    alien_list, force_walls=force_walls)
 
     def draw_shield(self) -> None:
         if self.shields > 0:
@@ -299,9 +325,9 @@ class FastAlien(Zone2Alien):
         self._dodge_cd: float = 0.0
 
     def _move(self, dt, player_x, player_y, dist, dx, dy,
-              asteroid_list, alien_list) -> None:
+              asteroid_list, alien_list, force_walls=None) -> None:
         super()._move(dt, player_x, player_y, dist, dx, dy,
-                      asteroid_list, alien_list)
+                      asteroid_list, alien_list, force_walls)
         # Occasional sudden sideslip dodge while in pursuit
         if self._state == self._STATE_PURSUE:
             self._dodge_cd -= dt
@@ -327,9 +353,10 @@ class RammerAlien(Zone2Alien):
                          has_guns=False, **kw)
 
     def _move(self, dt, player_x, player_y, dist, dx, dy,
-              asteroid_list, alien_list) -> None:
+              asteroid_list, alien_list, force_walls=None) -> None:
         """Always charge at player when in pursuit."""
         if self._state == self._STATE_PURSUE and dist > 1.0:
+            prev_x, prev_y = self.center_x, self.center_y
             nx, ny = dx / dist, dy / dist
             # Move faster when pursuing (1.5x normal speed)
             step = self._speed * 1.5 * dt
@@ -337,6 +364,12 @@ class RammerAlien(Zone2Alien):
             self.center_y += ny * step
             self._heading = math.degrees(math.atan2(nx, ny)) % 360
             self.angle = self._heading
+            if force_walls:
+                for wall in force_walls:
+                    if wall.segment_crosses(prev_x, prev_y,
+                                            self.center_x, self.center_y):
+                        self.center_x, self.center_y = prev_x, prev_y
+                        break
         else:
             super()._move(dt, player_x, player_y, dist, dx, dy,
-                          asteroid_list, alien_list)
+                          asteroid_list, alien_list, force_walls)

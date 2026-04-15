@@ -59,10 +59,7 @@ class HUD:
                                       (220, 200, 50), 10, bold=True)
         self._t_ability_val = arcade.Text("", 10, hp_y - 116,
                                           arcade.color.WHITE, 9)
-        self._t_wpn_hdr = arcade.Text("WEAPON", cx, hp_y - 134,
-                                      arcade.color.LIGHT_GRAY, 9,
-                                      anchor_x="center")
-        self._t_wpn_name = arcade.Text("", cx, hp_y - 150,
+        self._t_wpn_name = arcade.Text("WEAPON:", cx, hp_y - 140,
                                        arcade.color.YELLOW, 10, bold=True,
                                        anchor_x="center")
         self._show_fps: bool = False
@@ -89,13 +86,20 @@ class HUD:
             arcade.color.LIGHT_GREEN, 9, bold=True,
             anchor_x="right",
         )
-        self._t_music_hdr = arcade.Text(
-            "NOW PLAYING", STATUS_WIDTH // 2, hp_y - 190,
-            arcade.color.LIGHT_GRAY, 9, anchor_x="center",
-        )
+        # Position NOW PLAYING + track title immediately above the music
+        # video (which draws at MINIMAP_Y + MINIMAP_H + 6 with a 16:9 aspect)
+        # so the label stays with the video at any window resolution rather
+        # than floating by `hp_y` from the screen top.
+        _vid_w = STATUS_WIDTH - 20
+        _vid_h = int(_vid_w * 9 / 16)
+        _vid_top = MINIMAP_Y + MINIMAP_H + 6 + _vid_h
         self._t_track_name = arcade.Text(
-            "", STATUS_WIDTH // 2, hp_y - 206,
+            "", STATUS_WIDTH // 2, _vid_top + 4,
             arcade.color.KHAKI, 9, bold=True, anchor_x="center",
+        )
+        self._t_music_hdr = arcade.Text(
+            "NOW PLAYING", STATUS_WIDTH // 2, _vid_top + 18,
+            arcade.color.LIGHT_GRAY, 9, anchor_x="center",
         )
 
         # Equalizer visualizer state (extracted to hud_equalizer.py)
@@ -479,13 +483,13 @@ class HUD:
         hp_y = self._hp_y_offset
         self._t_hp.draw()
         self._t_shield.draw()
-        self._t_wpn_hdr.draw()
         if self._show_fps:
             self._t_fps.text = f"FPS  {self._fps:>6.1f}"
             self._t_fps.draw()
 
-        if self._t_wpn_name.text != weapon_name:
-            self._t_wpn_name.text = weapon_name
+        wpn_label = f"WEAPON: {weapon_name}"
+        if self._t_wpn_name.text != wpn_label:
+            self._t_wpn_name.text = wpn_label
         self._t_wpn_name.draw()
 
         # HP bar (colour shifts red as HP drops)

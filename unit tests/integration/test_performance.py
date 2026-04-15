@@ -1259,3 +1259,99 @@ class TestMissileArrayPerfWithVideos:
             )
         finally:
             _stop_both_videos(gv)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  Trade menu sell/buy panels — keep UI perf above threshold when open
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _populate_trade_sell_inventories(gv) -> None:
+    """Fill both inventories with a broad mix of sellable items so the
+    sell list renders many rows (exercises the scrollbar path)."""
+    gv.inventory._items.clear()
+    gv.inventory._items[(0, 0)] = ("iron", 50)
+    gv.inventory._items[(0, 1)] = ("copper", 40)
+    gv.inventory._items[(0, 2)] = ("missile", 10)
+    gv.inventory._items[(0, 3)] = ("repair_pack", 5)
+    gv.inventory._items[(0, 4)] = ("shield_recharge", 5)
+    gv.inventory._mark_dirty()
+
+    gv._station_inv._items.clear()
+    from constants import MODULE_TYPES
+    mod_keys = list(MODULE_TYPES.keys())
+    r = c = 0
+    for mk in mod_keys:
+        gv._station_inv._items[(r, c)] = (f"mod_{mk}", 1)
+        c += 1
+        if c >= 10:
+            c = 0
+            r += 1
+        gv._station_inv._items[(r, c)] = (f"bp_{mk}", 1)
+        c += 1
+        if c >= 10:
+            c = 0
+            r += 1
+    gv._station_inv._items[(r, c)] = ("iron", 200)
+    gv._station_inv._mark_dirty()
+
+
+class TestTradeSellPanelZone1:
+    def test_trade_sell_panel_open_above_threshold(self, real_game_view):
+        """Opening the trade sell panel with a fully populated inventory
+        stresses per-frame panel rendering (header, credits, scrollbar,
+        up to ~max_vis item rows). Must stay >= MIN_FPS."""
+        gv = real_game_view
+        if gv._zone.zone_id != ZoneID.MAIN:
+            gv._transition_zone(ZoneID.MAIN, entry_side="wormhole_return")
+        _populate_trade_sell_inventories(gv)
+        gv._trade_menu.toggle(inventory=gv.inventory,
+                              station_inv=gv._station_inv)
+        gv._trade_menu._mode = "sell"
+        gv._trade_menu._refresh_sell_list(gv.inventory, gv._station_inv)
+        try:
+            fps = _measure_fps(gv)
+            assert fps >= MIN_FPS, (
+                f"Trade sell panel open: {fps:.1f} FPS < {MIN_FPS}"
+            )
+        finally:
+            gv._trade_menu.open = False
+
+
+class TestTradeBuyPanelZone1:
+    def test_trade_buy_panel_open_above_threshold(self, real_game_view):
+        """Opening the trade buy panel (fixed catalog) with credits must
+        stay >= MIN_FPS while the rest of the game simulates."""
+        gv = real_game_view
+        if gv._zone.zone_id != ZoneID.MAIN:
+            gv._transition_zone(ZoneID.MAIN, entry_side="wormhole_return")
+        gv._trade_menu.credits = 5000
+        gv._trade_menu.toggle(inventory=gv.inventory,
+                              station_inv=gv._station_inv)
+        gv._trade_menu._mode = "buy"
+        try:
+            fps = _measure_fps(gv)
+            assert fps >= MIN_FPS, (
+                f"Trade buy panel open: {fps:.1f} FPS < {MIN_FPS}"
+            )
+        finally:
+            gv._trade_menu.open = False
+
+
+class TestTradeSellPanelZone2:
+    def test_trade_sell_panel_zone2_above_threshold(self, real_game_view):
+        """Zone 2 (heavier baseline) with the sell panel open — the panel
+        draw runs alongside the fully populated nebula."""
+        gv = real_game_view
+        gv._transition_zone(ZoneID.ZONE2)
+        _populate_trade_sell_inventories(gv)
+        gv._trade_menu.toggle(inventory=gv.inventory,
+                              station_inv=gv._station_inv)
+        gv._trade_menu._mode = "sell"
+        gv._trade_menu._refresh_sell_list(gv.inventory, gv._station_inv)
+        try:
+            fps = _measure_fps(gv)
+            assert fps >= MIN_FPS, (
+                f"Zone 2 + trade sell panel: {fps:.1f} FPS < {MIN_FPS}"
+            )
+        finally:
+            gv._trade_menu.open = False

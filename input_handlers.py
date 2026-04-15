@@ -382,8 +382,24 @@ def _update_pending_building_move(gv: GameView, x: int, y: int) -> None:
             gv._move_candidate = None
     if gv._moving_building is not None:
         wx, wy = _screen_to_world(gv, x, y)
-        gv._moving_building.center_x = wx
-        gv._moving_building.center_y = wy
+        gv._moving_building.center_x, gv._moving_building.center_y = (
+            _clamp_turret_position(gv, wx, wy))
+
+
+def _clamp_turret_position(gv, wx: float, wy: float) -> tuple[float, float]:
+    """Clamp world coords to within TURRET_FREE_PLACE_RADIUS of the
+    active Home Station so the turret can never be dragged outside the
+    allowed zone. Falls back to (wx, wy) if no Home Station is present."""
+    home = next((b for b in gv.building_list if isinstance(b, HomeStation)), None)
+    if home is None:
+        return wx, wy
+    dx = wx - home.center_x
+    dy = wy - home.center_y
+    d = math.hypot(dx, dy)
+    if d <= TURRET_FREE_PLACE_RADIUS or d <= 0.0:
+        return wx, wy
+    scale = TURRET_FREE_PLACE_RADIUS / d
+    return home.center_x + dx * scale, home.center_y + dy * scale
 
 
 def _finish_building_move(gv: GameView, x: int, y: int) -> bool:

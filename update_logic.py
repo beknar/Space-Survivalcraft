@@ -428,6 +428,7 @@ def update_entities(gv: GameView, dt: float) -> None:
         proj = alien.update_alien(
             dt, px, py,
             gv.asteroid_list, gv.alien_list,
+            force_walls=gv._force_walls,
         )
         if proj is not None:
             gv.alien_projectile_list.append(proj)

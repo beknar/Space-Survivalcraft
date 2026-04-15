@@ -115,6 +115,7 @@ class SmallAlienShip(arcade.Sprite):
         base_y: float,
         asteroid_list: arcade.SpriteList,
         alien_list: arcade.SpriteList,
+        force_walls: list | None = None,
     ) -> tuple[float, float]:
         """Return an avoidance-adjusted steering vector from a base direction."""
         steer_x, steer_y = base_x, base_y
@@ -141,6 +142,18 @@ class SmallAlienShip(arcade.Sprite):
                 steer_x += odx / odist * w
                 steer_y += ody / odist * w
 
+        # Force walls push aliens away strongly so they route around them.
+        if force_walls:
+            wall_thresh = ALIEN_RADIUS + ALIEN_AVOIDANCE_RADIUS + 30.0
+            for wall in force_walls:
+                cx, cy, wdist = wall.closest_point(self.center_x, self.center_y)
+                if 0.0 < wdist < wall_thresh:
+                    w = ALIEN_AVOIDANCE_FORCE * 2.0 * (1.0 - wdist / wall_thresh)
+                    wdx = self.center_x - cx
+                    wdy = self.center_y - cy
+                    steer_x += wdx / wdist * w
+                    steer_y += wdy / wdist * w
+
         return steer_x, steer_y
 
     def alert(self) -> None:
@@ -164,6 +177,7 @@ class SmallAlienShip(arcade.Sprite):
         player_y: float,
         asteroid_list: arcade.SpriteList,
         alien_list: arcade.SpriteList,
+        force_walls: list | None = None,
     ) -> Optional[Projectile]:
         """Advance AI + movement.  Returns a fired Projectile, or None."""
 
@@ -195,7 +209,8 @@ class SmallAlienShip(arcade.Sprite):
                 self._pick_patrol_target()
 
         # ── Movement ────────────────────────────────────────────────────────
-        self._update_movement(dt, player_x, player_y, asteroid_list, alien_list)
+        self._update_movement(dt, player_x, player_y, asteroid_list, alien_list,
+                              force_walls)
 
         # ── Stuck detection ────────────────────────────────────────────────
         self._update_stuck_detection(dt, asteroid_list)
@@ -214,8 +229,10 @@ class SmallAlienShip(arcade.Sprite):
         player_y: float,
         asteroid_list: arcade.SpriteList,
         alien_list: arcade.SpriteList,
+        force_walls: list | None = None,
     ) -> None:
         """Handle PATROL and PURSUE movement with obstacle avoidance."""
+        prev_x, prev_y = self.center_x, self.center_y
         if self._state == self._STATE_PATROL:
             tdx = self._tgt_x - self.center_x
             tdy = self._tgt_y - self.center_y
@@ -226,7 +243,7 @@ class SmallAlienShip(arcade.Sprite):
                 base_x = tdx / tdist
                 base_y = tdy / tdist
                 steer_x, steer_y = self._compute_avoidance(
-                    base_x, base_y, asteroid_list, alien_list
+                    base_x, base_y, asteroid_list, alien_list, force_walls,
                 )
                 smag = math.hypot(steer_x, steer_y)
                 if smag > 0.001:
@@ -256,7 +273,7 @@ class SmallAlienShip(arcade.Sprite):
                 base_x = nx * radial + perp_x * 0.9
                 base_y = ny * radial + perp_y * 0.9
                 steer_x, steer_y = self._compute_avoidance(
-                    base_x, base_y, asteroid_list, alien_list
+                    base_x, base_y, asteroid_list, alien_list, force_walls,
                 )
                 smag = math.hypot(steer_x, steer_y)
                 if smag > 0.001:
@@ -270,6 +287,14 @@ class SmallAlienShip(arcade.Sprite):
                     math.atan2(nx, ny)
                 ) % 360.0
                 self.angle = self._heading
+
+        # Hard block: if the movement segment crossed a force wall, revert.
+        if force_walls:
+            for wall in force_walls:
+                if wall.segment_crosses(prev_x, prev_y,
+                                        self.center_x, self.center_y):
+                    self.center_x, self.center_y = prev_x, prev_y
+                    break
 
     def _update_stuck_detection(
         self, dt: float, asteroid_list: arcade.SpriteList,

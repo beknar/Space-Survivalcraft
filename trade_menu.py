@@ -13,7 +13,7 @@ _PANEL_H = 400       # main/buy modes; sell mode computes a dynamic height
 _PANEL_H_MIN = 400
 _PANEL_H_MAX = 500   # cap so the panel scrolls rather than filling the screen
 _ITEM_H = 26
-_SELL_HEADER_H = 85  # pixels above the first item row (title + credits + hint)
+_SELL_HEADER_H = 100  # pixels above the first item row (title + credits + hint)
 _SELL_FOOTER_H = 60  # pixels below the last item row (back button area)
 _SCROLL_W = 8        # scrollbar track width
 
@@ -67,6 +67,14 @@ class TradeMenu(MenuOverlay):
         # Sell list (populated on open)
         self._sell_items: list[tuple[str, str, int, int]] = []  # (type, name, price, count)
         self._sell_scroll: int = 0
+        # Pool of Text objects for list rows (sell + buy). Mutating a single
+        # Text per row rebuilds the label atlas every frame which tanked FPS
+        # with many rows; pooled Texts only refresh when the row text changes.
+        self._row_texts: list[arcade.Text] = []
+        self._hint_text = arcade.Text(
+            "", 0, 0, (160, 160, 160), 10, anchor_x="center")
+        self._empty_text = arcade.Text(
+            "Nothing to sell", 0, 0, (200, 80, 80), 10, anchor_x="center")
         # Hold-to-sell state: while the left mouse button is held over a
         # sell row, tick off one unit every _HOLD_SELL_INTERVAL seconds.
         self._held_sell_item: str | None = None
@@ -170,22 +178,32 @@ class TradeMenu(MenuOverlay):
 
     def _draw_hint(self, cx: int, y: int, text: str) -> None:
         """Draw a centered grey hint line."""
-        self._t_line.text = text
-        self._t_line.x = cx; self._t_line.y = y
-        self._t_line.color = (160, 160, 160)
-        self._t_line.anchor_x = "center"; self._t_line.draw()
-        self._t_line.anchor_x = "left"
+        h = self._hint_text
+        if h.text != text:
+            h.text = text
+        h.x = cx; h.y = y
+        h.draw()
 
-    def _draw_list_row(self, px: int, iy: int, text: str,
+    def _get_row_text(self, idx: int) -> arcade.Text:
+        """Return a pooled Text for row idx, allocating lazily."""
+        while idx >= len(self._row_texts):
+            self._row_texts.append(arcade.Text(
+                "", 0, 0, arcade.color.WHITE, 10, anchor_x="left"))
+        return self._row_texts[idx]
+
+    def _draw_list_row(self, row_idx: int, px: int, iy: int, text: str,
                        fill: tuple[int, int, int, int],
                        text_color: tuple[int, int, int]) -> None:
         """Draw one row in the sell/buy list."""
         arcade.draw_rect_filled(
             arcade.LBWH(px + 10, iy, _PANEL_W - 20, _ITEM_H - 2), fill)
-        self._t_line.text = text
-        self._t_line.x = px + 16; self._t_line.y = iy + _ITEM_H // 2
-        self._t_line.color = text_color
-        self._t_line.draw()
+        t = self._get_row_text(row_idx)
+        if t.text != text:
+            t.text = text
+        t.x = px + 16; t.y = iy + _ITEM_H // 2
+        if t.color != text_color:
+            t.color = text_color
+        t.draw()
 
     def _draw_back_button(self, px: int, py: int) -> None:
         """Draw the bottom Back button."""
@@ -206,18 +224,15 @@ class TradeMenu(MenuOverlay):
         if self._sell_scroll > max_scroll:
             self._sell_scroll = max_scroll
         if not self._sell_items:
-            self._t_line.text = "Nothing to sell"
-            self._t_line.x = cx; self._t_line.y = list_y - 20
-            self._t_line.color = (200, 80, 80)
-            self._t_line.anchor_x = "center"; self._t_line.draw()
-            self._t_line.anchor_x = "left"
+            self._empty_text.x = cx; self._empty_text.y = list_y - 20
+            self._empty_text.draw()
         else:
             for i in range(min(max_vis, total - self._sell_scroll)):
                 idx = self._sell_scroll + i
                 it, name, price, count = self._sell_items[idx]
                 iy = list_y - i * _ITEM_H
                 self._draw_list_row(
-                    px, iy,
+                    i, px, iy,
                     f"{name} x{count}  —  {price} cr/ea",
                     (30, 40, 60, 200),
                     arcade.color.WHITE,
@@ -252,7 +267,7 @@ class TradeMenu(MenuOverlay):
             fill = (30, 60, 30, 200) if affordable else (50, 30, 30, 200)
             color = arcade.color.WHITE if affordable else (150, 80, 80)
             self._draw_list_row(
-                px, iy, f"{name} x{qty}  —  {cost} credits", fill, color)
+                i, px, iy, f"{name} x{qty}  —  {cost} credits", fill, color)
         self._draw_back_button(px, py)
 
     def on_mouse_press(self, x: float, y: float, inventory=None,

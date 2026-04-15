@@ -131,13 +131,16 @@ def draw_world(gv: GameView, cx: float, cy: float, hw: float, hh: float) -> None
             arcade.draw_rect_filled(arcade.LBWH(bx, by, bw, bh), (40, 40, 40, 200))
             fill = max(1, int(bw * ps.hp / ps.max_hp))
             arcade.draw_rect_filled(arcade.LBWH(bx, by, fill, bh), (0, 200, 0, 220))
-    # Hover tooltip for parked ships
+    # Hover tooltip for parked ships (cached Text to avoid draw_text warning)
     if gv._hover_parked_ship is not None:
         ps = gv._hover_parked_ship
-        tx, ty = ps.center_x, ps.center_y + 45
         label = f"Level {ps.ship_level} Ship (HP {ps.hp}/{ps.max_hp}) — Click to board"
-        arcade.draw_text(label, tx, ty, arcade.color.WHITE, 9, bold=True,
-                         anchor_x="center", anchor_y="bottom")
+        t = gv._t_parked_ship_tip
+        if t.text != label:
+            t.text = label
+        t.x = ps.center_x
+        t.y = ps.center_y + 45
+        t.draw()
     for spark in gv.hit_sparks:
         spark.draw()
     for fs in gv.fire_sparks:

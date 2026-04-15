@@ -328,7 +328,9 @@ class Zone2(ZoneState):
             adx = alien.center_x - px
             ady = alien.center_y - py
             if adx * adx + ady * ady < _ai_range_sq:
-                projs = alien.update_alien(dt, px, py, self._iron_asteroids, self._aliens)
+                projs = alien.update_alien(
+                    dt, px, py, self._iron_asteroids, self._aliens,
+                    force_walls=getattr(gv, '_force_walls', None))
                 if projs:
                     for p in projs:
                         self._alien_projectiles.append(p)
