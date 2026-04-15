@@ -1128,3 +1128,111 @@ class TestAIPilotZone2Functional:
             if len(gv.turret_projectile_list) > 0:
                 break
         assert len(gv.turret_projectile_list) > 0
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  Double Star Refugee — NPC + dialogue integration
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestRefugeeNPCIntegration:
+    def test_refugee_spawns_after_shield_generator_in_zone2(
+            self, real_game_view):
+        """Building a Shield Generator while in Zone 2 must spawn the
+        Double Star Refugee exactly once."""
+        from sprites.building import create_building
+        from constants import WORLD_WIDTH, WORLD_HEIGHT
+        gv = real_game_view
+        gv._transition_zone(ZoneID.ZONE2)
+
+        gv.building_list.clear()
+        tex = gv._building_textures["Home Station"]
+        gv.building_list.append(create_building(
+            "Home Station", tex,
+            WORLD_WIDTH / 2, WORLD_HEIGHT / 2, scale=0.5))
+
+        # Before the Shield Generator: no spawn.
+        gv._refugee_npc = None
+        gv._refugee_spawned = False
+        gv.on_update(1 / 60)
+        assert gv._refugee_npc is None
+
+        # Add a Shield Generator to the station.
+        sg_tex = gv._building_textures["Shield Generator"]
+        gv.building_list.append(create_building(
+            "Shield Generator", sg_tex,
+            WORLD_WIDTH / 2 + 80, WORLD_HEIGHT / 2, scale=0.5))
+        gv.on_update(1 / 60)
+        assert gv._refugee_npc is not None
+        assert gv._refugee_spawned is True
+
+    def test_refugee_does_not_spawn_outside_zone2(self, real_game_view):
+        from sprites.building import create_building
+        from constants import WORLD_WIDTH, WORLD_HEIGHT
+        gv = real_game_view
+        if gv._zone.zone_id != ZoneID.MAIN:
+            gv._transition_zone(ZoneID.MAIN, entry_side="wormhole_return")
+
+        gv.building_list.clear()
+        tex = gv._building_textures["Home Station"]
+        gv.building_list.append(create_building(
+            "Home Station", tex,
+            WORLD_WIDTH / 2, WORLD_HEIGHT / 2, scale=0.5))
+        sg_tex = gv._building_textures["Shield Generator"]
+        gv.building_list.append(create_building(
+            "Shield Generator", sg_tex,
+            WORLD_WIDTH / 2 + 80, WORLD_HEIGHT / 2, scale=0.5))
+
+        gv._refugee_npc = None
+        gv._refugee_spawned = False
+        gv.on_update(1 / 60)
+        assert gv._refugee_npc is None
+
+    def test_refugee_dialogue_opens_on_click_for_debra(self, real_game_view):
+        from settings import audio
+        from sprites.building import create_building
+        from sprites.npc_ship import RefugeeNPCShip
+        from constants import WORLD_WIDTH, WORLD_HEIGHT
+        gv = real_game_view
+        gv._transition_zone(ZoneID.ZONE2)
+
+        gv.building_list.clear()
+        tex = gv._building_textures["Home Station"]
+        gv.building_list.append(create_building(
+            "Home Station", tex,
+            WORLD_WIDTH / 2, WORLD_HEIGHT / 2, scale=0.5))
+
+        # Place the refugee right next to the player.
+        gv.player.center_x = WORLD_WIDTH / 2
+        gv.player.center_y = WORLD_HEIGHT / 2
+        gv._refugee_npc = RefugeeNPCShip(
+            gv.player.center_x + 80, gv.player.center_y,
+            (gv.player.center_x, gv.player.center_y))
+        gv._refugee_spawned = True
+
+        audio.character_name = "Debra"
+
+        # Cursor over the refugee in world coords → screen coords.
+        rx = gv._refugee_npc.center_x
+        ry = gv._refugee_npc.center_y
+        sx = rx - (gv.world_cam.position[0] - gv.window.width / 2)
+        sy = ry - (gv.world_cam.position[1] - gv.window.height / 2)
+
+        import arcade
+        gv.on_mouse_press(int(sx), int(sy), arcade.MOUSE_BUTTON_LEFT, 0)
+        assert gv._dialogue.open is True
+        assert gv._met_refugee is True
+        # First advance moves into Kael's intro choice list.
+        intro = gv._dialogue._tree[gv._dialogue._tree["start"]]
+        assert "choices" in intro
+        # ESC closes without setting aftermath flags.
+        gv.on_key_press(arcade.key.ESCAPE, 0)
+        assert gv._dialogue.open is False
+        assert gv._quest_flags == {}
+
+    def test_refugee_is_invulnerable(self, real_game_view):
+        from sprites.npc_ship import RefugeeNPCShip
+        gv = real_game_view
+        gv._transition_zone(ZoneID.ZONE2)
+        ship = RefugeeNPCShip(1000.0, 1000.0, (2000.0, 2000.0))
+        ship.take_damage(10_000)  # must not raise and must not change state
+        assert ship.arrived is False

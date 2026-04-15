@@ -388,6 +388,19 @@ class GameView(arcade.View):
             os.path.join(os.path.dirname(os.path.abspath(__file__)),
                          "assets", "ai generated", "space station.PNG"))
 
+        # Double Star Refugee NPC (unlocked by Shield Generator in Zone 2)
+        from dialogue_overlay import DialogueOverlay
+        self._refugee_npc = None  # RefugeeNPCShip | None
+        self._refugee_spawned: bool = False
+        self._hover_refugee: bool = False
+        self._met_refugee: bool = False
+        self._quest_flags: dict = {}
+        self._dialogue = DialogueOverlay()
+        self._t_refugee_tip = arcade.Text(
+            "", 0, 0, arcade.color.WHITE, 10, bold=True,
+            anchor_x="center", anchor_y="bottom",
+        )
+
     def _init_world_state(self) -> None:
         """Respawn timers, fog of war grid, GC management."""
         self._asteroid_respawn_timer: float = 0.0
@@ -800,6 +813,7 @@ class GameView(arcade.View):
                 self._zone2.background_update(self, delta_time)
         _ul.update_ability_meter(self, delta_time)
         _ul.update_force_walls(self, delta_time)
+        _ul.update_refugee_npc(self, delta_time)
         _ul.update_missiles(self, delta_time)
         _ul.update_death_blossom(self, delta_time)
         _ul.update_effects(self, delta_time)

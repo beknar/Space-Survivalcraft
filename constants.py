@@ -492,6 +492,17 @@ TURRET_LASER_RANGE: float = 500.0   # turret projectile max range  px
 TURRET_FREE_PLACE_RADIUS: float = 300.0  # max distance from Home Station for turrets
 MOVE_LONG_PRESS_TIME: float = 0.4  # seconds of held LMB on turret/missile array to enter move mode
 
+# Double Star Refugee — NPC story encounter unlocked by building a
+# Shield Generator in the Nebula zone.
+NPC_REFUGEE_SHIP_PNG = os.path.join(
+    _HERE, "assets", "kenney space combat assets",
+    "Space Shooter Redux", "PNG", "playerShip1_orange.png",
+)
+NPC_REFUGEE_APPROACH_SPEED: float = 140.0     # px/s while entering
+NPC_REFUGEE_HOLD_DIST: float = 220.0          # stops this far from Home Station
+NPC_REFUGEE_INTERACT_DIST: float = 320.0      # player must be within this to talk
+NPC_REFUGEE_LABEL: str = "Double Star Refugee"
+
 # Parked-ship AI pilot (ai_pilot module installed)
 AI_PILOT_PATROL_RADIUS: float = 400.0      # stay within this distance of Home Station
 AI_PILOT_DETECT_RANGE: float = 600.0       # engage enemies within this distance

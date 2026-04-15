@@ -29,6 +29,9 @@ def handle_key_press(gv: GameView, key: int, modifiers: int) -> None:
     if gv._death_screen.active:
         gv._death_screen.on_key_press(key)
         return
+    if gv._dialogue.open:
+        gv._dialogue.on_key_press(key)
+        return
     if key == arcade.key.ESCAPE:
         if gv._trade_menu.open:
             gv._trade_menu.on_key_press(key)
@@ -208,6 +211,9 @@ def handle_mouse_press(gv: GameView, x: int, y: int, button: int, modifiers: int
         action = gv._death_screen.on_mouse_press(x, y)
         if action:
             _handle_death_action(gv, action)
+        return
+    if gv._dialogue.open:
+        gv._dialogue.on_mouse_press(x, y)
         return
     if gv._escape_menu.open:
         gv._escape_menu.on_mouse_press(x, y)
@@ -443,10 +449,24 @@ def _is_valid_move_target(gv, building, wx: float, wy: float) -> bool:
 
 
 def _handle_world_click(gv: GameView, x: int, y: int) -> bool:
-    """Check world clicks (parked ship → switch; trade station → trade menu;
-    building → station inv or craft menu). Returns True if consumed."""
+    """Check world clicks (refugee NPC → dialogue; parked ship → switch;
+    trade station → trade menu; building → station inv or craft menu).
+    Returns True if consumed."""
     wx, wy = _screen_to_world(gv, x, y)
     px, py = gv.player.center_x, gv.player.center_y
+
+    # Refugee NPC — open dialogue if the player is within interact range.
+    if gv._refugee_npc is not None:
+        from constants import NPC_REFUGEE_INTERACT_DIST
+        rx = gv._refugee_npc.center_x
+        ry = gv._refugee_npc.center_y
+        if (math.hypot(wx - rx, wy - ry) < 50
+                and math.hypot(px - rx, py - ry) < NPC_REFUGEE_INTERACT_DIST):
+            from dialogue import get_refugee_tree
+            tree = get_refugee_tree(audio.character_name or "")
+            gv._dialogue.start(tree, aftermath_sink=gv._quest_flags)
+            gv._met_refugee = True
+            return True
 
     # Parked ship — click within 40px and player within STATION_INFO_RANGE
     for ps in gv._parked_ships:
@@ -901,3 +921,9 @@ def handle_mouse_motion(gv: GameView, x: int, y: int, dx: int, dy: int) -> None:
                 hover_dist = d
                 hover_ps = ps
         gv._hover_parked_ship = hover_ps
+        # Refugee NPC hover
+        gv._hover_refugee = False
+        if gv._refugee_npc is not None:
+            if math.hypot(wx - gv._refugee_npc.center_x,
+                          wy - gv._refugee_npc.center_y) < 50:
+                gv._hover_refugee = True

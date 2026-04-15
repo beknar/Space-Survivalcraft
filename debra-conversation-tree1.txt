@@ -1,0 +1,223 @@
+
+NPC story encounter in the nebula zone - once the character has built the shield 
+generator, an NPC encounter is triggered
+asset: 
+C:\Users\kestanol\Documents\code\Space Survivalcraft\assets\kenney space combat assets\Space Shooter Redux\PNG\playerShip1_orange.png
+the ship should approach from the right side of the map and approach the player's station and
+stay there
+the NPC ship is invulnerable to damage from the player, enemies or other objects in the game
+the NPC ship should have this label when the player hovers the mouse over the ship: Double Star Refugee
+there should be a conversation tree depending on which character clicks on the ship, Debra,
+Ellie or Tara
+Debra's conversation tree looks like this upon meeting the NPC for the first time:
+
+implement this conversation tree when the player is close enough to the NPC ship, clicks on it, and if
+the player is Debra:
+
+[SCENE: Outer sector outpost. KAEL VOX, military scout, approaches DEBRA WILDSTAR]
+
+KAEL: "Commander Wildstar? I'm Scout Kael Vox, sent from Double Star Command.
+       I have a report—"
+
+├─ DEBRA: "Make it quick. I don't have time for bureaucracy."
+│  └─ KAEL: "This concerns Ken Tamashii. Your... fiancé."
+│     [Debra's expression hardens]
+│
+├─ DEBRA: "What is it, Scout?"
+│  └─ KAEL: "I have information about Ken Tamashii from Command."
+│     [Debra tenses visibly]
+│
+└─ DEBRA: "If this is about the Falling Sword incident, I've already—"
+   └─ KAEL: "It's about what happened after. To Ken."
+      [Debra goes silent]
+
+═══════════════════════════════════════════════════════════════════
+
+KAEL: "His body... it's gone missing. From the Inner Core System."
+
+DEBRA: [voice cold] "What do you mean, 'gone missing'?"
+
+KAEL: "Three weeks ago, Command discovered the body was no longer 
+       in secured storage. The guards reported no breach, no 
+       unauthorized access. It simply... vanished."
+
+DEBRA: [grips Kael's uniform] "That's impossible. Ken was guarded. 
+        The funeral—"
+
+KAEL: "The funeral never happened. Command kept it classified. They 
+       were still investigating when—"
+
+═══════════════════════════════════════════════════════════════════
+
+DEBRA: [releasing him, voice shaking with rage]
+       "Tell me EVERYTHING. I want every detail Command has."
+
+├─ DEBRA: "How long has this been happening?"
+│  └─ KAEL: "The disappearance occurred 21 days ago. Command sent 
+│           me because communications from the outer sectors have 
+│           been... unreliable. I was supposed to find survivors 
+│           and investigate the sector blackouts."
+│     
+│     ├─ DEBRA: "Blackouts? What blackouts?"
+│     │  └─ KAEL: "Entire regions of the Nebula Zone have gone dark.
+│     │           No transmissions. No automated beacons. Command 
+│     │           sent me to find out why."
+│     │     [Debra's anger shifts toward concern]
+│     │
+│     └─ DEBRA: "And you're just now telling me about Ken?"
+│        └─ KAEL: "Command prioritized the sector investigation. 
+│                 I was given your location as a secondary objective."
+│           [Debra looks away, fists clenched]
+│
+├─ DEBRA: "Who had access to the body?"
+│  └─ KAEL: "Medical personnel, two guards, and Command officers. 
+│           All cleared. No suspects."
+│     
+│     ├─ DEBRA: "That's not 'no suspects.' That's everyone with access."
+│     │  └─ KAEL: "Command doesn't believe any of them were involved."
+│     │     
+│     │     ├─ DEBRA: "Command was wrong about a lot of things."
+│     │     │  └─ [Debra turns away, pacing]
+│     │     │
+│     │     └─ DEBRA: "What about the guards? Were they questioned?"
+│     │        └─ KAEL: "Extensively. They maintain they saw nothing 
+│     │                 unusual. The body was there during final checks.
+│     │                 Gone at morning inspection."
+│     │           [Debra slams her fist against the wall]
+│     │
+│     └─ DEBRA: "That's a 12-hour window."
+│        └─ KAEL: "Yes. Command has no explanation."
+│
+└─ DEBRA: "Why wasn't I informed?"
+   └─ KAEL: "Command classified it. They didn't want to create panic 
+            in the outer sectors. And... they weren't sure if you'd 
+            already made contact with dissidents."
+      [Debra stares at him, stunned]
+      
+      ├─ DEBRA: "You think I'm compromised?"
+      │  └─ KAEL: "I don't think that. But Command had to consider 
+      │           every possibility."
+      │
+      └─ DEBRA: "After everything I did to save those people, 
+                 Command doubts me?"
+         └─ KAEL: "They doubt everyone now. The Falling Sword 
+                  incident shook confidence in protocols."
+            [Uncomfortable silence]
+
+═══════════════════════════════════════════════════════════════════
+
+DEBRA: [voice barely controlled]
+       "Is there anything else? Anything Command found?"
+       "Traces? DNA samples? Anything?"
+
+KAEL: "The storage chamber was clean. No signs of forced entry, 
+       no contamination. Whoever took him knew what they were doing."
+
+DEBRA: [long pause]
+       "Took him. You said 'took him,' not 'it' or 'the body.'"
+
+KAEL: [hesitates]
+      "Yes. I did."
+
+DEBRA: "Why would someone take Ken's body?"
+       [She looks directly at Kael, eyes intense]
+
+KAEL: "Command doesn't have a theory. But given the sector blackouts 
+       and the disappearance... I don't think they're unrelated."
+
+DEBRA: [voice drops to dangerous whisper]
+       "What are you saying, Scout?"
+
+KAEL: "I'm saying Command is frightened. They sent me out here to 
+       find answers, but no one's given me the full picture. You're 
+       a survivor of the Falling Sword. You understand crisis situations.
+       
+       This feels like something bigger."
+
+├─ DEBRA: "The aliens."
+│  └─ KAEL: [surprised] "Aliens? What aliens?"
+│     
+│     ├─ DEBRA: "You came to the Nebula Zone blind, didn't you?"
+│     │  └─ KAEL: "What do you know about the Nebula Zone?"
+│     │     [Debra realizes Kael is a liability]
+│     │
+│     └─ DEBRA: "There are things here, Scout. In the dark. 
+│               They're not human, and they're not friendly."
+│        └─ KAEL: [hand moves to sidearm]
+│           "How do you know this?"
+│           └─ DEBRA: "Experience. Survival. The hard way."
+│
+├─ DEBRA: [to herself] "They wanted his body for a reason."
+│  └─ KAEL: "Commander?"
+│     └─ DEBRA: "Nothing. I need to think."
+│
+└─ DEBRA: "Send me everything Command has. All files. All theories."
+   └─ KAEL: "I can provide what I'm cleared to share—"
+      └─ DEBRA: [steps forward, dangerous]
+         "I don't care about clearance levels, Scout. 
+          Ken Tamashii was my responsibility. He died 
+          because I failed him. I will NOT fail him again."
+         [Kael nods slowly]
+
+═══════════════════════════════════════════════════════════════════
+
+DEBRA: [decision made]
+       "I'm going deeper. Beyond the Nebula Zone. 
+        Whoever—whatever—took Ken, they came from further out."
+
+KAEL: [alarmed] "Commander, that's beyond charted territory. 
+       There's nothing out there but void and speculation."
+
+DEBRA: "Exactly. Which is why Command doesn't know what took Ken. 
+        They're looking inward. I need to look outward."
+
+KAEL: "The sector blackouts don't extend that far. We have no data—"
+
+├─ DEBRA: "No data means no answers. And no witnesses."
+│  └─ KAEL: "Or no survivors to give answers."
+│     [Debra meets his eyes]
+│     └─ DEBRA: "Then I'll be the first to come back with them."
+│
+├─ DEBRA: "Those blackouts are a barrier, Scout. 
+           Someone's keeping something contained—or hidden."
+│  └─ KAEL: "You think Ken's body is beyond the blackout zone?"
+│     └─ DEBRA: "I think the answers are. Ken might be too."
+│        [She begins moving toward her ship]
+│
+└─ DEBRA: "Stay here. Keep Command updated on sector conditions. 
+           If I don't report in within thirty days, tell them I'm gone 
+           deeper than any of us have gone before."
+   └─ KAEL: "And if something happens to you out there?"
+      └─ DEBRA: "Then at least I'll have answers.
+                 Which is more than Ken got."
+         [She pauses at the door]
+
+DEBRA: "Scout, one final thing. When—if—I come back, 
+       we talk again. I'll bring evidence. I'll bring proof 
+       of what's out there."
+
+KAEL: [uncertain] "Understood, Commander. 
+      But what do I tell Command?"
+
+DEBRA: "Tell them Debra Wildstar is following the trail. 
+        Beyond the Nebula Zone. Into uncharted space. 
+        
+        Tell them... I'm not coming back until I find him. 
+        Or until I find out why he was taken."
+       [She exits, determined and alone]
+
+═══════════════════════════════════════════════════════════════════
+
+[END SCENE]
+
+AFTERMATH STATE:
+- Debra's Quest: "Find Ken" → ACTIVATED (EXTENDED)
+- Debra's Path: Leaving known sectors → HEADING INTO UNCHARTED SPACE
+- Debra's Emotional State: OBSESSED, DRIVEN, ISOLATED
+- Relationship with Kael: NEUTRAL → INFORMATION ASSET
+- Objective Updated: Explore beyond the Nebula Zone
+- Hidden Information Unlocked: The aliens are real
+- Return Point: Debra may contact Kael from the deep sectors
+- Foreshadowing: Something significant exists beyond known space
+- Story Hook: Debra is now pursuing a singular, dangerous goal
+

@@ -447,6 +447,52 @@ def update_entities(gv: GameView, dt: float) -> None:
     _update_parked_ships(gv, dt)
 
 
+def update_refugee_npc(gv: GameView, dt: float) -> None:
+    """Spawn + approach the Double Star Refugee.
+
+    Spawns once per save as soon as a ``Shield Generator`` is present in
+    the station while the player is inside Zone 2. After spawn, the NPC
+    flies in from the right edge and holds at ``NPC_REFUGEE_HOLD_DIST``
+    of the Home Station. Does nothing in other zones.
+    """
+    from zones import ZoneID
+    from sprites.building import HomeStation
+    from constants import (
+        WORLD_WIDTH, WORLD_HEIGHT, NPC_REFUGEE_HOLD_DIST,
+    )
+    from sprites.npc_ship import RefugeeNPCShip
+
+    if getattr(gv, "_zone", None) is None:
+        return
+    if gv._zone.zone_id != ZoneID.ZONE2:
+        return
+
+    home = next((b for b in gv.building_list
+                 if isinstance(b, HomeStation) and not b.disabled), None)
+
+    if gv._refugee_npc is None:
+        if gv._refugee_spawned or home is None:
+            return
+        has_shield_gen = any(b.building_type == "Shield Generator"
+                             for b in gv.building_list)
+        if not has_shield_gen:
+            return
+        zone = gv._zone
+        zw = getattr(zone, "world_width", WORLD_WIDTH)
+        zh = getattr(zone, "world_height", WORLD_HEIGHT)
+        spawn_x = zw - 80.0
+        spawn_y = max(80.0, min(zh - 80.0, home.center_y))
+        gv._refugee_npc = RefugeeNPCShip(
+            spawn_x, spawn_y, (home.center_x, home.center_y))
+        gv._refugee_spawned = True
+        return
+
+    # Already spawned — advance approach while a home still exists.
+    if home is not None:
+        gv._refugee_npc._target = (home.center_x, home.center_y)
+    gv._refugee_npc.update_npc(dt)
+
+
 def _update_parked_ships(gv: GameView, dt: float) -> None:
     """Tick parked-ship hit flash + AI pilot (when `ai_pilot` is installed).
 

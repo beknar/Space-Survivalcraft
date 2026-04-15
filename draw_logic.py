@@ -77,6 +77,18 @@ def draw_world(gv: GameView, cx: float, cy: float, hw: float, hh: float) -> None
     # Trade station (shared across all zones — drawn after zone entities)
     _draw_trade_station(gv)
 
+    # Double Star Refugee NPC — Zone 2 only, once unlocked
+    if gv._refugee_npc is not None and gv._zone.zone_id == ZoneID.ZONE2:
+        arcade.draw_sprite(gv._refugee_npc)
+        if gv._hover_refugee:
+            from constants import NPC_REFUGEE_LABEL
+            t = gv._t_refugee_tip
+            if t.text != NPC_REFUGEE_LABEL:
+                t.text = NPC_REFUGEE_LABEL
+            t.x = gv._refugee_npc.center_x
+            t.y = gv._refugee_npc.center_y + 40
+            t.draw()
+
     # Shared world entities (always drawn)
     gv.projectile_list.draw()
     gv._missile_list.draw()
@@ -361,6 +373,7 @@ def draw_ui(gv: GameView) -> None:
     gv._ship_stats.draw()
     gv._craft_menu.draw(gv._station_inv.total_iron)
     gv._trade_menu.draw()
+    gv._dialogue.draw()
 
     # Building hover tooltip
     if (gv._hover_building is not None

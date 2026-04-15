@@ -532,6 +532,16 @@ def save_to_dict(gv: GameView, name: str = "") -> dict:
         "zone_id": gv._zone.zone_id.name,
         "zone2_state": _save_zone2_state(gv),
         "parked_ships": _serialize_parked_ships(gv),
+        # Refugee NPC + Debra quest flags
+        "refugee_spawned": gv._refugee_spawned,
+        "met_refugee": gv._met_refugee,
+        "refugee_npc": (
+            {"x": gv._refugee_npc.center_x,
+             "y": gv._refugee_npc.center_y,
+             "arrived": gv._refugee_npc.arrived}
+            if gv._refugee_npc is not None else None
+        ),
+        "quest_flags": dict(gv._quest_flags),
         # Legacy compat
         "zone_seed": getattr(gv._zone, '_world_seed', None),
         "zone2_aliens": [],
@@ -719,6 +729,22 @@ def restore_state(view: GameView, data: dict) -> None:
 
     # Parked ships
     _restore_parked_ships(view, data.get("parked_ships", []))
+
+    # Refugee NPC + Debra quest flags
+    view._refugee_spawned = data.get("refugee_spawned", False)
+    view._met_refugee = data.get("met_refugee", False)
+    view._quest_flags = dict(data.get("quest_flags", {}))
+    refugee_data = data.get("refugee_npc")
+    if refugee_data and isinstance(refugee_data, dict):
+        from sprites.npc_ship import RefugeeNPCShip
+        from sprites.building import HomeStation
+        home = next((b for b in view.building_list
+                     if isinstance(b, HomeStation)), None)
+        tgt = (home.center_x, home.center_y) if home else (
+            refugee_data["x"], refugee_data["y"])
+        view._refugee_npc = RefugeeNPCShip(
+            refugee_data["x"], refugee_data["y"], tgt)
+        view._refugee_npc._arrived = bool(refugee_data.get("arrived", False))
 
 
 def load_game(gv: GameView, slot: int) -> None:
