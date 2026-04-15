@@ -511,6 +511,8 @@ AI_PILOT_FIRE_COOLDOWN: float = 0.5        # seconds between shots
 AI_PILOT_LASER_RANGE: float = 700.0        # projectile max range
 AI_PILOT_LASER_SPEED: float = 650.0        # projectile speed px/s
 AI_PILOT_LASER_DAMAGE: int = 10
+AI_PILOT_ORBIT_RADIUS_RATIO: float = 0.9   # circle at 90% of patrol radius
+AI_PILOT_HOME_ARRIVAL_DIST: float = 100.0  # "at base" threshold for return mode
 
 # Repair module
 REPAIR_RANGE: float = 300.0             # px — distance from Home Station for repair to activate

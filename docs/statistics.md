@@ -72,7 +72,7 @@ All ships start at world centre. Ships rendered at 0.75x scale (96 px in-game). 
 | Missile Rack | +100 missile capacity | 100 iron + 50 copper |
 | Ability Capacitor | +25 max ability points | 175 iron + 75 copper |
 | Hull Reinforcement | +30 max HP | 200 iron + 50 copper |
-| AI Pilot | Install on a parked ship to make it autonomous; 400 px patrol leash; 600 px engage range | 800 iron + 400 copper |
+| AI Pilot | Install on a parked ship to make it autonomous; circular patrol at ~360 px around home; 600 px engage range; returns to base after firing when no other enemies are in range | 800 iron + 400 copper |
 
 - 4 module slots on the ship
 - Only 1 of each type can be equipped

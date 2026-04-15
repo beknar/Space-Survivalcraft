@@ -9,7 +9,8 @@ from constants import (
     SHIP_TYPES, SHIP_LEVEL_HP_BONUS, SHIP_LEVEL_SHIELD_BONUS,
     AI_PILOT_PATROL_RADIUS, AI_PILOT_DETECT_RANGE, AI_PILOT_SPEED,
     AI_PILOT_FIRE_COOLDOWN, AI_PILOT_LASER_RANGE, AI_PILOT_LASER_SPEED,
-    AI_PILOT_LASER_DAMAGE,
+    AI_PILOT_LASER_DAMAGE, AI_PILOT_ORBIT_RADIUS_RATIO,
+    AI_PILOT_HOME_ARRIVAL_DIST,
 )
 from sprites.player import PlayerShip
 from sprites.projectile import Projectile
@@ -60,6 +61,11 @@ class ParkedShip(arcade.Sprite):
         self._hit_timer: float = 0.0
         # AI pilot state (active only when an "ai_pilot" module is installed)
         self._ai_fire_cd: float = 0.0
+        # "patrol" (circle around home) | "return" (fly back to base after
+        # the last enemy dies or drops out of range).  Always resets to
+        # "patrol" once the ship gets within AI_PILOT_HOME_ARRIVAL_DIST
+        # of the Home Station.
+        self._ai_mode: str = "patrol"
         self.vel_x: float = 0.0
         self.vel_y: float = 0.0
 
@@ -130,13 +136,12 @@ class ParkedShip(arcade.Sprite):
                 best = t
 
         if best is not None:
+            # Engage: cancel any pending return; fight.
+            self._ai_mode = "patrol"
             tx, ty = best.center_x, best.center_y
-            # Face the target.
             face_rad = math.atan2(tx - self.center_x, ty - self.center_y)
             self.heading = math.degrees(face_rad) % 360.0
             self.angle = self.heading
-            # Approach to roughly the midpoint of effective range so the
-            # ship keeps shooting instead of ramming.
             desired = AI_PILOT_DETECT_RANGE * 0.6
             if best_d > desired:
                 nx = math.sin(face_rad)
@@ -152,16 +157,42 @@ class ParkedShip(arcade.Sprite):
                     AI_PILOT_LASER_SPEED, AI_PILOT_LASER_RANGE,
                     scale=0.6, damage=AI_PILOT_LASER_DAMAGE,
                 ))
-        elif home_dist > AI_PILOT_PATROL_RADIUS:
-            # No target and drifted outside the leash — head back.
-            nx = home_dx / home_dist
-            ny = home_dy / home_dist
-            self.center_x += nx * AI_PILOT_SPEED * dt
-            self.center_y += ny * AI_PILOT_SPEED * dt
-            self.heading = math.degrees(math.atan2(nx, ny)) % 360.0
-            self.angle = self.heading
-        # No target and within the leash — idle (random gentle drift
-        # would create unnecessary noise, so just hold position).
+                # "If the ship shoots at an enemy and there are no other
+                # enemies in range, it should return to the base" — count
+                # every other live target still inside detect range.
+                others = 0
+                for t in targets:
+                    if t is best:
+                        continue
+                    if getattr(t, "hp", 0) <= 0:
+                        continue
+                    tx2 = getattr(t, "center_x", None)
+                    ty2 = getattr(t, "center_y", None)
+                    if tx2 is None:
+                        continue
+                    if (math.hypot(tx2 - self.center_x,
+                                   ty2 - self.center_y)
+                            < AI_PILOT_DETECT_RANGE):
+                        others += 1
+                        break
+                if others == 0:
+                    self._ai_mode = "return"
+        else:
+            # No target — either head back to base or orbit on the
+            # patrol ring around home.
+            if self._ai_mode == "return":
+                if home_dist <= AI_PILOT_HOME_ARRIVAL_DIST:
+                    self._ai_mode = "patrol"
+                else:
+                    nx = home_dx / home_dist if home_dist > 0 else 0.0
+                    ny = home_dy / home_dist if home_dist > 0 else 0.0
+                    step = min(AI_PILOT_SPEED * dt, home_dist)
+                    self.center_x += nx * step
+                    self.center_y += ny * step
+                    self.heading = math.degrees(math.atan2(nx, ny)) % 360.0
+                    self.angle = self.heading
+            if self._ai_mode == "patrol":
+                self._orbit_patrol(dt, hx, hy, home_dist, home_dx, home_dy)
 
         # Clamp to the patrol leash so numerical drift or strong enemy
         # chasing can never take the ship too far from home.
@@ -172,3 +203,40 @@ class ParkedShip(arcade.Sprite):
             scale = AI_PILOT_PATROL_RADIUS / new_dist
             self.center_x = hx + new_dx * scale
             self.center_y = hy + new_dy * scale
+
+    def _orbit_patrol(self, dt: float, hx: float, hy: float,
+                      home_dist: float, home_dx: float,
+                      home_dy: float) -> None:
+        """Circle counter-clockwise around ``(hx, hy)`` at the orbit
+        radius. Radial position is corrected at the end of each step so
+        the ship settles onto the ring even if it starts in the interior
+        or on the edge of the leash."""
+        desired_r = AI_PILOT_PATROL_RADIUS * AI_PILOT_ORBIT_RADIUS_RATIO
+        step = AI_PILOT_SPEED * dt
+        if home_dist < 1.0:
+            # Special case — seed a radial so the orbit has a direction.
+            self.center_x = hx + desired_r
+            self.center_y = hy
+            self.heading = 0.0
+            self.angle = 0.0
+            return
+        # Radial vector from home → ship (reuse precomputed components)
+        rx = -home_dx / home_dist
+        ry = -home_dy / home_dist
+        # Counter-clockwise tangent
+        tx = -ry
+        ty = rx
+        # Move along the tangent.
+        self.center_x += tx * step
+        self.center_y += ty * step
+        # Correct radius so the ship tracks the orbit ring.
+        nx = self.center_x - hx
+        ny = self.center_y - hy
+        nd = math.hypot(nx, ny)
+        if nd > 0.0:
+            scale = desired_r / nd
+            self.center_x = hx + nx * scale
+            self.center_y = hy + ny * scale
+        # Face along the tangent (direction of travel).
+        self.heading = math.degrees(math.atan2(tx, ty)) % 360.0
+        self.angle = self.heading

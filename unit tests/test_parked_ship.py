@@ -435,3 +435,98 @@ class TestAIPilot:
         assert ps.has_ai_pilot is True
         # module_slots is the persisted field, which save/load already covers
         assert "ai_pilot" in ps.module_slots
+
+    def test_update_ai_patrols_in_a_circle_around_home(
+            self, parked_ship_l1, dummy_texture):
+        """With no target, the AI-piloted ship should orbit around the
+        home station at roughly the orbit radius and sweep the angle
+        counter-clockwise over multiple ticks."""
+        import math
+        from constants import (
+            AI_PILOT_PATROL_RADIUS, AI_PILOT_ORBIT_RADIUS_RATIO,
+        )
+        ps = parked_ship_l1
+        ps.module_slots = ["ai_pilot"]
+        hx, hy = 0.0, 0.0
+        # Start on the orbit ring at angle 0.
+        ps.center_x = AI_PILOT_PATROL_RADIUS * AI_PILOT_ORBIT_RADIUS_RATIO
+        ps.center_y = 0.0
+        plist = arcade.SpriteList()
+        angle0 = math.atan2(ps.center_y - hy, ps.center_x - hx)
+        for _ in range(10):
+            ps.update_ai(0.2, (hx, hy), [], plist, dummy_texture)
+        angle1 = math.atan2(ps.center_y - hy, ps.center_x - hx)
+        r = math.hypot(ps.center_x - hx, ps.center_y - hy)
+        desired_r = AI_PILOT_PATROL_RADIUS * AI_PILOT_ORBIT_RADIUS_RATIO
+        # Still near the orbit ring.
+        assert abs(r - desired_r) < 1.0
+        # Angle advanced counter-clockwise (positive change after 10 ticks).
+        assert angle1 != angle0
+
+    def test_update_ai_returns_to_base_after_firing_sole_target(
+            self, parked_ship_l1, dummy_texture):
+        """Firing at the only visible target flips the AI to ``return``
+        mode; subsequent ticks without a target move toward home."""
+        import math
+        ps = parked_ship_l1
+        ps.module_slots = ["ai_pilot"]
+        ps.center_x = 300.0
+        ps.center_y = 0.0
+        target = type("T", (), {"center_x": 380.0, "center_y": 0.0, "hp": 50})()
+        plist = arcade.SpriteList()
+        ps.update_ai(0.01, (0.0, 0.0), [target], plist, dummy_texture)
+        assert len(plist) == 1
+        assert ps._ai_mode == "return"
+        start_dist = math.hypot(ps.center_x, ps.center_y)
+        # Next tick with NO targets — ship should be closer to home.
+        ps.update_ai(0.5, (0.0, 0.0), [], plist, dummy_texture)
+        end_dist = math.hypot(ps.center_x, ps.center_y)
+        assert end_dist < start_dist
+
+    def test_update_ai_does_not_return_when_other_targets_are_in_range(
+            self, parked_ship_l1, dummy_texture):
+        """If there's at least one other live target inside detect range,
+        firing does NOT trigger return-to-base."""
+        ps = parked_ship_l1
+        ps.module_slots = ["ai_pilot"]
+        ps.center_x = 0.0
+        ps.center_y = 0.0
+        target = type("T", (), {"center_x": 80.0, "center_y": 0.0, "hp": 50})()
+        other = type("T", (), {"center_x": 80.0, "center_y": 60.0, "hp": 50})()
+        plist = arcade.SpriteList()
+        ps.update_ai(0.01, (0.0, 0.0), [target, other], plist, dummy_texture)
+        assert len(plist) == 1
+        assert ps._ai_mode == "patrol"
+
+    def test_update_ai_return_mode_resumes_patrol_near_home(
+            self, parked_ship_l1, dummy_texture):
+        """Once the ship re-enters the arrival range, the AI switches
+        back to circular patrol."""
+        from constants import AI_PILOT_HOME_ARRIVAL_DIST
+        ps = parked_ship_l1
+        ps.module_slots = ["ai_pilot"]
+        ps._ai_mode = "return"
+        # Close enough to the home station to count as "at base".
+        ps.center_x = AI_PILOT_HOME_ARRIVAL_DIST - 10.0
+        ps.center_y = 0.0
+        plist = arcade.SpriteList()
+        ps.update_ai(0.01, (0.0, 0.0), [], plist, dummy_texture)
+        assert ps._ai_mode == "patrol"
+
+    def test_engaging_new_target_fires_even_while_in_return_mode(
+            self, parked_ship_l1, dummy_texture):
+        """A ship in ``return`` mode that spots a target must engage
+        instead of ignoring it. With multiple targets in range it stays
+        engaged; with a single target, it fires and then flips right
+        back to ``return``."""
+        ps = parked_ship_l1
+        ps.module_slots = ["ai_pilot"]
+        ps.center_x = 200.0
+        ps.center_y = 0.0
+        ps._ai_mode = "return"
+        t1 = type("T", (), {"center_x": 260.0, "center_y": 0.0, "hp": 50})()
+        t2 = type("T", (), {"center_x": 280.0, "center_y": 60.0, "hp": 50})()
+        plist = arcade.SpriteList()
+        ps.update_ai(0.01, (0.0, 0.0), [t1, t2], plist, dummy_texture)
+        assert len(plist) == 1  # fired at a target
+        assert ps._ai_mode == "patrol"  # other target keeps it engaged

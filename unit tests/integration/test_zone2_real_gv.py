@@ -1236,3 +1236,112 @@ class TestRefugeeNPCIntegration:
         ship = RefugeeNPCShip(1000.0, 1000.0, (2000.0, 2000.0))
         ship.take_damage(10_000)  # must not raise and must not change state
         assert ship.arrived is False
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  AI Pilot patrol / return behaviour (real GameView)
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _setup_ai_parked(gv, zone):
+    """Zone + Home Station + single AI-piloted parked ship near home."""
+    from sprites.building import create_building
+    from sprites.parked_ship import ParkedShip
+    from constants import WORLD_WIDTH, WORLD_HEIGHT
+    if zone == ZoneID.MAIN:
+        if gv._zone.zone_id != ZoneID.MAIN:
+            gv._transition_zone(ZoneID.MAIN, entry_side="wormhole_return")
+    else:
+        gv._transition_zone(zone)
+    gv.building_list.clear()
+    cx, cy = WORLD_WIDTH / 2, WORLD_HEIGHT / 2
+    tex = gv._building_textures["Home Station"]
+    gv.building_list.append(create_building(
+        "Home Station", tex, cx, cy, scale=0.5))
+    ps = ParkedShip(gv._faction, gv._ship_type, 1, cx + 200, cy)
+    ps.module_slots = ["ai_pilot"]
+    gv._parked_ships.clear()
+    gv._parked_ships.append(ps)
+    return ps, (cx, cy)
+
+
+class TestAIPilotPatrolIntegration:
+    def test_idle_ship_circles_the_home_station(self, real_game_view):
+        """With no aliens nearby, the AI ship's angle relative to the
+        Home Station should change over time — i.e. it orbits instead
+        of parking. Radius stays within the patrol leash."""
+        import math
+        from constants import AI_PILOT_PATROL_RADIUS
+        gv = real_game_view
+        ps, (hx, hy) = _setup_ai_parked(gv, ZoneID.MAIN)
+        # Clear aliens so the AI has nothing to shoot.
+        gv.alien_list.clear()
+        a0 = math.atan2(ps.center_y - hy, ps.center_x - hx)
+        for _ in range(60):  # 1 second of sim
+            gv.on_update(1 / 60)
+        a1 = math.atan2(ps.center_y - hy, ps.center_x - hx)
+        r = math.hypot(ps.center_x - hx, ps.center_y - hy)
+        assert a1 != a0, "AI ship should sweep the home-station angle"
+        assert r <= AI_PILOT_PATROL_RADIUS + 1.0
+
+    def test_ship_returns_to_base_after_firing_sole_target(
+            self, real_game_view):
+        """Put a lone alien in range, run the sim, then remove it. The
+        AI pilot should flip to ``return`` after firing and the ship's
+        distance to home should shrink over subsequent ticks."""
+        import math
+        from sprites.alien import SmallAlienShip
+        gv = real_game_view
+        ps, (hx, hy) = _setup_ai_parked(gv, ZoneID.MAIN)
+        ps.center_x = hx + 200
+        ps.center_y = hy
+        gv.alien_list.clear()
+        alien = SmallAlienShip(gv._alien_ship_tex, gv._alien_laser_tex,
+                               ps.center_x + 180, ps.center_y)
+        gv.alien_list.append(alien)
+
+        gv.turret_projectile_list.clear()
+        fired_flag = False
+        for _ in range(60):
+            gv.on_update(1 / 60)
+            if len(gv.turret_projectile_list) > 0:
+                fired_flag = True
+                break
+        assert fired_flag, "AI pilot must fire at a lone target"
+        # Clear remaining aliens so return-mode can run uninterrupted.
+        gv.alien_list.clear()
+        assert ps._ai_mode == "return"
+        d0 = math.hypot(ps.center_x - hx, ps.center_y - hy)
+        for _ in range(30):  # 0.5 s of return-mode flight
+            gv.on_update(1 / 60)
+        d1 = math.hypot(ps.center_x - hx, ps.center_y - hy)
+        assert d1 < d0 - 5.0, "Ship should close on the Home Station"
+
+    def test_ship_resumes_patrol_after_returning_home(self, real_game_view):
+        """After the ship makes it back to base, running another second
+        of sim should put it back into orbit (the angle should sweep)."""
+        import math
+        from sprites.alien import SmallAlienShip
+        from constants import AI_PILOT_HOME_ARRIVAL_DIST
+        gv = real_game_view
+        ps, (hx, hy) = _setup_ai_parked(gv, ZoneID.MAIN)
+        # Trigger one shot at a lone alien then remove it.
+        gv.alien_list.clear()
+        ps.center_x = hx + 150
+        ps.center_y = hy
+        alien = SmallAlienShip(gv._alien_ship_tex, gv._alien_laser_tex,
+                               ps.center_x + 200, ps.center_y)
+        gv.alien_list.append(alien)
+        for _ in range(30):
+            gv.on_update(1 / 60)
+        gv.alien_list.clear()
+        # Let return-mode finish — cap iterations so we don't loop forever.
+        for _ in range(600):
+            gv.on_update(1 / 60)
+            if ps._ai_mode == "patrol":
+                break
+        assert ps._ai_mode == "patrol"
+        a0 = math.atan2(ps.center_y - hy, ps.center_x - hx)
+        for _ in range(60):
+            gv.on_update(1 / 60)
+        a1 = math.atan2(ps.center_y - hy, ps.center_x - hx)
+        assert a1 != a0, "Patrol should sweep angle after resuming"

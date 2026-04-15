@@ -123,7 +123,7 @@
 - **Destruction drops** --- destroyed ships drop cargo as iron/copper pickups and equipped modules as blueprint pickups
 - **Minimap markers** --- parked ships shown as teal dots on the minimap
 - **Hover tooltip** --- hovering a parked ship surfaces "Level N Ship (HP X/Y) — Click to board"
-- **AI Pilot module** --- craft an `AI Pilot` at the Advanced Crafter (800 iron + 400 copper) and drag-install it onto any parked ship. The ship then patrols within 400 px of the Home Station, engages enemies inside 600 px, fires a laser every 0.5 s into the turret-projectile list (so existing turret damage handling applies), and snaps back to the leash if it drifts too far
+- **AI Pilot module** --- craft an `AI Pilot` at the Advanced Crafter (800 iron + 400 copper) and drag-install it onto any parked ship. As soon as the ship is unpiloted, it begins a counter-clockwise circular patrol at 90 % of the 400 px patrol radius around the Home Station. It engages enemies inside 600 px, firing a laser every 0.5 s into the turret-projectile list (so existing turret damage handling applies). If it fires at a target and no other enemies remain inside detect range, it flies straight back to the Home Station and resumes patrol once within 100 px of base
 - **Zone-aware** --- parked ships stashed/restored during zone transitions and fully serialized in save/load
 
 ## Space Station Building System
