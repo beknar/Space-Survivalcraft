@@ -14,6 +14,11 @@ from constants import (
 )
 from sprites.player import PlayerShip
 from sprites.projectile import Projectile
+from sprites.shield import ShieldSprite
+
+
+_AI_SHIELD_TINT: tuple[int, int, int] = (255, 220, 80)  # yellow
+_AI_SHIELD_REGEN_MULT: float = 0.5  # half the ship's normal regen rate
 
 
 class ParkedShip(arcade.Sprite):
@@ -68,6 +73,14 @@ class ParkedShip(arcade.Sprite):
         self._ai_mode: str = "patrol"
         self.vel_x: float = 0.0
         self.vel_y: float = 0.0
+        # AI shield bubble (yellow, half regen).  Lazily constructed when
+        # an ``ai_pilot`` module is first observed so `update_parked`
+        # skips the cost while the ship is unpiloted without one.
+        self._shield_sprite: ShieldSprite | None = None
+        self._shield_list: arcade.SpriteList | None = None
+        self._shield_regen_acc: float = 0.0
+        self._shield_regen_rate: float = (
+            stats["shield_regen"] * _AI_SHIELD_REGEN_MULT)
 
     @property
     def has_ai_pilot(self) -> bool:
@@ -81,16 +94,46 @@ class ParkedShip(arcade.Sprite):
             absorbed = min(self.shields, amount)
             self.shields -= absorbed
             amount -= absorbed
+            if self._shield_sprite is not None and absorbed > 0:
+                self._shield_sprite.hit_flash()
         self.hp = max(0, self.hp - amount)
         self._hit_timer = self._HIT_FLASH
         self.color = (255, 100, 100, 255)
 
+    def _ensure_ai_shield(self) -> None:
+        """Lazily attach a yellow ShieldSprite when an AI pilot is
+        installed."""
+        if self._shield_sprite is not None:
+            return
+        from world_setup import get_shield_frames
+        frames = get_shield_frames()
+        self._shield_sprite = ShieldSprite(frames, tint=_AI_SHIELD_TINT)
+        self._shield_sprite.center_x = self.center_x
+        self._shield_sprite.center_y = self.center_y
+        self._shield_list = arcade.SpriteList()
+        self._shield_list.append(self._shield_sprite)
+
     def update_parked(self, dt: float) -> None:
-        """Tick hit-flash timer."""
+        """Tick hit-flash timer, advance the AI shield bubble, and
+        regenerate AI shields at half the ship's normal rate."""
         if self._hit_timer > 0.0:
             self._hit_timer = max(0.0, self._hit_timer - dt)
             if self._hit_timer <= 0.0:
                 self.color = (255, 255, 255, 255)
+
+        if self.has_ai_pilot:
+            self._ensure_ai_shield()
+            # Half-rate shield regen.
+            if self.shields < self.max_shields:
+                self._shield_regen_acc += self._shield_regen_rate * dt
+                if self._shield_regen_acc >= 1.0:
+                    gain = int(self._shield_regen_acc)
+                    self.shields = min(self.max_shields,
+                                       self.shields + gain)
+                    self._shield_regen_acc -= gain
+            if self._shield_sprite is not None:
+                self._shield_sprite.update_shield(
+                    dt, self.center_x, self.center_y, self.shields)
 
     def update_ai(
         self,

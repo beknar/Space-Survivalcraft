@@ -47,3 +47,4 @@ Gamepad dead zone: 0.15
 - **Ship switching**: Fly within 300 px of a parked ship and left-click to transfer control. Hovering a parked ship shows its HP and a "Click to board" hint.
 - **Move turret / missile array**: Left-click-and-hold (>= 0.4 s) on a placed Turret or Missile Array to pick it up; drag to a new position within 300 px of the Home Station and release to drop it. A short click does nothing; ESC snaps it back to the original position.
 - **Trade sell panel**: Mouse-wheel scrolls the sell list (scrollbar thumb visible); hold left-click on a row to sell one unit every 0.15 s.
+- **Story NPC (Double Star Refugee)**: Hovering surfaces the "Double Star Refugee" label; left-click the ship while within 320 px to open the dialogue tree. Inside the dialogue, **1-4** pick a choice, **SPACE / ENTER** advance linear beats, and **ESC** closes without committing quest flags.

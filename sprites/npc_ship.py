@@ -22,12 +22,14 @@ class RefugeeNPCShip(arcade.Sprite):
 
     label: str = NPC_REFUGEE_LABEL
 
-    def __init__(self, x: float, y: float, target: tuple[float, float]) -> None:
+    def __init__(self, x: float, y: float, target: tuple[float, float],
+                 hold_dist: float = NPC_REFUGEE_HOLD_DIST) -> None:
         tex = arcade.load_texture(NPC_REFUGEE_SHIP_PNG)
         super().__init__(path_or_texture=tex, scale=0.6)
         self.center_x = x
         self.center_y = y
         self._target = target
+        self._hold_dist = hold_dist
         self._arrived: bool = False
         # Face the station on spawn so it looks like it's flying in.
         self._face_target()
@@ -42,18 +44,18 @@ class RefugeeNPCShip(arcade.Sprite):
         self.angle = math.degrees(rad) % 360.0
 
     def update_npc(self, dt: float) -> None:
-        """Advance the approach. Once within ``NPC_REFUGEE_HOLD_DIST`` of
-        the target, the ship stops and holds indefinitely."""
+        """Advance the approach. Once within ``hold_dist`` of the target
+        the ship stops and holds indefinitely."""
         if self._arrived:
             return
         tx, ty = self._target
         dx = tx - self.center_x
         dy = ty - self.center_y
         dist = math.hypot(dx, dy)
-        if dist <= NPC_REFUGEE_HOLD_DIST:
+        if dist <= self._hold_dist:
             self._arrived = True
             return
-        step = min(NPC_REFUGEE_APPROACH_SPEED * dt, dist - NPC_REFUGEE_HOLD_DIST)
+        step = min(NPC_REFUGEE_APPROACH_SPEED * dt, dist - self._hold_dist)
         if step <= 0.0:
             self._arrived = True
             return

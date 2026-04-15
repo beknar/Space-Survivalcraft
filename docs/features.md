@@ -155,6 +155,27 @@
 - Hold LMB on a sell row to tick off one unit every 0.15 s
 - Shown on minimap as a bright yellow square
 
+## Story Encounter --- Double Star Refugee
+
+- Building a **Shield Generator** in the Nebula zone triggers the arrival
+  of **Scout Kael Vox** in his orange Double Star scout ship
+- The ship enters from the right edge of the map, approaches the Home
+  Station, and holds position 220 px away
+- Invulnerable --- no damage from enemies, player weapons, or collisions
+- Hovering the mouse over the ship shows a **"Double Star Refugee"** label
+- Click the ship within 320 px to open a **branching conversation tree**
+  keyed off the active character:
+  - **Debra** --- full five-scene arc uncovering the disappearance of
+    her fiancé Ken Tamashii, with 3 major branches and nested follow-up
+    choices that converge into a shared climax and a quest-activation
+    aftermath (`find_ken`, `aliens_revealed`, `objective: Explore beyond
+    the Nebula Zone`)
+  - **Ellie** / **Tara** --- short placeholder lines (full trees pending)
+- Number keys (1-4) or left-click pick a choice; SPACE/ENTER advances
+  linear beats; ESC closes without committing quest flags
+- Conversation state (met, quest flags, ship position) persists through
+  save/load
+
 ## Quick Use Bar
 
 - 10 slots (1--9, 0) for fast item access

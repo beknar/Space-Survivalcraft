@@ -21,6 +21,8 @@ A top-down space survival game built with Python and the Arcade framework. Pilot
 - **75 minable asteroids** that drop iron and copper ore for crafting
 - **Modular space station** with 8+ building types, turrets, missile arrays, repair module, and crafters; long-press LMB on turrets/missile arrays to drag-move them within the home-station radius
 - **Multi-ship system** --- upgrade ships via build menu placement; old ship persists in the world with its own HP, cargo, and modules; click a parked ship to switch control; hover a parked ship for an HP tooltip; ships take damage from any source and drop cargo on destruction
+- **AI Pilot module** --- craft at the Advanced Crafter (800 iron + 400 copper) and drag-install it onto a parked ship; the ship orbits the Home Station, engages enemies within 600 px, and returns to base after firing when no other enemies remain
+- **Story encounter** --- building a Shield Generator in the Nebula triggers the Double Star Refugee (Scout Kael Vox); click the ship within 320 px to open a character-specific branching conversation tree. Debra's tree is a full five-scene arc uncovering the disappearance of Ken Tamashii
 - **12 ship modules** crafted from blueprint drops (armor, engine, shield, absorber, broadside, and advanced modules)
 - **5x5 cargo inventory** and **10x10 station inventory** with drag-and-drop
 - **Trading station** for buying and selling items with credits; scrollable sell panel, fixed buy catalog, and hold-to-sell for rapid unloading
@@ -81,17 +83,17 @@ The [ROADMAP](ROADMAP.md) tracks shipped features in chronological order alongsi
 ## Running Tests
 
 ```bash
-# Fast suite (440 tests, ~1.5s)
+# Fast suite (469 tests, ~1.5s)
 python -m pytest "unit tests/" -v
 
-# Integration tests (110 tests — requires an Arcade window)
+# Integration tests (131 tests — requires an Arcade window)
 python -m pytest "unit tests/integration/" -v
 
 # Soak/endurance tests only (~30 min, 5 min each)
 python -m pytest "unit tests/integration/test_soak.py" -v
 ```
 
-440 fast unit tests covering player physics, weapons, asteroids, aliens, pickups, blueprints, shields, explosions, contrails, inventory (including render-cache dirty flag and badge texture cache), damage routing, buildings, ship modules, respawn, fog of war, video scanning, settings, collision physics primitives (`resolve_overlap` / `reflect_velocity`), save-restore helpers, zone-aware Station Info world stats, Zone 2 update loop branches, and CPU microbenchmarks. 110 integration tests cover full-frame FPS thresholds (incl. the trade sell/buy panel in both zones with both videos running and a buy↔sell churn test), GPU rendering microbenchmarks, resolution scaling across all 6 presets, and 5-minute soak/endurance tests measuring FPS and RSS stability. 550 tests total. Linted with [ruff](https://docs.astral.sh/ruff/) (`ruff.toml` — bug-focused rules).
+469 fast unit tests covering player physics, weapons, asteroids, aliens, pickups, blueprints, shields, explosions, contrails, inventory (incl. render-cache dirty flag and badge texture cache), damage routing, buildings, ship modules (inc. AI Pilot patrol/return behaviour), parked ships, respawn, fog of war, video scanning, settings, collision physics primitives, save-restore helpers, zone-aware Station Info world stats, Zone 2 update loop branches, CPU microbenchmarks, and the refugee NPC + dialogue tree. 131 integration tests cover full-frame FPS thresholds (inc. trade sell/buy panel in both zones with both videos running, buy↔sell churn, AI Pilot fleets, refugee NPC spawn + dialogue click flow, patrol/return integration), GPU rendering microbenchmarks, resolution scaling across all 6 presets, and 5-minute soak/endurance tests measuring FPS and RSS stability (inc. AI Pilot patrol cycle and dialogue churn). 600 tests total. Linted with [ruff](https://docs.astral.sh/ruff/) (`ruff.toml` — bug-focused rules).
 
 ## Project Structure
 
@@ -133,6 +135,8 @@ Space Survivalcraft/
 ├── build_menu.py        # Station building overlay
 ├── craft_menu.py        # Crafting UI
 ├── trade_menu.py        # Trading station overlay
+├── dialogue_overlay.py  # NPC conversation overlay
+├── dialogue/            # Conversation trees (refugee per character)
 ├── station_info.py      # Station info overlay (T key)
 ├── death_screen.py      # Death screen overlay
 ├── character_data.py    # Character XP/level/bonuses
@@ -157,9 +161,10 @@ Space Survivalcraft/
 │   ├── missile.py       # HomingMissile
 │   ├── force_wall.py    # ForceWall
 │   ├── wormhole.py      # Wormhole
-│   └── parked_ship.py   # ParkedShip (multi-ship system)
+│   ├── parked_ship.py   # ParkedShip (multi-ship + AI pilot)
+│   └── npc_ship.py      # RefugeeNPCShip (story encounter)
 ├── zones/               # Zone state machine (9 zone files incl. zone2_world.py)
-├── unit tests/          # 440 fast tests across 22 files + 110 integration tests (550 total)
+├── unit tests/          # 469 fast tests + 131 integration tests (600 total)
 ├── docs/                # Full game documentation
 ├── characters/          # Character videos and portraits
 ├── docs/game-rules.md   # Comprehensive rules reference

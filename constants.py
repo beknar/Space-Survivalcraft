@@ -503,6 +503,11 @@ NPC_REFUGEE_HOLD_DIST: float = 220.0          # stops this far from Home Station
 NPC_REFUGEE_INTERACT_DIST: float = 320.0      # player must be within this to talk
 NPC_REFUGEE_LABEL: str = "Double Star Refugee"
 
+# Station shield — spawned once a Shield Generator is placed. Absorbs
+# alien + boss projectiles before they reach buildings.
+STATION_SHIELD_HP: int = 100
+STATION_SHIELD_PADDING: float = 80.0  # added to station outer radius
+
 # Parked-ship AI pilot (ai_pilot module installed)
 AI_PILOT_PATROL_RADIUS: float = 400.0      # stay within this distance of Home Station
 AI_PILOT_DETECT_RANGE: float = 600.0       # engage enemies within this distance

@@ -43,25 +43,40 @@ _FACTION_SHIELD_TINTS: dict[str, tuple[int, int, int]] = {
 }
 
 
+_shield_frames_cache: list[arcade.Texture] | None = None
+
+
+def get_shield_frames() -> list[arcade.Texture]:
+    """Load + cache the shield-sheet frames. Safe to call many times."""
+    global _shield_frames_cache
+    if _shield_frames_cache is None:
+        _pil_shield = PILImage.open(SHIELD_PNG).convert("RGBA")
+        frames: list[arcade.Texture] = []
+        for row in range(SHIELD_ROWS):
+            for col in range(SHIELD_COLS):
+                x0 = col * SHIELD_FRAME_W
+                y0 = row * SHIELD_FRAME_H
+                frames.append(
+                    arcade.Texture(
+                        _pil_shield.crop((x0, y0,
+                                          x0 + SHIELD_FRAME_W,
+                                          y0 + SHIELD_FRAME_H))
+                    )
+                )
+        _pil_shield.close()
+        _shield_frames_cache = frames
+    return _shield_frames_cache
+
+
+def faction_shield_tint(faction: str | None) -> tuple[int, int, int]:
+    return _FACTION_SHIELD_TINTS.get(faction, (255, 255, 255))
+
+
 def load_shield(player_x: float, player_y: float,
                 faction: str | None = None) -> tuple[ShieldSprite, arcade.SpriteList]:
     """Load shield frames and create the ShieldSprite + SpriteList."""
-    _pil_shield = PILImage.open(SHIELD_PNG).convert("RGBA")
-    frames: list[arcade.Texture] = []
-    for row in range(SHIELD_ROWS):
-        for col in range(SHIELD_COLS):
-            x0 = col * SHIELD_FRAME_W
-            y0 = row * SHIELD_FRAME_H
-            frames.append(
-                arcade.Texture(
-                    _pil_shield.crop((x0, y0,
-                                      x0 + SHIELD_FRAME_W,
-                                      y0 + SHIELD_FRAME_H))
-                )
-            )
-    _pil_shield.close()
-    tint = _FACTION_SHIELD_TINTS.get(faction, (255, 255, 255))
-    sprite = ShieldSprite(frames, tint=tint)
+    frames = get_shield_frames()
+    sprite = ShieldSprite(frames, tint=faction_shield_tint(faction))
     sprite.center_x = player_x
     sprite.center_y = player_y
     slist = arcade.SpriteList()

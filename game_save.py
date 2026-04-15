@@ -533,6 +533,8 @@ def save_to_dict(gv: GameView, name: str = "") -> dict:
         "zone2_state": _save_zone2_state(gv),
         "parked_ships": _serialize_parked_ships(gv),
         # Refugee NPC + Debra quest flags
+        "station_shield_hp": gv._station_shield_hp,
+        "station_shield_max_hp": gv._station_shield_max_hp,
         "refugee_spawned": gv._refugee_spawned,
         "met_refugee": gv._met_refugee,
         "refugee_npc": (
@@ -729,6 +731,12 @@ def restore_state(view: GameView, data: dict) -> None:
 
     # Parked ships
     _restore_parked_ships(view, data.get("parked_ships", []))
+
+    # Station shield (re-spawned on next update tick if a Shield
+    # Generator exists; HP is restored directly).
+    view._station_shield_hp = data.get("station_shield_hp", 0)
+    view._station_shield_max_hp = data.get(
+        "station_shield_max_hp", view._station_shield_max_hp)
 
     # Refugee NPC + Debra quest flags
     view._refugee_spawned = data.get("refugee_spawned", False)

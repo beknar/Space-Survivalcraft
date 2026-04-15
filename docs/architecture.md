@@ -60,6 +60,8 @@ def _spawn_explosion(self, x, y):
 | `build_menu.py` | ~337 | Station building overlay |
 | `craft_menu.py` | ~283 | Crafting UI |
 | `trade_menu.py` | ~360 | Trading station overlay with scrollable sell panel, pooled row Text objects, and batched `SpriteList` fills for the panel chrome |
+| `dialogue_overlay.py` | ~180 | NPC conversation overlay — centred panel, pooled Text objects, up to 4 choices (1-9/click), SPACE/ENTER/click advance, ESC close, aftermath sink |
+| `dialogue/` | — | Conversation-tree data (`debra_refugee.py`, `ellie_refugee.py`, `tara_refugee.py`) with a `get_refugee_tree(char)` dispatcher |
 
 ### Sprite AI
 
@@ -76,6 +78,7 @@ def _spawn_explosion(self, x, y):
 | `sprites/wandering_asteroid.py` | — | WanderingAsteroid --- drifting magnetic asteroid |
 | `sprites/missile.py` | — | HomingMissile --- consumable homing projectile |
 | `sprites/force_wall.py` | — | ForceWall --- deployable barrier sprite |
+| `sprites/npc_ship.py` | ~55 | `RefugeeNPCShip` --- story NPC with approach AI, hold-at-distance, no-op `take_damage` |
 
 ## Dependency Graph
 
@@ -128,7 +131,7 @@ collisions.py
 - **Sound throttling** --- min 0.15s between pyglet media player creations
 - **BaseInventoryData mixin** --- shared item storage, drag state, icon resolution, badge texture cache (`_get_badge_texture`/`_badge_tex_cache`/`_cache_badge_list`) inherited by both inventory classes; subclasses set `_rows`/`_cols`
 - **Ruff linter** --- `ruff.toml` with bug-focused rules; catches unused imports, dead variables, and real import bugs
-- **Test infrastructure** --- `pytest.ini` excludes `integration/`; `conftest.py` provides `StubPlayer` and `StubGameView` for windowless zone testing; `psutil` dev dependency for soak tests; 440 fast + 110 integration = 550 total tests. Integration covers functional, FPS (including trade sell/buy panels × {Zone 1, Zone 2} × {no video, both videos} plus a buy↔sell churn scenario), GPU render, resolution scaling (6 presets × 2 zones), and soak/endurance (5 min each). Real music-video tests load `./yvideos/*.mp4` (gitignored)
+- **Test infrastructure** --- `pytest.ini` excludes `integration/`; `conftest.py` provides `StubPlayer` and `StubGameView` for windowless zone testing; `psutil` dev dependency for soak tests; 469 fast + 131 integration = 600 total tests. Integration covers functional, FPS (trade panels × {Zone 1, Zone 2} × {no video, both videos}, buy↔sell churn, AI Pilot fleets with/without videos, refugee NPC spawn + dialogue, patrol/return integration), GPU render, resolution scaling (6 presets × 2 zones), and soak/endurance (5 min each; AI pilot patrol cycle, AI pilot idle orbit, dialogue spine walk, dialogue exhaustive branch rotation, character rotation). Real music-video tests load `./yvideos/*.mp4` (gitignored)
 - **EqualizerState class** --- encapsulates equalizer animation with `update(dt, volume)` and `draw(y)`
 - **MenuContext + MenuMode** --- escape menu sub-mode pattern with shared state and per-mode draw/input
 - **TYPE_CHECKING imports** --- all extracted modules avoid circular imports at runtime
@@ -148,6 +151,8 @@ collisions.py
 - **Long-press turret move** --- `input_handlers._try_start_building_move` starts a timer on LMB-down over a Turret/MissileArray; `update_logic.update_timers` (and `handle_mouse_drag`) promote the pending move after `MOVE_LONG_PRESS_TIME` (0.4 s). `_clamp_turret_position` clamps each frame to within `TURRET_FREE_PLACE_RADIUS` (300 px) of the Home Station. Release runs overlap validation; ESC snaps back.
 - **Trade panel batching** --- `TradeMenu._rect_sprites` is a pooled `arcade.SpriteList` of `SpriteSolidColor` objects reused every frame via `_rect_reset/_rect_add/_rect_flush`. Per-mode drawers split into a fills phase and a text/outline phase; a second pool of `arcade.Text` objects (`_row_texts`) handles row labels, only re-laying-out on text change. Cut ~15 immediate-mode rect calls per frame down to a single `SpriteList.draw()`.
 - **Streaming music loops + alien texture cache** --- `world_setup.collect_music_tracks` loads each WAV with `streaming=True` to avoid a pyglet `MemoryError` on long loops. `world_setup._alien_tex_cache` memoises the cropped Ship.png / Effects.png textures; `populate_aliens` now returns `(slist, ship_tex, laser_tex)` and `GameView._init_aliens` reuses them instead of re-decoding both sheets (~200 MB of redundant PIL allocation per load). `splash_view._do_load` additionally runs `gc.collect()` before constructing the replacement GameView.
+- **AI Pilot module** --- installing `ai_pilot` on a `ParkedShip` activates `ParkedShip.update_ai(dt, home_pos, targets, projectile_list, laser_tex)`. An `_ai_mode` field toggles between `"patrol"` (`_orbit_patrol` moves counter-clockwise along the tangent, then snaps radius back to `AI_PILOT_PATROL_RADIUS * AI_PILOT_ORBIT_RADIUS_RATIO`) and `"return"` (straight line back to the Home Station, cleared once within `AI_PILOT_HOME_ARRIVAL_DIST`). Engaging a target flips mode back to `"patrol"`; firing at the last live target flips mode to `"return"`. Shots go to `gv.turret_projectile_list` (so existing turret collision handling delivers damage). Wired via `update_logic._update_parked_ships`, which is called from both Zone 1's `update_entities` and Zone 2's `update` with the alien list swapped in.
+- **Story NPC + dialogue tree** --- `update_logic.update_refugee_npc` watches for the first `Shield Generator` while the player is in Zone 2, spawns `RefugeeNPCShip` on the right edge, retargets it at the Home Station each frame, and hands off to `update_npc` for the approach. `input_handlers._handle_world_click` opens `DialogueOverlay.start(tree, aftermath_sink=gv._quest_flags)` when the player clicks the ship within `NPC_REFUGEE_INTERACT_DIST`. Trees live in `dialogue/*.py` as dicts keyed by node id with `speaker`, `text`, optional `stage`, and one of `choices` / `next` / `end`. Terminal `end` nodes merge an `aftermath` dict into the sink (e.g. Debra's "find_ken" quest flag). Persisted state: `gv._refugee_spawned`, `gv._met_refugee`, `gv._refugee_npc` pose, `gv._quest_flags`.
 
 ## View Flow
 

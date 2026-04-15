@@ -215,6 +215,37 @@ All ships start at world centre. Ships rendered at 0.75x scale (96 px in-game). 
 
 ---
 
+## AI Pilot Module
+
+| Property | Value |
+|---|---|
+| Craft cost | 800 iron + 400 copper (Advanced Crafter) |
+| Patrol radius (leash) | 400 px (`AI_PILOT_PATROL_RADIUS`) |
+| Orbit radius | 360 px (90 % of leash; `AI_PILOT_ORBIT_RADIUS_RATIO`) |
+| Detect / engage range | 600 px (`AI_PILOT_DETECT_RANGE`) |
+| Movement speed | 140 px/s (`AI_PILOT_SPEED`) |
+| Fire cooldown | 0.5 s (`AI_PILOT_FIRE_COOLDOWN`) |
+| Laser damage | 10 (`AI_PILOT_LASER_DAMAGE`) |
+| Laser speed | 650 px/s (`AI_PILOT_LASER_SPEED`) |
+| Laser range | 700 px (`AI_PILOT_LASER_RANGE`) |
+| "At base" threshold | 100 px (`AI_PILOT_HOME_ARRIVAL_DIST`) |
+
+---
+
+## Double Star Refugee (story NPC)
+
+| Property | Value |
+|---|---|
+| Spawn trigger | First Shield Generator built while in Zone 2 |
+| Approach speed | 140 px/s (`NPC_REFUGEE_APPROACH_SPEED`) |
+| Hold distance from Home Station | 220 px (`NPC_REFUGEE_HOLD_DIST`) |
+| Player interact range | 320 px (`NPC_REFUGEE_INTERACT_DIST`) |
+| Label | "Double Star Refugee" |
+| Damage | None — NPC is invulnerable |
+| Dialogue keys | 1-4 choose, SPACE/ENTER advance, ESC close |
+
+---
+
 ## Station Buildings
 
 | Type | HP | Iron Cost | Max Count | Capacity Slots | Notes |

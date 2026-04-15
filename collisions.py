@@ -268,6 +268,36 @@ def handle_alien_laser_hits(gv: GameView) -> None:
             arcade.play_sound(gv._bump_snd, volume=0.3)
 
 
+def _station_shield_absorbs(gv: GameView, proj) -> bool:
+    """Return True when the station shield intercepts this projectile.
+
+    The shield is a flat disk centred on the Home Station with radius
+    ``gv._station_shield_radius``. Any enemy projectile that crosses
+    into the disk bleeds ``proj.damage`` from the shield pool and is
+    removed. When HP reaches zero the shield goes dormant until
+    ``update_station_shield`` refills it (currently only via the
+    Shield Generator respawn path in save/load; the bubble does not
+    auto-regen during a run).
+    """
+    if getattr(gv, "_station_shield_hp", 0) <= 0:
+        return False
+    if gv._station_shield_sprite is None:
+        return False
+    sx = gv._station_shield_sprite.center_x
+    sy = gv._station_shield_sprite.center_y
+    r = gv._station_shield_radius
+    if r <= 0.0:
+        return False
+    if (proj.center_x - sx) ** 2 + (proj.center_y - sy) ** 2 > r * r:
+        return False
+    gv._station_shield_hp = max(
+        0, gv._station_shield_hp - int(getattr(proj, "damage", 0)))
+    gv._station_shield_sprite.hit_flash()
+    gv.hit_sparks.append(HitSpark(proj.center_x, proj.center_y))
+    proj.remove_from_sprite_lists()
+    return True
+
+
 def handle_alien_laser_building_hits(gv: GameView) -> None:
     """Alien laser projectiles hitting station buildings."""
     if len(gv.building_list) == 0 or len(gv.alien_projectile_list) == 0:
@@ -275,6 +305,8 @@ def handle_alien_laser_building_hits(gv: GameView) -> None:
     from sprites.building import HomeStation
 
     for proj in list(gv.alien_projectile_list):
+        if _station_shield_absorbs(gv, proj):
+            continue
         hits = arcade.check_for_collision_with_list(proj, gv.building_list)
         if hits:
             building = hits[0]
@@ -476,6 +508,8 @@ def handle_boss_building_hits(gv: GameView) -> None:
     """Boss projectiles hitting station buildings."""
     from sprites.building import HomeStation
     for proj in list(gv._boss_projectile_list):
+        if _station_shield_absorbs(gv, proj):
+            continue
         for building in list(gv.building_list):
             dx = proj.center_x - building.center_x
             dy = proj.center_y - building.center_y

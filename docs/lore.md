@@ -117,3 +117,29 @@ Beyond the warp zones lies the Nebula, a volatile region of space where the remn
 The Nebula is rich in copper, a resource unknown in the core systems. Legends suggest that the copper deposits are the scattered remains of a vast alien infrastructure, destroyed during a war that predates even the Double-Star War. Scavengers who brave the Nebula's hazards --- magnetic asteroid fields that drag ships off course, and four distinct alien species adapted to the harsh environment --- return with materials capable of forging technology far beyond standard issue.
 
 For Debra, the Nebula's copper veins promise wealth enough to leave the past behind. For Ellie, the alien strongholds may hold clues to the betrayers she hunts. For Tara, the ancient technology buried here could be the discovery of a lifetime.
+
+---
+
+## The Double Star Refugee
+
+Powering up a Shield Generator inside the Nebula triggers the arrival
+of **Scout Kael Vox**, a military scout dispatched from Double Star
+Command. His orange scout ship flies in from the right edge of the
+Nebula and holds position near the player's Home Station, unable to be
+harmed.
+
+Clicking the ship (within 320 px) opens a conversation that branches on
+the active character:
+
+- **Debra Wildstar** — Kael's mission to the outer sector is a cover
+  for the news he carries: Ken Tamashii's body has gone missing from
+  secure storage in the Inner Core System. Debra walks Kael through
+  the blackouts, the investigation, and ultimately the aliens nobody
+  at Command has admitted to. The scene closes with Debra declaring
+  she is going beyond the Nebula to find whoever — whatever — took Ken,
+  activating the "Find Ken" quest hook.
+- **Ellie Solver / Tara Ozora** — short placeholder exchanges while
+  their bespoke trees are still being written.
+
+The meeting flag and any aftermath flags (quest activation, objective
+text, the "aliens are real" revelation) are persisted with the save.

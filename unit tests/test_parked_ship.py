@@ -530,3 +530,31 @@ class TestAIPilot:
         ps.update_ai(0.01, (0.0, 0.0), [t1, t2], plist, dummy_texture)
         assert len(plist) == 1  # fired at a target
         assert ps._ai_mode == "patrol"  # other target keeps it engaged
+
+    def test_ai_pilot_has_yellow_shield_when_installed(
+            self, parked_ship_l1, dummy_texture):
+        """Installing ai_pilot lazily attaches a yellow ShieldSprite to
+        the parked ship on the first update_parked tick."""
+        ps = parked_ship_l1
+        ps.module_slots = ["ai_pilot"]
+        assert ps._shield_sprite is None
+        ps.update_parked(0.01)
+        assert ps._shield_sprite is not None
+        # Yellow tint (any alpha) — RGB matches the module-level constant.
+        from sprites.parked_ship import _AI_SHIELD_TINT
+        assert ps._shield_sprite._tint == _AI_SHIELD_TINT
+
+    def test_ai_pilot_shield_regen_is_half(self, parked_ship_l1, dummy_texture):
+        """Regen rate is 0.5x the ship's base `shield_regen`. A full
+        second of ticks must only recover at most `0.5 * base` shields."""
+        from constants import SHIP_TYPES
+        ps = parked_ship_l1
+        ps.module_slots = ["ai_pilot"]
+        base = SHIP_TYPES[ps.ship_type]["shield_regen"]
+        ps.shields = 0
+        ps.max_shields = 100
+        # Tick one full second in 10 * 0.1 s chunks.
+        for _ in range(10):
+            ps.update_parked(0.1)
+        # Half-rate regen for 1 s — integer floor of (0.5 * base * 1.0).
+        assert ps.shields <= int(base * 0.5) + 1

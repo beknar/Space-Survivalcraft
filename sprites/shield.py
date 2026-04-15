@@ -18,8 +18,9 @@ class ShieldSprite(arcade.Sprite):
     """
 
     def __init__(self, frames: list[arcade.Texture],
-                 tint: tuple[int, int, int] = (255, 255, 255)) -> None:
-        super().__init__(path_or_texture=frames[0], scale=SHIELD_SCALE)
+                 tint: tuple[int, int, int] = (255, 255, 255),
+                 scale: float = SHIELD_SCALE) -> None:
+        super().__init__(path_or_texture=frames[0], scale=scale)
         self._frames = frames
         self._frame_idx: int = 0
         self._anim_timer: float = 0.0

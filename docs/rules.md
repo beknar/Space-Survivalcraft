@@ -324,3 +324,50 @@ Triggered when player enters 500 px, or player weapon fires within 160 px (4x sh
 - Each missile deals 50 damage with homing AI
 - Missiles spread evenly in a 360-degree pattern
 - No ability point cost --- consumes missile ammunition instead
+
+---
+
+## AI Pilot Module
+
+- Craftable at the Advanced Crafter for 800 iron + 400 copper
+- Installed by dragging `mod_ai_pilot` from station inventory onto a
+  parked ship's module slot
+- On install the ship immediately enters **patrol** mode — counter-clockwise
+  circular orbit at 90 % of `AI_PILOT_PATROL_RADIUS` (360 px) around the
+  Home Station
+- **Engage**: any live alien/boss within `AI_PILOT_DETECT_RANGE`
+  (600 px) that is also inside the patrol leash is targeted; the ship
+  faces it, closes to ~60 % of detect range, and fires a turret laser
+  every `AI_PILOT_FIRE_COOLDOWN` (0.5 s) for
+  `AI_PILOT_LASER_DAMAGE` (10)
+- **Return**: if the ship fires at a target and no OTHER live targets
+  remain in detect range, `_ai_mode` flips to `return`; the ship heads
+  in a straight line back to the Home Station until within
+  `AI_PILOT_HOME_ARRIVAL_DIST` (100 px), at which point patrol resumes
+- A new target appearing during return instantly re-engages; the leash
+  clamp still applies every tick so the ship can never leave patrol
+  radius
+- Shots are injected into `gv.turret_projectile_list` so the existing
+  turret-projectile collision handler delivers the damage
+
+---
+
+## Story Encounter — Double Star Refugee
+
+- **Spawn trigger**: placing the first `Shield Generator` in Zone 2
+  while a Home Station exists spawns `RefugeeNPCShip` once per save
+- Spawns at the right edge of the Nebula, flies toward the Home Station
+  at `NPC_REFUGEE_APPROACH_SPEED` (140 px/s), and holds at
+  `NPC_REFUGEE_HOLD_DIST` (220 px) from it
+- Invulnerable (take_damage is a no-op); hovering surfaces the
+  "Double Star Refugee" label
+- Left-clicking the ship while the player is within
+  `NPC_REFUGEE_INTERACT_DIST` (320 px) opens a character-specific
+  dialogue tree (see `dialogue/` package). Debra's tree has full
+  multi-scene branching; Ellie/Tara currently have placeholder trees
+- Dialogue overlay: numeric keys (1-9) or mouse click select choices;
+  SPACE or click advances linear beats; ESC closes without committing
+  aftermath. Closing via a terminal `end` node merges `aftermath` flags
+  into `gv._quest_flags`
+- Refugee position, spawn flag, met flag, and quest_flags are all
+  persisted in save/load

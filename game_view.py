@@ -388,6 +388,14 @@ class GameView(arcade.View):
             os.path.join(os.path.dirname(os.path.abspath(__file__)),
                          "assets", "ai generated", "space station.PNG"))
 
+        # Station shield — spawned by the first Shield Generator built.
+        from constants import STATION_SHIELD_HP
+        self._station_shield_sprite = None   # ShieldSprite | None
+        self._station_shield_list = None     # arcade.SpriteList | None
+        self._station_shield_hp: int = 0
+        self._station_shield_max_hp: int = STATION_SHIELD_HP
+        self._station_shield_radius: float = 0.0
+
         # Double Star Refugee NPC (unlocked by Shield Generator in Zone 2)
         from dialogue_overlay import DialogueOverlay
         self._refugee_npc = None  # RefugeeNPCShip | None
@@ -813,6 +821,7 @@ class GameView(arcade.View):
                 self._zone2.background_update(self, delta_time)
         _ul.update_ability_meter(self, delta_time)
         _ul.update_force_walls(self, delta_time)
+        _ul.update_station_shield(self, delta_time)
         _ul.update_refugee_npc(self, delta_time)
         _ul.update_missiles(self, delta_time)
         _ul.update_death_blossom(self, delta_time)

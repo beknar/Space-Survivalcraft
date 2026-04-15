@@ -1345,3 +1345,129 @@ class TestAIPilotPatrolIntegration:
             gv.on_update(1 / 60)
         a1 = math.atan2(ps.center_y - hy, ps.center_x - hx)
         assert a1 != a0, "Patrol should sweep angle after resuming"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  Station shield + AI-pilot shield + refugee parking (real GameView)
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _spawn_station(gv):
+    from sprites.building import create_building
+    from constants import WORLD_WIDTH, WORLD_HEIGHT
+    gv.building_list.clear()
+    cx, cy = WORLD_WIDTH / 2, WORLD_HEIGHT / 2
+    tex = gv._building_textures["Home Station"]
+    gv.building_list.append(
+        create_building("Home Station", tex, cx, cy, scale=0.5))
+    return cx, cy
+
+
+class TestStationShieldIntegration:
+    def test_station_shield_spawns_on_shield_generator(self, real_game_view):
+        from sprites.building import create_building
+        from constants import STATION_SHIELD_HP
+        gv = real_game_view
+        gv._transition_zone(ZoneID.ZONE2)
+        cx, cy = _spawn_station(gv)
+        sg_tex = gv._building_textures["Shield Generator"]
+        gv.building_list.append(create_building(
+            "Shield Generator", sg_tex, cx + 80, cy, scale=0.5))
+        # Reset shield state so the assertion is about the spawn.
+        gv._station_shield_hp = 0
+        gv._station_shield_sprite = None
+        gv.on_update(1 / 60)
+        assert gv._station_shield_sprite is not None
+        assert gv._station_shield_hp == STATION_SHIELD_HP
+        assert gv._station_shield_radius > 0.0
+
+    def test_station_shield_absorbs_alien_laser(self, real_game_view):
+        from sprites.building import create_building
+        from sprites.projectile import Projectile
+        from constants import ALIEN_LASER_SPEED, ALIEN_LASER_RANGE
+        gv = real_game_view
+        gv._transition_zone(ZoneID.ZONE2)
+        cx, cy = _spawn_station(gv)
+        sg_tex = gv._building_textures["Shield Generator"]
+        gv.building_list.append(create_building(
+            "Shield Generator", sg_tex, cx + 80, cy, scale=0.5))
+        gv._station_shield_hp = 0
+        gv._station_shield_sprite = None
+        gv.on_update(1 / 60)  # spawns the shield
+        start_hp = gv._station_shield_hp
+        # Drop an alien projectile dead-centre on the shield.
+        proj = Projectile(gv._alien_laser_tex, cx, cy, 0,
+                          ALIEN_LASER_SPEED, ALIEN_LASER_RANGE, damage=10)
+        gv.alien_projectile_list.append(proj)
+        from collisions import handle_alien_laser_building_hits
+        handle_alien_laser_building_hits(gv)
+        assert gv._station_shield_hp == start_hp - 10
+        assert len(gv.alien_projectile_list) == 0
+
+    def test_station_shield_scales_with_outer_building(self, real_game_view):
+        from sprites.building import create_building
+        from constants import STATION_SHIELD_PADDING
+        gv = real_game_view
+        gv._transition_zone(ZoneID.ZONE2)
+        cx, cy = _spawn_station(gv)
+        sg_tex = gv._building_textures["Shield Generator"]
+        # Place Shield Generator far from home to grow the radius.
+        gv.building_list.append(create_building(
+            "Shield Generator", sg_tex, cx + 250, cy, scale=0.5))
+        gv._station_shield_hp = 0
+        gv._station_shield_sprite = None
+        gv.on_update(1 / 60)
+        r = gv._station_shield_radius
+        # Must be at least the Shield Generator's distance + padding.
+        assert r >= 250.0 + STATION_SHIELD_PADDING - 1.0
+
+
+class TestAIPilotShieldIntegration:
+    def test_installed_ai_pilot_attaches_yellow_shield(self, real_game_view):
+        from sprites.parked_ship import ParkedShip, _AI_SHIELD_TINT
+        gv = real_game_view
+        if gv._zone.zone_id != ZoneID.MAIN:
+            gv._transition_zone(ZoneID.MAIN, entry_side="wormhole_return")
+        _spawn_station(gv)
+        ps = ParkedShip(gv._faction, gv._ship_type, 1,
+                        gv.player.center_x + 300, gv.player.center_y)
+        ps.module_slots = ["ai_pilot"]
+        gv._parked_ships.clear()
+        gv._parked_ships.append(ps)
+        # One tick must lazily materialise the yellow shield sprite.
+        gv.on_update(1 / 60)
+        assert ps._shield_sprite is not None
+        assert ps._shield_sprite._tint == _AI_SHIELD_TINT
+
+
+class TestRefugeeParkingIntegration:
+    def test_refugee_parks_outside_all_buildings(self, real_game_view):
+        from sprites.building import create_building
+        import math
+        gv = real_game_view
+        gv._transition_zone(ZoneID.ZONE2)
+        cx, cy = _spawn_station(gv)
+        # Build an extended station so "outside" is non-trivial.
+        sg_tex = gv._building_textures["Shield Generator"]
+        gv.building_list.append(create_building(
+            "Shield Generator", sg_tex, cx + 250, cy, scale=0.5))
+        # Spawn the refugee.
+        gv._refugee_npc = None
+        gv._refugee_spawned = False
+        gv.on_update(1 / 60)
+        assert gv._refugee_npc is not None
+        # Teleport the refugee close to the parking spot so the
+        # integration test doesn't have to simulate the ~20 s cross-map
+        # approach from the world edge.
+        gv._refugee_npc.center_x = cx + gv._refugee_npc._hold_dist + 400.0
+        gv._refugee_npc.center_y = cy
+        for _ in range(300):
+            gv.on_update(1 / 60)
+            if gv._refugee_npc.arrived:
+                break
+        assert gv._refugee_npc.arrived
+        rx, ry = gv._refugee_npc.center_x, gv._refugee_npc.center_y
+        # Must not overlap any building (builds + turret-radius headroom).
+        for b in gv.building_list:
+            d = math.hypot(rx - b.center_x, ry - b.center_y)
+            assert d > 60.0, (
+                f"Refugee too close to {b.building_type} ({d:.1f} px)")

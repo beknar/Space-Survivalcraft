@@ -107,7 +107,7 @@ Several large optimizations target the Nebula zone, which can populate hundreds 
 
 ## Test Coverage
 
-The fast test suite (`unit tests/`, 440 tests across 22 files) runs in ~1.5 s and covers:
+The fast test suite (`unit tests/`, 469 tests) runs in ~1.5 s and covers:
 
 - **Player physics** (`test_player.py`) — rotation, thrust, damping, clamping
 - **Weapons + projectiles** (`test_projectile.py`)
@@ -125,7 +125,7 @@ The fast test suite (`unit tests/`, 440 tests across 22 files) runs in ~1.5 s an
 - **Parked ships** (`test_parked_ship.py`) — construction by level, HP/shield damage routing, hit flash, cargo/module storage, collision handler (alien/player/boss projectiles), destruction drops, serialization round trip
 - **Settings, video scanning, world setup helpers**
 
-The integration suite (`unit tests/integration/`, 110 tests) requires an Arcade window and covers:
+The integration suite (`unit tests/integration/`, 131 tests) requires an Arcade window and covers:
 
 - **Functional** (`test_zone2_real_gv.py`) — Zone 2 exercised with a real GameView, including Death Blossom flow with both videos running
 - **Full-frame FPS** (`test_performance.py`) — 40 FPS-threshold tests across Zone 1 + Zone 2 (full population, buildings, boss, heavy combat, minimap), warp zones, station info with and without music, inventories, parked ships, Missile Array, real music + character video, and the **trade sell / buy panels in both zones with and without both videos playing plus a buy↔sell churn scenario**
@@ -133,7 +133,7 @@ The integration suite (`unit tests/integration/`, 110 tests) requires an Arcade 
 - **Resolution scaling** (`test_resolution_perf.py`) — 12 tests across all 6 RESOLUTION_PRESETS × 2 zones (Zone 1 + Zone 2); uses `apply_resolution` to resize a hidden window between tests; cannot run in parallel (one Arcade window per process)
 - **Soak/endurance** (`test_soak.py`) — 5-minute soak tests measuring FPS + RSS every 30 s: Zone 1 combat, Zone 2 combat, video player, inventory churn, fog texture rebuild, combined worst-case. Player made invulnerable to prevent premature death. Requires `psutil` dev dependency.
 
-Grand total: 550 tests (440 fast + 110 integration). Real music-video tests load `.mp4` files from `./yvideos` (gitignored) relative to the project root.
+Grand total: 600 tests (469 fast + 131 integration). Real music-video tests load `.mp4` files from `./yvideos` (gitignored) relative to the project root.
 
 Tests use PIL-generated dummy textures so no game assets are required. Fast tests need no Arcade window. `pytest` and `psutil` (for soak tests) are needed beyond the game's regular dependencies.
 

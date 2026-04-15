@@ -229,6 +229,27 @@ feature's merging commit.
 - [x] Resolve music videos from `./yvideos` instead of `G:\yvideos`
       (`1defa57`)
 - [x] Add `ROADMAP.md` tracking shipped vs future features (`03722aa`)
+- [x] Refresh `CLAUDE.md`, `README`, and all `docs/*.md` for recent
+      source changes (`7906694`)
+- [x] **AI Pilot module** — craft at the Advanced Crafter (800 iron +
+      400 copper), drag-install on a parked ship to make it autonomous;
+      patrols within 400 px of the Home Station, engages enemies inside
+      600 px, fires into `gv.turret_projectile_list` every 0.5 s.
+      Zone 1 + Zone 2 perf tests and a 5-min soak test ship with the
+      feature. (`4507a01`)
+- [x] **Double Star Refugee NPC + dialogue overlay** — building a
+      Shield Generator in the Nebula triggers an invulnerable NPC scout
+      ship that flies in from the right edge. Clicking within 320 px
+      opens a character-specific branching conversation. Debra's tree
+      is a full five-scene Ken-Tamashii arc with every branch encoded;
+      Ellie/Tara stubs in place. Overlay supports 1-9 choice keys,
+      SPACE/ENTER to advance, ESC to close without committing. 12 unit
+      + 4 integration + 3 soak tests. (`a5a4078`)
+- [x] **AI Pilot patrol polish** — the autonomous ship now orbits the
+      Home Station counter-clockwise at 90 % of the patrol radius
+      instead of idling, and flips to `return` mode after firing when
+      no other enemies are in range (resumes patrol on base arrival).
+      5 new unit + 3 integration + 2 soak tests. (`7e7490d`)
 
 ## Future features (from README)
 
@@ -246,9 +267,12 @@ feature's merging commit.
       _(copper added; more tiers still open)_
 - [ ] **New space monsters** — varied creatures with unique behaviours
       _(Zone 2 aliens + wandering asteroids shipped; more creatures open)_
+- [ ] **Allied NPCs / autonomous wingmen** _(AI Pilot module ships
+      already autonomously patrol + engage near the home station;
+      wider allied-NPC systems still open)_
 - [ ] **Characters** — branching storylines, character-specific abilities,
-      ship skins _(10-level trees + bonuses shipped; storylines and skins
-      still open)_
+      ship skins _(10-level bonus trees shipped; Debra's refugee
+      storyline shipped; Ellie/Tara branches and ship skins still open)_
 - [ ] **Warp gates** — travel to new star systems _(intra-system wormholes
       shipped; cross-system gates still open)_
 - [ ] **Planetary landing** — land on planets with different surface biomes

@@ -914,5 +914,14 @@ surprise a reader of the core rules:
   yield, etc.).
 - **Homing missiles** — craftable at Advanced Crafter; fired from
   quick-use bar, Missile Arrays, or Death Blossom.
+- **AI Pilot module** — craft at Advanced Crafter (800 iron + 400
+  copper) and install on any parked ship. The ship then orbits the
+  Home Station counter-clockwise, engages enemies inside 600 px, and
+  returns to base after firing when no other enemies are in range.
+- **Double Star Refugee** — building a Shield Generator in the Nebula
+  triggers an invulnerable NPC scout ship that flies in from the
+  right, holds 220 px from the Home Station, and opens a per-character
+  dialogue tree when clicked (Debra gets the full Ken-Tamashii arc;
+  Ellie/Tara are stubs).
 
 See `ROADMAP.md` for the full chronology of shipped features.

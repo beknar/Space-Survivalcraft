@@ -29,6 +29,21 @@ def _draw_trade_station(gv: GameView) -> None:
             arcade.LBWH(ts.center_x - tw / 2, ts.center_y - th / 2, tw, th))
 
 
+def _draw_parked_ship_shields(gv: GameView) -> None:
+    """Draw the yellow shield bubble around every AI-piloted parked ship."""
+    for ps in gv._parked_ships:
+        if ps.has_ai_pilot and ps._shield_list is not None and ps.shields > 0:
+            ps._shield_list.draw()
+
+
+def _draw_station_shield(gv: GameView) -> None:
+    """Draw the station-wide shield bubble if a Shield Generator is up
+    and the shield hasn't been depleted."""
+    if (getattr(gv, "_station_shield_list", None) is not None
+            and getattr(gv, "_station_shield_hp", 0) > 0):
+        gv._station_shield_list.draw()
+
+
 def draw_background(
     gv: GameView, cx: float, cy: float, hw: float, hh: float
 ) -> None:
@@ -61,6 +76,7 @@ def draw_world(gv: GameView, cx: float, cy: float, hw: float, hh: float) -> None
         gv.explosion_list.draw()
         gv.building_list.draw()
         gv._parked_ships.draw()
+        _draw_parked_ship_shields(gv)
         if gv._wormholes:
             gv._wormhole_list.draw()
         gv.turret_projectile_list.draw()
@@ -73,9 +89,14 @@ def draw_world(gv: GameView, cx: float, cy: float, hw: float, hh: float) -> None
         gv.explosion_list.draw()
         gv._zone.draw_world(gv, cx, cy, hw, hh)
         gv._parked_ships.draw()
+        _draw_parked_ship_shields(gv)
 
     # Trade station (shared across all zones — drawn after zone entities)
     _draw_trade_station(gv)
+
+    # Station shield — drawn before the player/particles so it sits
+    # behind the ship and projectiles but on top of buildings.
+    _draw_station_shield(gv)
 
     # Double Star Refugee NPC — Zone 2 only, once unlocked
     if gv._refugee_npc is not None and gv._zone.zone_id == ZoneID.ZONE2:

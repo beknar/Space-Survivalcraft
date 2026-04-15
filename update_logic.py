@@ -447,6 +447,68 @@ def update_entities(gv: GameView, dt: float) -> None:
     _update_parked_ships(gv, dt)
 
 
+def _station_outer_radius(gv: GameView, home) -> float:
+    """Return the furthest distance from the Home Station to any other
+    connected building — used to size both the station shield and the
+    refugee's parking spot."""
+    import math as _math
+    r = 0.0
+    hx, hy = home.center_x, home.center_y
+    for b in gv.building_list:
+        if b is home:
+            continue
+        d = _math.hypot(b.center_x - hx, b.center_y - hy)
+        if d > r:
+            r = d
+    return r
+
+
+def update_station_shield(gv: GameView, dt: float) -> None:
+    """Spawn + maintain the station shield.
+
+    Triggered by the presence of a ``Shield Generator`` while a Home
+    Station is up. Shield HP resets to ``STATION_SHIELD_MAX_HP`` on
+    first spawn; each frame the shield's radius is recomputed so it
+    grows with the station. Damage is applied by the collision
+    handlers in `collisions.py` (see `_try_absorb_station_shield`).
+    Once HP reaches zero the sprite stays attached but is hidden.
+    """
+    from sprites.building import HomeStation
+    from world_setup import get_shield_frames, faction_shield_tint
+    from sprites.shield import ShieldSprite
+    from constants import (
+        STATION_SHIELD_HP, STATION_SHIELD_PADDING, SHIELD_FRAME_W,
+    )
+
+    home = next((b for b in gv.building_list
+                 if isinstance(b, HomeStation) and not b.disabled), None)
+    has_sg = any(b.building_type == "Shield Generator"
+                 for b in gv.building_list)
+    if home is None or not has_sg:
+        return
+
+    if gv._station_shield_sprite is None:
+        tint = faction_shield_tint(gv._faction)
+        frames = get_shield_frames()
+        sprite = ShieldSprite(frames, tint=tint, scale=1.0)
+        sprite.center_x = home.center_x
+        sprite.center_y = home.center_y
+        gv._station_shield_sprite = sprite
+        gv._station_shield_list = arcade.SpriteList()
+        gv._station_shield_list.append(sprite)
+        if gv._station_shield_hp <= 0:
+            gv._station_shield_hp = STATION_SHIELD_HP
+        gv._station_shield_max_hp = STATION_SHIELD_HP
+
+    # Size the shield so it covers every connected building.
+    outer_r = _station_outer_radius(gv, home) + STATION_SHIELD_PADDING
+    gv._station_shield_radius = outer_r
+    diameter = max(2.0 * outer_r, 160.0)
+    gv._station_shield_sprite.scale = diameter / SHIELD_FRAME_W
+    gv._station_shield_sprite.update_shield(
+        dt, home.center_x, home.center_y, gv._station_shield_hp)
+
+
 def update_refugee_npc(gv: GameView, dt: float) -> None:
     """Spawn + approach the Double Star Refugee.
 
@@ -470,6 +532,17 @@ def update_refugee_npc(gv: GameView, dt: float) -> None:
     home = next((b for b in gv.building_list
                  if isinstance(b, HomeStation) and not b.disabled), None)
 
+    # The refugee parks OUTSIDE the station so its sprite doesn't
+    # overlap any building. The parking spot is placed to the right of
+    # the Home Station by (station_outer_radius + padding).
+    from constants import NPC_REFUGEE_HOLD_DIST as _NPC_BASE_HOLD
+    _NPC_PARK_HOLD = 24.0     # stop within this of the parking spot
+    _NPC_PARK_PAD = 70.0      # extra clearance from the outermost building
+
+    def _parking_spot(gv_: GameView, home_) -> tuple[float, float]:
+        outer = _station_outer_radius(gv_, home_) + _NPC_PARK_PAD
+        return (home_.center_x + outer, home_.center_y)
+
     if gv._refugee_npc is None:
         if gv._refugee_spawned or home is None:
             return
@@ -483,13 +556,15 @@ def update_refugee_npc(gv: GameView, dt: float) -> None:
         spawn_x = zw - 80.0
         spawn_y = max(80.0, min(zh - 80.0, home.center_y))
         gv._refugee_npc = RefugeeNPCShip(
-            spawn_x, spawn_y, (home.center_x, home.center_y))
+            spawn_x, spawn_y, _parking_spot(gv, home),
+            hold_dist=_NPC_PARK_HOLD)
         gv._refugee_spawned = True
         return
 
-    # Already spawned — advance approach while a home still exists.
+    # Already spawned — keep the parking spot fresh (it grows with the
+    # station) while approaching or arrived.
     if home is not None:
-        gv._refugee_npc._target = (home.center_x, home.center_y)
+        gv._refugee_npc._target = _parking_spot(gv, home)
     gv._refugee_npc.update_npc(dt)
 
 
