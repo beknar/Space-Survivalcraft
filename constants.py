@@ -330,6 +330,10 @@ MODULE_TYPES: dict[str, dict] = {
                         "craft_cost": 600, "craft_cost_copper": 400,
                         "icon": os.path.join(_MODULE_ITEMS_DIR, "Nuke.png"),
                         "advanced": True},
+    "ai_pilot":        {"label": "AI Pilot",          "effect": "ai_pilot",      "value": 1,
+                        "craft_cost": 800, "craft_cost_copper": 400,
+                        "icon": os.path.join(_MODULE_ITEMS_DIR, "Energy.png"),
+                        "advanced": True},
     "advanced_crafter": {"label": "Adv. Crafter BP",  "effect": "none",          "value": 0,
                         "craft_cost": 0, "icon": os.path.join(_MODULE_ITEMS_DIR, "Blank.png"),
                         "blueprint_only": True},
@@ -487,6 +491,15 @@ TURRET_LASER_SPEED: float = 700.0   # turret projectile speed  px/s
 TURRET_LASER_RANGE: float = 500.0   # turret projectile max range  px
 TURRET_FREE_PLACE_RADIUS: float = 300.0  # max distance from Home Station for turrets
 MOVE_LONG_PRESS_TIME: float = 0.4  # seconds of held LMB on turret/missile array to enter move mode
+
+# Parked-ship AI pilot (ai_pilot module installed)
+AI_PILOT_PATROL_RADIUS: float = 400.0      # stay within this distance of Home Station
+AI_PILOT_DETECT_RANGE: float = 600.0       # engage enemies within this distance
+AI_PILOT_SPEED: float = 140.0              # px/s
+AI_PILOT_FIRE_COOLDOWN: float = 0.5        # seconds between shots
+AI_PILOT_LASER_RANGE: float = 700.0        # projectile max range
+AI_PILOT_LASER_SPEED: float = 650.0        # projectile speed px/s
+AI_PILOT_LASER_DAMAGE: int = 10
 
 # Repair module
 REPAIR_RANGE: float = 300.0             # px — distance from Home Station for repair to activate

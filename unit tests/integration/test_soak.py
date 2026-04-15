@@ -1180,3 +1180,42 @@ class TestSoakMissileArrayDeathBlossomWithVideos:
         finally:
             gv._char_video_player.stop()
             gv._video_player.stop()
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  AI Pilot soak — 4 AI-piloted parked ships over 5 minutes
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestSoakAIPilot:
+    def test_ai_pilot_5min_soak(self, real_game_view):
+        """5-minute soak with 4 AI-piloted parked ships patrolling in
+        Zone 1. The ships should not leak projectiles, should stay
+        clamped to the patrol leash, and FPS + RSS should stay within
+        threshold over the duration."""
+        from sprites.building import create_building
+        from sprites.parked_ship import ParkedShip
+        from constants import WORLD_WIDTH, WORLD_HEIGHT
+        import math
+        gv = real_game_view
+        _setup_soak(gv, ZoneID.MAIN)
+
+        # Home Station near world centre.
+        gv.building_list.clear()
+        tex = gv._building_textures["Home Station"]
+        home = create_building("Home Station", tex,
+                               WORLD_WIDTH / 2, WORLD_HEIGHT / 2, scale=0.5)
+        gv.building_list.append(home)
+
+        # Ring of 4 AI-piloted parked ships.
+        gv._parked_ships.clear()
+        for i in range(4):
+            ang = 2 * math.pi * i / 4
+            ps = ParkedShip(
+                gv._faction, gv._ship_type, 1,
+                home.center_x + math.cos(ang) * 200,
+                home.center_y + math.sin(ang) * 200,
+            )
+            ps.module_slots = ["ai_pilot"]
+            gv._parked_ships.append(ps)
+
+        _run_soak(gv, "AI Pilot Zone 1")

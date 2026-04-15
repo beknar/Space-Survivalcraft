@@ -444,8 +444,35 @@ def update_entities(gv: GameView, dt: float) -> None:
 
     # Parked ship damage + animation update
     handle_parked_ship_damage(gv)
+    _update_parked_ships(gv, dt)
+
+
+def _update_parked_ships(gv: GameView, dt: float) -> None:
+    """Tick parked-ship hit flash + AI pilot (when `ai_pilot` is installed).
+
+    AI-piloted parked ships patrol around the Home Station and fire into
+    ``gv.turret_projectile_list`` so existing turret projectile
+    collisions deliver the damage (no new collision handler needed).
+    """
+    from sprites.building import HomeStation
+    home = next((b for b in gv.building_list
+                 if isinstance(b, HomeStation) and not b.disabled), None)
+    home_pos = (home.center_x, home.center_y) if home is not None else None
+    # Pick the target list matching the active zone so AI ships don't
+    # shoot ghosts from the stashed zone.
+    targets = list(gv.alien_list)
+    zone = getattr(gv, "_zone", None)
+    z2_aliens = getattr(zone, "_aliens", None)
+    if z2_aliens is not None and z2_aliens is not gv.alien_list:
+        targets.extend(z2_aliens)
+    if gv._boss is not None and gv._boss.hp > 0:
+        targets.append(gv._boss)
+    laser_tex = getattr(gv, "_turret_laser_tex", None)
     for ps in gv._parked_ships:
         ps.update_parked(dt)
+        if ps.has_ai_pilot:
+            ps.update_ai(dt, home_pos, targets,
+                         gv.turret_projectile_list, laser_tex)
 
 
 def update_buildings(gv: GameView, dt: float) -> None:

@@ -1431,6 +1431,98 @@ class TestTradeBuyPanelZone2WithVideos:
             gv._trade_menu.open = False
 
 
+def _spawn_home_station(gv):
+    """Place a Home Station at the world centre for AI pilot tests."""
+    from sprites.building import create_building
+    from constants import WORLD_WIDTH, WORLD_HEIGHT
+    gv.building_list.clear()
+    tex = gv._building_textures["Home Station"]
+    home = create_building("Home Station", tex,
+                           WORLD_WIDTH / 2, WORLD_HEIGHT / 2, scale=0.5)
+    gv.building_list.append(home)
+    return home
+
+
+def _spawn_ai_parked_ships(gv, home, count: int = 4):
+    """Spawn ``count`` AI-piloted parked ships orbiting the Home Station."""
+    from sprites.parked_ship import ParkedShip
+    import math
+    gv._parked_ships.clear()
+    for i in range(count):
+        angle = 2 * math.pi * i / count
+        ps = ParkedShip(
+            gv._faction, gv._ship_type, 1,
+            home.center_x + math.cos(angle) * 200,
+            home.center_y + math.sin(angle) * 200,
+        )
+        ps.module_slots = ["ai_pilot"]
+        gv._parked_ships.append(ps)
+
+
+class TestAIPilotZone1:
+    def test_ai_pilot_zone1_above_threshold(self, real_game_view):
+        """4 AI-piloted parked ships orbiting the Home Station with
+        Zone 1's normal population. Each ship scans aliens every frame
+        and may emit a laser every 0.5 s."""
+        gv = real_game_view
+        if gv._zone.zone_id != ZoneID.MAIN:
+            gv._transition_zone(ZoneID.MAIN, entry_side="wormhole_return")
+        home = _spawn_home_station(gv)
+        _spawn_ai_parked_ships(gv, home, count=4)
+        fps = _measure_fps(gv)
+        assert fps >= MIN_FPS, (
+            f"Zone 1 + 4 AI parked ships: {fps:.1f} FPS < {MIN_FPS}"
+        )
+
+
+class TestAIPilotZone2:
+    def test_ai_pilot_zone2_above_threshold(self, real_game_view):
+        """Same scenario in the Nebula — the zone's heavier baseline."""
+        gv = real_game_view
+        gv._transition_zone(ZoneID.ZONE2)
+        home = _spawn_home_station(gv)
+        _spawn_ai_parked_ships(gv, home, count=4)
+        fps = _measure_fps(gv)
+        assert fps >= MIN_FPS, (
+            f"Zone 2 + 4 AI parked ships: {fps:.1f} FPS < {MIN_FPS}"
+        )
+
+
+class TestAIPilotZone1WithVideos:
+    def test_ai_pilot_zone1_with_videos_above_threshold(self, real_game_view):
+        gv = real_game_view
+        if gv._zone.zone_id != ZoneID.MAIN:
+            gv._transition_zone(ZoneID.MAIN, entry_side="wormhole_return")
+        home = _spawn_home_station(gv)
+        _spawn_ai_parked_ships(gv, home, count=4)
+        _start_both_videos_or_skip(gv)
+        try:
+            fps = _measure_fps(gv)
+            assert fps >= MIN_FPS, (
+                f"Zone 1 + 4 AI ships + both videos: "
+                f"{fps:.1f} FPS < {MIN_FPS}"
+            )
+        finally:
+            _stop_both_videos(gv)
+
+
+class TestAIPilotZone2WithVideos:
+    def test_ai_pilot_zone2_with_videos_above_threshold(self, real_game_view):
+        gv = real_game_view
+        gv._transition_zone(ZoneID.ZONE2)
+        home = _spawn_home_station(gv)
+        _spawn_ai_parked_ships(gv, home, count=4)
+        _start_both_videos_or_skip(gv)
+        try:
+            fps = _measure_fps(gv)
+            assert fps >= MIN_FPS, (
+                f"Zone 2 + 4 AI ships + both videos: "
+                f"{fps:.1f} FPS < {MIN_FPS}"
+            )
+        finally:
+            _stop_both_videos(gv)
+
+
 class TestTradePanelSwitchingWithVideos:
     """Toggle between BUY and SELL modes every frame while both videos play
     and gameplay simulates. Catches any regression that makes mode

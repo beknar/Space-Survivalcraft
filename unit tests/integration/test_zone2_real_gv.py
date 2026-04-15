@@ -981,3 +981,150 @@ class TestDeathBlossomFlowWithVideos:
             assert gv._hud.get_quick_use(0) is None
         finally:
             _stop_video_pipeline(gv)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  AI Pilot module — parked ship patrols and fights enemies
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _spawn_home_and_parked(gv, parked_pos):
+    """Place a Home Station at the world centre and a parked ship nearby
+    with an ai_pilot module installed. Returns the ParkedShip."""
+    from sprites.building import create_building
+    from sprites.parked_ship import ParkedShip
+    from constants import WORLD_WIDTH, WORLD_HEIGHT
+    gv.building_list.clear()
+    tex = gv._building_textures["Home Station"]
+    home = create_building("Home Station", tex,
+                           WORLD_WIDTH / 2, WORLD_HEIGHT / 2, scale=0.5)
+    gv.building_list.append(home)
+    ps = ParkedShip(gv._faction, gv._ship_type, 1,
+                    parked_pos[0], parked_pos[1])
+    ps.module_slots = ["ai_pilot"]
+    gv._parked_ships.append(ps)
+    return ps, home
+
+
+class TestAIPilotZone1Functional:
+    def test_ai_pilot_fires_at_alien_in_range(self, real_game_view):
+        """AI-piloted parked ship fires at an alien placed within detect
+        range, queuing projectiles in gv.turret_projectile_list."""
+        from sprites.alien import SmallAlienShip
+        from constants import WORLD_WIDTH, WORLD_HEIGHT
+        gv = real_game_view
+        if gv._zone.zone_id != ZoneID.MAIN:
+            gv._transition_zone(ZoneID.MAIN, entry_side="wormhole_return")
+
+        cx, cy = WORLD_WIDTH / 2, WORLD_HEIGHT / 2
+        ps, _home = _spawn_home_and_parked(gv, (cx + 100, cy))
+        # Isolate: exactly one alien 200 px from the ship, well inside
+        # both detect range and the patrol leash.
+        gv.alien_list.clear()
+        alien = SmallAlienShip(gv._alien_ship_tex, gv._alien_laser_tex,
+                               cx + 300, cy)
+        gv.alien_list.append(alien)
+
+        gv.turret_projectile_list.clear()
+        dt = 1 / 60
+        for _ in range(40):
+            gv.on_update(dt)
+            if len(gv.turret_projectile_list) > 0:
+                break
+        assert len(gv.turret_projectile_list) > 0, (
+            "AI pilot should fire at an alien in range")
+
+    def test_ai_pilot_returns_to_patrol_leash(self, real_game_view):
+        """A stray parked ship outside the leash is pulled back to within
+        AI_PILOT_PATROL_RADIUS of the Home Station after one tick."""
+        from constants import (
+            WORLD_WIDTH, WORLD_HEIGHT, AI_PILOT_PATROL_RADIUS,
+        )
+        import math
+        gv = real_game_view
+        if gv._zone.zone_id != ZoneID.MAIN:
+            gv._transition_zone(ZoneID.MAIN, entry_side="wormhole_return")
+        cx, cy = WORLD_WIDTH / 2, WORLD_HEIGHT / 2
+        ps, _ = _spawn_home_and_parked(gv, (cx + 2000, cy))
+        gv.alien_list.clear()
+        gv.on_update(1 / 60)
+        dist = math.hypot(ps.center_x - cx, ps.center_y - cy)
+        assert dist <= AI_PILOT_PATROL_RADIUS + 1.0
+
+    def test_ai_pilot_without_module_is_idle(self, real_game_view):
+        """A parked ship without the ai_pilot module stays perfectly
+        still even with an enemy on top of it."""
+        from sprites.alien import SmallAlienShip
+        from sprites.parked_ship import ParkedShip
+        from sprites.building import create_building
+        from constants import WORLD_WIDTH, WORLD_HEIGHT
+        gv = real_game_view
+        if gv._zone.zone_id != ZoneID.MAIN:
+            gv._transition_zone(ZoneID.MAIN, entry_side="wormhole_return")
+        cx, cy = WORLD_WIDTH / 2, WORLD_HEIGHT / 2
+
+        gv.building_list.clear()
+        tex = gv._building_textures["Home Station"]
+        gv.building_list.append(
+            create_building("Home Station", tex, cx, cy, scale=0.5))
+
+        ps = ParkedShip(gv._faction, gv._ship_type, 1, cx + 100, cy)
+        # no module_slots set — explicitly no ai_pilot
+        gv._parked_ships.clear()
+        gv._parked_ships.append(ps)
+
+        gv.alien_list.clear()
+        gv.alien_list.append(SmallAlienShip(
+            gv._alien_ship_tex, gv._alien_laser_tex, cx + 300, cy))
+
+        gv.turret_projectile_list.clear()
+        start = (ps.center_x, ps.center_y)
+        for _ in range(30):
+            gv.on_update(1 / 60)
+        # Only the ship's own shots are prohibited — turrets on the home
+        # station don't exist in this fixture — so the list must be empty.
+        assert len(gv.turret_projectile_list) == 0
+        assert abs(ps.center_x - start[0]) < 0.01
+        assert abs(ps.center_y - start[1]) < 0.01
+
+
+class TestAIPilotZone2Functional:
+    def test_ai_pilot_engages_in_zone2(self, real_game_view):
+        """AI-piloted parked ship still fires when the player is in the
+        Nebula — update_logic._update_parked_ships is routed through
+        Zone2.update with the zone's alien list swapped in."""
+        from sprites.parked_ship import ParkedShip
+        from sprites.building import create_building
+
+        gv = real_game_view
+        gv._transition_zone(ZoneID.ZONE2)
+        zone = gv._zone
+
+        # Place a Home Station near the player.
+        gv.building_list.clear()
+        cx, cy = gv.player.center_x, gv.player.center_y
+        tex = gv._building_textures["Home Station"]
+        gv.building_list.append(
+            create_building("Home Station", tex, cx, cy, scale=0.5))
+
+        ps = ParkedShip(gv._faction, gv._ship_type, 1, cx + 100, cy)
+        ps.module_slots = ["ai_pilot"]
+        gv._parked_ships.clear()
+        gv._parked_ships.append(ps)
+
+        # Move one zone-2 alien right next to the ship so it's the
+        # obvious closest target regardless of the rest of the population.
+        if len(zone._aliens) == 0:
+            pytest.skip("No Zone 2 aliens available")
+        for a in zone._aliens:
+            # push all aliens far away so they don't interfere
+            a.center_x = cx + 5000
+            a.center_y = cy + 5000
+        zone._aliens[0].center_x = cx + 250
+        zone._aliens[0].center_y = cy
+
+        gv.turret_projectile_list.clear()
+        for _ in range(40):
+            gv.on_update(1 / 60)
+            if len(gv.turret_projectile_list) > 0:
+                break
+        assert len(gv.turret_projectile_list) > 0

@@ -445,6 +445,15 @@ class Zone2(ZoneState):
             gv.alien_list = _saved_alien
             gv.alien_projectile_list = _saved_aproj
 
+        # Parked-ship hit flash + AI pilot (AI-piloted ships patrol and
+        # fire into gv.turret_projectile_list, which the turret hit
+        # handler already routes to Zone 2 aliens).
+        from update_logic import _update_parked_ships
+        _saved_alien = gv.alien_list
+        gv.alien_list = self._aliens
+        _update_parked_ships(gv, dt)
+        gv.alien_list = _saved_alien
+
         # Respawn
         self._respawn_timer += dt
         if self._respawn_timer >= RESPAWN_INTERVAL:

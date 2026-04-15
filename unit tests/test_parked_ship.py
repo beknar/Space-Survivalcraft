@@ -299,3 +299,139 @@ class TestParkedShipSerialization:
         assert ps2.cargo_items[(0, 0)] == ("iron", 99)
         assert ps2.cargo_items[(1, 2)] == ("copper", 15)
         assert ps2.module_slots == ["armor_plate", None, "shield_booster"]
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  AI Pilot module
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestAIPilot:
+    def test_has_ai_pilot_flag_reflects_module_slots(self, parked_ship_l1):
+        ps = parked_ship_l1
+        assert ps.has_ai_pilot is False
+        ps.module_slots = ["armor_plate", None]
+        assert ps.has_ai_pilot is False
+        ps.module_slots.append("ai_pilot")
+        assert ps.has_ai_pilot is True
+
+    def test_update_ai_without_module_is_noop(self, parked_ship_l1, dummy_texture):
+        ps = parked_ship_l1
+        plist = arcade.SpriteList()
+        x0, y0 = ps.center_x, ps.center_y
+        ps.update_ai(1.0, (0.0, 0.0), [], plist, dummy_texture)
+        assert (ps.center_x, ps.center_y) == (x0, y0)
+        assert len(plist) == 0
+
+    def test_update_ai_returns_to_patrol_leash(self, parked_ship_l1, dummy_texture):
+        from constants import AI_PILOT_PATROL_RADIUS
+        ps = parked_ship_l1
+        ps.module_slots = ["ai_pilot"]
+        ps.center_x = 2000.0
+        ps.center_y = 0.0
+        plist = arcade.SpriteList()
+        ps.update_ai(1.0, (0.0, 0.0), [], plist, dummy_texture)
+        # Clamp pins the ship to the leash edge when it strays far outside.
+        import math
+        dist = math.hypot(ps.center_x, ps.center_y)
+        assert dist <= AI_PILOT_PATROL_RADIUS + 0.5
+
+    def test_update_ai_fires_at_target_in_range(self, parked_ship_l1, dummy_texture):
+        ps = parked_ship_l1
+        ps.module_slots = ["ai_pilot"]
+        ps.center_x = 0.0
+        ps.center_y = 0.0
+        # A target sitting close to home AND the ship.
+        target = type("T", (), {"center_x": 120.0, "center_y": 0.0, "hp": 50})()
+        plist = arcade.SpriteList()
+        ps.update_ai(1.0, (0.0, 0.0), [target], plist, dummy_texture)
+        assert len(plist) == 1
+
+    def test_update_ai_nearest_target_selected(self, parked_ship_l1, dummy_texture):
+        ps = parked_ship_l1
+        ps.module_slots = ["ai_pilot"]
+        ps.center_x = 0.0; ps.center_y = 0.0
+        far = type("T", (), {"center_x": 300.0, "center_y": 0.0, "hp": 50})()
+        near = type("T", (), {"center_x": 80.0, "center_y": 0.0, "hp": 50})()
+        plist = arcade.SpriteList()
+        ps.update_ai(0.01, (0.0, 0.0), [far, near], plist, dummy_texture)
+        # After firing, heading should point at the near target (+x = 90 deg).
+        assert 85.0 <= ps.heading <= 95.0
+
+    def test_update_ai_ignores_targets_outside_leash_plus_detect(
+            self, parked_ship_l1, dummy_texture):
+        ps = parked_ship_l1
+        ps.module_slots = ["ai_pilot"]
+        ps.center_x = 0.0; ps.center_y = 0.0
+        # Target is near the ship but extremely far from home.
+        stray = type("T", (), {"center_x": 50.0, "center_y": 0.0,
+                                 "hp": 50})()
+        plist = arcade.SpriteList()
+        ps.update_ai(1.0, (5000.0, 5000.0), [stray], plist, dummy_texture)
+        assert len(plist) == 0  # target rejected as outside leash
+
+    def test_update_ai_no_home_holds_position(self, parked_ship_l1, dummy_texture):
+        ps = parked_ship_l1
+        ps.module_slots = ["ai_pilot"]
+        start = (ps.center_x, ps.center_y)
+        plist = arcade.SpriteList()
+        target = type("T", (), {"center_x": 0.0, "center_y": 0.0, "hp": 50})()
+        ps.update_ai(1.0, None, [target], plist, dummy_texture)
+        assert (ps.center_x, ps.center_y) == start  # no home → no-op
+        assert len(plist) == 0
+
+    def test_update_ai_fire_cooldown_prevents_rapid_shots(
+            self, parked_ship_l1, dummy_texture):
+        from constants import AI_PILOT_FIRE_COOLDOWN
+        ps = parked_ship_l1
+        ps.module_slots = ["ai_pilot"]
+        ps.center_x = 0.0; ps.center_y = 0.0
+        target = type("T", (), {"center_x": 120.0, "center_y": 0.0, "hp": 50})()
+        plist = arcade.SpriteList()
+        ps.update_ai(0.01, (0.0, 0.0), [target], plist, dummy_texture)
+        ps.update_ai(0.01, (0.0, 0.0), [target], plist, dummy_texture)
+        assert len(plist) == 1  # second tick still on cooldown
+        # Tick past the cooldown.
+        ps.update_ai(AI_PILOT_FIRE_COOLDOWN + 0.1,
+                     (0.0, 0.0), [target], plist, dummy_texture)
+        assert len(plist) == 2
+
+    def test_update_ai_approaches_distant_target(
+            self, parked_ship_l1, dummy_texture):
+        from constants import AI_PILOT_SPEED
+        ps = parked_ship_l1
+        ps.module_slots = ["ai_pilot"]
+        ps.center_x = 0.0; ps.center_y = 0.0
+        # Target is far enough that the ship should advance.
+        target = type("T", (), {"center_x": 500.0, "center_y": 0.0,
+                                 "hp": 50})()
+        plist = arcade.SpriteList()
+        ps.update_ai(0.1, (0.0, 0.0), [target], plist, dummy_texture)
+        # Moved roughly AI_PILOT_SPEED * dt along +x.
+        assert ps.center_x > 0.0
+        assert ps.center_x <= AI_PILOT_SPEED * 0.1 + 0.5
+
+    def test_update_ai_skips_dead_targets(self, parked_ship_l1, dummy_texture):
+        ps = parked_ship_l1
+        ps.module_slots = ["ai_pilot"]
+        ps.center_x = 0.0; ps.center_y = 0.0
+        dead = type("T", (), {"center_x": 80.0, "center_y": 0.0, "hp": 0})()
+        plist = arcade.SpriteList()
+        ps.update_ai(0.1, (0.0, 0.0), [dead], plist, dummy_texture)
+        assert len(plist) == 0
+
+    def test_update_ai_no_crash_without_laser_tex(
+            self, parked_ship_l1):
+        ps = parked_ship_l1
+        ps.module_slots = ["ai_pilot"]
+        ps.center_x = 0.0; ps.center_y = 0.0
+        target = type("T", (), {"center_x": 120.0, "center_y": 0.0, "hp": 50})()
+        plist = arcade.SpriteList()
+        ps.update_ai(1.0, (0.0, 0.0), [target], plist, None)
+        assert len(plist) == 0  # no texture → no projectile
+
+    def test_ai_pilot_serialises_with_module_slots(self, parked_ship_l1):
+        ps = parked_ship_l1
+        ps.module_slots = ["ai_pilot", "armor_plate"]
+        assert ps.has_ai_pilot is True
+        # module_slots is the persisted field, which save/load already covers
+        assert "ai_pilot" in ps.module_slots
