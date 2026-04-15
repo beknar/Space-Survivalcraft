@@ -556,14 +556,18 @@ class TestDualVideoInventories:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-#  Real music video helper — uses G:\yvideos\*.mp4
+#  Real music video helper — uses ./yvideos/*.mp4 relative to the project
 # ═══════════════════════════════════════════════════════════════════════════
 
-_MUSIC_VIDEO_DIR = r"G:\yvideos"
+import os as _os_mv
+
+_PROJECT_ROOT_MV = _os_mv.path.abspath(
+    _os_mv.path.join(_os_mv.path.dirname(__file__), "..", ".."))
+_MUSIC_VIDEO_DIR = _os_mv.path.join(_PROJECT_ROOT_MV, "yvideos")
 
 
 def _start_real_music_and_char_or_skip(gv):
-    """Start a real music video from G:\\yvideos AND the character video.
+    """Start a real music video from ./yvideos AND the character video.
     Skips if the directory doesn't exist, has no .mp4 files, or FFmpeg
     can't decode them."""
     import os
@@ -609,7 +613,7 @@ def _start_real_music_and_char_or_skip(gv):
 
 class TestRealMusicVideoZone1:
     def test_real_music_char_video_zone1_above_threshold(self, real_game_view):
-        """Zone 1 gameplay with a REAL music video from G:\\yvideos AND
+        """Zone 1 gameplay with a REAL music video from ./yvideos AND
         the character portrait video. Real music videos are typically
         720p–1080p, much heavier than the 1440×1440 character portraits
         — a harder GPU blit test."""
