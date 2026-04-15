@@ -247,19 +247,14 @@ class GameView(arcade.View):
 
     def _init_aliens(self) -> None:
         """Alien ships, laser textures, and projectile/spark lists."""
-        self.alien_list, _alien_laser_tex = populate_aliens()
+        # populate_aliens hands back the cropped textures so we avoid
+        # re-opening the 5132x4876 Ship.png and 5112x1207 Effects.png
+        # sheets (each ~100 MB RGBA) a second time here.
+        self.alien_list, self._alien_ship_tex, self._alien_laser_tex = (
+            populate_aliens())
         self._asteroid_tex = arcade.load_texture(
             os.path.join(os.path.dirname(os.path.abspath(__file__)),
                          "assets", "Pixel Art Space", "Asteroid.png"))
-        from PIL import Image as PILImage
-        from constants import ALIEN_SHIP_PNG, ALIEN_FX_PNG
-        _pil_ship = PILImage.open(ALIEN_SHIP_PNG).convert("RGBA")
-        self._alien_ship_tex = arcade.Texture(_pil_ship.crop((364, 305, 825, 815)))
-        _pil_ship.close()
-        _pil_fx = PILImage.open(ALIEN_FX_PNG).convert("RGBA")
-        _pil_laser = _pil_fx.crop((4299, 82, 4359, 310))
-        self._alien_laser_tex = arcade.Texture(_pil_laser.rotate(90, expand=True))
-        _pil_fx.close()
         self.alien_projectile_list: arcade.SpriteList = arcade.SpriteList()
         self.hit_sparks: list[HitSpark] = []
         self.fire_sparks: list[FireSpark] = []

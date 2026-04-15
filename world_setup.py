@@ -217,16 +217,42 @@ def load_turret_laser() -> tuple[arcade.Texture, arcade.Sound]:
     return tex, snd
 
 
-def populate_aliens() -> tuple[arcade.SpriteList, arcade.Texture]:
-    """Spawn alien ships randomly across the world. Returns (alien_list, alien_laser_tex)."""
-    _pil_ship = PILImage.open(ALIEN_SHIP_PNG).convert("RGBA")
-    alien_ship_tex = arcade.Texture(_pil_ship.crop((364, 305, 825, 815)))
-    _pil_ship.close()
+_alien_tex_cache: tuple[arcade.Texture, arcade.Texture] | None = None
 
-    _pil_fx = PILImage.open(ALIEN_FX_PNG).convert("RGBA")
-    _pil_laser = _pil_fx.crop((4299, 82, 4359, 310))
-    alien_laser_tex = arcade.Texture(_pil_laser.rotate(90, expand=True))
-    _pil_fx.close()
+
+def populate_aliens() -> tuple[arcade.SpriteList, arcade.Texture, arcade.Texture]:
+    """Spawn alien ships randomly across the world.
+
+    Returns (alien_list, alien_ship_tex, alien_laser_tex). GameView uses
+    the ship + laser textures to spawn respawns without re-cropping the
+    sprite sheet.
+    """
+    # Cache the alien textures — loading the ship/FX sheets via PIL and
+    # cropping raises MemoryError on fragmented heaps when a second
+    # GameView is built (e.g. load-from-save) before the first one's
+    # pixel buffers have been freed.
+    global _alien_tex_cache
+    if _alien_tex_cache is None:
+        # Ship.png is 5132x4876 RGBA (~100 MB decompressed). The earlier
+        # .convert("RGBA") copied the whole buffer a second time which
+        # blew up on fragmented heaps. Both source PNGs are already RGBA,
+        # so open-and-crop without a conversion copy.
+        _pil_ship = PILImage.open(ALIEN_SHIP_PNG)
+        if _pil_ship.mode != "RGBA":
+            _pil_ship = _pil_ship.convert("RGBA")
+        alien_ship_tex = arcade.Texture(
+            _pil_ship.crop((364, 305, 825, 815)).copy())
+        _pil_ship.close()
+
+        _pil_fx = PILImage.open(ALIEN_FX_PNG)
+        if _pil_fx.mode != "RGBA":
+            _pil_fx = _pil_fx.convert("RGBA")
+        _pil_laser = _pil_fx.crop((4299, 82, 4359, 310))
+        alien_laser_tex = arcade.Texture(_pil_laser.rotate(90, expand=True))
+        _pil_fx.close()
+        _alien_tex_cache = (alien_ship_tex, alien_laser_tex)
+    else:
+        alien_ship_tex, alien_laser_tex = _alien_tex_cache
 
     # Aliens move every frame — spatial hash would be rebuilt each tick
     slist = arcade.SpriteList()
@@ -241,4 +267,4 @@ def populate_aliens() -> tuple[arcade.SpriteList, arcade.Texture]:
             continue
         slist.append(SmallAlienShip(alien_ship_tex, alien_laser_tex, ax, ay))
         placed += 1
-    return slist, alien_laser_tex
+    return slist, alien_ship_tex, alien_laser_tex

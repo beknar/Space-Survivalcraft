@@ -361,12 +361,18 @@ class SplashView(arcade.View):
 
     def _do_load(self, slot: int) -> None:
         """Load a saved game and transition to GameView."""
+        import gc
         import json
         path = os.path.join(_SAVE_DIR, f"save_slot_{slot + 1:02d}.json")
         if not os.path.exists(path):
             return
         with open(path, "r") as f:
             data = json.load(f)
+
+        # Reclaim memory from any prior GameView before building a new
+        # one — otherwise PIL crops in populate_aliens/etc can hit
+        # MemoryError on fragmented heaps.
+        gc.collect()
 
         from game_view import GameView
         view = GameView(
