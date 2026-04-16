@@ -85,12 +85,10 @@ class VideoMode(MenuMode):
 
         # Stop Video button
         stop_y = py + 50; abx = px + (MENU_W - MENU_BTN_W) // 2
-        arcade.draw_rect_filled(arcade.LBWH(abx, stop_y, MENU_BTN_W, MENU_BTN_H), (60, 30, 30, 220))
-        arcade.draw_rect_outline(arcade.LBWH(abx, stop_y, MENU_BTN_W, MENU_BTN_H), (180, 60, 60), border_width=1)
-        self.ctx.t_back.text = "Stop Video"
-        self.ctx.t_back.x = abx + MENU_BTN_W // 2; self.ctx.t_back.y = stop_y + MENU_BTN_H // 2
-        self.ctx.t_back.draw()
-
+        from escape_menu._ui import draw_button
+        draw_button((abx, stop_y, MENU_BTN_W, MENU_BTN_H),
+                    self.ctx.t_back, label="Stop Video",
+                    fill=(60, 30, 30, 220), outline=(180, 60, 60))
         draw_back_button(px, py, self.ctx.t_back)
 
     def on_mouse_press(self, x: int, y: int) -> None:

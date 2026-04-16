@@ -78,13 +78,12 @@ class SmallAlienShip(arcade.Sprite):
         self._orbit_dir: int = random.choice((-1, 1))
 
     def _pick_patrol_target(self) -> None:
-        """Choose a fresh random point within the patrol radius."""
-        angle = random.uniform(0.0, math.tau)
-        r = random.uniform(0.0, self._patrol_r)
-        self._tgt_x = max(50.0, min(WORLD_WIDTH - 50.0,
-                                     self._home_x + math.cos(angle) * r))
-        self._tgt_y = max(50.0, min(WORLD_HEIGHT - 50.0,
-                                     self._home_y + math.sin(angle) * r))
+        """Choose a fresh random point within the patrol radius via the
+        shared helper in ``alien_ai``."""
+        from sprites.alien_ai import pick_patrol_target
+        self._tgt_x, self._tgt_y = pick_patrol_target(
+            self._home_x, self._home_y, self._patrol_r,
+            WORLD_WIDTH, WORLD_HEIGHT)
 
     def _pick_escape_target(self, asteroid_list: arcade.SpriteList) -> None:
         """Pick a new patrol target away from the nearest asteroid."""
@@ -117,44 +116,10 @@ class SmallAlienShip(arcade.Sprite):
         alien_list: arcade.SpriteList,
         force_walls: list | None = None,
     ) -> tuple[float, float]:
-        """Return an avoidance-adjusted steering vector from a base direction."""
-        steer_x, steer_y = base_x, base_y
-
-        for asteroid in asteroid_list:
-            adx = self.center_x - asteroid.center_x
-            ady = self.center_y - asteroid.center_y
-            adist = math.hypot(adx, ady)
-            thresh = ALIEN_RADIUS + ASTEROID_RADIUS + ALIEN_AVOIDANCE_RADIUS
-            if 0.0 < adist < thresh:
-                w = ALIEN_AVOIDANCE_FORCE * (1.0 - adist / thresh)
-                steer_x += adx / adist * w
-                steer_y += ady / adist * w
-
-        for other in alien_list:
-            if other is self:
-                continue
-            odx = self.center_x - other.center_x
-            ody = self.center_y - other.center_y
-            odist = math.hypot(odx, ody)
-            thresh = ALIEN_RADIUS * 2.0 + ALIEN_AVOIDANCE_RADIUS
-            if 0.0 < odist < thresh:
-                w = ALIEN_AVOIDANCE_FORCE * (1.0 - odist / thresh)
-                steer_x += odx / odist * w
-                steer_y += ody / odist * w
-
-        # Force walls push aliens away strongly so they route around them.
-        if force_walls:
-            wall_thresh = ALIEN_RADIUS + ALIEN_AVOIDANCE_RADIUS + 30.0
-            for wall in force_walls:
-                cx, cy, wdist = wall.closest_point(self.center_x, self.center_y)
-                if 0.0 < wdist < wall_thresh:
-                    w = ALIEN_AVOIDANCE_FORCE * 2.0 * (1.0 - wdist / wall_thresh)
-                    wdx = self.center_x - cx
-                    wdy = self.center_y - cy
-                    steer_x += wdx / wdist * w
-                    steer_y += wdy / wdist * w
-
-        return steer_x, steer_y
+        """Delegate to the shared avoidance helper in ``alien_ai``."""
+        from sprites.alien_ai import compute_avoidance
+        return compute_avoidance(
+            self, base_x, base_y, asteroid_list, alien_list, force_walls)
 
     def alert(self) -> None:
         """Force this alien into PURSUE state (e.g. player fired nearby)."""

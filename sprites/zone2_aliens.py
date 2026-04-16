@@ -88,40 +88,22 @@ class Zone2Alien(arcade.Sprite):
         self._orbit_dir: int = random.choice((-1, 1))
 
     def _pick_patrol_target(self) -> None:
-        angle = random.uniform(0.0, math.tau)
-        r = random.uniform(0.0, self._patrol_r)
-        self._tgt_x = max(50.0, min(self._world_w - 50.0,
-                                     self._home_x + math.cos(angle) * r))
-        self._tgt_y = max(50.0, min(self._world_h - 50.0,
-                                     self._home_y + math.sin(angle) * r))
+        from sprites.alien_ai import pick_patrol_target
+        self._tgt_x, self._tgt_y = pick_patrol_target(
+            self._home_x, self._home_y, self._patrol_r,
+            self._world_w, self._world_h)
 
     def _compute_avoidance(
         self, base_x: float, base_y: float,
         asteroid_list: arcade.SpriteList,
         force_walls: list | None = None,
     ) -> tuple[float, float]:
-        """Return avoidance-adjusted steering from a base direction."""
-        steer_x, steer_y = base_x, base_y
-        thresh = ALIEN_RADIUS + ASTEROID_RADIUS + ALIEN_AVOIDANCE_RADIUS
-        for asteroid in asteroid_list:
-            adx = self.center_x - asteroid.center_x
-            ady = self.center_y - asteroid.center_y
-            adist = math.hypot(adx, ady)
-            if 0.0 < adist < thresh:
-                w = ALIEN_AVOIDANCE_FORCE * (1.0 - adist / thresh)
-                steer_x += adx / adist * w
-                steer_y += ady / adist * w
-        if force_walls:
-            wall_thresh = ALIEN_RADIUS + ALIEN_AVOIDANCE_RADIUS + 30.0
-            for wall in force_walls:
-                cx, cy, wdist = wall.closest_point(self.center_x, self.center_y)
-                if 0.0 < wdist < wall_thresh:
-                    w = ALIEN_AVOIDANCE_FORCE * 2.0 * (1.0 - wdist / wall_thresh)
-                    wdx = self.center_x - cx
-                    wdy = self.center_y - cy
-                    steer_x += wdx / wdist * w
-                    steer_y += wdy / wdist * w
-        return steer_x, steer_y
+        """Delegate to the shared avoidance helper in ``alien_ai``.
+        Zone 2 aliens don't repel each other, so pass an empty
+        alien_list."""
+        from sprites.alien_ai import compute_avoidance
+        return compute_avoidance(
+            self, base_x, base_y, asteroid_list, (), force_walls)
 
     def alert(self) -> None:
         if self._state == self._STATE_PATROL:

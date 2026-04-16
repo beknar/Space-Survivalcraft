@@ -62,3 +62,33 @@ def btn_at(x: int, y: int, rects: list[tuple[int, int, int, int]]) -> int:
 def point_in_rect(x: int, y: int, rect: tuple[int, int, int, int]) -> bool:
     rx, ry, rw, rh = rect
     return rx <= x <= rx + rw and ry <= y <= ry + rh
+
+
+def draw_button(
+    rect: tuple[int, int, int, int],
+    t_label: arcade.Text | None = None,
+    label: str | None = None,
+    *,
+    fill: tuple[int, int, int, int] = (40, 40, 70, 220),
+    outline: tuple[int, int, int] = arcade.color.STEEL_BLUE,
+    border_width: int = 1,
+) -> None:
+    """Draw the canonical escape-menu button: filled rect + outline +
+    centred label.  Every sub-mode used to open-code this pattern;
+    factoring it here keeps the mode drawers short and ensures the
+    fill/outline colours stay consistent.
+
+    ``rect`` is ``(x, y, w, h)`` in LBWH form.  When ``t_label`` is a
+    pooled ``arcade.Text`` pass ``label`` to update its text in place;
+    pass ``t_label=None`` to skip the label entirely.
+    """
+    rx, ry, rw, rh = rect
+    arcade.draw_rect_filled(arcade.LBWH(rx, ry, rw, rh), fill)
+    arcade.draw_rect_outline(arcade.LBWH(rx, ry, rw, rh),
+                             outline, border_width=border_width)
+    if t_label is not None:
+        if label is not None and t_label.text != label:
+            t_label.text = label
+        t_label.x = rx + rw // 2
+        t_label.y = ry + rh // 2
+        t_label.draw()

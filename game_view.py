@@ -73,9 +73,36 @@ class GameView(arcade.View):
         self._ship_level: int = ship_level
 
         # Sectioned init — each helper sets up one cohesive group of state
-        # so the constructor stays scannable. Order matters: textures and
-        # sprite lists must exist before overlays consume them, the HUD
-        # must exist before zone setup may flash messages, etc.
+        # so the constructor stays scannable.
+        #
+        # Order-of-operations contract (read top-to-bottom):
+        #
+        #   player_and_camera      → player sprite, cameras, world bounds
+        #   abilities_and_effects  → ability meter, cooldowns (no deps)
+        #   text_overlays          → flash-message / level-up Text objects
+        #   input_devices          → key set, joystick, mouse state
+        #   weapons_and_audio      → weapon list, bump/explosion sounds,
+        #                            iron texture  — needed by inventories
+        #   world_entities         → asteroid + alien sprite lists + their
+        #                            textures  — needed by BuildMenu tests
+        #                            that iterate alien_list during a tick
+        #   boss_and_wormholes     → boss state placeholders + wormhole list
+        #   consumable_textures    → repair-pack / shield-recharge icons —
+        #                            inventories embed them next step
+        #   inventories            → Inventory, StationInventory (consume
+        #                            consumable_textures + iron tex)
+        #   buildings_and_overlays → building textures, TradeMenu,
+        #                            CraftMenu, BuildMenu (need inventories
+        #                            for iron totals)
+        #   world_state            → respawn timers, fog grid, GC tuning
+        #   hud                    → HUD + minimap (needs character video +
+        #                            module slot count from inventories)
+        #   video_and_menus        → EscapeMenu, VideoPlayer (after HUD so
+        #                            they can flash into the status panel)
+        #   zones                  → MainZone + Zone2 + warp zones
+        #                            (transition_zone expects every prior
+        #                            step already run — in particular the
+        #                            HUD, the TradeMenu and the fog grid)
         self._init_player_and_camera(faction)
         self._init_abilities_and_effects()
         self._init_text_overlays()

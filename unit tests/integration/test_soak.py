@@ -24,42 +24,19 @@ import pytest
 
 from constants import WORLD_WIDTH, WORLD_HEIGHT
 from zones import ZoneID
-
-# ── Configuration ──────────────────────────────────────────────────────────
-
-SOAK_DURATION_S = 300       # 5 minutes
-SAMPLE_INTERVAL_S = 30      # measure FPS + memory every 30 seconds
-MIN_FPS = 40                # fail if FPS drops below this
-MAX_MEMORY_GROWTH_MB = 50   # fail if RSS grows more than this
-FRAMES_PER_SAMPLE = 60      # frames to measure per FPS sample
-WARMUP_FRAMES = 30          # warmup before first measurement
-
-
-def _get_rss_mb() -> float:
-    """Current process RSS in megabytes."""
-    return psutil.Process(os.getpid()).memory_info().rss / (1024 * 1024)
-
-
-def _measure_fps_quick(gv, n: int = FRAMES_PER_SAMPLE) -> float:
-    """Quick FPS sample without warmup (soak tests warm up separately)."""
-    from integration.conftest import measure_fps
-    return measure_fps(gv, n_warmup=0, n_measure=n)
-
-
-def _make_invulnerable(gv) -> None:
-    """Make the player effectively unkillable for the duration of a soak
-    test. Without this, aliens kill the player within ~30 seconds of
-    continuous combat, and the test spends the remaining 4.5 minutes in
-    the death-screen state — measuring nothing useful."""
-    gv.player.max_hp = 999999
-    gv.player.hp = 999999
-    gv.player.max_shields = 999999
-    gv.player.shields = 999999
+from integration._soak_base import (
+    SOAK_DURATION_S, SAMPLE_INTERVAL_S, MIN_FPS, MAX_MEMORY_GROWTH_MB,
+    FRAMES_PER_SAMPLE, WARMUP_FRAMES,
+    get_rss_mb as _get_rss_mb,
+    measure_fps_quick as _measure_fps_quick,
+    make_invulnerable as _make_invulnerable,
+    run_soak,
+)
 
 
 def _setup_soak(gv, zone_id=None) -> None:
-    """Common soak test setup: transition to zone and make invulnerable.
-    If zone_id is None, stays in current zone."""
+    """Transition to ``zone_id`` (if given) and make the player
+    invulnerable for the duration of a soak test."""
     if zone_id is not None:
         if zone_id == ZoneID.MAIN and gv._zone.zone_id != ZoneID.MAIN:
             gv._transition_zone(ZoneID.MAIN, entry_side="wormhole_return")
@@ -69,13 +46,9 @@ def _setup_soak(gv, zone_id=None) -> None:
 
 
 def _simulate_churn(gv, dt: float) -> None:
-    """One tick of simulated gameplay with entity churn.
-
-    Fires a projectile, advances all entities, and lets the normal
-    update loop handle deaths/respawns/pickups. This generates the
-    steady-state object creation + destruction that real gameplay does.
-    Also heals the player each tick to prevent death during the soak.
-    """
+    """One tick of simulated gameplay with entity churn — fires a
+    projectile, advances every entity, heals the player each tick to
+    prevent death during the soak."""
     gv.player.hp = gv.player.max_hp
     gv.player.shields = gv.player.max_shields
     gv._keys.add(arcade.key.SPACE)  # hold fire
@@ -85,74 +58,11 @@ def _simulate_churn(gv, dt: float) -> None:
 
 
 def _run_soak(gv, label: str, min_fps: int = MIN_FPS) -> None:
-    """Core soak loop: warmup, then measure FPS + memory every
-    SAMPLE_INTERVAL_S seconds for SOAK_DURATION_S total."""
-    dt = 1 / 60
-
-    # Warmup
-    for _ in range(WARMUP_FRAMES):
-        _simulate_churn(gv, dt)
-
-    # Baseline measurements
-    fps_start = _measure_fps_quick(gv)
-    mem_start = _get_rss_mb()
-    print(f"\n  [{label}] START: {fps_start:.1f} FPS, {mem_start:.0f} MB RSS")
-
-    fps_samples: list[float] = [fps_start]
-    mem_samples: list[float] = [mem_start]
-    fps_min = fps_start
-
-    soak_start = time.perf_counter()
-    last_sample = soak_start
-    frame_count = 0
-
-    while True:
-        elapsed_total = time.perf_counter() - soak_start
-        if elapsed_total >= SOAK_DURATION_S:
-            break
-
-        # Simulate ~1 second of gameplay between samples (60 frames)
-        for _ in range(60):
-            _simulate_churn(gv, dt)
-            frame_count += 1
-
-        # Sample every SAMPLE_INTERVAL_S
-        now = time.perf_counter()
-        if now - last_sample >= SAMPLE_INTERVAL_S:
-            fps = _measure_fps_quick(gv)
-            mem = _get_rss_mb()
-            fps_samples.append(fps)
-            mem_samples.append(mem)
-            fps_min = min(fps_min, fps)
-            elapsed_min = elapsed_total / 60
-            print(f"  [{label}] {elapsed_min:.1f}m: "
-                  f"{fps:.1f} FPS, {mem:.0f} MB RSS "
-                  f"(+{mem - mem_start:.1f} MB)")
-            last_sample = now
-
-    # Final measurement
-    fps_end = _measure_fps_quick(gv)
-    mem_end = _get_rss_mb()
-    fps_samples.append(fps_end)
-    mem_samples.append(mem_end)
-    fps_min = min(fps_min, fps_end)
-    mem_growth = mem_end - mem_start
-
-    print(f"  [{label}] END: {fps_end:.1f} FPS, {mem_end:.0f} MB RSS")
-    print(f"  [{label}] Summary: min FPS={fps_min:.1f}, "
-          f"mem growth={mem_growth:+.1f} MB, "
-          f"frames={frame_count}")
-
-    # Assertions
-    assert fps_min >= min_fps, (
-        f"{label}: FPS dropped to {fps_min:.1f} "
-        f"(threshold: {min_fps})"
-    )
-    assert mem_growth <= MAX_MEMORY_GROWTH_MB, (
-        f"{label}: memory grew by {mem_growth:.1f} MB "
-        f"(threshold: {MAX_MEMORY_GROWTH_MB} MB). "
-        f"Start={mem_start:.0f} MB, End={mem_end:.0f} MB"
-    )
+    """Thin wrapper that hands the combat-churn tick to the shared
+    ``run_soak`` loop in ``_soak_base``. Preserves the legacy
+    ``(gv, label, min_fps)`` signature used by every test class below."""
+    run_soak(gv, label, lambda dt: _simulate_churn(gv, dt),
+             min_fps=min_fps)
 
 
 # ═══════════════════════════════════════════════════════════════════════════

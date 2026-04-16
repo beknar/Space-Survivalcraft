@@ -24,6 +24,26 @@ _SAVE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "saves")
 
 # ── Serialization helpers ──────────────────────────────────────────────────
 
+# ── Codec pairs ───────────────────────────────────────────────────────────
+# Every entity that participates in save/load has a ``_serialize_X``
+# helper below and a matching ``_restore_X`` helper further down the
+# file. Keep these two tables aligned whenever fields are added; the
+# pairing is manual because the restore functions often need a factory
+# closure that pulls textures off the GameView.
+#
+#   entity           serialize                   restore
+#   ------           ---------                   -------
+#   Asteroid         _serialize_asteroid         _restore_z1_asteroids
+#   Small alien      _serialize_alien            _restore_z1_aliens
+#   Zone-2 alien     _serialize_z2_alien         _restore_z2_aliens_into
+#   Building         _serialize_building         _restore_z2_buildings
+#   Iron pickup      _serialize_pickup           (inline in load_game)
+#   Boss             _serialize_boss             _restore_boss
+#   Wormhole         _serialize_wormhole         _restore_wormholes
+#   Trade station    _serialize_trade_station    (inline in load_game)
+#   Parked ship      _serialize_parked_ships     _restore_parked_ships
+# ──────────────────────────────────────────────────────────────────────────
+
 def _serialize_asteroid(a) -> dict:
     return {"x": a.center_x, "y": a.center_y, "hp": a.hp}
 
@@ -37,14 +57,30 @@ def _serialize_alien(al) -> dict:
     }
 
 
+_Z2_ALIEN_TYPE_LOOKUP: dict | None = None
+
+
+def _z2_alien_type_name(al) -> str:
+    """Look up the string tag ('shielded' / 'fast' / 'gunner' / 'rammer')
+    for a Zone 2 alien instance. Lazily builds the type→tag map so the
+    zone2_aliens module stays at import-time cost only."""
+    global _Z2_ALIEN_TYPE_LOOKUP
+    if _Z2_ALIEN_TYPE_LOOKUP is None:
+        from sprites.zone2_aliens import (
+            ShieldedAlien, FastAlien, GunnerAlien, RammerAlien)
+        _Z2_ALIEN_TYPE_LOOKUP = {
+            ShieldedAlien: "shielded",
+            FastAlien: "fast",
+            GunnerAlien: "gunner",
+            RammerAlien: "rammer",
+        }
+    return _Z2_ALIEN_TYPE_LOOKUP.get(type(al), "shielded")
+
+
 def _serialize_z2_alien(al) -> dict:
-    from sprites.zone2_aliens import (
-        ShieldedAlien, FastAlien, GunnerAlien, RammerAlien)
-    _TYPE_MAP = {ShieldedAlien: "shielded", FastAlien: "fast",
-                 GunnerAlien: "gunner", RammerAlien: "rammer"}
-    atype = _TYPE_MAP.get(type(al), "shielded")
+    # Zone-2 aliens share the base alien record plus a type tag + shields.
     d = _serialize_alien(al)
-    d.update(type=atype, shields=al.shields)
+    d.update(type=_z2_alien_type_name(al), shields=al.shields)
     return d
 
 

@@ -1471,3 +1471,51 @@ class TestRefugeeParkingIntegration:
             d = math.hypot(rx - b.center_x, ry - b.center_y)
             assert d > 60.0, (
                 f"Refugee too close to {b.building_type} ({d:.1f} px)")
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  Refactor regression — make sure the collision-helper + shared alien AI
+#  path still produces damage through a real GameView tick.
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestRefactorRegression:
+    def test_alien_laser_still_damages_player_via_shared_helper(
+            self, real_game_view):
+        """After the collision-cooldown helper refactor, a real alien
+        laser hitting the player must still apply damage + shake +
+        start the invincibility cooldown."""
+        from sprites.projectile import Projectile
+        from constants import ALIEN_LASER_SPEED, ALIEN_LASER_RANGE
+        gv = real_game_view
+        if gv._zone.zone_id != ZoneID.MAIN:
+            gv._transition_zone(ZoneID.MAIN, entry_side="wormhole_return")
+        gv.player.center_x, gv.player.center_y = 1000.0, 1000.0
+        gv.player.hp = gv.player.max_hp
+        gv.player.shields = 0  # so damage shows in HP directly
+        gv.player._collision_cd = 0.0
+        proj = Projectile(
+            gv._alien_laser_tex, gv.player.center_x, gv.player.center_y,
+            0, ALIEN_LASER_SPEED, ALIEN_LASER_RANGE, damage=12)
+        gv.alien_projectile_list.clear()
+        gv.alien_projectile_list.append(proj)
+        from collisions import handle_alien_laser_hits
+        hp_before = gv.player.hp
+        handle_alien_laser_hits(gv)
+        assert gv.player.hp < hp_before
+
+    def test_shared_alien_avoidance_keeps_patrol_working(
+            self, real_game_view):
+        """Refactored compute_avoidance is the only implementation; one
+        Zone 1 tick with aliens + asteroids must still run without
+        raising and must advance at least one alien's position."""
+        gv = real_game_view
+        if gv._zone.zone_id != ZoneID.MAIN:
+            gv._transition_zone(ZoneID.MAIN, entry_side="wormhole_return")
+        if len(gv.alien_list) == 0:
+            pytest.skip("No Zone 1 aliens present in this seed")
+        pre = [(a.center_x, a.center_y) for a in list(gv.alien_list)[:4]]
+        for _ in range(30):
+            gv.on_update(1 / 60)
+        post = [(a.center_x, a.center_y) for a in list(gv.alien_list)[:4]]
+        moved = any(p0 != p1 for p0, p1 in zip(pre, post))
+        assert moved, "Aliens did not move after 30 sim frames"

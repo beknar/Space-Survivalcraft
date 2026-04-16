@@ -78,14 +78,11 @@ class ConfigMode(MenuMode):
 
         # Save button
         abx = px + (MENU_W - MENU_BTN_W) // 2; save_y = py + 50
-        arcade.draw_rect_filled(arcade.LBWH(abx, save_y, MENU_BTN_W, MENU_BTN_H),
-                                (30, 60, 30, 220))
-        arcade.draw_rect_outline(arcade.LBWH(abx, save_y, MENU_BTN_W, MENU_BTN_H),
-                                 arcade.color.LIME_GREEN, border_width=1)
-        self.ctx.t_back.text = "Save Config"
-        self.ctx.t_back.x = abx + MENU_BTN_W // 2; self.ctx.t_back.y = save_y + MENU_BTN_H // 2
-        self.ctx.t_back.draw()
-
+        from escape_menu._ui import draw_button
+        draw_button((abx, save_y, MENU_BTN_W, MENU_BTN_H),
+                    self.ctx.t_back, label="Save Config",
+                    fill=(30, 60, 30, 220),
+                    outline=arcade.color.LIME_GREEN)
         draw_back_button(px, py, self.ctx.t_back)
 
     def _draw_cfg_slider(self, x: int, y: int, w: int, value: float) -> None:

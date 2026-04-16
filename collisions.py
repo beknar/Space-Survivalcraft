@@ -155,11 +155,7 @@ def handle_ship_asteroid_collision(gv: GameView) -> None:
             continue
         nx, ny = contact
         reflect_velocity(gv.player, nx, ny, SHIP_BOUNCE)
-        if gv.player._collision_cd <= 0.0:
-            gv._apply_damage_to_player(SHIP_COLLISION_DAMAGE)
-            gv.player._collision_cd = SHIP_COLLISION_COOLDOWN
-            arcade.play_sound(gv._bump_snd, volume=0.5)
-            gv._trigger_shake()
+        _hit_player_on_cooldown(gv, SHIP_COLLISION_DAMAGE, volume=0.5)
 
 
 def handle_alien_player_collision(gv: GameView) -> None:
@@ -184,11 +180,7 @@ def handle_alien_player_collision(gv: GameView) -> None:
         if alien._col_cd <= 0.0:
             alien._col_cd = ALIEN_COL_COOLDOWN
             alien.collision_bump()
-        if gv.player._collision_cd <= 0.0:
-            gv._apply_damage_to_player(SHIP_COLLISION_DAMAGE)
-            gv.player._collision_cd = SHIP_COLLISION_COOLDOWN
-            arcade.play_sound(gv._bump_snd, volume=0.4)
-            gv._trigger_shake()
+        _hit_player_on_cooldown(gv, SHIP_COLLISION_DAMAGE, volume=0.4)
 
 
 def handle_alien_asteroid_collision(gv: GameView) -> None:
@@ -263,9 +255,37 @@ def handle_alien_laser_hits(gv: GameView) -> None:
     for proj in list(gv.alien_projectile_list):
         if arcade.check_for_collision(proj, gv.player):
             proj.remove_from_sprite_lists()
+            # Alien lasers bypass the invincibility cooldown (they fire
+            # rapidly and the design is that each bolt hurts).
             gv._apply_damage_to_player(int(proj.damage))
             gv._trigger_shake()
             arcade.play_sound(gv._bump_snd, volume=0.3)
+
+
+def _hit_player_on_cooldown(
+    gv: GameView, damage: int, volume: float = 0.4,
+    cooldown: float | None = None, shake: bool = True,
+) -> bool:
+    """Apply ``damage`` to the player on the shared invincibility
+    cooldown pattern. Returns True when the hit landed (False when
+    the player is still on cooldown from a previous collision).
+
+    Six collision handlers used to repeat the same four-line block —
+    check cooldown → apply damage → reset cooldown → play bump sound +
+    shake. Centralising it keeps every collision site shorter and
+    guarantees identical behaviour (e.g. a future tweak to shake
+    duration only has to land here).
+    """
+    if gv.player._collision_cd > 0.0:
+        return False
+    gv._apply_damage_to_player(int(damage))
+    gv.player._collision_cd = (
+        cooldown if cooldown is not None else SHIP_COLLISION_COOLDOWN)
+    if volume > 0.0:
+        arcade.play_sound(gv._bump_snd, volume=volume)
+    if shake:
+        gv._trigger_shake()
+    return True
 
 
 def _station_shield_absorbs(gv: GameView, proj) -> bool:
@@ -497,11 +517,7 @@ def handle_boss_player_collision(gv: GameView) -> None:
     if boss._col_cd <= 0.0:
         boss._col_cd = BOSS_COLLISION_COOLDOWN
         boss.collision_bump()
-    if gv.player._collision_cd <= 0.0:
-        gv._apply_damage_to_player(BOSS_COLLISION_DAMAGE)
-        gv.player._collision_cd = SHIP_COLLISION_COOLDOWN
-        arcade.play_sound(gv._bump_snd, volume=0.6)
-        gv._trigger_shake()
+    _hit_player_on_cooldown(gv, BOSS_COLLISION_DAMAGE, volume=0.6)
 
 
 def handle_boss_building_hits(gv: GameView) -> None:
@@ -541,16 +557,12 @@ def handle_boss_charge_hit(gv: GameView) -> None:
     dy = boss.center_y - gv.player.center_y
     dist = math.hypot(dx, dy)
     if dist < BOSS_RADIUS + SHIP_RADIUS:
-        if gv.player._collision_cd <= 0.0:
-            gv._apply_damage_to_player(int(BOSS_CHARGE_DAMAGE))
-            gv.player._collision_cd = SHIP_COLLISION_COOLDOWN
-            # Knock player back hard
+        if _hit_player_on_cooldown(gv, int(BOSS_CHARGE_DAMAGE), volume=0.8):
+            # Knock player back hard on the charge hit.
             if dist > 0.0:
                 nx, ny = -dx / dist, -dy / dist
                 gv.player.vel_x += nx * 400.0
                 gv.player.vel_y += ny * 400.0
-            arcade.play_sound(gv._bump_snd, volume=0.8)
-            gv._trigger_shake()
 
 
 # ── Parked ship collision handlers ────────────────────────────────────────
