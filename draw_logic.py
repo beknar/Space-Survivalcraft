@@ -37,11 +37,30 @@ def _draw_parked_ship_shields(gv: GameView) -> None:
 
 
 def _draw_station_shield(gv: GameView) -> None:
-    """Draw the station-wide shield bubble if a Shield Generator is up
-    and the shield hasn't been depleted."""
+    """Draw the station shield as a near-invisible fill (for the
+    hit-flash) plus a solid-looking circle outline border.
+
+    The sprite renders at alpha ~15 so the interior is barely
+    perceptible; the real visual is the outline ring drawn on top at
+    full tint colour with moderate alpha so the border looks solid
+    while the interior stays clean."""
     if (getattr(gv, "_station_shield_list", None) is not None
             and getattr(gv, "_station_shield_hp", 0) > 0):
         gv._station_shield_list.draw()
+        # Solid-looking border ring.
+        s = gv._station_shield_sprite
+        r = gv._station_shield_radius
+        if s is not None and r > 0:
+            tr, tg, tb = s._tint
+            # Base border is solid; flash makes it brighter.
+            border_alpha = 200 if s._hit_timer <= 0 else 255
+            arcade.draw_circle_outline(
+                s.center_x, s.center_y, r,
+                (tr, tg, tb, border_alpha), border_width=3)
+            # A faint second ring just inside for a subtle glow edge.
+            arcade.draw_circle_outline(
+                s.center_x, s.center_y, r - 4,
+                (tr, tg, tb, border_alpha // 3), border_width=2)
 
 
 def draw_background(

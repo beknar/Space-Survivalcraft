@@ -449,15 +449,17 @@ def update_entities(gv: GameView, dt: float) -> None:
 
 def _station_outer_radius(gv: GameView, home) -> float:
     """Return the furthest distance from the Home Station to any other
-    connected building — used to size both the station shield and the
-    refugee's parking spot."""
+    connected building's EDGE — used to size both the station shield and
+    the refugee's parking spot. Adds ``BUILDING_RADIUS`` so the measured
+    radius covers the full visual extent, not just building centres."""
     import math as _math
+    from constants import BUILDING_RADIUS
     r = 0.0
     hx, hy = home.center_x, home.center_y
     for b in gv.building_list:
         if b is home:
             continue
-        d = _math.hypot(b.center_x - hx, b.center_y - hy)
+        d = _math.hypot(b.center_x - hx, b.center_y - hy) + BUILDING_RADIUS
         if d > r:
             r = d
     return r
@@ -490,7 +492,7 @@ def update_station_shield(gv: GameView, dt: float) -> None:
     if gv._station_shield_sprite is None:
         tint = faction_shield_tint(gv._faction)
         frames = get_shield_frames()
-        sprite = ShieldSprite(frames, tint=tint, scale=1.0)
+        sprite = ShieldSprite(frames, tint=tint, scale=1.0, alpha=15)
         sprite.center_x = home.center_x
         sprite.center_y = home.center_y
         gv._station_shield_sprite = sprite
@@ -537,7 +539,7 @@ def update_refugee_npc(gv: GameView, dt: float) -> None:
     # the Home Station by (station_outer_radius + padding).
     from constants import NPC_REFUGEE_HOLD_DIST as _NPC_BASE_HOLD
     _NPC_PARK_HOLD = 24.0     # stop within this of the parking spot
-    _NPC_PARK_PAD = 70.0      # extra clearance from the outermost building
+    _NPC_PARK_PAD = 120.0     # extra clearance from the outermost building edge
 
     def _parking_spot(gv_: GameView, home_) -> tuple[float, float]:
         outer = _station_outer_radius(gv_, home_) + _NPC_PARK_PAD
