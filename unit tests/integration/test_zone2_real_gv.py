@@ -1359,6 +1359,10 @@ def _spawn_station(gv):
     tex = gv._building_textures["Home Station"]
     gv.building_list.append(
         create_building("Home Station", tex, cx, cy, scale=0.5))
+    # Park the player at the station so on_update doesn't accidentally
+    # trigger a wormhole transition (wormhole spawns near center too).
+    gv.player.center_x = cx
+    gv.player.center_y = cy + 300
     return cx, cy
 
 
