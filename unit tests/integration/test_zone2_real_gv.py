@@ -1229,6 +1229,186 @@ class TestRefugeeNPCIntegration:
         assert gv._dialogue.open is False
         assert gv._quest_flags == {}
 
+    def test_refugee_dialogue_opens_on_click_for_ellie(self, real_game_view):
+        """Clicking the refugee as Ellie opens the full Kratos arc
+        (intro has choices, not a one-shot end node)."""
+        from settings import audio
+        from sprites.building import create_building
+        from sprites.npc_ship import RefugeeNPCShip
+        from constants import WORLD_WIDTH, WORLD_HEIGHT
+        gv = real_game_view
+        gv._transition_zone(ZoneID.ZONE2)
+
+        gv.building_list.clear()
+        tex = gv._building_textures["Home Station"]
+        gv.building_list.append(create_building(
+            "Home Station", tex,
+            WORLD_WIDTH / 2, WORLD_HEIGHT / 2, scale=0.5))
+
+        gv.player.center_x = WORLD_WIDTH / 2
+        gv.player.center_y = WORLD_HEIGHT / 2
+        gv._refugee_npc = RefugeeNPCShip(
+            gv.player.center_x + 80, gv.player.center_y,
+            (gv.player.center_x, gv.player.center_y))
+        gv._refugee_spawned = True
+
+        audio.character_name = "Ellie"
+
+        rx = gv._refugee_npc.center_x
+        ry = gv._refugee_npc.center_y
+        sx = rx - (gv.world_cam.position[0] - gv.window.width / 2)
+        sy = ry - (gv.world_cam.position[1] - gv.window.height / 2)
+
+        import arcade
+        gv.on_mouse_press(int(sx), int(sy), arcade.MOUSE_BUTTON_LEFT, 0)
+        assert gv._dialogue.open is True
+        assert gv._met_refugee is True
+        intro = gv._dialogue._tree[gv._dialogue._tree["start"]]
+        # Ellie now has a full branching tree like Debra — not a stub.
+        assert "choices" in intro
+        assert len(intro["choices"]) >= 3
+
+    def test_ellie_dialogue_full_walk_sets_kratos_quest(
+            self, real_game_view):
+        """Walking Ellie's tree to the shared ending must merge the
+        Kratos-quest aftermath flags into gv._quest_flags."""
+        from settings import audio
+        from sprites.building import create_building
+        from sprites.npc_ship import RefugeeNPCShip
+        from constants import WORLD_WIDTH, WORLD_HEIGHT
+        gv = real_game_view
+        gv._transition_zone(ZoneID.ZONE2)
+
+        gv.building_list.clear()
+        tex = gv._building_textures["Home Station"]
+        gv.building_list.append(create_building(
+            "Home Station", tex,
+            WORLD_WIDTH / 2, WORLD_HEIGHT / 2, scale=0.5))
+        gv.player.center_x = WORLD_WIDTH / 2
+        gv.player.center_y = WORLD_HEIGHT / 2
+        gv._refugee_npc = RefugeeNPCShip(
+            gv.player.center_x + 80, gv.player.center_y,
+            (gv.player.center_x, gv.player.center_y))
+        gv._refugee_spawned = True
+        audio.character_name = "Ellie"
+
+        rx = gv._refugee_npc.center_x
+        ry = gv._refugee_npc.center_y
+        sx = rx - (gv.world_cam.position[0] - gv.window.width / 2)
+        sy = ry - (gv.world_cam.position[1] - gv.window.height / 2)
+        import arcade
+        gv.on_mouse_press(int(sx), int(sy), arcade.MOUSE_BUTTON_LEFT, 0)
+
+        # Walk the first-choice spine to the shared `ending` node.
+        for _ in range(200):
+            if not gv._dialogue.open:
+                break
+            node = gv._dialogue._current_node()
+            if node is None:
+                gv._dialogue.close()
+                break
+            if node.get("choices"):
+                gv._dialogue._pick(0)
+            else:
+                gv._dialogue._advance()
+        assert gv._dialogue.open is False
+        assert gv._quest_flags.get("ellie_quest_dismantle_kratos") is True
+
+    def test_refugee_dialogue_opens_on_click_for_tara(self, real_game_view):
+        """Clicking the refugee as Tara opens the full Dead Zone arc
+        (intro is linear into a 3-choice branch at s1_4)."""
+        from settings import audio
+        from sprites.building import create_building
+        from sprites.npc_ship import RefugeeNPCShip
+        from constants import WORLD_WIDTH, WORLD_HEIGHT
+        gv = real_game_view
+        gv._transition_zone(ZoneID.ZONE2)
+
+        gv.building_list.clear()
+        tex = gv._building_textures["Home Station"]
+        gv.building_list.append(create_building(
+            "Home Station", tex,
+            WORLD_WIDTH / 2, WORLD_HEIGHT / 2, scale=0.5))
+
+        gv.player.center_x = WORLD_WIDTH / 2
+        gv.player.center_y = WORLD_HEIGHT / 2
+        gv._refugee_npc = RefugeeNPCShip(
+            gv.player.center_x + 80, gv.player.center_y,
+            (gv.player.center_x, gv.player.center_y))
+        gv._refugee_spawned = True
+
+        audio.character_name = "Tara"
+
+        rx = gv._refugee_npc.center_x
+        ry = gv._refugee_npc.center_y
+        sx = rx - (gv.world_cam.position[0] - gv.window.width / 2)
+        sy = ry - (gv.world_cam.position[1] - gv.window.height / 2)
+
+        import arcade
+        gv.on_mouse_press(int(sx), int(sy), arcade.MOUSE_BUTTON_LEFT, 0)
+        assert gv._dialogue.open is True
+        assert gv._met_refugee is True
+        # Tara's tree opens linear (speaker-intro + a few beats), then
+        # hits `s1_4` with 3 choices. Advance until we see the branch.
+        saw_choices = False
+        for _ in range(10):
+            if not gv._dialogue.open:
+                break
+            node = gv._dialogue._current_node()
+            if node is None:
+                break
+            if node.get("choices"):
+                saw_choices = len(node["choices"]) >= 3
+                break
+            gv._dialogue._advance()
+        assert saw_choices, (
+            "Tara's tree should reach a 3-choice branch within the intro")
+
+    def test_tara_dialogue_full_walk_sets_dead_zone_quest(
+            self, real_game_view):
+        """Walking Tara's tree to the shared ending must merge the
+        Dead Zone aftermath flags into gv._quest_flags."""
+        from settings import audio
+        from sprites.building import create_building
+        from sprites.npc_ship import RefugeeNPCShip
+        from constants import WORLD_WIDTH, WORLD_HEIGHT
+        gv = real_game_view
+        gv._transition_zone(ZoneID.ZONE2)
+
+        gv.building_list.clear()
+        tex = gv._building_textures["Home Station"]
+        gv.building_list.append(create_building(
+            "Home Station", tex,
+            WORLD_WIDTH / 2, WORLD_HEIGHT / 2, scale=0.5))
+        gv.player.center_x = WORLD_WIDTH / 2
+        gv.player.center_y = WORLD_HEIGHT / 2
+        gv._refugee_npc = RefugeeNPCShip(
+            gv.player.center_x + 80, gv.player.center_y,
+            (gv.player.center_x, gv.player.center_y))
+        gv._refugee_spawned = True
+        audio.character_name = "Tara"
+
+        rx = gv._refugee_npc.center_x
+        ry = gv._refugee_npc.center_y
+        sx = rx - (gv.world_cam.position[0] - gv.window.width / 2)
+        sy = ry - (gv.world_cam.position[1] - gv.window.height / 2)
+        import arcade
+        gv.on_mouse_press(int(sx), int(sy), arcade.MOUSE_BUTTON_LEFT, 0)
+
+        for _ in range(300):
+            if not gv._dialogue.open:
+                break
+            node = gv._dialogue._current_node()
+            if node is None:
+                gv._dialogue.close()
+                break
+            if node.get("choices"):
+                gv._dialogue._pick(0)
+            else:
+                gv._dialogue._advance()
+        assert gv._dialogue.open is False
+        assert gv._quest_flags.get("tara_quest_dead_zone") is True
+
     def test_refugee_is_invulnerable(self, real_game_view):
         from sprites.npc_ship import RefugeeNPCShip
         gv = real_game_view

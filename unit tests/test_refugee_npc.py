@@ -81,6 +81,89 @@ class TestDialogueTreeStructure:
         # At least one end should be reached somewhere in the tree.
         assert any(t[nid].get("end") for nid in visited)
 
+    def test_ellie_tree_is_reachable_end_to_end(self):
+        """Every path from start reaches an ``end`` node. Every
+        ``next`` or choice ``next`` points at a node that exists."""
+        from dialogue.ellie_refugee import ELLIE_REFUGEE_TREE as t
+        start = t["start"]
+        assert start in t
+        visited = set()
+
+        def walk(node_id):
+            if node_id in visited:
+                return
+            visited.add(node_id)
+            node = t[node_id]
+            if node.get("end"):
+                return
+            if "choices" in node:
+                for ch in node["choices"]:
+                    nxt = ch["next"]
+                    assert nxt in t, f"choice next '{nxt}' missing"
+                    walk(nxt)
+                return
+            nxt = node.get("next")
+            assert nxt in t, f"next '{nxt}' missing for {node_id}"
+            walk(nxt)
+
+        walk(start)
+        assert any(t[nid].get("end") for nid in visited)
+        # Every non-start node should be reachable — no orphaned beats.
+        unreachable = set(t.keys()) - visited - {"start"}
+        assert not unreachable, f"Orphaned Ellie nodes: {unreachable}"
+
+    def test_ellie_tree_aftermath_sets_quest_flags(self):
+        """The terminal ``end`` node must set the Kratos-quest aftermath
+        flags so ending the overlay actually activates the mission."""
+        from dialogue.ellie_refugee import ELLIE_REFUGEE_TREE as t
+        end_nodes = [n for n in t.values() if isinstance(n, dict)
+                     and n.get("end")]
+        assert end_nodes, "Ellie tree has no terminal node"
+        aftermaths = [n.get("aftermath") or {} for n in end_nodes]
+        # At least one end must activate the Kratos quest.
+        assert any(a.get("ellie_quest_dismantle_kratos")
+                   for a in aftermaths)
+
+    def test_tara_tree_is_reachable_end_to_end(self):
+        """Every path from start reaches an ``end`` node. Every
+        ``next`` or choice ``next`` points at a node that exists,
+        and no node is orphaned."""
+        from dialogue.tara_refugee import TARA_REFUGEE_TREE as t
+        start = t["start"]
+        assert start in t
+        visited = set()
+
+        def walk(node_id):
+            if node_id in visited:
+                return
+            visited.add(node_id)
+            node = t[node_id]
+            if node.get("end"):
+                return
+            if "choices" in node:
+                for ch in node["choices"]:
+                    nxt = ch["next"]
+                    assert nxt in t, f"choice next '{nxt}' missing"
+                    walk(nxt)
+                return
+            nxt = node.get("next")
+            assert nxt in t, f"next '{nxt}' missing for {node_id}"
+            walk(nxt)
+
+        walk(start)
+        assert any(t[nid].get("end") for nid in visited)
+        unreachable = set(t.keys()) - visited - {"start"}
+        assert not unreachable, f"Orphaned Tara nodes: {unreachable}"
+
+    def test_tara_tree_aftermath_sets_dead_zone_quest(self):
+        """The terminal node must activate the Dead Zone quest flag."""
+        from dialogue.tara_refugee import TARA_REFUGEE_TREE as t
+        end_nodes = [n for n in t.values() if isinstance(n, dict)
+                     and n.get("end")]
+        assert end_nodes, "Tara tree has no terminal node"
+        aftermaths = [n.get("aftermath") or {} for n in end_nodes]
+        assert any(a.get("tara_quest_dead_zone") for a in aftermaths)
+
     def test_get_refugee_tree_per_character(self):
         from dialogue import get_refugee_tree
         assert "start" in get_refugee_tree("Debra")

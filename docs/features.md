@@ -186,7 +186,18 @@
     choices that converge into a shared climax and a quest-activation
     aftermath (`find_ken`, `aliens_revealed`, `objective: Explore beyond
     the Nebula Zone`)
-  - **Ellie** / **Tara** --- short placeholder lines (full trees pending)
+  - **Ellie** --- six-scene conspiracy thriller about the Kratos
+    Corporation behind the Falling Star incident, the death of Dr.
+    Marcus Chen, and the frozen-assets cover-up that turned her into a
+    fugitive. Three major branches converge on an ending that activates
+    the `ellie_quest_dismantle_kratos` quest and flips her status from
+    fugitive to active operative
+  - **Tara** --- five-scene archaeological thriller at her research
+    station. Kratos operatives raided her science ship hunting for
+    artifacts tied to an extinct civilisation the locals call "The
+    Killers". Ending activates the `tara_quest_dead_zone` quest,
+    flips her status to unauthorised expedition leader, and exposes
+    the Kratos conspiracy to suppress The Killers research
 - Number keys (1-4) or left-click pick a choice; SPACE/ENTER advances
   linear beats; ESC closes without committing quest flags
 - Conversation state (met, quest flags, ship position) persists through

@@ -138,8 +138,27 @@ the active character:
   at Command has admitted to. The scene closes with Debra declaring
   she is going beyond the Nebula to find whoever — whatever — took Ken,
   activating the "Find Ken" quest hook.
-- **Ellie Solver / Tara Ozora** — short placeholder exchanges while
-  their bespoke trees are still being written.
+- **Ellie Kobayashi** — Kael arrives at her safe house and learns the
+  truth behind the Falling Star incident: Kratos Corporation orchestrated
+  the hijacking to silence Dr. Marcus Chen, and they've since frozen
+  Ellie's assets, destroyed her reputation, and made her a ghost. Ellie
+  hands over Chen's encrypted data chip — evidence of Kratos's illegal
+  experiments, black-site locations, and names across military,
+  government, and corporate registries — and recruits Kael into a plan
+  to intercept Kratos's next extraction operation three weeks out. The
+  scene ends with the "Dismantle Kratos" quest active and Ellie's
+  status shifting from fugitive to active operative.
+- **Tara O'Connor** — Kael arrives at her outer-sector archaeological
+  research station and finds her analysing an ancient crystalline
+  artifact. Tara reveals that the raid on her science ship was a
+  Kratos Corporation operation — the same conspiracy Ellie uncovered.
+  Kratos is hunting the ruins of an extinct civilisation the locals
+  call "The Killers" and has lost three expeditions to a region known
+  as the Dead Zone, which Tara's star maps point to. Rather than run,
+  Tara plans an unauthorised expedition into the Dead Zone to confront
+  what Kratos fears — as a scientist, not a soldier. The scene ends
+  with the "Explore the Dead Zone" quest active, Kael choosing not to
+  stop her, and the Kratos conspiracy exposed from a second angle.
 
 The meeting flag and any aftermath flags (quest activation, objective
 text, the "aliens are real" revelation) are persisted with the save.

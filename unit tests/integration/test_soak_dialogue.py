@@ -93,11 +93,62 @@ class TestSoakDebraTreeExhaustive:
                  _make_dialogue_churn(gv, _rotating_choice))
 
 
+class TestSoakEllieDialogue:
+    def test_ellie_dialogue_tree_5min_soak(self, real_game_view):
+        """Ellie's full Kratos-conspiracy tree walked along the
+        first-choice spine for 5 minutes. Exercises the data-chip
+        nested sub-branch path and the aftermath flush for the
+        `ellie_quest_dismantle_kratos` quest activation."""
+        gv = real_game_view
+        _setup_refugee_zone2(gv, "Ellie")
+        run_soak(gv, "Dialogue (Ellie spine)",
+                 _make_dialogue_churn(gv, _first_choice))
+
+
+class TestSoakEllieTreeExhaustive:
+    def test_ellie_tree_every_branch_5min_soak(self, real_game_view):
+        """Rotating first-choice index exercises every branch of
+        Ellie's tree across the 5-minute duration — including the
+        scene-2 Command-compromised branch and scene-4's nested
+        data-chip sub-branches."""
+        gv = real_game_view
+        _setup_refugee_zone2(gv, "Ellie")
+        run_soak(gv, "Dialogue (Ellie exhaustive)",
+                 _make_dialogue_churn(gv, _rotating_choice))
+
+
+class TestSoakTaraDialogue:
+    def test_tara_dialogue_tree_5min_soak(self, real_game_view):
+        """Tara's full Dead-Zone archaeological-thriller tree walked
+        along the first-choice spine for 5 minutes. Catches leaks in
+        the linear-heavy beats (scene 2 has seven sequential lines)
+        and the shared `ending` aftermath flush for
+        `tara_quest_dead_zone`."""
+        gv = real_game_view
+        _setup_refugee_zone2(gv, "Tara")
+        run_soak(gv, "Dialogue (Tara spine)",
+                 _make_dialogue_churn(gv, _first_choice))
+
+
+class TestSoakTaraTreeExhaustive:
+    def test_tara_tree_every_branch_5min_soak(self, real_game_view):
+        """Rotating first-choice index exercises every branch of Tara's
+        five-scene tree — scene-1's artifacts/civilisation/Killers
+        branch, scene-2's Kratos theory, scene-3's Dead Zone hostility,
+        scene-4's approach, and scene-5's closing alliance."""
+        gv = real_game_view
+        _setup_refugee_zone2(gv, "Tara")
+        run_soak(gv, "Dialogue (Tara exhaustive)",
+                 _make_dialogue_churn(gv, _rotating_choice))
+
+
 class TestSoakDialogueCharacterRotation:
     def test_dialogue_rotates_all_three_characters_5min_soak(
             self, real_game_view):
         """Rotate the active character each time the overlay closes so
-        Debra / Ellie / Tara trees all churn."""
+        Debra / Ellie / Tara full trees all churn alternately across
+        the soak. Catches leaks tied to switching between tree modules
+        (e.g. caches keyed on character name)."""
         from settings import audio
         gv = real_game_view
         _setup_refugee_zone2(gv, "Debra")
