@@ -229,6 +229,25 @@ All ships start at world centre. Ships rendered at 0.75x scale (96 px in-game). 
 | Laser speed | 650 px/s (`AI_PILOT_LASER_SPEED`) |
 | Laser range | 700 px (`AI_PILOT_LASER_RANGE`) |
 | "At base" threshold | 100 px (`AI_PILOT_HOME_ARRIVAL_DIST`) |
+| Shield tint | `(255, 220, 80)` yellow (`ShieldSprite`, alpha 200) |
+| Shield regen | 0.5× the ship type's base `shield_regen` |
+
+---
+
+## Station Shield
+
+| Property | Value |
+|---|---|
+| Spawn trigger | First Shield Generator placed + Home Station present |
+| HP | 100 (`STATION_SHIELD_HP`) |
+| Radius formula | `station_outer_radius(home) + STATION_SHIELD_PADDING` |
+| Padding | 80 px (`STATION_SHIELD_PADDING`) |
+| Station outer radius | max building `hypot(dx,dy) + BUILDING_RADIUS` |
+| Damage absorb | `collisions._station_shield_absorbs` (alien laser + boss projectile) |
+| Interior alpha | 15 (`ShieldSprite` fill; nearly invisible) |
+| Border | 3 px faction-tint `draw_circle_outline`, alpha 200 idle, 255 on hit-flash |
+| Inner glow ring | 2 px ring 4 px inside border at 1/3 border alpha |
+| Persistence | `station_shield_hp` + `station_shield_max_hp` serialised |
 
 ---
 
@@ -238,7 +257,8 @@ All ships start at world centre. Ships rendered at 0.75x scale (96 px in-game). 
 |---|---|
 | Spawn trigger | First Shield Generator built while in Zone 2 |
 | Approach speed | 140 px/s (`NPC_REFUGEE_APPROACH_SPEED`) |
-| Hold distance from Home Station | 220 px (`NPC_REFUGEE_HOLD_DIST`) |
+| Parking spot | `(home.x + station_outer_radius + 120, home.y)` |
+| Parking hold distance | 24 px |
 | Player interact range | 320 px (`NPC_REFUGEE_INTERACT_DIST`) |
 | Label | "Double Star Refugee" |
 | Damage | None — NPC is invulnerable |

@@ -920,8 +920,15 @@ surprise a reader of the core rules:
   returns to base after firing when no other enemies are in range.
 - **Double Star Refugee** — building a Shield Generator in the Nebula
   triggers an invulnerable NPC scout ship that flies in from the
-  right, holds 220 px from the Home Station, and opens a per-character
-  dialogue tree when clicked (Debra gets the full Ken-Tamashii arc;
-  Ellie/Tara are stubs).
+  right, parks just outside the station's outermost building edge
+  (station outer radius + 120 px), and opens a per-character dialogue
+  tree when clicked (Debra gets the full Ken-Tamashii arc; Ellie/Tara
+  are stubs).
+- **Station shield** — the Shield Generator also activates a
+  faction-tinted energy bubble centred on the Home Station with 100
+  HP. The sprite fill is nearly invisible (alpha 15); the visual is a
+  solid circle-outline border drawn on top of the sprite plus a faint
+  inner glow ring. Alien lasers and boss projectiles are absorbed
+  before they reach any building.
 
 See `ROADMAP.md` for the full chronology of shipped features.

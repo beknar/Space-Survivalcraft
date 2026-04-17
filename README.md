@@ -23,6 +23,8 @@ A top-down space survival game built with Python and the Arcade framework. Pilot
 - **Multi-ship system** --- upgrade ships via build menu placement; old ship persists in the world with its own HP, cargo, and modules; click a parked ship to switch control; hover a parked ship for an HP tooltip; ships take damage from any source and drop cargo on destruction
 - **AI Pilot module** --- craft at the Advanced Crafter (800 iron + 400 copper) and drag-install it onto a parked ship; the ship orbits the Home Station, engages enemies within 600 px, and returns to base after firing when no other enemies remain
 - **Story encounter** --- building a Shield Generator in the Nebula triggers the Double Star Refugee (Scout Kael Vox); click the ship within 320 px to open a character-specific branching conversation tree. Debra's tree is a full five-scene arc uncovering the disappearance of Ken Tamashii
+- **Station shield** --- placing a Shield Generator activates a faction-tinted bubble that absorbs alien + boss projectiles before they reach buildings. Renders as a solid circle-outline border (plus a faint interior glow) that grows with the station; refugee NPC auto-parks beyond the station's outermost building edge with generous clearance
+- **AI Pilot parked-ship shield** --- AI-piloted parked ships carry a yellow shield bubble that regenerates at half the ship's normal rate so the fleet can sustain patrol damage while the player is off elsewhere
 - **12 ship modules** crafted from blueprint drops (armor, engine, shield, absorber, broadside, and advanced modules)
 - **5x5 cargo inventory** and **10x10 station inventory** with drag-and-drop
 - **Trading station** for buying and selling items with credits; scrollable sell panel, fixed buy catalog, and hold-to-sell for rapid unloading
@@ -83,7 +85,7 @@ The [ROADMAP](ROADMAP.md) tracks shipped features in chronological order alongsi
 ## Running Tests
 
 ```bash
-# Fast suite (469 tests, ~1.5s)
+# Fast suite (493 tests, ~2s)
 python -m pytest "unit tests/" -v
 
 # Integration tests (131 tests — requires an Arcade window)
@@ -93,7 +95,7 @@ python -m pytest "unit tests/integration/" -v
 python -m pytest "unit tests/integration/test_soak.py" -v
 ```
 
-469 fast unit tests covering player physics, weapons, asteroids, aliens, pickups, blueprints, shields, explosions, contrails, inventory (incl. render-cache dirty flag and badge texture cache), damage routing, buildings, ship modules (inc. AI Pilot patrol/return behaviour), parked ships, respawn, fog of war, video scanning, settings, collision physics primitives, save-restore helpers, zone-aware Station Info world stats, Zone 2 update loop branches, CPU microbenchmarks, and the refugee NPC + dialogue tree. 131 integration tests cover full-frame FPS thresholds (inc. trade sell/buy panel in both zones with both videos running, buy↔sell churn, AI Pilot fleets, refugee NPC spawn + dialogue click flow, patrol/return integration), GPU rendering microbenchmarks, resolution scaling across all 6 presets, and 5-minute soak/endurance tests measuring FPS and RSS stability (inc. AI Pilot patrol cycle and dialogue churn). 600 tests total. Linted with [ruff](https://docs.astral.sh/ruff/) (`ruff.toml` — bug-focused rules).
+493 fast unit tests covering player physics, weapons, asteroids, aliens, pickups, blueprints, shields, explosions, contrails, inventory (incl. render-cache dirty flag and badge texture cache), damage routing, buildings, ship modules (inc. AI Pilot patrol/return behaviour), parked ships, refugee NPC + dialogue tree, station shield absorb helper, respawn, fog of war, video scanning, settings, collision physics primitives + `_hit_player_on_cooldown` helper, save-restore helpers, shared alien-AI helpers (`compute_avoidance` / `pick_patrol_target`), zone-aware Station Info world stats, Zone 2 update loop branches, and CPU microbenchmarks. 144 integration tests cover full-frame FPS thresholds (inc. trade sell/buy panel × zones × {no video, both videos}, buy↔sell churn, AI Pilot fleets, station-shield combat, shielded-fleet + station-shield pairing, refugee NPC spawn + dialogue click flow, patrol/return integration), GPU rendering microbenchmarks, resolution scaling across all 6 presets, and 5-minute soak/endurance tests measuring FPS and RSS stability (inc. AI Pilot patrol cycle, dialogue churn, station shield cycle, shared scaffolding). 637 tests total. Linted with [ruff](https://docs.astral.sh/ruff/) (`ruff.toml` — bug-focused rules).
 
 ## Project Structure
 
@@ -164,7 +166,7 @@ Space Survivalcraft/
 │   ├── parked_ship.py   # ParkedShip (multi-ship + AI pilot)
 │   └── npc_ship.py      # RefugeeNPCShip (story encounter)
 ├── zones/               # Zone state machine (9 zone files incl. zone2_world.py)
-├── unit tests/          # 469 fast tests + 131 integration tests (600 total)
+├── unit tests/          # 493 fast tests + 144 integration tests (637 total)
 ├── docs/                # Full game documentation
 ├── characters/          # Character videos and portraits
 ├── docs/game-rules.md   # Comprehensive rules reference

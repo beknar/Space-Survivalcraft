@@ -1,4 +1,17 @@
 
+the original prompt for the conversation tree generation:
+
+generate a conversation tree.  the scene is this: Debra Wildstar is talking to an NPC military scout named 
+'Kael Vox'.  Debra Wildstar was the Hero of the Falling Sword, a ship that was taken hostage by radical 
+dissidents.  After making sure she saved everyone, she left because she couldn't save her fiance', a 
+young man named "Ken Tamashii'.  Kael has been sent from the Double Star system to look for survivors 
+in the outer sectors, but he doesn't know that the outer sectors, like the Nebula Zone have been taken 
+over by aliens with unknown motivations.  Kael does have a message for Debra: Ken Tamashii's body has 
+disappeared for unknown reasons.  The funeral never happened and the body was guarded.  It hasn't been 
+found in the Inner Core System.  Debra's reaction is extreme and she demands all the information the 
+scout has.  Eventually, Debra leaves, but she can come back for more information.
+
+
 NPC story encounter in the nebula zone - once the character has built the shield 
 generator, an NPC encounter is triggered
 asset: 
@@ -220,4 +233,7 @@ AFTERMATH STATE:
 - Return Point: Debra may contact Kael from the deep sectors
 - Foreshadowing: Something significant exists beyond known space
 - Story Hook: Debra is now pursuing a singular, dangerous goal
+
+
+
 

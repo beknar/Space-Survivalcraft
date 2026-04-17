@@ -352,13 +352,41 @@ Triggered when player enters 500 px, or player weapon fires within 160 px (4x sh
 
 ---
 
+## Station Shield
+
+- **Spawn trigger**: the first `Shield Generator` placed while a Home
+  Station exists spawns a faction-tinted `ShieldSprite` centred on the
+  Home Station with `STATION_SHIELD_HP` (100)
+- **Radius**: `station_outer_radius(home) + STATION_SHIELD_PADDING`
+  (80 px), recomputed every tick so it grows with the station.
+  `station_outer_radius` counts each building's edge (centre distance
+  + `BUILDING_RADIUS`, 30 px)
+- **Damage absorb**: `collisions._station_shield_absorbs` runs before
+  alien-laser-vs-building and boss-projectile-vs-building collision.
+  Any enemy projectile within the shield disk has its `damage` bled
+  from `_station_shield_hp`, is consumed, and triggers a hit-flash.
+  Buildings only take damage once shield HP hits zero
+- **Rendering**: the `ShieldSprite` is drawn at alpha 15 (interior
+  glow only) and a solid 3 px `arcade.draw_circle_outline` at the
+  shield radius is layered on top — alpha 200 idle, spiking to 255
+  during the 0.2 s hit-flash. A second 2 px ring 4 px inside the
+  border at 1/3 alpha adds a subtle edge glow
+- **Persistence**: `station_shield_hp` + `station_shield_max_hp` are
+  serialised; restore re-materialises the sprite on the next
+  `update_station_shield` tick as long as a Shield Generator is
+  still present
+
 ## Story Encounter — Double Star Refugee
 
 - **Spawn trigger**: placing the first `Shield Generator` in Zone 2
   while a Home Station exists spawns `RefugeeNPCShip` once per save
-- Spawns at the right edge of the Nebula, flies toward the Home Station
-  at `NPC_REFUGEE_APPROACH_SPEED` (140 px/s), and holds at
-  `NPC_REFUGEE_HOLD_DIST` (220 px) from it
+- Spawns at the right edge of the Nebula, flies toward a **parking
+  spot** at `(home.x + station_outer_radius + 120, home.y)` at
+  `NPC_REFUGEE_APPROACH_SPEED` (140 px/s), and holds when within 24 px
+  of that spot. `station_outer_radius` measures from the Home Station
+  to the furthest building's *edge* (distance to centre plus
+  `BUILDING_RADIUS`, 30 px), so the ship never overlaps any building
+  regardless of station size
 - Invulnerable (take_damage is a no-op); hovering surfaces the
   "Double Star Refugee" label
 - Left-clicking the ship while the player is within

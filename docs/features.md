@@ -155,12 +155,28 @@
 - Hold LMB on a sell row to tick off one unit every 0.15 s
 - Shown on minimap as a bright yellow square
 
+## Station Shield
+
+- Placing a **Shield Generator** spawns a faction-tinted energy bubble
+  centred on the Home Station
+- **100 shield HP** (`STATION_SHIELD_HP`) absorbs alien lasers and boss
+  projectiles before they reach any building
+- Sized dynamically to cover every connected building — scales from
+  the outermost building's edge + `STATION_SHIELD_PADDING` (80 px)
+- Rendered as a **solid circle-outline border** (3 px, faction tint,
+  alpha 200 idle / 255 on hit-flash) with a faint inner glow ring and
+  a nearly-invisible interior fill — the bubble's inside stays
+  readable while the perimeter remains clearly visible
+- HP + max-HP persist through save/load; the sprite respawns on next
+  tick once the Shield Generator still exists
+
 ## Story Encounter --- Double Star Refugee
 
 - Building a **Shield Generator** in the Nebula zone triggers the arrival
   of **Scout Kael Vox** in his orange Double Star scout ship
 - The ship enters from the right edge of the map, approaches the Home
-  Station, and holds position 220 px away
+  Station, and parks just outside the station's outermost building
+  edge (station outer radius + 120 px) with no overlap
 - Invulnerable --- no damage from enemies, player weapons, or collisions
 - Hovering the mouse over the ship shows a **"Double Star Refugee"** label
 - Click the ship within 320 px to open a **branching conversation tree**

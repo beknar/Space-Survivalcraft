@@ -250,6 +250,38 @@ feature's merging commit.
       instead of idling, and flips to `return` mode after firing when
       no other enemies are in range (resumes patrol on base arrival).
       5 new unit + 3 integration + 2 soak tests. (`7e7490d`)
+- [x] **Station shield + AI yellow shield + refugee parks outside
+      station** — first Shield Generator build spawns a faction-tinted
+      bubble over the Home Station (100 HP, absorbs alien + boss
+      projectiles before they reach buildings, scales with station
+      extent). AI-piloted parked ships now carry their own yellow
+      shield bubble with half-rate regen. Refugee NPC's parking spot
+      moved outside the station's outermost building edge. 10+ new
+      unit + 5 integration + 1 soak test. (`47b7f6c`)
+
+### 2026-04-15 — Refactor pass + shield polish
+
+- [x] **Refactor pass 1-7** — shared soak scaffolding, collision
+      cooldown helper, shared alien AI module, escape-menu button
+      helper, save codec documentation, GameView init ordering
+      contract, constants_paths.py re-export surface. 14 unit + 2
+      integration + 1 soak test lock in the new helpers. (`b294a4d`)
+- [x] **Station shield border-only visual** — `ShieldSprite` now
+      accepts an `alpha` constructor parameter; station shield uses
+      alpha 15 for a near-invisible fill with a solid 3 px circle-
+      outline border drawn on top. `_station_outer_radius` now counts
+      building *edges* (centre + `BUILDING_RADIUS`); refugee parking
+      pad grew 70 → 120 px. (`ba3f466`)
+- [x] **Flaky-test fix (PR #7)** — `_spawn_station` parks the player
+      300 px from world centre so Zone 2's wormhole can't auto-
+      transition them mid-test. (`ffb2997`)
+
+### 2026-04-16 — Documentation pass
+
+- [x] Refresh README, docs/, CLAUDE, and ROADMAP for every change
+      since 2026-04-14: station shield + refugee parking + shielded
+      AI fleet + refactor-pass helpers + updated test counts
+      (493 fast / 144 integration / 637 total).
 
 ## Future features (from README)
 
