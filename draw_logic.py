@@ -420,6 +420,15 @@ def _null_field_positions(
             for nf in active_null_fields(gv)]
 
 
+def _slipspace_positions(gv: GameView) -> list[tuple[float, float]]:
+    """Return (x, y) for every slipspace in the active zone — used
+    by the minimap.  ``active_slipspaces`` already enforces the
+    "non-warp zones only" rule so warp zones get an empty list."""
+    from update_logic import active_slipspaces
+    ss_list = active_slipspaces(gv)
+    return [(ss.center_x, ss.center_y) for ss in ss_list]
+
+
 def _gas_positions(gv: GameView) -> list[tuple[float, float, float]]:
     """Return gas area (x, y, radius) for minimap (Zone 2 and gas warp zone)."""
     # Zone 2: use cached positions
@@ -474,6 +483,7 @@ def draw_ui(gv: GameView) -> None:
         gas_always_visible=_gas_always_visible(gv),
         parked_ship_positions=[(ps.center_x, ps.center_y) for ps in gv._parked_ships],
         null_field_positions=_null_field_positions(gv),
+        slipspace_positions=_slipspace_positions(gv),
     )
     # Video frame draws (skip when menu open)
     if not menu_open:

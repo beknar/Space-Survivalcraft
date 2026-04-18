@@ -89,6 +89,7 @@ def draw_minimap(
     gas_always_visible: bool = False,
     parked_ship_positions: list[tuple[float, float]] | None = None,
     null_field_positions: list[tuple[float, float, float, bool]] | None = None,
+    slipspace_positions: list[tuple[float, float]] | None = None,
 ) -> None:
     """Draw a scaled overview of the world inside the status panel."""
     global _fog_cache_tex, _fog_cache_revealed, _fog_cache_grid_id
@@ -276,6 +277,22 @@ def draw_minimap(
             arcade.draw_points(nf_active, (230, 230, 255, 240), 3)
         if nf_disabled:
             arcade.draw_points(nf_disabled, (240, 60, 60, 240), 3)
+
+    # Slipspace teleporters (cyan diamond markers).  Always visible
+    # regardless of fog so the player can plan jumps before exploring
+    # an area — same convention as null fields.  Note: in warp zones
+    # ``active_slipspaces`` returns [] so this is naturally empty.
+    if slipspace_positions:
+        ss_pts: list[tuple[float, float]] = []
+        for spx, spy in slipspace_positions:
+            ss_pts.append((mx + spx * sx_w, my + spy * sy_h))
+        if ss_pts:
+            # Bright cyan core + soft halo so they stand out from
+            # parked-ship teal and null-field white.
+            arcade.draw_points(ss_pts, (120, 220, 255, 240), 5)
+            for sxm, sym in ss_pts:
+                arcade.draw_circle_outline(
+                    sxm, sym, 4.5, (180, 240, 255, 200), 1)
 
     # Parked ships (teal dots)
     if parked_ship_positions:

@@ -10,13 +10,24 @@ import arcade as _arcade_mod
 if TYPE_CHECKING:
     pass
 
-# Panel dimensions
+# Panel dimensions.
+# _PANEL_H was bumped from 490 -> 580 on 2026-04-18 because the
+# world-stats list grew to 7 rows in Zone 2 once NULL FIELDS was
+# added, pushing the bottom row off the panel.  580 fits 14 building
+# lines + footer + 8 stat lines comfortably.  See _STAT_BASELINE
+# below for the stats anchor.
 _PANEL_W = 280
-_PANEL_H = 490
+_PANEL_H = 580
 _PANEL_PAD = 12
 _LINE_H = 22
 _MAX_LINES = 14  # max building lines in pool
 _MAX_STAT_LINES = 8  # max world-stat lines in pool
+# Stats are drawn ABOVE the footer.  Top of the stat region is at
+# py + _STAT_BASELINE; row i lives at py + _STAT_BASELINE - i*18.
+# With baseline=200 and 8 rows, the bottom row is at py + 74 (well
+# above the panel floor at py).
+_STAT_BASELINE = 200
+_FOOTER_Y = 24             # was 100 — moved to the panel floor
 
 # Inactive zones panel (drawn to the left of the main panel)
 _IZ_PANEL_W = 240
@@ -53,19 +64,22 @@ class StationInfo:
                 arcade.color.WHITE, 10,
             ))
 
-        # Footer: modules used / capacity
+        # Footer: modules used / capacity (sits at the very bottom of
+        # the panel so the stat region above can grow without clipping).
         self._t_footer = arcade.Text(
             "",
             self._px + _PANEL_W // 2,
-            self._py + 20,
+            self._py + _FOOTER_Y,
             arcade.color.LIGHT_GRAY, 11, bold=True,
             anchor_x="center", anchor_y="center",
         )
 
-        # World stats — pool of generic stat lines (label + count)
+        # World stats — pool of generic stat lines (label + count).
+        # Anchored above the footer so 8 rows always fit inside the
+        # panel; row i is at py + _STAT_BASELINE - i*18.
         self._t_stats: list[arcade.Text] = []
         for i in range(_MAX_STAT_LINES):
-            y = self._py + 80 - i * 18
+            y = self._py + _STAT_BASELINE - i * 18
             self._t_stats.append(arcade.Text(
                 "", self._px + _PANEL_PAD, y,
                 (200, 200, 200), 11,
@@ -186,20 +200,20 @@ class StationInfo:
                     t.color = new_color
                 t.draw()
 
-        # Footer
+        # Footer (panel floor)
         self._t_footer.x = self._px + _PANEL_W // 2
-        self._t_footer.y = self._py + 100
+        self._t_footer.y = self._py + _FOOTER_Y
         new_footer = f"Modules: {self._modules_used} / {self._module_capacity} used"
         if self._t_footer.text != new_footer:
             self._t_footer.text = new_footer
         self._t_footer.draw()
 
-        # World stats — render up to _MAX_STAT_LINES rows
+        # World stats — render up to _MAX_STAT_LINES rows above footer
         for i, t in enumerate(self._t_stats):
             if i < len(self._stat_lines):
                 label, count, color = self._stat_lines[i]
                 t.x = self._px + _PANEL_PAD
-                t.y = self._py + 80 - i * 18
+                t.y = self._py + _STAT_BASELINE - i * 18
                 new_text = f"{label:<11} {count:>5}"
                 if t.text != new_text:
                     t.text = new_text

@@ -157,3 +157,42 @@ class TestComputeWorldStatsNullFields:
         )
         stats = compute_world_stats(gv)
         assert "NULL FIELDS" not in _labels(stats)
+
+    def test_zone1_always_includes_null_fields_row_even_when_zero(self):
+        """The user reported "null fields are not noted on the T menu".
+        The row must ALWAYS be in the stat list for MAIN, even when
+        the count is zero, so the player can see the system exists."""
+        gv = _fake_gv_zone1()
+        # Don't set _null_fields — active_null_fields falls back to []
+        stats = compute_world_stats(gv)
+        assert "NULL FIELDS" in _labels(stats)
+
+    def test_zone2_always_includes_null_fields_row_even_when_zero(self):
+        gv = _fake_gv_zone2()
+        # Don't set zone._null_fields
+        stats = compute_world_stats(gv)
+        assert "NULL FIELDS" in _labels(stats)
+
+    def test_zone2_full_stat_list_fits_panel(self):
+        """Stat list returned for a fully-populated Zone 2 must fit in
+        the StationInfo panel pool (_MAX_STAT_LINES).  If we add more
+        stat rows than the panel can render, the bottom ones get
+        silently dropped."""
+        from station_info import _MAX_STAT_LINES
+        zone = SimpleNamespace(
+            zone_id=ZoneID.ZONE2,
+            _iron_asteroids=[None] * 75,
+            _double_iron=[None] * 15,
+            _copper_asteroids=[None] * 75,
+            _wanderers=[None] * 15,
+            _gas_areas=[None] * 30,
+            _aliens=[None] * 60,
+            _null_fields=[object()] * 30,
+        )
+        gv = SimpleNamespace(_zone=zone, _boss=None,
+                             asteroid_list=[], alien_list=[])
+        stats = compute_world_stats(gv)
+        assert len(stats) <= _MAX_STAT_LINES, (
+            f"Zone 2 returns {len(stats)} stat rows but the StationInfo "
+            f"pool only renders the first {_MAX_STAT_LINES}")
+        assert "NULL FIELDS" in _labels(stats)

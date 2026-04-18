@@ -2010,3 +2010,66 @@ class TestVideoPlayerStopChurnFps:
                 f"VideoPlayer cleanup queue churn: {fps:.1f} FPS < {MIN_FPS}")
         finally:
             VideoPlayer._pending_cleanup = prior
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  T-menu + slipspace minimap rendering — must not drop below threshold
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestStationInfoOpenInZone2Fps:
+    """Open the T menu in the Nebula (worst case — 7 stat rows + 16
+    buildings + inactive-zone panel) and run the FPS measurement loop.
+    Catches the case where a future StationInfo redraw refactor
+    accidentally re-creates Text objects every frame."""
+
+    def test_t_menu_open_zone2_above_threshold(self, real_game_view):
+        from station_info import StationInfo
+        from draw_logic import (
+            compute_world_stats, compute_inactive_zone_stats,
+        )
+        gv = real_game_view
+        gv._transition_zone(ZoneID.ZONE2)
+        info = StationInfo()
+        info.toggle(
+            gv.building_list, 0, 0,
+            stat_lines=compute_world_stats(gv),
+            inactive_zone_stats=compute_inactive_zone_stats(gv),
+        )
+        # Replace gv._station_info temporarily so the regular draw
+        # path picks it up — but easier to just measure manually.
+        import time as _time
+        dt = 1 / 60
+        for _ in range(10):
+            gv.on_update(dt)
+            gv.on_draw()
+            info.draw()
+        n = 60
+        t0 = _time.perf_counter()
+        for _ in range(n):
+            gv.on_update(dt)
+            gv.on_draw()
+            info.draw()
+        elapsed = _time.perf_counter() - t0
+        fps = n / elapsed if elapsed > 0 else 999.0
+        print(f"  [perf] zone2 + T menu open: {fps:.1f} FPS")
+        assert fps >= MIN_FPS, (
+            f"Zone 2 with T menu open: {fps:.1f} FPS < {MIN_FPS}")
+
+
+class TestSlipspaceMinimapDrawFps:
+    """Adding 15 slipspace markers per zone to the minimap is a few
+    extra draw_points + draw_circle_outline calls per frame.  Make
+    sure that doesn't regress measurable FPS."""
+
+    def test_zone2_with_slipspace_markers_above_threshold(
+            self, real_game_view):
+        gv = real_game_view
+        gv._transition_zone(ZoneID.ZONE2)
+        # Sanity: live zone has slipspaces populated.
+        from draw_logic import _slipspace_positions
+        assert len(_slipspace_positions(gv)) > 0
+        fps = _measure_fps(gv)
+        print(f"  [perf] zone2 with slipspace markers: {fps:.1f} FPS")
+        assert fps >= MIN_FPS, (
+            f"Zone 2 minimap with slipspace markers: "
+            f"{fps:.1f} FPS < {MIN_FPS}")
