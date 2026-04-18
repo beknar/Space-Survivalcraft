@@ -74,6 +74,9 @@ def use_repair_pack(gv: GameView, slot: int) -> None:
     # Brief red glow
     gv._use_glow = (255, 80, 80, 160)
     gv._use_glow_timer = 0.4
+    # Consuming an item inside a null field breaks the cloak.
+    from update_logic import disable_null_field_around_player
+    disable_null_field_around_player(gv)
 
 
 def use_shield_recharge(gv: GameView, slot: int) -> None:
@@ -94,6 +97,9 @@ def use_shield_recharge(gv: GameView, slot: int) -> None:
     # Brief blue glow
     gv._use_glow = (80, 160, 255, 160)
     gv._use_glow_timer = 0.4
+    # Consuming an item inside a null field breaks the cloak.
+    from update_logic import disable_null_field_around_player
+    disable_null_field_around_player(gv)
 
 
 def fire_missile(gv: GameView, slot: int) -> None:
@@ -116,6 +122,9 @@ def fire_missile(gv: GameView, slot: int) -> None:
                       gv.player.heading)
     gv._missile_list.append(m)
     arcade.play_sound(gv._missile_launch_snd, volume=0.4)
+    # Firing a homing missile from inside a null field breaks the cloak.
+    from update_logic import disable_null_field_around_player
+    disable_null_field_around_player(gv)
 
 
 def trigger_player_death(gv: GameView) -> None:

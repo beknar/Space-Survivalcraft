@@ -170,7 +170,19 @@ def draw_world(gv: GameView, cx: float, cy: float, hw: float, hh: float) -> None
     # Contrail drawn behind the player ship
     for cp in gv._contrail:
         cp.draw()
+    # Null-field cloak: ghost the ship to alpha ~30 + neutral tint so
+    # it visually reads as invisible. The cloak state matches what the
+    # alien AI sees via `player_is_cloaked`; firing or using an ability
+    # flips the null field into its `NULL_FIELD_DISABLE_S` disable, dropping the
+    # cloak and restores the ship's appearance on the next frame.
+    from update_logic import player_is_cloaked
+    _cloaked_now = player_is_cloaked(gv)
+    if _cloaked_now:
+        _saved_color = gv.player.color
+        gv.player.color = (255, 255, 255, 30)
     gv.player_list.draw()
+    if _cloaked_now:
+        gv.player.color = _saved_color
     gv.shield_list.draw()
     # Shield enhancer ring
     if ("shield_enhancer" in gv._module_slots

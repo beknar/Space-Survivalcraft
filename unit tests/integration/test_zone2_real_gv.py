@@ -1798,7 +1798,7 @@ class TestNullFieldIntegration:
         finally:
             gv._keys.discard(arcade.key.SPACE)
         assert nf.active is False, (
-            "Firing from inside must trigger the 30 s disable")
+            "Firing from inside must trigger the red-flash disable")
 
     def test_disabled_field_decays_back_to_active(self, real_game_view):
         """Trigger a disable, then advance 31 s of sim time — the
@@ -1813,4 +1813,244 @@ class TestNullFieldIntegration:
         # 31 virtual seconds (1860 frames at 1/60 dt).
         for _ in range(1860):
             gv.on_update(1 / 60)
+        assert nf.active is True
+
+    def test_player_ship_is_transparent_while_cloaked(self, real_game_view):
+        """Cloak ghosts the ship: its rendered alpha drops to ~30 for
+        the duration of the draw, then restores so other systems that
+        read `player.color` aren't stuck with the cloak alpha."""
+        from sprites.null_field import NullField
+        gv = real_game_view
+        if gv._zone.zone_id != ZoneID.MAIN:
+            gv._transition_zone(ZoneID.MAIN, entry_side="wormhole_return")
+        nf = NullField(1500.0, 1500.0, size=256)
+        gv._null_fields = [nf]
+        gv.player.center_x = 1500.0
+        gv.player.center_y = 1500.0
+        saved = gv.player.color
+        # Spy on player.color mid-draw.
+        seen = []
+        orig_draw = gv.player_list.draw
+
+        def record_and_draw(*a, **kw):
+            seen.append(tuple(gv.player.color))
+            return orig_draw(*a, **kw)
+
+        gv.player_list.draw = record_and_draw  # type: ignore[assignment]
+        try:
+            gv.on_draw()
+        finally:
+            gv.player_list.draw = orig_draw  # type: ignore[assignment]
+        assert seen, "player_list.draw was not called during on_draw"
+        assert seen[0][3] < 60, (
+            f"Cloaked ship must render at low alpha, got {seen[0]}")
+        # Ship's stored color is restored after the draw completes.
+        assert tuple(gv.player.color) == tuple(saved)
+
+    def test_cloak_alpha_does_not_leak_to_next_frame(self, real_game_view):
+        """The cloak alpha is only applied while the ship is inside an
+        active null field. Walking out for one frame restores full
+        opacity, not a stuck ghost alpha."""
+        from sprites.null_field import NullField
+        gv = real_game_view
+        if gv._zone.zone_id != ZoneID.MAIN:
+            gv._transition_zone(ZoneID.MAIN, entry_side="wormhole_return")
+        nf = NullField(1500.0, 1500.0, size=256)
+        gv._null_fields = [nf]
+
+        def capture_alpha(gv_):
+            seen = []
+            orig = gv_.player_list.draw
+
+            def rec(*a, **kw):
+                seen.append(tuple(gv_.player.color))
+                return orig(*a, **kw)
+            gv_.player_list.draw = rec  # type: ignore[assignment]
+            try:
+                gv_.on_draw()
+            finally:
+                gv_.player_list.draw = orig  # type: ignore[assignment]
+            return seen[0] if seen else None
+
+        gv.player.center_x = 1500.0
+        gv.player.center_y = 1500.0
+        a_inside = capture_alpha(gv)
+        assert a_inside[3] < 60
+
+        gv.player.center_x = 3000.0
+        gv.player.center_y = 1500.0
+        a_outside = capture_alpha(gv)
+        assert a_outside[3] >= 200
+
+        gv.player.center_x = 1500.0
+        a_back_in = capture_alpha(gv)
+        assert a_back_in[3] < 60
+
+    def test_cloak_restores_prior_tint_like_hit_flash(self, real_game_view):
+        """If the ship is already tinted (e.g. a red hit-flash on
+        damage), the cloak must restore that tint after drawing, not
+        overwrite it with plain white."""
+        from sprites.null_field import NullField
+        gv = real_game_view
+        if gv._zone.zone_id != ZoneID.MAIN:
+            gv._transition_zone(ZoneID.MAIN, entry_side="wormhole_return")
+        nf = NullField(1500.0, 1500.0, size=256)
+        gv._null_fields = [nf]
+        gv.player.center_x = 1500.0
+        gv.player.center_y = 1500.0
+        hit_colour = (255, 80, 80, 255)
+        gv.player.color = hit_colour
+        gv.on_draw()
+        assert tuple(gv.player.color) == hit_colour
+
+    def test_cloak_drops_immediately_when_field_disables(
+            self, real_game_view):
+        """Firing while standing still inside a field: next draw must
+        render the ship opaque even though the player hasn't moved."""
+        from sprites.null_field import NullField
+        from update_logic import disable_null_field_around_player
+        gv = real_game_view
+        if gv._zone.zone_id != ZoneID.MAIN:
+            gv._transition_zone(ZoneID.MAIN, entry_side="wormhole_return")
+        nf = NullField(1500.0, 1500.0, size=256)
+        gv._null_fields = [nf]
+        gv.player.center_x = 1500.0
+        gv.player.center_y = 1500.0
+
+        def capture_alpha(gv_):
+            seen = []
+            orig = gv_.player_list.draw
+
+            def rec(*a, **kw):
+                seen.append(tuple(gv_.player.color))
+                return orig(*a, **kw)
+            gv_.player_list.draw = rec  # type: ignore[assignment]
+            try:
+                gv_.on_draw()
+            finally:
+                gv_.player_list.draw = orig  # type: ignore[assignment]
+            return seen[0] if seen else None
+
+        assert capture_alpha(gv)[3] < 60
+        disable_null_field_around_player(gv)
+        assert capture_alpha(gv)[3] >= 200
+
+    def test_cloak_in_zone2_also_ghosts_the_ship(self, real_game_view):
+        """The same visual path works when the player is in the Nebula
+        — zone2._null_fields drives cloak, not gv._null_fields."""
+        from sprites.null_field import NullField
+        gv = real_game_view
+        gv._transition_zone(ZoneID.ZONE2)
+        nf = NullField(gv.player.center_x, gv.player.center_y, size=256)
+        gv._zone._null_fields.append(nf)
+        seen = []
+        orig_draw = gv.player_list.draw
+
+        def rec(*a, **kw):
+            seen.append(tuple(gv.player.color))
+            return orig_draw(*a, **kw)
+
+        gv.player_list.draw = rec  # type: ignore[assignment]
+        try:
+            gv.on_draw()
+        finally:
+            gv.player_list.draw = orig_draw  # type: ignore[assignment]
+        assert seen and seen[0][3] < 60, (
+            f"Zone 2 cloak must ghost the ship; got {seen[0]}")
+
+    def test_player_ship_is_opaque_after_firing_disables_field(
+            self, real_game_view):
+        """Firing from inside the field drops the cloak — the ship's
+        render alpha returns to fully opaque on the next draw."""
+        from sprites.null_field import NullField
+        gv = real_game_view
+        if gv._zone.zone_id != ZoneID.MAIN:
+            gv._transition_zone(ZoneID.MAIN, entry_side="wormhole_return")
+        nf = NullField(1500.0, 1500.0, size=256)
+        gv._null_fields = [nf]
+        gv.player.center_x = 1500.0
+        gv.player.center_y = 1500.0
+        from update_logic import disable_null_field_around_player
+        disable_null_field_around_player(gv)
+        assert nf.active is False
+        seen = []
+        orig_draw = gv.player_list.draw
+
+        def record_and_draw(*a, **kw):
+            seen.append(tuple(gv.player.color))
+            return orig_draw(*a, **kw)
+
+        gv.player_list.draw = record_and_draw  # type: ignore[assignment]
+        try:
+            gv.on_draw()
+        finally:
+            gv.player_list.draw = orig_draw  # type: ignore[assignment]
+        assert seen and seen[0][3] >= 200, (
+            f"Uncloaked ship must render opaque, got {seen[0]}")
+
+    def test_repair_pack_from_inside_disables_the_field(
+            self, real_game_view):
+        """Consuming a repair pack inside a null field trips the
+        red-flash disable — stealth breaks the moment you use any
+        consumable."""
+        from sprites.null_field import NullField
+        gv = real_game_view
+        if gv._zone.zone_id != ZoneID.MAIN:
+            gv._transition_zone(ZoneID.MAIN, entry_side="wormhole_return")
+        nf = NullField(1200.0, 1200.0, size=256)
+        gv._null_fields = [nf]
+        gv.player.center_x = 1200.0
+        gv.player.center_y = 1200.0
+        # Need to be under max HP for the consumable to actually fire.
+        gv.player.hp = max(1, gv.player.max_hp // 2)
+        gv.inventory.add_item("repair_pack", 1)
+        gv._use_repair_pack(0)
+        assert nf.active is False
+
+    def test_shield_recharge_from_inside_disables_the_field(
+            self, real_game_view):
+        from sprites.null_field import NullField
+        gv = real_game_view
+        if gv._zone.zone_id != ZoneID.MAIN:
+            gv._transition_zone(ZoneID.MAIN, entry_side="wormhole_return")
+        nf = NullField(1200.0, 1200.0, size=256)
+        gv._null_fields = [nf]
+        gv.player.center_x = 1200.0
+        gv.player.center_y = 1200.0
+        gv.player.shields = 0
+        gv.inventory.add_item("shield_recharge", 1)
+        gv._use_shield_recharge(0)
+        assert nf.active is False
+
+    def test_homing_missile_from_inside_disables_the_field(
+            self, real_game_view):
+        from sprites.null_field import NullField
+        gv = real_game_view
+        if gv._zone.zone_id != ZoneID.MAIN:
+            gv._transition_zone(ZoneID.MAIN, entry_side="wormhole_return")
+        nf = NullField(1200.0, 1200.0, size=256)
+        gv._null_fields = [nf]
+        gv.player.center_x = 1200.0
+        gv.player.center_y = 1200.0
+        gv.inventory.add_item("missile", 5)
+        gv._missile_fire_cd = 0.0
+        gv._fire_missile(0)
+        assert nf.active is False
+
+    def test_consumable_with_full_stats_does_not_disable_field(
+            self, real_game_view):
+        """Repair pack with full HP early-returns and must NOT trip
+        the null field — stealth is only broken when the consumable
+        actually fires."""
+        from sprites.null_field import NullField
+        gv = real_game_view
+        if gv._zone.zone_id != ZoneID.MAIN:
+            gv._transition_zone(ZoneID.MAIN, entry_side="wormhole_return")
+        nf = NullField(1200.0, 1200.0, size=256)
+        gv._null_fields = [nf]
+        gv.player.center_x = 1200.0
+        gv.player.center_y = 1200.0
+        gv.player.hp = gv.player.max_hp  # already full → early-return
+        gv.inventory.add_item("repair_pack", 1)
+        gv._use_repair_pack(0)
         assert nf.active is True

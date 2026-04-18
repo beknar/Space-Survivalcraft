@@ -26,7 +26,8 @@ from constants import (
 
 class NullField:
     """A stealth-field patch in the world. Cloaks the player when
-    active, disables for 30 s when the player fires from inside."""
+    active, disables for ``NULL_FIELD_DISABLE_S`` seconds when the
+    player fires from inside."""
 
     __slots__ = (
         "center_x", "center_y", "size", "radius",
