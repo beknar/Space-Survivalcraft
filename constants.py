@@ -173,6 +173,11 @@ SFX_FORCE_WALL = os.path.join(
     "Stormwave Audio Sci-Fi Sound Effects Bundle", "Energy",
     "Sci-Fi Energy Pulse 1.wav",
 )
+SFX_SLIPSPACE = os.path.join(
+    _HERE, "assets", "Kenney Game Assets All-in-1 3.4.0", "Audio",
+    "Sci-Fi Sounds", "Audio", "wav", "forceField_004.wav",
+)
+SLIPSPACE_PNG = os.path.join(_HERE, "assets", "ai generated", "slipspace.png")
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 4. Shield Sprite Sheet
@@ -599,6 +604,15 @@ NULL_FIELD_SIZE_MIN: int = 128        # smallest diameter (px)
 NULL_FIELD_SIZE_MAX: int = 256        # largest diameter (px)
 NULL_FIELD_DISABLE_S: float = 10.0    # red-flash penalty for firing from inside
 NULL_FIELD_DOT_COUNT: int = 28        # dots in the visual cluster
+
+# Slip space — wormhole-like teleporters scattered in MAIN + ZONE2 (not
+# warp zones).  Flying into one teleports the player to a random other
+# slipspace in the same zone with velocity + heading conserved.
+SLIPSPACE_COUNT: int = 15             # per zone
+SLIPSPACE_DISPLAY_SIZE: int = 160     # px wide as drawn
+SLIPSPACE_RADIUS: float = 60.0        # collision radius (smaller than display so the player has to fly into the visual)
+SLIPSPACE_ROT_SPEED: float = 90.0     # deg/s rotation
+SLIPSPACE_MARGIN: float = 200.0       # min distance from world edges
 WANDERING_HP: int = 150
 WANDERING_IRON_YIELD: int = 15
 WANDERING_SPEED: float = 80.0       # wander speed px/s

@@ -69,6 +69,8 @@ class Zone2(ZoneState):
         # Null fields — stealth patches. Populated once; updated every
         # frame in ``update`` so the disabled-timer flash animates.
         self._null_fields: list = []
+        # Slipspaces — teleporters. SpriteList so collision helpers work.
+        self._slipspaces: arcade.SpriteList = arcade.SpriteList()
         # Textures (loaded on setup)
         self._iron_tex: arcade.Texture | None = None
         self._copper_tex: arcade.Texture | None = None
@@ -112,7 +114,7 @@ class Zone2(ZoneState):
                 populate_copper_asteroids, populate_gas_areas,
                 populate_wanderers, populate_aliens,
             )
-            from world_setup import populate_null_fields
+            from world_setup import populate_null_fields, populate_slipspaces
             random.seed(self._world_seed)
             populate_iron_asteroids(self)
             populate_double_iron(self)
@@ -124,6 +126,12 @@ class Zone2(ZoneState):
             populate_aliens(self)
             self._null_fields = populate_null_fields(
                 self.world_width, self.world_height)
+            # Slipspaces — use a dedicated seeded RNG so the layout is
+            # deterministic per world seed and stable across save/load.
+            ss_rng = random.Random(self._world_seed + 197)
+            self._slipspaces = populate_slipspaces(
+                self.world_width, self.world_height,
+                gv._slipspace_tex, rng=ss_rng)
             random.seed()
             self._populated = True
 

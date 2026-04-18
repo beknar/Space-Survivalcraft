@@ -321,6 +321,9 @@ def _restore_zone2_full(view: GameView, z2_state: dict) -> None:
     # they aren't persisted in the save (no destructible state) but
     # must exist in the live zone or the whole stealth system breaks.
     _regenerate_null_fields(zone)
+    # Same story for slipspaces — no destructible state, regen from
+    # seed so the layout is stable across save/load.
+    _regenerate_slipspaces(zone, view)
 
     view._zone2 = zone
 
@@ -372,6 +375,20 @@ def _regenerate_gas_areas(zone, _z2mod) -> None:
     zone._gas_pos_cache = [(g.center_x, g.center_y, g.radius)
                            for g in zone._gas_areas]
     random.seed()
+
+
+def _regenerate_slipspaces(zone, view) -> None:
+    """Regenerate slipspace teleporters deterministically from the
+    zone's world seed.  Mirrors what ``Zone2.setup`` does on first
+    population — needed at restore time because slipspaces have no
+    persisted state but the live zone must contain them or the
+    teleport mechanic silently fails after a save/load cycle."""
+    import random as _random
+    from world_setup import populate_slipspaces, load_slipspace_assets
+    tex, _snd = load_slipspace_assets()
+    rng = _random.Random(zone._world_seed + 197)
+    zone._slipspaces = populate_slipspaces(
+        zone.world_width, zone.world_height, tex, rng=rng)
 
 
 def _regenerate_null_fields(zone) -> None:

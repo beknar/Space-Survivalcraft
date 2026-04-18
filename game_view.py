@@ -224,6 +224,11 @@ class GameView(arcade.View):
 
         self._iron_tex = load_iron_texture()
 
+        # Slipspace assets (texture + jump sound) — shared across both
+        # zones, loaded once and cached at module level in world_setup.
+        from world_setup import load_slipspace_assets
+        self._slipspace_tex, self._slipspace_snd = load_slipspace_assets()
+
     def _init_world_entities(self) -> None:
         """Asteroids, pickup lists, and explosion list."""
         self.asteroid_list = populate_asteroids()
@@ -231,9 +236,17 @@ class GameView(arcade.View):
         self.iron_pickup_list = arcade.SpriteList()
         self.blueprint_pickup_list = arcade.SpriteList()
         # Null fields (Zone 1) — stealth patches that hide the player.
-        from world_setup import populate_null_fields
+        from world_setup import populate_null_fields, populate_slipspaces
         self._null_fields: list = populate_null_fields(
             WORLD_WIDTH, WORLD_HEIGHT)
+        # Slipspaces (Zone 1) — teleporters; the active list is selected
+        # per-zone by ``update_logic.active_slipspaces``.
+        self._slipspaces: arcade.SpriteList = populate_slipspaces(
+            WORLD_WIDTH, WORLD_HEIGHT, self._slipspace_tex)
+        # Track which slipspace the player is currently inside (if any)
+        # so re-collisions don't fire repeatedly while still overlapping
+        # the destination.  Cleared as soon as the player exits.
+        self._inside_slipspace = None
         self._init_blueprint_textures()
         self._init_module_slots()
         self._init_aliens()
@@ -870,6 +883,7 @@ class GameView(arcade.View):
         _ul.update_ability_meter(self, delta_time)
         _ul.update_force_walls(self, delta_time)
         _ul.update_null_fields(self, delta_time)
+        _ul.update_slipspaces(self, delta_time)
         _ul.update_station_shield(self, delta_time)
         _ul.update_refugee_npc(self, delta_time)
         _ul.update_missiles(self, delta_time)

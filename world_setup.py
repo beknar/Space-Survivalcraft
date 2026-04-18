@@ -235,6 +235,48 @@ def populate_asteroids() -> arcade.SpriteList:
     return slist
 
 
+def populate_slipspaces(
+    world_w: float, world_h: float,
+    texture: arcade.Texture,
+    count: int | None = None,
+    rng: random.Random | None = None,
+) -> arcade.SpriteList:
+    """Spawn ``Slipspace`` teleporters randomly across a zone.
+
+    A dedicated ``rng`` lets save/load reproduce the layout
+    deterministically from the zone seed.  Returns a ``SpriteList`` so
+    the existing ``check_for_collision_with_list`` helpers work without
+    extra glue.
+    """
+    from constants import SLIPSPACE_COUNT, SLIPSPACE_MARGIN
+    from sprites.slipspace import Slipspace
+    r = rng or random
+    n = SLIPSPACE_COUNT if count is None else count
+    slist = arcade.SpriteList()
+    for _ in range(n):
+        x = r.uniform(SLIPSPACE_MARGIN, world_w - SLIPSPACE_MARGIN)
+        y = r.uniform(SLIPSPACE_MARGIN, world_h - SLIPSPACE_MARGIN)
+        slist.append(Slipspace(texture, x, y))
+    return slist
+
+
+_slipspace_assets_cache: tuple[arcade.Texture, arcade.Sound] | None = None
+
+
+def load_slipspace_assets() -> tuple[arcade.Texture, arcade.Sound]:
+    """Load the slipspace texture + jump sound.
+
+    Cached at module level so GameView rebuilds + Zone 2 setup
+    don't re-decode the PNG / re-load the WAV every time."""
+    global _slipspace_assets_cache
+    if _slipspace_assets_cache is None:
+        from constants import SLIPSPACE_PNG, SFX_SLIPSPACE
+        tex = arcade.load_texture(SLIPSPACE_PNG)
+        snd = arcade.load_sound(SFX_SLIPSPACE)
+        _slipspace_assets_cache = (tex, snd)
+    return _slipspace_assets_cache
+
+
 def populate_null_fields(
     world_w: float, world_h: float,
     count: int | None = None,

@@ -18,6 +18,23 @@ if TYPE_CHECKING:
     from game_view import GameView
 
 
+def _draw_slipspaces(gv: GameView) -> None:
+    """Draw every slipspace teleporter in the active zone.  The PNG
+    has its own background so we don't paint anything behind it; the
+    game's space starfield naturally shows through any transparent
+    pixels.  Routed through ``SpriteList.draw()`` so the renderer
+    batches the textured quads in one GPU call."""
+    from update_logic import active_slipspaces
+    ss_list = active_slipspaces(gv)
+    if not ss_list:
+        return
+    if hasattr(ss_list, "draw"):
+        ss_list.draw()
+    else:
+        for ss in ss_list:
+            arcade.draw_sprite(ss)
+
+
 def _draw_null_fields(gv: GameView) -> None:
     """Draw every null field in the active zone as two batched
     ``draw_points`` calls — one for the active (white) fields and one
@@ -139,6 +156,10 @@ def draw_world(gv: GameView, cx: float, cy: float, hw: float, hh: float) -> None
 
     # Trade station (shared across all zones — drawn after zone entities)
     _draw_trade_station(gv)
+
+    # Slipspace teleporters — drawn before null fields so a slipspace
+    # that overlaps a stealth patch doesn't block the cluster dots.
+    _draw_slipspaces(gv)
 
     # Null fields — semi-transparent dot clusters drawn above world
     # entities but below the player ship + projectiles so they don't

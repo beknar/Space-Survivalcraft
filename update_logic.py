@@ -798,6 +798,102 @@ def player_is_cloaked(gv: GameView) -> bool:
     return False
 
 
+def active_slipspaces(gv: GameView):
+    """Return the slipspace SpriteList for the player's current zone.
+
+    Zone 2 stores its own list on ``zone._slipspaces``; Zone 1 stores
+    them on ``gv._slipspaces``.  Warp zones return ``[]`` because they
+    deliberately don't host slipspaces — same rule as null fields.
+    """
+    from zones import ZoneID
+    zone = getattr(gv, "_zone", None)
+    zone_ss = getattr(zone, "_slipspaces", None)
+    if zone_ss:
+        return zone_ss
+    if getattr(zone, "zone_id", None) is ZoneID.MAIN:
+        return getattr(gv, "_slipspaces", None) or []
+    return []
+
+
+def update_slipspaces(gv: GameView, dt: float) -> None:
+    """Rotate every slipspace in the active zone (plus Zone 1's even
+    when the player is elsewhere, to keep the texture animation stable
+    on zone return — same dual-walk pattern as ``update_null_fields``).
+    Then run the teleport collision check against the active list."""
+    seen: set = set()
+    z1 = getattr(gv, "_slipspaces", None) or []
+    for ss in z1:
+        if id(ss) not in seen:
+            ss.update_slipspace(dt)
+            seen.add(id(ss))
+    zone = getattr(gv, "_zone", None)
+    z2 = getattr(zone, "_slipspaces", None) or []
+    for ss in z2:
+        if id(ss) not in seen:
+            ss.update_slipspace(dt)
+            seen.add(id(ss))
+    _check_slipspace_teleport(gv)
+
+
+def _check_slipspace_teleport(gv: GameView) -> None:
+    """Teleport the player to a random other slipspace if they're
+    inside one and weren't inside it last frame.  Velocity + heading
+    are preserved.  ``gv._inside_slipspace`` blocks re-trigger while
+    the player is still overlapping the destination, so the jump
+    fires exactly once per entry."""
+    if getattr(gv, "_player_dead", False):
+        return
+    active = active_slipspaces(gv)
+    if not active or len(active) < 2:
+        # Need at least one other slipspace to teleport TO.  Also
+        # clear the "inside" flag if the player drifted out of the
+        # current one between frames.
+        gv._inside_slipspace = None
+        return
+    px, py = gv.player.center_x, gv.player.center_y
+
+    # Still inside the same slipspace as last frame? — do nothing.
+    inside = gv._inside_slipspace
+    if inside is not None and inside in active and inside.contains_point(px, py):
+        return
+
+    # Find the slipspace the player has just entered.
+    hit = None
+    for ss in active:
+        if ss.contains_point(px, py):
+            hit = ss
+            break
+    if hit is None:
+        gv._inside_slipspace = None
+        return
+
+    # Pick a random destination that isn't the entry slipspace.
+    import random as _r
+    candidates = [ss for ss in active if ss is not hit]
+    dest = _r.choice(candidates)
+
+    # Teleport — preserve velocity + heading.
+    gv.player.center_x = dest.center_x
+    gv.player.center_y = dest.center_y
+    # Mark the destination as the "currently inside" so we don't
+    # immediately bounce back through another slipspace.
+    gv._inside_slipspace = dest
+    # Keep the shield sprite glued to the player so it doesn't
+    # streak across the screen for one frame.
+    if hasattr(gv, "shield_sprite") and gv.shield_sprite is not None:
+        gv.shield_sprite.center_x = dest.center_x
+        gv.shield_sprite.center_y = dest.center_y
+
+    # Sound — use the cached slipspace SFX loaded in GameView init.
+    snd = getattr(gv, "_slipspace_snd", None)
+    if snd is not None:
+        try:
+            from settings import audio as _audio
+            arcade.play_sound(snd, volume=_audio.sfx_volume)
+        except Exception:
+            pass
+
+
 def update_null_fields(gv: GameView, dt: float) -> None:
     """Tick disabled-timer animation on every null field in the
     active zone (and the Zone 1 fields too, so Zone 2 -> Zone 1
