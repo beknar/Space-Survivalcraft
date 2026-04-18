@@ -7,6 +7,7 @@ leading-underscore file so pytest doesn't try to collect it as tests.
 """
 from __future__ import annotations
 
+import gc
 import os
 import time
 from typing import Callable
@@ -28,8 +29,20 @@ MAX_MEMORY_GROWTH_MB: int = 50      # fail threshold — RSS growth
 
 # ── Measurement helpers ───────────────────────────────────────────────────
 
-def get_rss_mb() -> float:
-    """Current process RSS in megabytes."""
+def get_rss_mb(*, stabilize: bool = True) -> float:
+    """Current process RSS in megabytes.
+
+    When ``stabilize`` is True (the default) we run ``gc.collect()``
+    first so unreferenced cycles aren't counted toward the running
+    total.  Without this, the start/end RSS comparison swings ±10–
+    20 MB depending on whether Python's automatic GC happened to fire
+    just before each measurement — that's how a real Zone 2 soak
+    came in at +56 MB on one run after months of +8/+13 MB runs.
+
+    Pass ``stabilize=False`` if you specifically want the raw OS-level
+    RSS (e.g. measuring allocator high-water mark)."""
+    if stabilize:
+        gc.collect()
     return psutil.Process(os.getpid()).memory_info().rss / (1024 * 1024)
 
 
