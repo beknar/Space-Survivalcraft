@@ -14,3 +14,4 @@ savegame.json
 config.json
 *.dll
 yvideos/
+.claude/
