@@ -34,9 +34,18 @@ def _apply_kill_rewards(
     iron_bonus_fn,
     bp_base_chance: float,
     xp: int = 25,
+    asteroid: bool = False,
 ) -> None:
-    """Spawn explosion, drop iron (base + character bonus), maybe blueprint, award XP."""
-    gv._spawn_explosion(x, y)
+    """Spawn explosion, drop iron (base + character bonus), maybe blueprint, award XP.
+
+    Passing ``asteroid=True`` routes the explosion through the 10-frame
+    asteroid-specific sprite so Zone 1 asteroid kills get the new
+    cinematic look while alien kills keep the legacy sheet.
+    """
+    if asteroid:
+        gv._spawn_asteroid_explosion(x, y)
+    else:
+        gv._spawn_explosion(x, y)
     arcade.play_sound(gv._explosion_snd, volume=0.7)
     gv._spawn_iron_pickup(x - 20, y, amount=base_iron)
     _cn = _audio.character_name
@@ -122,7 +131,8 @@ def handle_projectile_hits(gv: GameView) -> None:
                     asteroid.remove_from_sprite_lists()
                     _apply_kill_rewards(gv, ax, ay, ASTEROID_IRON_YIELD,
                                         bonus_iron_asteroid,
-                                        BLUEPRINT_DROP_CHANCE_ASTEROID)
+                                        BLUEPRINT_DROP_CHANCE_ASTEROID,
+                                        asteroid=True)
 
         if not consumed and not proj.mines_rock:
             hit_aliens = arcade.check_for_collision_with_list(

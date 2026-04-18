@@ -152,8 +152,19 @@ def trigger_player_death(gv: GameView) -> None:
 
 
 def spawn_explosion(gv: GameView, x: float, y: float) -> None:
-    """Spawn a one-shot explosion animation at world position (x, y)."""
+    """Spawn a one-shot explosion animation at world position (x, y).
+    Used for ship, building, alien, and boss destruction."""
     exp = Explosion(gv._explosion_frames, x, y, scale=1.0)
+    gv.explosion_list.append(exp)
+
+
+def spawn_asteroid_explosion(gv: GameView, x: float, y: float) -> None:
+    """Asteroid-specific 10-frame explosion (Explo__001..010).  All
+    asteroid kill sites (Zone 1 iron, Zone 2 iron / double iron /
+    copper / wandering) route here rather than through
+    ``spawn_explosion`` so the visual reads differently from ship /
+    alien / building deaths."""
+    exp = Explosion(gv._asteroid_explosion_frames, x, y, scale=1.0)
     gv.explosion_list.append(exp)
 
 

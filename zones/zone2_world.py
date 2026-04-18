@@ -143,7 +143,7 @@ def _check_mining_hits(z: Zone2, gv: GameView, proj) -> None:
         proj.remove_from_sprite_lists()
         a.take_damage(int(proj.damage))
         if a.hp <= 0:
-            gv._spawn_explosion(a.center_x, a.center_y)
+            gv._spawn_asteroid_explosion(a.center_x, a.center_y)
             gv._spawn_iron_pickup(a.center_x, a.center_y, amount=ASTEROID_IRON_YIELD)
             gv._add_xp(10)
             if random.random() < BLUEPRINT_DROP_CHANCE_ASTEROID:
@@ -157,7 +157,7 @@ def _check_mining_hits(z: Zone2, gv: GameView, proj) -> None:
         proj.remove_from_sprite_lists()
         a.take_damage(int(proj.damage))
         if a.hp <= 0:
-            gv._spawn_explosion(a.center_x, a.center_y)
+            gv._spawn_asteroid_explosion(a.center_x, a.center_y)
             gv._spawn_iron_pickup(a.center_x, a.center_y, amount=DOUBLE_IRON_YIELD)
             gv._add_xp(DOUBLE_IRON_XP)
             if random.random() < BLUEPRINT_DROP_CHANCE_ASTEROID:
@@ -171,7 +171,7 @@ def _check_mining_hits(z: Zone2, gv: GameView, proj) -> None:
         proj.remove_from_sprite_lists()
         a.take_damage(int(proj.damage))
         if a.hp <= 0:
-            gv._spawn_explosion(a.center_x, a.center_y)
+            gv._spawn_asteroid_explosion(a.center_x, a.center_y)
             # Drop copper
             base = COPPER_YIELD
             extra = bonus_copper_asteroid(_audio.character_name, gv._char_level)
@@ -194,7 +194,7 @@ def _check_mining_hits(z: Zone2, gv: GameView, proj) -> None:
         proj.remove_from_sprite_lists()
         w.take_damage(int(proj.damage))
         if w.hp <= 0:
-            gv._spawn_explosion(w.center_x, w.center_y)
+            gv._spawn_asteroid_explosion(w.center_x, w.center_y)
             from constants import WANDERING_IRON_YIELD
             gv._spawn_iron_pickup(w.center_x, w.center_y,
                                   amount=WANDERING_IRON_YIELD)

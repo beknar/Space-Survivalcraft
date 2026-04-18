@@ -1795,3 +1795,101 @@ class TestNullFieldClookOverhead:
         fps = _measure_fps(gv)
         assert fps >= MIN_FPS, (
             f"Zone 2 cloaked-player path: {fps:.1f} FPS < {MIN_FPS}")
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  Asteroid explosion animation — 10-frame Explo__001..010.png draw
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _spawn_n_asteroid_explosions(gv, n: int) -> None:
+    """Populate the explosion list with N asteroid explosions at
+    scattered world positions to simulate a heavy-mining frame."""
+    from sprites.explosion import Explosion
+    from constants import WORLD_WIDTH, WORLD_HEIGHT
+    import random as _r
+    for _ in range(n):
+        x = _r.uniform(100, WORLD_WIDTH - 100)
+        y = _r.uniform(100, WORLD_HEIGHT - 100)
+        gv.explosion_list.append(
+            Explosion(gv._asteroid_explosion_frames, x, y))
+
+
+class TestAsteroidExplosionBurstZone1:
+    def test_20_asteroid_explosions_zone1_above_threshold(
+            self, real_game_view):
+        """20 simultaneous asteroid explosions in Zone 1 — simulates a
+        mining frenzy frame with the new 10-frame animation."""
+        gv = real_game_view
+        if gv._zone.zone_id != ZoneID.MAIN:
+            gv._transition_zone(ZoneID.MAIN, entry_side="wormhole_return")
+        _spawn_n_asteroid_explosions(gv, 20)
+        fps = _measure_fps(gv)
+        assert fps >= MIN_FPS, (
+            f"Zone 1 + 20 asteroid explosions: {fps:.1f} FPS < {MIN_FPS}")
+
+
+class TestAsteroidExplosionBurstZone2:
+    def test_20_asteroid_explosions_zone2_above_threshold(
+            self, real_game_view):
+        """Same burst in the heavier Nebula zone."""
+        gv = real_game_view
+        gv._transition_zone(ZoneID.ZONE2)
+        _spawn_n_asteroid_explosions(gv, 20)
+        fps = _measure_fps(gv)
+        assert fps >= MIN_FPS, (
+            f"Zone 2 + 20 asteroid explosions: {fps:.1f} FPS < {MIN_FPS}")
+
+
+class TestAsteroidExplosionBurstZone2WithVideos:
+    def test_20_asteroid_explosions_zone2_with_videos_above_threshold(
+            self, real_game_view):
+        """Worst case: Zone 2 + 20 asteroid explosions + both videos."""
+        gv = real_game_view
+        gv._transition_zone(ZoneID.ZONE2)
+        _spawn_n_asteroid_explosions(gv, 20)
+        _start_both_videos_or_skip(gv)
+        try:
+            fps = _measure_fps(gv)
+            assert fps >= MIN_FPS, (
+                f"Zone 2 + 20 asteroid explosions + videos: "
+                f"{fps:.1f} FPS < {MIN_FPS}")
+        finally:
+            _stop_both_videos(gv)
+
+
+class TestAsteroidExplosionSustainedMining:
+    def test_sustained_mining_spawns_asteroid_explosions_above_threshold(
+            self, real_game_view):
+        """Simulate sustained mining: spawn 2 asteroid explosions every
+        measurement frame so the explosion list averages ~15 live
+        instances. Catches any per-frame cost tied to iterating the
+        list or advancing frame indexes."""
+        from sprites.explosion import Explosion
+        import random as _r
+        gv = real_game_view
+        gv._transition_zone(ZoneID.ZONE2)
+        import time as _time
+        dt = 1 / 60
+        # Warm-up that drips 2 explosions per frame.
+        for _ in range(10):
+            for _ in range(2):
+                gv.explosion_list.append(Explosion(
+                    gv._asteroid_explosion_frames,
+                    _r.uniform(100, 6000), _r.uniform(100, 6000)))
+            gv.on_update(dt)
+            gv.on_draw()
+        n = 60
+        start = _time.perf_counter()
+        for _ in range(n):
+            for _ in range(2):
+                gv.explosion_list.append(Explosion(
+                    gv._asteroid_explosion_frames,
+                    _r.uniform(100, 6000), _r.uniform(100, 6000)))
+            gv.on_update(dt)
+            gv.on_draw()
+        elapsed = _time.perf_counter() - start
+        fps = n / elapsed if elapsed > 0 else 999.0
+        print(f"  [perf] sustained-mining: {fps:.1f} FPS "
+              f"({n} frames in {elapsed:.3f}s)")
+        assert fps >= MIN_FPS, (
+            f"Sustained asteroid-explosion mining: {fps:.1f} FPS < {MIN_FPS}")

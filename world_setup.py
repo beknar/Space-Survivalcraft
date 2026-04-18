@@ -127,6 +127,27 @@ def load_explosion_assets() -> tuple[list[arcade.Texture], arcade.Sound]:
     return frames, snd
 
 
+_asteroid_explosion_frames_cache: list[arcade.Texture] | None = None
+
+
+def load_asteroid_explosion_frames() -> list[arcade.Texture]:
+    """Load the 10-frame asteroid explosion sequence.
+
+    Reads ``Explo__001.png`` through ``Explo__010.png`` from
+    ``ASTEROID_EXPLOSION_DIR``. Cached at module level so successive
+    GameView rebuilds don't re-decode the PNGs."""
+    global _asteroid_explosion_frames_cache
+    if _asteroid_explosion_frames_cache is None:
+        from constants import ASTEROID_EXPLOSION_DIR, ASTEROID_EXPLOSION_FRAMES
+        frames: list[arcade.Texture] = []
+        for i in range(1, ASTEROID_EXPLOSION_FRAMES + 1):
+            path = os.path.join(
+                ASTEROID_EXPLOSION_DIR, f"Explo__{i:03d}.png")
+            frames.append(arcade.load_texture(path))
+        _asteroid_explosion_frames_cache = frames
+    return _asteroid_explosion_frames_cache
+
+
 def load_bump_sound() -> arcade.Sound:
     """Load the collision bump sound."""
     return arcade.load_sound(

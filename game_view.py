@@ -204,6 +204,10 @@ class GameView(arcade.View):
         self._apply_character_weapon_bonuses()
 
         self._explosion_frames, self._explosion_snd = load_explosion_assets()
+        # Asteroid-specific explosion uses a separate 10-frame sequence;
+        # ship / building / alien explosions still use _explosion_frames.
+        from world_setup import load_asteroid_explosion_frames
+        self._asteroid_explosion_frames = load_asteroid_explosion_frames()
         self._bump_snd = load_bump_sound()
 
         from constants import (
@@ -654,6 +658,9 @@ class GameView(arcade.View):
 
     def _fire_missile(self, slot: int) -> None:
         _ch.fire_missile(self, slot)
+
+    def _spawn_asteroid_explosion(self, x: float, y: float) -> None:
+        _ch.spawn_asteroid_explosion(self, x, y)
 
     def _spawn_explosion(self, x: float, y: float) -> None:
         _ch.spawn_explosion(self, x, y)

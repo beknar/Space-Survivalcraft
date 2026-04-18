@@ -116,6 +116,16 @@ EXPLOSION_PNG = os.path.join(
     _HERE, "assets", "gamedevmarket assets", "asteroids crusher",
     "Explosions", "PNG", "explosion.png",
 )
+# Asteroid-specific 10-frame explosion (Explo__001.png -> Explo__010.png)
+# from the Space Shooter Kit side-scrolling pack.  Used only when an
+# asteroid is destroyed; ships / buildings / aliens still use the
+# single-sheet EXPLOSION_PNG above.
+ASTEROID_EXPLOSION_DIR = os.path.join(
+    _HERE, "assets", "gamedevmarket assets",
+    "space shooter kit - side scrolling", "png", "Separate",
+    "Effects", "Explosion",
+)
+ASTEROID_EXPLOSION_FRAMES: int = 10      # 001..010 inclusive
 IRON_ICON_PNG = os.path.join(
     _HERE, "assets", "kenney space combat assets",
     "Voxel Pack", "PNG", "Items", "ore_ironAlt.png",

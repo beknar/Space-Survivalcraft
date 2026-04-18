@@ -2054,3 +2054,175 @@ class TestNullFieldIntegration:
         gv.inventory.add_item("repair_pack", 1)
         gv._use_repair_pack(0)
         assert nf.active is True
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  Asteroid-specific explosion animation (Explo__001..010.png) routing
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestAsteroidExplosionIntegration:
+    """Asteroid kills now use the 10-frame Explo__001..010.png cycle;
+    ship / alien / building deaths still use the legacy sheet."""
+
+    def test_zone1_asteroid_kill_uses_new_frames(self, real_game_view):
+        """Zero-HP asteroid → `_apply_kill_rewards(asteroid=True)` →
+        Explosion sprite whose ``_frames`` is the asteroid list."""
+        gv = real_game_view
+        if gv._zone.zone_id != ZoneID.MAIN:
+            gv._transition_zone(ZoneID.MAIN, entry_side="wormhole_return")
+        if len(gv.asteroid_list) == 0:
+            pytest.skip("No Zone 1 asteroids present in this seed")
+        before = len(gv.explosion_list)
+        ast = list(gv.asteroid_list)[0]
+        ast.hp = 1
+        from sprites.projectile import Projectile
+        proj = Projectile(
+            gv._alien_laser_tex,
+            ast.center_x, ast.center_y, 0, 500, 800, damage=9999,
+            mines_rock=True)
+        gv.projectile_list.append(proj)
+        from collisions import handle_projectile_hits
+        handle_projectile_hits(gv)
+        new_explosions = list(gv.explosion_list)[before:]
+        assert new_explosions, "Asteroid kill must spawn an explosion"
+        assert new_explosions[0]._frames is gv._asteroid_explosion_frames
+
+    def test_zone2_iron_asteroid_kill_uses_new_frames(self, real_game_view):
+        from zones.zone2_world import handle_projectile_hits
+        from sprites.projectile import Projectile
+        gv = real_game_view
+        gv._transition_zone(ZoneID.ZONE2)
+        z = gv._zone
+        if len(z._iron_asteroids) == 0:
+            pytest.skip("Zone 2 seed produced no iron asteroids")
+        before = len(gv.explosion_list)
+        ast = list(z._iron_asteroids)[0]
+        ast.hp = 1
+        proj = Projectile(
+            gv._alien_laser_tex, ast.center_x, ast.center_y,
+            0, 500, 800, damage=9999, mines_rock=True)
+        gv.projectile_list.clear()
+        gv.projectile_list.append(proj)
+        handle_projectile_hits(z, gv)
+        new_explosions = list(gv.explosion_list)[before:]
+        assert new_explosions
+        assert new_explosions[0]._frames is gv._asteroid_explosion_frames
+
+    def test_zone2_copper_asteroid_kill_uses_new_frames(self, real_game_view):
+        from zones.zone2_world import handle_projectile_hits
+        from sprites.projectile import Projectile
+        gv = real_game_view
+        gv._transition_zone(ZoneID.ZONE2)
+        z = gv._zone
+        if len(z._copper_asteroids) == 0:
+            pytest.skip("Zone 2 seed produced no copper asteroids")
+        before = len(gv.explosion_list)
+        ast = list(z._copper_asteroids)[0]
+        ast.hp = 1
+        proj = Projectile(
+            gv._alien_laser_tex, ast.center_x, ast.center_y,
+            0, 500, 800, damage=9999, mines_rock=True)
+        gv.projectile_list.clear()
+        gv.projectile_list.append(proj)
+        handle_projectile_hits(z, gv)
+        new_explosions = list(gv.explosion_list)[before:]
+        assert new_explosions
+        assert new_explosions[0]._frames is gv._asteroid_explosion_frames
+
+    def test_zone2_wanderer_kill_uses_new_frames(self, real_game_view):
+        from zones.zone2_world import handle_projectile_hits
+        from sprites.projectile import Projectile
+        gv = real_game_view
+        gv._transition_zone(ZoneID.ZONE2)
+        z = gv._zone
+        if len(z._wanderers) == 0:
+            pytest.skip("Zone 2 seed produced no wanderers")
+        before = len(gv.explosion_list)
+        w = list(z._wanderers)[0]
+        w.hp = 1
+        proj = Projectile(
+            gv._alien_laser_tex, w.center_x, w.center_y,
+            0, 500, 800, damage=9999, mines_rock=True)
+        gv.projectile_list.clear()
+        gv.projectile_list.append(proj)
+        handle_projectile_hits(z, gv)
+        new_explosions = list(gv.explosion_list)[before:]
+        assert new_explosions
+        assert new_explosions[0]._frames is gv._asteroid_explosion_frames
+
+    def test_alien_kill_still_uses_legacy_frames(self, real_game_view):
+        """Regression guard: alien ships continue using the legacy
+        single-sheet explosion, NOT the new asteroid cycle."""
+        from sprites.alien import SmallAlienShip
+        from sprites.projectile import Projectile
+        gv = real_game_view
+        if gv._zone.zone_id != ZoneID.MAIN:
+            gv._transition_zone(ZoneID.MAIN, entry_side="wormhole_return")
+        gv.alien_list.clear()
+        alien = SmallAlienShip(
+            gv._alien_ship_tex, gv._alien_laser_tex, 3000.0, 3000.0)
+        alien.hp = 1
+        gv.alien_list.append(alien)
+        before = len(gv.explosion_list)
+        proj = Projectile(
+            gv._alien_laser_tex, 3000.0, 3000.0, 0, 500, 800,
+            damage=9999, mines_rock=False)
+        gv.projectile_list.append(proj)
+        from collisions import handle_projectile_hits
+        handle_projectile_hits(gv)
+        new_explosions = list(gv.explosion_list)[before:]
+        assert new_explosions
+        assert new_explosions[0]._frames is gv._explosion_frames
+        assert new_explosions[0]._frames is not gv._asteroid_explosion_frames
+
+    def test_building_kill_still_uses_legacy_frames(self, real_game_view):
+        """Regression guard: buildings continue using the legacy
+        explosion when destroyed."""
+        from sprites.building import create_building
+        from sprites.projectile import Projectile
+        from constants import ALIEN_LASER_SPEED, ALIEN_LASER_RANGE
+        gv = real_game_view
+        if gv._zone.zone_id != ZoneID.MAIN:
+            gv._transition_zone(ZoneID.MAIN, entry_side="wormhole_return")
+        gv.building_list.clear()
+        tex = gv._building_textures["Service Module"]
+        b = create_building("Service Module", tex, 4000.0, 4000.0,
+                             scale=0.5)
+        b.hp = 1
+        gv.building_list.append(b)
+        before = len(gv.explosion_list)
+        proj = Projectile(
+            gv._alien_laser_tex, 4000.0, 4000.0, 0,
+            ALIEN_LASER_SPEED, ALIEN_LASER_RANGE, damage=9999)
+        gv.alien_projectile_list.append(proj)
+        from collisions import handle_alien_laser_building_hits
+        handle_alien_laser_building_hits(gv)
+        new_explosions = list(gv.explosion_list)[before:]
+        assert new_explosions
+        assert new_explosions[0]._frames is gv._explosion_frames
+
+    def test_asteroid_explosion_has_ten_frames(self, real_game_view):
+        """The GameView-cached asteroid frame list contains exactly
+        the 10 Explo__001..010 textures."""
+        from constants import ASTEROID_EXPLOSION_FRAMES
+        gv = real_game_view
+        assert len(gv._asteroid_explosion_frames) == ASTEROID_EXPLOSION_FRAMES
+        assert ASTEROID_EXPLOSION_FRAMES == 10
+
+    def test_asteroid_explosion_animates_through_all_frames(
+            self, real_game_view):
+        """Tick the explosion long enough to advance past every frame
+        and verify the sprite is removed when the sequence ends."""
+        from sprites.explosion import Explosion
+        from constants import EXPLOSION_FPS, ASTEROID_EXPLOSION_FRAMES
+        gv = real_game_view
+        exp = Explosion(gv._asteroid_explosion_frames, 100.0, 200.0)
+        gv.explosion_list.append(exp)
+        dt_per_frame = 1.0 / EXPLOSION_FPS + 0.0001
+        for i in range(ASTEROID_EXPLOSION_FRAMES - 1):
+            exp.update_explosion(dt_per_frame)
+            assert exp._frame_idx == i + 1, (
+                f"Frame {i+1} expected, got {exp._frame_idx}")
+        # One more tick removes the sprite.
+        exp.update_explosion(dt_per_frame)
+        assert exp not in gv.explosion_list
