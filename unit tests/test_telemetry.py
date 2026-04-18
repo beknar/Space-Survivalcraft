@@ -135,3 +135,61 @@ class TestExceptionLogger:
         and _log_exception must quietly do nothing."""
         monkeypatch.setattr("telemetry._exception_log_path", None)
         _log_exception("x", ValueError, ValueError("y"), None)  # no raise
+
+
+class TestNoHangDumper:
+    """Regression — faulthandler.dump_traceback_later was removed
+    after two crashes (FFmpeg heap corruption + OpenGL VAO access
+    violation) both fired during the dumper's 30 s tick.  The dumper
+    walks every Python thread's stack from a separate native thread;
+    on Windows that races C extensions holding internal locks (pyglet
+    OpenGL bindings, FFmpeg) and reads freed/garbage state.  These
+    tests lock the fix so the dumper can't sneak back in."""
+
+    def test_install_faulthandler_does_not_call_dump_traceback_later(
+            self, monkeypatch, tmp_path):
+        """``_install_faulthandler`` must arm faulthandler.enable but
+        NEVER schedule the periodic stack dumper."""
+        import telemetry as _tel
+        calls = {"enable": 0, "dump_later": 0}
+
+        def fake_enable(*a, **kw):
+            calls["enable"] += 1
+
+        def fake_dump_later(*a, **kw):
+            calls["dump_later"] += 1
+
+        monkeypatch.setattr(_tel.faulthandler, "enable", fake_enable)
+        monkeypatch.setattr(_tel.faulthandler, "dump_traceback_later",
+                            fake_dump_later)
+        # Also redirect the log dir so we don't write to crash_logs/.
+        monkeypatch.setattr(_tel, "_LOG_DIR", str(tmp_path))
+
+        _tel._install_faulthandler()
+
+        assert calls["enable"] == 1, (
+            "faulthandler.enable() must still run — it's the safe part")
+        assert calls["dump_later"] == 0, (
+            "dump_traceback_later was the crash-inducing piece and "
+            "must NOT be scheduled")
+
+    def test_telemetry_module_does_not_reference_dump_traceback_later(self):
+        """A grep-style guard: even if someone re-adds the import
+        but forgets to call it, fail loudly so the next reviewer sees
+        the comment block explaining why it's banned."""
+        import inspect
+        import telemetry as _tel
+        src = inspect.getsource(_tel)
+        # The comment block in _install_faulthandler is allowed to
+        # MENTION the function (it's the rationale).  We only ban
+        # actual call sites: 'dump_traceback_later(' followed by an
+        # arg list that isn't the comment.
+        offending_lines = [
+            ln for ln in src.splitlines()
+            if "dump_traceback_later(" in ln and not ln.strip().startswith("#")
+        ]
+        assert offending_lines == [], (
+            f"telemetry.py contains an active call to "
+            f"dump_traceback_later — that function caused two crashes "
+            f"and is banned.  Offending lines:\n  "
+            + "\n  ".join(offending_lines))

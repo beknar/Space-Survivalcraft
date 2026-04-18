@@ -242,11 +242,18 @@ def _install_faulthandler() -> None:
         _faulthandler_file.flush()
         faulthandler.enable(file=_faulthandler_file,
                             all_threads=True)
-        # Hang detector: dump every thread's stack every 30 s if the
-        # process is still alive so a frozen game tells us where.
-        # ``repeat=True`` keeps re-arming the timer.
-        faulthandler.dump_traceback_later(
-            30, repeat=True, file=_faulthandler_file)
+        # NOTE: we used to also call faulthandler.dump_traceback_later(
+        # 30, repeat=True) as a "if the game freezes, log where it
+        # hung" hang detector.  That was REMOVED on 2026-04-18 after
+        # two crashes (FFmpeg heap corruption + OpenGL VAO access
+        # violation) both fired during the timer's stack-dump tick.
+        # The dumper walks every Python thread's stack from a separate
+        # native thread; on Windows, doing that while a thread is mid-
+        # call into a C extension that holds an internal lock (pyglet
+        # OpenGL bindings, FFmpeg, audio backends) reads freed/garbage
+        # state and produces exactly the access-violation pattern we
+        # observed.  faulthandler.enable() above is enough to catch
+        # real native crashes — only the periodic hang dump is unsafe.
     except Exception:
         pass
 

@@ -1893,3 +1893,77 @@ class TestAsteroidExplosionSustainedMining:
               f"({n} frames in {elapsed:.3f}s)")
         assert fps >= MIN_FPS, (
             f"Sustained asteroid-explosion mining: {fps:.1f} FPS < {MIN_FPS}")
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  Telemetry overhead — record_frame on the hot path must stay free
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestTelemetryRecordFrameOverhead:
+    """``record_frame`` runs on every ``GameView.on_update`` tick.  It
+    must stay below the noise floor or every other perf measurement
+    is polluted.  Empirically ~5 µs/call after the RSS-cache + fsync
+    drop optimisations."""
+
+    def test_record_frame_under_25us_per_call(self, real_game_view,
+                                              monkeypatch, tmp_path):
+        import time as _time
+        import telemetry as _tel
+        from telemetry import init_crash_telemetry, record_frame
+        monkeypatch.setattr(_tel, "_LOG_DIR", str(tmp_path))
+        monkeypatch.setattr(_tel, "_recorder", None)
+        monkeypatch.setattr(_tel, "_faulthandler_file", None)
+        init_crash_telemetry()
+
+        gv = real_game_view
+        # Warm-up so the first flush + RSS sample happens off-clock.
+        for _ in range(120):
+            record_frame(gv)
+        N = 5000
+        t0 = _time.perf_counter()
+        for _ in range(N):
+            record_frame(gv)
+        per_us = (_time.perf_counter() - t0) / N * 1e6
+        print(f"  [perf] record_frame: {per_us:.2f} us/call")
+        assert per_us < 25.0, (
+            f"record_frame regressed to {per_us:.1f} us/call — "
+            f"investigate before this overhead pollutes other perf "
+            f"tests (target was ~5 us, ceiling 25 us).")
+
+
+class TestTelemetryDoesNotDegradeFps:
+    """End-to-end FPS with telemetry initialised exactly the way
+    main.py wires it up.  Catches the case where some future change
+    accidentally re-introduces an expensive per-frame hook."""
+
+    def test_zone2_fps_with_telemetry_above_threshold(
+            self, real_game_view, monkeypatch, tmp_path):
+        import telemetry as _tel
+        from telemetry import init_crash_telemetry, record_frame
+        monkeypatch.setattr(_tel, "_LOG_DIR", str(tmp_path))
+        monkeypatch.setattr(_tel, "_recorder", None)
+        monkeypatch.setattr(_tel, "_faulthandler_file", None)
+        init_crash_telemetry()
+
+        gv = real_game_view
+        gv._transition_zone(ZoneID.ZONE2)
+
+        import time as _time
+        dt = 1 / 60
+        # Warm up
+        for _ in range(10):
+            record_frame(gv)
+            gv.on_update(dt)
+            gv.on_draw()
+        n = 60
+        t0 = _time.perf_counter()
+        for _ in range(n):
+            record_frame(gv)
+            gv.on_update(dt)
+            gv.on_draw()
+        elapsed = _time.perf_counter() - t0
+        fps = n / elapsed if elapsed > 0 else 999.0
+        print(f"  [perf] zone2 + telemetry: {fps:.1f} FPS "
+              f"({n} frames in {elapsed:.3f}s)")
+        assert fps >= MIN_FPS, (
+            f"Zone 2 with telemetry init: {fps:.1f} FPS < {MIN_FPS}")
