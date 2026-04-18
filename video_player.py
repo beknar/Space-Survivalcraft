@@ -104,6 +104,15 @@ class VideoPlayer:
     _frame_id: int = 0         # incremented each game frame
     _frame_converted: int = -1  # frame_id of last conversion (any instance)
 
+    # Deferred player teardown — calling ``player.delete()`` synchronously
+    # while its pyglet worker thread is still mid-packet has been observed
+    # to heap-corrupt the process (Windows fatal 0xc0000374 inside
+    # ``ffmpeg_unref_packet``).  We pause + zero volume + push the player
+    # onto this queue and let the worker drain before we actually free
+    # it two seconds later on the main thread.
+    _pending_cleanup: list = []           # list[(deadline_monotonic, player)]
+    _CLEANUP_DELAY_S: float = 2.0
+
     def __init__(self, convert_fps: float = 15.0) -> None:
         VideoPlayer._instance_counter += 1
         self._tex_hash = f"_vidframe_{VideoPlayer._instance_counter}"
@@ -226,7 +235,12 @@ class VideoPlayer:
         return True
 
     def _stop_player(self) -> None:
-        """Tear down the pyglet player only, preserving the cached texture."""
+        """Tear down the pyglet player only, preserving the cached texture.
+
+        NOTE: the actual ``player.delete()`` call is deferred via
+        ``_pending_cleanup`` to avoid racing pyglet's FFmpeg worker
+        thread — see the class docstring for the heap-corruption
+        rationale."""
         if self._player is not None:
             try:
                 self._player.volume = 0.0
@@ -238,23 +252,48 @@ class VideoPlayer:
                     self._player.next_source()
             except Exception:
                 pass
-            try:
-                self._player.delete()
-            except Exception:
-                pass
+            VideoPlayer._pending_cleanup.append(
+                (_time.monotonic() + VideoPlayer._CLEANUP_DELAY_S,
+                 self._player))
             self._player = None
         self._source = None
         self._last_video_time = -1.0
+
+    @classmethod
+    def _drain_pending_cleanup(cls) -> None:
+        """Actually ``.delete()`` players whose quiescence window has
+        passed.  Called from per-frame update paths so the cleanup runs
+        on the main thread alongside pyglet's clock dispatch."""
+        if not cls._pending_cleanup:
+            return
+        now = _time.monotonic()
+        survivors = []
+        for deadline, pl in cls._pending_cleanup:
+            if now >= deadline:
+                try:
+                    pl.delete()
+                except Exception:
+                    pass
+            else:
+                survivors.append((deadline, pl))
+        cls._pending_cleanup = survivors
 
     def stop(self) -> None:
         """Stop playback and release all resources including cached texture."""
         self._stop_player()
         self._segment_mode = False
         if self._standby_player is not None:
+            # Defer via the same cleanup queue — a standby player that
+            # was pre-built but never played still has an FFmpeg worker
+            # and must be drained the same way.
             try:
-                self._standby_player.delete()
+                self._standby_player.volume = 0.0
+                self._standby_player.pause()
             except Exception:
                 pass
+            VideoPlayer._pending_cleanup.append(
+                (_time.monotonic() + VideoPlayer._CLEANUP_DELAY_S,
+                 self._standby_player))
         self._standby_player = None
         self._standby_source = None
         self._standby_ready = False
@@ -305,6 +344,8 @@ class VideoPlayer:
 
     def update_volume(self, volume: float) -> None:
         """Sync volume; in segment mode, pre-build standby and loop seamlessly."""
+        # Drain deferred cleanups (see ``update`` for the rationale).
+        VideoPlayer._drain_pending_cleanup()
         if self._player is None or not self.active:
             return
         try:
@@ -361,6 +402,10 @@ class VideoPlayer:
 
     def update(self, volume: float) -> None:
         """Sync volume and check if playback ended (loop)."""
+        # Always drain the deferred cleanup queue — the whole queue
+        # exists to let the FFmpeg worker thread quiesce before we free
+        # a retired player, so this has to run on every frame.
+        VideoPlayer._drain_pending_cleanup()
         if self._player is not None and self.active:
             try:
                 self._player.volume = volume
