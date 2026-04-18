@@ -78,6 +78,11 @@ class FlightRecorder:
         self._frame = 0
         self._proc = psutil.Process(os.getpid())
         self._start = time.perf_counter()
+        # Cached RSS in MB — refreshed on each periodic flush rather
+        # than every frame.  The psutil syscall costs ~3 µs/call and
+        # RSS changes on a seconds timescale, so sampling at 60 Hz is
+        # pure waste.
+        self._cached_rss_mb: int = self._proc.memory_info().rss // (1024 * 1024)
         # Line-buffered so a crash mid-write at least keeps complete
         # lines intact on disk.
         self._file = open(path, "a", encoding="utf-8", buffering=1)
@@ -95,7 +100,7 @@ class FlightRecorder:
             py = getattr(player, "center_y", 0.0)
             hp = getattr(player, "hp", 0)
             shields = getattr(player, "shields", 0)
-            rss_mb = self._proc.memory_info().rss // (1024 * 1024)
+            rss_mb = self._cached_rss_mb
             entry = {
                 "t": round(time.perf_counter() - self._start, 3),
                 "f": self._frame,
@@ -114,6 +119,13 @@ class FlightRecorder:
             self._buf.append(json.dumps(entry, separators=(",", ":")))
             now = time.monotonic()
             if now - self._last_flush >= self._flush_every_s:
+                # Refresh the cached RSS at flush time too so the next
+                # second's entries reflect recent memory growth.
+                try:
+                    self._cached_rss_mb = (
+                        self._proc.memory_info().rss // (1024 * 1024))
+                except Exception:
+                    pass
                 self._flush()
                 self._last_flush = now
         except Exception:  # noqa: BLE001 — telemetry must not crash the game
@@ -135,8 +147,12 @@ class FlightRecorder:
         try:
             self._file.write("\n".join(self._buf))
             self._file.write("\n")
+            # Plain flush() only — the OS kernel buffer outlives the
+            # Python process even on a hard crash (Windows 0xc0000374
+            # included), so os.fsync() is a ~7 ms/s tax that only
+            # defends against power loss, which isn't our threat
+            # model.  close() on shutdown still fsyncs implicitly.
             self._file.flush()
-            os.fsync(self._file.fileno())
             self._buf.clear()
             if self._file.tell() >= self._max_bytes:
                 self._rotate()

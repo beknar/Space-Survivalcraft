@@ -295,11 +295,13 @@ def compute_world_stats(gv: GameView) -> list[tuple[str, int, tuple]]:
     """Return a list of (label, count, color) entries for the station info panel.
     Zone-aware: shows different stats depending on the active zone."""
     from zones import ZoneID
+    from update_logic import active_null_fields
     stats: list[tuple[str, int, tuple]] = []
     grey = (180, 180, 180, 255)
     orange = (220, 160, 60, 255)
     red = (220, 80, 80, 255)
     green = (120, 200, 90, 255)
+    purple = (180, 140, 220, 255)
     if gv._zone.zone_id == ZoneID.ZONE2 and hasattr(gv._zone, '_iron_asteroids'):
         z = gv._zone
         stats.append(("IRON ROCK", len(z._iron_asteroids), grey))
@@ -308,11 +310,17 @@ def compute_world_stats(gv: GameView) -> list[tuple[str, int, tuple]]:
         stats.append(("WANDERERS", len(z._wanderers),       (200, 200, 130, 255)))
         stats.append(("GAS AREAS", len(z._gas_areas),       green))
         stats.append(("ALIENS",    len(z._aliens),          red))
-    else:
+        stats.append(("NULL FIELDS", len(active_null_fields(gv)), purple))
+    elif gv._zone.zone_id == ZoneID.MAIN:
         stats.append(("ASTEROIDS", len(gv.asteroid_list), grey))
         stats.append(("ALIENS",    len(gv.alien_list),    red))
+        stats.append(("NULL FIELDS", len(active_null_fields(gv)), purple))
         if gv._boss is not None and gv._boss.hp > 0:
             stats.append(("BOSS HP", int(gv._boss.hp), red))
+    else:
+        # Warp zones — no null fields by design, no boss.
+        stats.append(("ASTEROIDS", len(gv.asteroid_list), grey))
+        stats.append(("ALIENS",    len(gv.alien_list),    red))
     return stats
 
 
@@ -326,6 +334,7 @@ def compute_inactive_zone_stats(gv: GameView) -> list[tuple[str, list[tuple[str,
     orange = (220, 160, 60, 255)
     red = (220, 80, 80, 255)
     green = (120, 200, 90, 255)
+    purple = (180, 140, 220, 255)
     result: list[tuple[str, list[tuple[str, int, tuple]]]] = []
 
     # Zone 1 (Double Star) stats from stash
@@ -341,6 +350,11 @@ def compute_inactive_zone_stats(gv: GameView) -> list[tuple[str, list[tuple[str,
             lines.append(("ALIENS", len(ali), red))
         if bld is not None and len(bld) > 0:
             lines.append(("BUILDINGS", len(bld), orange))
+        # Zone 1 null fields live on gv._null_fields regardless of
+        # active zone — they aren't stashed — so report them directly.
+        z1_nulls = getattr(gv, "_null_fields", None) or []
+        if z1_nulls:
+            lines.append(("NULL FIELDS", len(z1_nulls), purple))
         boss = stash.get("_boss")
         if boss is not None and getattr(boss, 'hp', 0) > 0:
             lines.append(("BOSS HP", int(boss.hp), red))
@@ -357,6 +371,9 @@ def compute_inactive_zone_stats(gv: GameView) -> list[tuple[str, list[tuple[str,
             lines.append(("WANDERERS", len(z2._wanderers), (200, 200, 130, 255)))
             lines.append(("GAS AREAS", len(z2._gas_areas), green))
             lines.append(("ALIENS", len(z2._aliens), red))
+            z2_nulls = getattr(z2, "_null_fields", None) or []
+            if z2_nulls:
+                lines.append(("NULL FIELDS", len(z2_nulls), purple))
             if z2._building_stash is not None:
                 bld = z2._building_stash.get("building_list")
                 if bld is not None and len(bld) > 0:

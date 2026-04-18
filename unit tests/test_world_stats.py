@@ -124,3 +124,36 @@ class TestComputeWorldStatsZone2:
             assert isinstance(color, tuple)
             assert len(color) == 4
             assert all(0 <= c <= 255 for c in color)
+
+
+# ── Null field stats (T-menu) ─────────────────────────────────────────────
+
+class TestComputeWorldStatsNullFields:
+    """Null fields must surface in the T-key station info in every zone
+    they can exist — MAIN and ZONE2 — but never in warp zones."""
+
+    def test_zone1_includes_null_fields_row(self):
+        gv = _fake_gv_zone1()
+        gv._null_fields = [object(), object(), object()]
+        stats = compute_world_stats(gv)
+        assert "NULL FIELDS" in _labels(stats)
+        assert _by_label(stats, "NULL FIELDS") == 3
+
+    def test_zone2_includes_null_fields_row(self):
+        gv = _fake_gv_zone2()
+        gv._zone._null_fields = [object()] * 30
+        stats = compute_world_stats(gv)
+        assert "NULL FIELDS" in _labels(stats)
+        assert _by_label(stats, "NULL FIELDS") == 30
+
+    def test_warp_zone_omits_null_fields_row(self):
+        """Warp zones don't host null fields by design, so the row must
+        not appear."""
+        zone = SimpleNamespace(zone_id=ZoneID.WARP_METEOR)
+        gv = SimpleNamespace(
+            _zone=zone, _boss=None,
+            asteroid_list=[], alien_list=[],
+            _null_fields=[object(), object()],   # would-be Zone 1 fields
+        )
+        stats = compute_world_stats(gv)
+        assert "NULL FIELDS" not in _labels(stats)

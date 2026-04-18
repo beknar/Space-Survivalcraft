@@ -317,6 +317,11 @@ def _restore_zone2_full(view: GameView, z2_state: dict) -> None:
     # Restore aliens
     _restore_z2_aliens_into(zone, z2_state.get("aliens", []))
 
+    # Regenerate null fields deterministically from the world seed —
+    # they aren't persisted in the save (no destructible state) but
+    # must exist in the live zone or the whole stealth system breaks.
+    _regenerate_null_fields(zone)
+
     view._zone2 = zone
 
 
@@ -367,6 +372,23 @@ def _regenerate_gas_areas(zone, _z2mod) -> None:
     zone._gas_pos_cache = [(g.center_x, g.center_y, g.radius)
                            for g in zone._gas_areas]
     random.seed()
+
+
+def _regenerate_null_fields(zone) -> None:
+    """Regenerate null fields deterministically from the zone's world
+    seed.  Mirrors what ``Zone2.setup`` does when first populating a
+    fresh zone — called during save-restore because null fields have
+    no persisted state, and a ``_populated=True`` zone loaded from a
+    save would otherwise have an empty ``_null_fields`` list."""
+    import random as _random
+    from world_setup import populate_null_fields
+    # Use a dedicated RNG keyed off the zone seed so the null-field
+    # layout doesn't shift depending on how many other populate calls
+    # ran first.  The +97 salt is arbitrary but reserved for null fields
+    # so future changes to other sequences can't collide.
+    rng = _random.Random(zone._world_seed + 97)
+    zone._null_fields = populate_null_fields(
+        zone.world_width, zone.world_height, rng=rng)
 
 
 def _ensure_alien_textures(_z2mod, ship_png: str) -> None:
