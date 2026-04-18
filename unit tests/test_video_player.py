@@ -56,13 +56,21 @@ class _FakePlayer:
         self.volume: float = 1.0
         self.deleted: bool = False
         self.paused: bool = False
-        self.source = None
+        self.next_source_calls: int = 0
+        # Truthy so ``while self._player.source: next_source()`` would
+        # loop forever if it were ever re-introduced — the test below
+        # locks the regression in.
+        self.source = object()
 
     def pause(self) -> None:
         self.paused = True
 
     def next_source(self) -> None:
-        pass
+        # Record the call AND clear .source so a hypothetical
+        # ``while self._player.source: next_source()`` loop only runs
+        # once, but the call count assertion still catches it.
+        self.next_source_calls += 1
+        self.source = None
 
     def delete(self) -> None:
         self.deleted = True
@@ -157,3 +165,77 @@ class TestDeferredCleanup:
         assert standby.deleted is False
         assert standby.paused is True
         assert len(VideoPlayer._pending_cleanup) == 1
+
+
+class TestStopPlayerDoesNotDrainSourceQueue:
+    """Regression — ``_stop_player`` used to drain the source queue
+    with ``while self._player.source: self._player.next_source()`` to
+    "tidy up" before deferring the delete.  That caused a Windows
+    fatal 0xc0000374 (heap corruption) inside ``ffmpeg_read`` on the
+    pyglet media worker thread: ``pause()`` doesn't synchronise with
+    the worker, so the worker could be mid-read on the very source
+    that ``next_source()`` was popping off the player's queue.  Letting
+    ``Player.delete()`` drain the queue 2 s later (via
+    ``_pending_cleanup``) is safe because pyglet's own teardown path
+    waits the worker out.
+
+    These tests lock the fix so future "cleanup" tweaks can't bring
+    the bug back."""
+
+    def setup_method(self):
+        from video_player import VideoPlayer
+        VideoPlayer._pending_cleanup = []
+
+    def test_stop_player_does_not_call_next_source(self):
+        from video_player import VideoPlayer
+        vp = VideoPlayer.__new__(VideoPlayer)
+        vp._player = _FakePlayer()
+        vp._source = object()
+        vp._last_video_time = 0.0
+        fake = vp._player
+        # Make sure .source is truthy so a hypothetical loop would fire.
+        assert fake.source is not None
+
+        vp._stop_player()
+
+        assert fake.next_source_calls == 0, (
+            "_stop_player called next_source — that races the pyglet "
+            "media worker thread and produces heap corruption inside "
+            "ffmpeg_read.  Let Player.delete() drain the queue instead.")
+
+    def test_stop_player_still_pauses_and_zeros_volume(self):
+        """The two operations that ARE safe must still happen — they're
+        what tells pyglet's worker thread to stop pulling buffers for
+        XAudio2."""
+        from video_player import VideoPlayer
+        vp = VideoPlayer.__new__(VideoPlayer)
+        vp._player = _FakePlayer()
+        vp._source = object()
+        vp._last_video_time = 0.0
+        fake = vp._player
+        fake.volume = 0.7
+
+        vp._stop_player()
+
+        assert fake.paused is True
+        assert fake.volume == 0.0
+        # Still queued for deferred delete.
+        assert len(VideoPlayer._pending_cleanup) == 1
+        assert VideoPlayer._pending_cleanup[0][1] is fake
+
+    def test_video_player_module_does_not_call_next_source(self):
+        """Grep-style guard: if anyone re-adds ``next_source()`` to
+        ``video_player.py`` they should fail loudly so the rationale
+        in the comment block gets re-read.  We only ban active call
+        sites — comments and docstrings are allowed to mention it."""
+        import inspect
+        import video_player as _vp
+        src = inspect.getsource(_vp)
+        offending = [
+            ln for ln in src.splitlines()
+            if "next_source(" in ln and not ln.strip().startswith("#")
+        ]
+        assert offending == [], (
+            "video_player.py contains a call to next_source — that "
+            "races the pyglet media worker thread.  Offending lines:\n"
+            + "\n  ".join(offending))

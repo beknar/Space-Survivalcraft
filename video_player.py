@@ -247,11 +247,22 @@ class VideoPlayer:
                 self._player.pause()
             except Exception:
                 pass
-            try:
-                while self._player.source:
-                    self._player.next_source()
-            except Exception:
-                pass
+            # NOTE: we used to drain the source queue here with
+            #     while self._player.source:
+            #         self._player.next_source()
+            # That caused a Windows fatal 0xc0000374 (heap corruption)
+            # inside ``ffmpeg_read`` on the pyglet media worker thread.
+            # ``pause()`` doesn't synchronise with the worker — the
+            # worker can be mid-``ffmpeg_read`` on the current source
+            # when ``next_source()`` runs on the main thread and pops
+            # that source off the queue, leaving the worker holding a
+            # half-freed FFmpeg context.  Letting ``Player.delete()``
+            # drain the queue 2 s later (via _pending_cleanup) is safe
+            # because pyglet's own teardown path knows how to wait the
+            # worker out.  Trace was:
+            #   ffmpeg_read -> _get_packet -> _fillq ->
+            #   _check_low_level -> _get_audio_packet -> get_audio_data
+            #   -> xaudio2.adaptation._refill -> player_worker_thread.run
             VideoPlayer._pending_cleanup.append(
                 (_time.monotonic() + VideoPlayer._CLEANUP_DELAY_S,
                  self._player))

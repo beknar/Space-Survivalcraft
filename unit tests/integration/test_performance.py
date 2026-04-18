@@ -1967,3 +1967,46 @@ class TestTelemetryDoesNotDegradeFps:
               f"({n} frames in {elapsed:.3f}s)")
         assert fps >= MIN_FPS, (
             f"Zone 2 with telemetry init: {fps:.1f} FPS < {MIN_FPS}")
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  VideoPlayer cleanup-queue churn — stop/start cycles must not spike
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestVideoPlayerStopChurnFps:
+    """When a video loops or swaps, the old player is paused and
+    pushed onto ``_pending_cleanup`` with a 2 s deadline.  If many
+    cycles fire close together, the queue grows and the per-frame
+    drain has to walk every entry.  This test simulates 30 stop
+    cycles (with fake players, no real FFmpeg) and asserts the FPS
+    measurement loop stays above ``MIN_FPS``."""
+
+    def test_many_pending_cleanups_do_not_degrade_fps(
+            self, real_game_view):
+        from video_player import VideoPlayer
+        import time as _time
+
+        # Fake players that record nothing — purpose is to exercise
+        # the queue-drain logic, not the underlying FFmpeg.  Deadlines
+        # are 60 s in the future so nothing actually .delete()s during
+        # the measurement window.
+        class _FakePlayer:
+            def __init__(self):
+                self.deleted = False
+            def delete(self):
+                self.deleted = True
+
+        prior = VideoPlayer._pending_cleanup
+        VideoPlayer._pending_cleanup = [
+            (_time.monotonic() + 60.0, _FakePlayer()) for _ in range(30)
+        ]
+        try:
+            gv = real_game_view
+            gv._transition_zone(ZoneID.ZONE2)
+            fps = _measure_fps(gv)
+            print(f"  [perf] zone2 + 30 pending video cleanups: "
+                  f"{fps:.1f} FPS")
+            assert fps >= MIN_FPS, (
+                f"VideoPlayer cleanup queue churn: {fps:.1f} FPS < {MIN_FPS}")
+        finally:
+            VideoPlayer._pending_cleanup = prior
