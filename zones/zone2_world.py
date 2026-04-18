@@ -17,6 +17,7 @@ from constants import (
     Z2_GUNNER_COUNT, Z2_GUNNER_XP,
     Z2_RAMMER_COUNT, Z2_RAMMER_XP,
     BLUEPRINT_DROP_CHANCE_ALIEN, BLUEPRINT_DROP_CHANCE_ASTEROID,
+    RESPAWN_EXCLUSION_RADIUS,
 )
 from sprites.asteroid import IronAsteroid
 from sprites.explosion import HitSpark
@@ -234,8 +235,33 @@ def _check_laser_vs_aliens(z: Zone2, gv: GameView, proj) -> None:
         break
 
 
+def _find_respawn_pos(z: Zone2, gv: GameView, margin: float = 100.0,
+                      attempts: int = 200) -> tuple[float, float] | None:
+    """Pick a random Nebula position that isn't inside
+    RESPAWN_EXCLUSION_RADIUS of any Zone 2 building.  Returns None if
+    no clear spot is found after ``attempts`` tries so the caller can
+    skip this tick rather than spawning on top of the station."""
+    import math as _math
+    buildings = list(getattr(gv, "building_list", []) or [])
+    for _ in range(attempts):
+        x, y = _rand_pos(z, margin)
+        too_close = any(
+            _math.hypot(x - b.center_x, y - b.center_y)
+            < RESPAWN_EXCLUSION_RADIUS
+            for b in buildings
+        )
+        if not too_close:
+            return x, y
+    return None
+
+
 def try_respawn(z: Zone2, gv: GameView) -> None:
-    """Respawn one alien of each type if below max."""
+    """Respawn one alien + one asteroid of each type if below max.
+
+    Runs on the same ``RESPAWN_INTERVAL`` cadence as Zone 1 so every
+    Nebula resource (iron, double-iron, copper, wandering) regenerates
+    at the same rate as Zone 1 iron: one sprite per type per minute."""
+    # Aliens — one per subclass up to cap.
     _CLASS_MAP = {ShieldedAlien: "shielded", FastAlien: "fast",
                   GunnerAlien: "gunner", RammerAlien: "rammer"}
     counts = {"shielded": 0, "fast": 0, "gunner": 0, "rammer": 0}
@@ -254,3 +280,42 @@ def try_respawn(z: Zone2, gv: GameView) -> None:
             cls = classes[name]
             tex = z._alien_textures[name]
             z._aliens.append(cls(tex, z._alien_laser_tex, x, y, **kw))
+
+    # Asteroids — mirrors combat_helpers.try_respawn_asteroids for
+    # Zone 1.  One per type per tick, avoiding Zone 2 buildings.
+    if len(z._iron_asteroids) < ASTEROID_COUNT:
+        pos = _find_respawn_pos(z, gv)
+        if pos is not None:
+            z._iron_asteroids.append(IronAsteroid(z._iron_tex, *pos))
+            _minimap_dirty(z)
+
+    if len(z._double_iron) < DOUBLE_IRON_COUNT:
+        pos = _find_respawn_pos(z, gv)
+        if pos is not None:
+            a = IronAsteroid(z._iron_tex, *pos)
+            a.hp = DOUBLE_IRON_HP
+            a.scale = DOUBLE_IRON_SCALE
+            z._double_iron.append(a)
+            _minimap_dirty(z)
+
+    if len(z._copper_asteroids) < COPPER_ASTEROID_COUNT:
+        pos = _find_respawn_pos(z, gv)
+        if pos is not None:
+            from sprites.copper_asteroid import CopperAsteroid
+            z._copper_asteroids.append(
+                CopperAsteroid(z._copper_tex, *pos))
+            _minimap_dirty(z)
+
+    if len(z._wanderers) < WANDERING_COUNT:
+        pos = _find_respawn_pos(z, gv)
+        if pos is not None:
+            from sprites.wandering_asteroid import WanderingAsteroid
+            z._wanderers.append(WanderingAsteroid(
+                z._wanderer_tex, *pos, z.world_width, z.world_height))
+            _minimap_dirty(z)
+
+
+def _minimap_dirty(z: Zone2) -> None:
+    """Invalidate the Nebula minimap cache after a respawn so the new
+    dot shows up on next draw."""
+    z._minimap_cache = None

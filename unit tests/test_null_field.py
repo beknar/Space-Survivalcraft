@@ -114,8 +114,10 @@ class _StubPlayer:
         self.center_y = y
 
 
-def _make_gv_with_fields(fields):
-    zone = SimpleNamespace(_null_fields=None, zone_id=None)
+def _make_gv_with_fields(fields, zone_id=None):
+    from zones import ZoneID
+    zid = zone_id if zone_id is not None else ZoneID.MAIN
+    zone = SimpleNamespace(_null_fields=None, zone_id=zid)
     return SimpleNamespace(
         player=_StubPlayer(),
         _zone=zone,
@@ -145,6 +147,20 @@ class TestActiveNullFields:
         from update_logic import active_null_fields
         gv = _make_gv_with_fields([])
         assert active_null_fields(gv) == []
+
+    def test_warp_zones_never_see_zone1_fields(self):
+        """Zone 1's null-field list must NOT bleed into warp zones even
+        though the warp-zone state object has no ``_null_fields`` of
+        its own."""
+        from sprites.null_field import NullField
+        from update_logic import active_null_fields
+        from zones import ZoneID
+        z1_field = NullField(500.0, 500.0, size=200)
+        for wid in (ZoneID.WARP_METEOR, ZoneID.WARP_LIGHTNING,
+                    ZoneID.WARP_GAS, ZoneID.WARP_ENEMY):
+            gv = _make_gv_with_fields([z1_field], zone_id=wid)
+            assert active_null_fields(gv) == [], (
+                f"warp zone {wid} must not expose zone 1 null fields")
 
 
 class TestPlayerIsCloaked:

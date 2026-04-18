@@ -752,12 +752,19 @@ def update_ability_meter(gv: GameView, dt: float) -> None:
 def active_null_fields(gv: GameView) -> list:
     """Return the null-field list for the zone the player is currently
     in. Used by the cloaking gate + the fire-disable hook + drawing.
+
+    Warp zones (meteor / lightning / gas / enemy) never host null
+    fields, so when the player is in one we return ``[]`` rather than
+    falling through to ``gv._null_fields`` (which belongs to Zone 1).
     """
+    from zones import ZoneID
     zone = getattr(gv, "_zone", None)
     zone_fields = getattr(zone, "_null_fields", None)
     if zone_fields:
         return zone_fields
-    return getattr(gv, "_null_fields", None) or []
+    if getattr(zone, "zone_id", None) is ZoneID.MAIN:
+        return getattr(gv, "_null_fields", None) or []
+    return []
 
 
 def find_null_field_at(gv: GameView, x: float, y: float):
