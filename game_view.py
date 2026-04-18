@@ -226,6 +226,10 @@ class GameView(arcade.View):
         self.explosion_list = arcade.SpriteList()
         self.iron_pickup_list = arcade.SpriteList()
         self.blueprint_pickup_list = arcade.SpriteList()
+        # Null fields (Zone 1) — stealth patches that hide the player.
+        from world_setup import populate_null_fields
+        self._null_fields: list = populate_null_fields(
+            WORLD_WIDTH, WORLD_HEIGHT)
         self._init_blueprint_textures()
         self._init_module_slots()
         self._init_aliens()
@@ -848,6 +852,7 @@ class GameView(arcade.View):
                 self._zone2.background_update(self, delta_time)
         _ul.update_ability_meter(self, delta_time)
         _ul.update_force_walls(self, delta_time)
+        _ul.update_null_fields(self, delta_time)
         _ul.update_station_shield(self, delta_time)
         _ul.update_refugee_npc(self, delta_time)
         _ul.update_missiles(self, delta_time)

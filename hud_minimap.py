@@ -88,6 +88,7 @@ def draw_minimap(
     gas_positions: list[tuple[float, float, float]] | None = None,
     gas_always_visible: bool = False,
     parked_ship_positions: list[tuple[float, float]] | None = None,
+    null_field_positions: list[tuple[float, float, float, bool]] | None = None,
 ) -> None:
     """Draw a scaled overview of the world inside the status panel."""
     global _fog_cache_tex, _fog_cache_revealed, _fog_cache_grid_id
@@ -254,6 +255,27 @@ def draw_minimap(
                 wmx, wmy = to_map(wpx, wpy)
                 arcade.draw_circle_filled(wmx, wmy, 4.0, (160, 80, 255))
                 arcade.draw_circle_outline(wmx, wmy, 5.5, (200, 140, 255), 1)
+
+    # Null fields (white-dot clusters, pulse red when disabled).
+    # Each entry is (x, y, radius, active).  Drawn as a small outlined
+    # circle on the minimap — always visible so the player can plan
+    # stealth routes regardless of fog.
+    if null_field_positions:
+        nf_active: list[tuple[float, float]] = []
+        nf_disabled: list[tuple[float, float]] = []
+        for nx, ny, nrad, nactive in null_field_positions:
+            nmx = mx + nx * sx_w
+            nmy = my + ny * sy_h
+            (nf_active if nactive else nf_disabled).append((nmx, nmy))
+            nr = max(2.5, nrad * sx_w)
+            arcade.draw_circle_outline(
+                nmx, nmy, nr,
+                (230, 230, 255, 200) if nactive else (240, 60, 60, 220),
+                1)
+        if nf_active:
+            arcade.draw_points(nf_active, (230, 230, 255, 240), 3)
+        if nf_disabled:
+            arcade.draw_points(nf_disabled, (240, 60, 60, 240), 3)
 
     # Parked ships (teal dots)
     if parked_ship_positions:

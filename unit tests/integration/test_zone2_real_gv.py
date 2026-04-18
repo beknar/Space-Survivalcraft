@@ -1703,3 +1703,114 @@ class TestRefactorRegression:
         post = [(a.center_x, a.center_y) for a in list(gv.alien_list)[:4]]
         moved = any(p0 != p1 for p0, p1 in zip(pre, post))
         assert moved, "Aliens did not move after 30 sim frames"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  Null field (stealth patch) — real GameView integration
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestNullFieldIntegration:
+    def test_zone1_populates_30_null_fields(self, real_game_view):
+        from constants import NULL_FIELD_COUNT
+        gv = real_game_view
+        if gv._zone.zone_id != ZoneID.MAIN:
+            gv._transition_zone(ZoneID.MAIN, entry_side="wormhole_return")
+        assert len(gv._null_fields) == NULL_FIELD_COUNT
+
+    def test_zone2_populates_30_null_fields(self, real_game_view):
+        from constants import NULL_FIELD_COUNT
+        gv = real_game_view
+        gv._transition_zone(ZoneID.ZONE2)
+        assert len(gv._zone._null_fields) == NULL_FIELD_COUNT
+
+    def test_zone2_has_30_gas_areas_not_40(self, real_game_view):
+        """Scope reduction from 40 to 30 — verified in a live Zone 2."""
+        gv = real_game_view
+        gv._transition_zone(ZoneID.ZONE2)
+        assert len(gv._zone._gas_areas) == 30
+
+    def test_alien_ignores_player_inside_null_field(self, real_game_view):
+        """Place an alien next to the player but parked inside a null
+        field — the alien must NOT fire or enter PURSUE."""
+        from sprites.alien import SmallAlienShip
+        from sprites.null_field import NullField
+        gv = real_game_view
+        if gv._zone.zone_id != ZoneID.MAIN:
+            gv._transition_zone(ZoneID.MAIN, entry_side="wormhole_return")
+        # Overwrite fields with a single known-location field.
+        gv._null_fields = [NullField(1000.0, 1000.0, size=300)]
+        gv.player.center_x = 1000.0
+        gv.player.center_y = 1000.0
+        gv.alien_list.clear()
+        alien = SmallAlienShip(
+            gv._alien_ship_tex, gv._alien_laser_tex, 1080.0, 1000.0)
+        gv.alien_list.append(alien)
+        gv.alien_projectile_list.clear()
+        for _ in range(120):
+            gv.on_update(1 / 60)
+        # No alien laser should have been fired at the player.
+        assert len(gv.alien_projectile_list) == 0
+        # Alien stayed in PATROL (state code 0).
+        assert alien._state == alien._STATE_PATROL
+
+    def test_alien_targets_player_outside_null_field(self, real_game_view):
+        """Control: the same alien, now with the player OUT of the
+        field, must fire at least one laser within 5 s."""
+        from sprites.alien import SmallAlienShip
+        from sprites.null_field import NullField
+        gv = real_game_view
+        if gv._zone.zone_id != ZoneID.MAIN:
+            gv._transition_zone(ZoneID.MAIN, entry_side="wormhole_return")
+        gv._null_fields = [NullField(1000.0, 1000.0, size=200)]
+        gv.player.center_x = 2000.0  # well outside the field
+        gv.player.center_y = 1000.0
+        gv.alien_list.clear()
+        alien = SmallAlienShip(
+            gv._alien_ship_tex, gv._alien_laser_tex, 2050.0, 1000.0)
+        gv.alien_list.append(alien)
+        gv.alien_projectile_list.clear()
+        fired = False
+        for _ in range(300):
+            gv.on_update(1 / 60)
+            if len(gv.alien_projectile_list) > 0:
+                fired = True
+                break
+        assert fired, "Alien with clear sight must eventually fire"
+
+    def test_firing_from_inside_disables_the_field(self, real_game_view):
+        """Hold fire while sitting in a null field — the field must
+        disable itself on the same frame the first projectile is born."""
+        import arcade
+        from sprites.null_field import NullField
+        gv = real_game_view
+        if gv._zone.zone_id != ZoneID.MAIN:
+            gv._transition_zone(ZoneID.MAIN, entry_side="wormhole_return")
+        nf = NullField(3000.0, 3000.0, size=256)
+        gv._null_fields = [nf]
+        gv.player.center_x = 3000.0
+        gv.player.center_y = 3000.0
+        gv._keys.add(arcade.key.SPACE)
+        try:
+            # Force weapon off cooldown so the first tick actually fires.
+            for w in gv._weapons:
+                w._cd = 0.0
+            gv.on_update(1 / 60)
+        finally:
+            gv._keys.discard(arcade.key.SPACE)
+        assert nf.active is False, (
+            "Firing from inside must trigger the 30 s disable")
+
+    def test_disabled_field_decays_back_to_active(self, real_game_view):
+        """Trigger a disable, then advance 31 s of sim time — the
+        field should be active again."""
+        from sprites.null_field import NullField
+        gv = real_game_view
+        if gv._zone.zone_id != ZoneID.MAIN:
+            gv._transition_zone(ZoneID.MAIN, entry_side="wormhole_return")
+        nf = NullField(0.0, 0.0, size=200)
+        nf.trigger_disable()
+        gv._null_fields = [nf]
+        # 31 virtual seconds (1860 frames at 1/60 dt).
+        for _ in range(1860):
+            gv.on_update(1 / 60)
+        assert nf.active is True

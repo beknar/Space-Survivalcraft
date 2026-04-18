@@ -572,7 +572,7 @@ COPPER_PICKUP_PNG = os.path.join(
 )
 
 # Gaseous areas
-GAS_AREA_COUNT: int = 40
+GAS_AREA_COUNT: int = 30
 GAS_AREA_DAMAGE: float = 20.0       # damage per second + on first contact
 GAS_AREA_SLOW: float = 0.5          # speed multiplier while inside gas
 GAS_AREA_MIN_SIZE: int = 64
@@ -580,6 +580,15 @@ GAS_AREA_MAX_SIZE: int = 384
 
 # Wandering magnetic asteroids
 WANDERING_COUNT: int = 15
+
+# Null fields — stealth patches that hide the player from enemies.
+# Firing or using an ability from inside disables the field for
+# ``NULL_FIELD_DISABLE_S`` seconds while it flashes red.
+NULL_FIELD_COUNT: int = 30            # per zone (Zone 1 and Zone 2)
+NULL_FIELD_SIZE_MIN: int = 128        # smallest diameter (px)
+NULL_FIELD_SIZE_MAX: int = 256        # largest diameter (px)
+NULL_FIELD_DISABLE_S: float = 30.0    # penalty for firing from inside
+NULL_FIELD_DOT_COUNT: int = 28        # dots in the visual cluster
 WANDERING_HP: int = 150
 WANDERING_IRON_YIELD: int = 15
 WANDERING_SPEED: float = 80.0       # wander speed px/s

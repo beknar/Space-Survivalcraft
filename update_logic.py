@@ -360,6 +360,7 @@ def update_weapons(gv: GameView, dt: float, fire: bool) -> None:
     for w in gv._weapons:
         w.update(dt)
 
+    fired_any = False
     if fire:
         spawn_pts = gv.player.gun_spawn_points()
         gun_count = gv.player.guns
@@ -370,6 +371,9 @@ def update_weapons(gv: GameView, dt: float, fire: bool) -> None:
             proj = wpn.fire(pt[0], pt[1], gv.player.heading)
             if proj is not None:
                 gv.projectile_list.append(proj)
+                fired_any = True
+    if fired_any:
+        disable_null_field_around_player(gv)
 
     # Broadside auto-fire
     if "broadside" in gv._module_slots and not gv._player_dead:
@@ -422,11 +426,17 @@ def update_entities(gv: GameView, dt: float) -> None:
 
     # Note: pickup collection moved to game_view.on_update (shared across all zones)
 
-    # Alien AI
+    # Alien AI — when the player is cloaked by a null field, feed the
+    # aliens a synthetic player position far outside detect range so
+    # they stay in PATROL (and drop out of PURSUE).
     px, py = gv.player.center_x, gv.player.center_y
+    if player_is_cloaked(gv):
+        ai_px, ai_py = px + 1e9, py + 1e9
+    else:
+        ai_px, ai_py = px, py
     for alien in list(gv.alien_list):
         proj = alien.update_alien(
-            dt, px, py,
+            dt, ai_px, ai_py,
             gv.asteroid_list, gv.alien_list,
             force_walls=gv._force_walls,
         )
@@ -663,9 +673,12 @@ def update_boss(gv: GameView, dt: float) -> None:
             if isinstance(b, HomeStation) and not b.disabled:
                 station_x, station_y = b.center_x, b.center_y
                 break
+        if player_is_cloaked(gv):
+            boss_px, boss_py = gv.player.center_x + 1e9, gv.player.center_y + 1e9
+        else:
+            boss_px, boss_py = gv.player.center_x, gv.player.center_y
         projs = gv._boss.update_boss(
-            dt,
-            gv.player.center_x, gv.player.center_y,
+            dt, boss_px, boss_py,
             station_x, station_y,
             gv.asteroid_list,
         )
@@ -734,6 +747,68 @@ def update_ability_meter(gv: GameView, dt: float) -> None:
         if (_time.monotonic() - gv._move_press_time) >= MOVE_LONG_PRESS_TIME:
             gv._moving_building = gv._move_candidate
             gv._move_candidate = None
+
+
+def active_null_fields(gv: GameView) -> list:
+    """Return the null-field list for the zone the player is currently
+    in. Used by the cloaking gate + the fire-disable hook + drawing.
+    """
+    zone = getattr(gv, "_zone", None)
+    zone_fields = getattr(zone, "_null_fields", None)
+    if zone_fields:
+        return zone_fields
+    return getattr(gv, "_null_fields", None) or []
+
+
+def find_null_field_at(gv: GameView, x: float, y: float):
+    """Return the first null field (in the active zone's list) that
+    contains ``(x, y)``, or ``None``. Used by the fire-disable hook."""
+    for nf in active_null_fields(gv):
+        if nf.contains_point(x, y):
+            return nf
+    return None
+
+
+def disable_null_field_around_player(gv: GameView) -> None:
+    """Disable every null field containing the player's current
+    position for `NULL_FIELD_DISABLE_S` seconds. Called whenever the
+    player fires a weapon or triggers an ability from inside one."""
+    px, py = gv.player.center_x, gv.player.center_y
+    for nf in active_null_fields(gv):
+        if nf.contains_point(px, py):
+            nf.trigger_disable()
+
+
+def player_is_cloaked(gv: GameView) -> bool:
+    """True when the player is inside an ACTIVE null field (not one
+    currently serving a 30-second disable penalty)."""
+    if getattr(gv, "_player_dead", False):
+        return False
+    px, py = gv.player.center_x, gv.player.center_y
+    for nf in active_null_fields(gv):
+        if nf.active and nf.contains_point(px, py):
+            return True
+    return False
+
+
+def update_null_fields(gv: GameView, dt: float) -> None:
+    """Tick disabled-timer animation on every null field in the
+    active zone (and the Zone 1 fields too, so Zone 2 -> Zone 1
+    transitions don't leave a stale disable on a Zone 1 field)."""
+    seen: set = set()
+    # Zone 1 fields on the GameView
+    z1 = getattr(gv, "_null_fields", None) or []
+    for nf in z1:
+        if id(nf) not in seen:
+            nf.update_null_field(dt)
+            seen.add(id(nf))
+    # Zone 2 fields on the zone object
+    zone = getattr(gv, "_zone", None)
+    z2 = getattr(zone, "_null_fields", None) or []
+    for nf in z2:
+        if id(nf) not in seen:
+            nf.update_null_field(dt)
+            seen.add(id(nf))
 
 
 def update_force_walls(gv: GameView, dt: float) -> None:

@@ -66,6 +66,9 @@ class Zone2(ZoneState):
         self._alien_projectiles: arcade.SpriteList = arcade.SpriteList()
         self._gas_areas: arcade.SpriteList = arcade.SpriteList()
         self._wanderers: arcade.SpriteList = arcade.SpriteList()
+        # Null fields — stealth patches. Populated once; updated every
+        # frame in ``update`` so the disabled-timer flash animates.
+        self._null_fields: list = []
         # Textures (loaded on setup)
         self._iron_tex: arcade.Texture | None = None
         self._copper_tex: arcade.Texture | None = None
@@ -109,6 +112,7 @@ class Zone2(ZoneState):
                 populate_copper_asteroids, populate_gas_areas,
                 populate_wanderers, populate_aliens,
             )
+            from world_setup import populate_null_fields
             random.seed(self._world_seed)
             populate_iron_asteroids(self)
             populate_double_iron(self)
@@ -118,6 +122,8 @@ class Zone2(ZoneState):
                                    for g in self._gas_areas]
             populate_wanderers(self)
             populate_aliens(self)
+            self._null_fields = populate_null_fields(
+                self.world_width, self.world_height)
             random.seed()
             self._populated = True
 
@@ -321,7 +327,14 @@ class Zone2(ZoneState):
             w.angle = (w.angle + w._rot_speed * dt) % 360
         self._update_wanderer_collision(gv, dt)
 
-        # Aliens — full AI for nearby, cheap position-only for distant
+        # Aliens — full AI for nearby, cheap position-only for distant.
+        # Null field cloak: feed the aliens a far-away position so they
+        # stay in PATROL.
+        from update_logic import player_is_cloaked
+        if player_is_cloaked(gv):
+            ai_px, ai_py = px + 1e9, py + 1e9
+        else:
+            ai_px, ai_py = px, py
         _alien_pre_count = len(self._aliens)
         _ai_range_sq = (vx1 - vx0 + 500) ** 2  # viewport width + generous margin
         for alien in self._aliens:
@@ -329,7 +342,7 @@ class Zone2(ZoneState):
             ady = alien.center_y - py
             if adx * adx + ady * ady < _ai_range_sq:
                 projs = alien.update_alien(
-                    dt, px, py, self._iron_asteroids, self._aliens,
+                    dt, ai_px, ai_py, self._iron_asteroids, self._aliens,
                     force_walls=getattr(gv, '_force_walls', None))
                 if projs:
                     for p in projs:

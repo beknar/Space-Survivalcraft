@@ -149,6 +149,8 @@ def _try_force_wall(gv: GameView) -> None:
     behind_y = gv.player.center_y - math.cos(rad) * 60
     gv._force_walls.append(ForceWall(behind_x, behind_y, gv.player.heading))
     arcade.play_sound(gv._force_wall_snd, volume=0.5)
+    from update_logic import disable_null_field_around_player
+    disable_null_field_around_player(gv)
 
 
 def _try_death_blossom(gv: GameView) -> None:
@@ -167,6 +169,8 @@ def _try_death_blossom(gv: GameView) -> None:
     for s in range(QUICK_USE_SLOTS):
         if gv._hud.get_quick_use(s) == "missile":
             gv._hud.set_quick_use(s, None, 0)
+    from update_logic import disable_null_field_around_player
+    disable_null_field_around_player(gv)
 
 
 def _try_misty_step(gv: GameView, key: int) -> None:
@@ -194,6 +198,10 @@ def _try_misty_step(gv: GameView, key: int) -> None:
             dx, dy = -math.cos(rad), math.sin(rad)
         else:  # D
             dx, dy = math.cos(rad), -math.sin(rad)
+        # Check the null field at the PRE-teleport position — teleporting
+        # out of a null field counts as "using an ability from inside".
+        from update_logic import disable_null_field_around_player
+        disable_null_field_around_player(gv)
         gv.player.center_x += dx * MISTY_STEP_DISTANCE
         gv.player.center_y += dy * MISTY_STEP_DISTANCE
         gv._use_glow = (160, 80, 255, 160)

@@ -460,6 +460,7 @@ class HUD:
         gas_positions: list[tuple[float, float, float]] | None = None,
         gas_always_visible: bool = False,
         parked_ship_positions: list[tuple[float, float]] | None = None,
+        null_field_positions: list[tuple[float, float, float, bool]] | None = None,
     ) -> None:
         """Draw the full HUD status panel."""
         # Panel background
@@ -548,4 +549,5 @@ class HUD:
             gas_positions=gas_positions,
             gas_always_visible=gas_always_visible,
             parked_ship_positions=parked_ship_positions,
+            null_field_positions=null_field_positions,
         )

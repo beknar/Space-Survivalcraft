@@ -18,6 +18,33 @@ if TYPE_CHECKING:
     from game_view import GameView
 
 
+def _draw_null_fields(gv: GameView) -> None:
+    """Draw every null field in the active zone as two batched
+    ``draw_points`` calls — one for the active (white) fields and one
+    for the disabled (red) fields. 30 fields × 28 dots each is ~840
+    points per frame; batching collapses this into 2 GPU draws."""
+    from update_logic import active_null_fields
+    import math
+    active_pts: list[tuple[float, float]] = []
+    disabled_pts: list[tuple[float, float]] = []
+    disabled_pulse = 0.0
+    for nf in active_null_fields(gv):
+        if nf.active:
+            active_pts.extend(nf._world_dots)
+        else:
+            disabled_pts.extend(nf._world_dots)
+            # Pulse sync'd to any one field's flash phase is fine —
+            # every field runs the same 6 rad/s oscillator.
+            disabled_pulse = nf._flash_phase
+    if active_pts:
+        arcade.draw_points(active_pts, (230, 230, 255, 210), 4.0)
+    if disabled_pts:
+        pulse = 0.6 + 0.4 * math.sin(disabled_pulse)
+        red = min(255, int(240 * pulse + 15))
+        alpha = min(255, int(180 * pulse + 30))
+        arcade.draw_points(disabled_pts, (red, 40, 40, alpha), 4.0)
+
+
 def _draw_trade_station(gv: GameView) -> None:
     """Draw the trade station sprite if it exists."""
     if gv._trade_station is not None:
@@ -112,6 +139,11 @@ def draw_world(gv: GameView, cx: float, cy: float, hw: float, hh: float) -> None
 
     # Trade station (shared across all zones — drawn after zone entities)
     _draw_trade_station(gv)
+
+    # Null fields — semi-transparent dot clusters drawn above world
+    # entities but below the player ship + projectiles so they don't
+    # occlude combat readouts.
+    _draw_null_fields(gv)
 
     # Station shield — drawn before the player/particles so it sits
     # behind the ship and projectiles but on top of buildings.
@@ -327,6 +359,17 @@ def _gas_always_visible(gv: GameView) -> bool:
     return False
 
 
+def _null_field_positions(
+    gv: GameView,
+) -> list[tuple[float, float, float, bool]]:
+    """Return (x, y, radius, active) for every null field in the
+    active zone — used by the minimap.  Always-visible (no fog check)
+    so the player can plan stealth routes ahead of exploration."""
+    from update_logic import active_null_fields
+    return [(nf.center_x, nf.center_y, nf.radius, nf.active)
+            for nf in active_null_fields(gv)]
+
+
 def _gas_positions(gv: GameView) -> list[tuple[float, float, float]]:
     """Return gas area (x, y, radius) for minimap (Zone 2 and gas warp zone)."""
     # Zone 2: use cached positions
@@ -380,6 +423,7 @@ def draw_ui(gv: GameView) -> None:
         gas_positions=_gas_positions(gv),
         gas_always_visible=_gas_always_visible(gv),
         parked_ship_positions=[(ps.center_x, ps.center_y) for ps in gv._parked_ships],
+        null_field_positions=_null_field_positions(gv),
     )
     # Video frame draws (skip when menu open)
     if not menu_open:

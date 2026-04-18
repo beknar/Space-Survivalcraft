@@ -1733,3 +1733,65 @@ class TestAIPilotShieldedFleetZone2:
         fps = _measure_fps(gv)
         assert fps >= MIN_FPS, (
             f"Zone 2 shielded AI fleet: {fps:.1f} FPS < {MIN_FPS}")
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  Null field draw + cloak check perf — 30 fields every frame
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestNullFieldDrawZone1:
+    def test_null_field_zone1_above_threshold(self, real_game_view):
+        """Zone 1 with its 30 null fields drawing every frame + the
+        cloak check running each alien tick. Catches any regression
+        in the dot-cluster draw or the active-fields lookup."""
+        gv = real_game_view
+        if gv._zone.zone_id != ZoneID.MAIN:
+            gv._transition_zone(ZoneID.MAIN, entry_side="wormhole_return")
+        fps = _measure_fps(gv)
+        assert fps >= MIN_FPS, (
+            f"Zone 1 null fields: {fps:.1f} FPS < {MIN_FPS}")
+
+
+class TestNullFieldDrawZone2:
+    def test_null_field_zone2_above_threshold(self, real_game_view):
+        """Zone 2 (fully populated nebula) with 30 null fields
+        animating alongside every other entity list."""
+        gv = real_game_view
+        gv._transition_zone(ZoneID.ZONE2)
+        fps = _measure_fps(gv)
+        assert fps >= MIN_FPS, (
+            f"Zone 2 null fields: {fps:.1f} FPS < {MIN_FPS}")
+
+
+class TestNullFieldDrawZone2WithVideos:
+    def test_null_field_zone2_with_videos_above_threshold(
+            self, real_game_view):
+        """Worst case: Zone 2 + both videos + all 30 null fields."""
+        gv = real_game_view
+        gv._transition_zone(ZoneID.ZONE2)
+        _start_both_videos_or_skip(gv)
+        try:
+            fps = _measure_fps(gv)
+            assert fps >= MIN_FPS, (
+                f"Zone 2 null fields + both videos: "
+                f"{fps:.1f} FPS < {MIN_FPS}")
+        finally:
+            _stop_both_videos(gv)
+
+
+class TestNullFieldClookOverhead:
+    def test_cloaked_zone2_above_threshold(self, real_game_view):
+        """Player parked inside a null field in Zone 2 — the alien AI
+        now runs with the synthetic far-away player position, which
+        still has to loop over every entity. Ensure the cloak path
+        doesn't drop below threshold."""
+        from sprites.null_field import NullField
+        gv = real_game_view
+        gv._transition_zone(ZoneID.ZONE2)
+        # Guarantee cloak by parking the player dead-centre of a big
+        # field on top of where the population put the others.
+        gv._zone._null_fields.append(
+            NullField(gv.player.center_x, gv.player.center_y, size=256))
+        fps = _measure_fps(gv)
+        assert fps >= MIN_FPS, (
+            f"Zone 2 cloaked-player path: {fps:.1f} FPS < {MIN_FPS}")

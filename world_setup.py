@@ -214,6 +214,30 @@ def populate_asteroids() -> arcade.SpriteList:
     return slist
 
 
+def populate_null_fields(
+    world_w: float, world_h: float,
+    count: int | None = None,
+    rng: random.Random | None = None,
+) -> list:
+    """Spawn ``NullField`` stealth patches randomly across a zone.
+
+    Used by both Zone 1 (during ``GameView._init_world_entities``) and
+    Zone 2 (``zones/zone2_world.populate_null_fields``).  A dedicated
+    ``rng`` lets the caller seed placement for save/load determinism.
+    """
+    from constants import NULL_FIELD_COUNT
+    from sprites.null_field import NullField
+    r = rng or random
+    n = NULL_FIELD_COUNT if count is None else count
+    fields: list = []
+    margin = 180.0
+    for _ in range(n):
+        x = r.uniform(margin, world_w - margin)
+        y = r.uniform(margin, world_h - margin)
+        fields.append(NullField(x, y, rng=r))
+    return fields
+
+
 def load_building_textures() -> dict[str, arcade.Texture]:
     """Load one texture per building type from the BUILDING_DIR asset folder."""
     textures: dict[str, arcade.Texture] = {}
