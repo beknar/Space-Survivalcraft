@@ -191,6 +191,35 @@ class HUD:
                                      anchor_x="center", anchor_y="center")
         self._QU_NAMES: dict[str, str] = {"repair_pack": "Repair Pack", "shield_recharge": "Shield Recharge", "missile": "Homing Missile"}
 
+        # Pooled fill rects for HUD overlays (quick-use bar, module
+        # slots).  Mirrors trade_menu's pattern — one SpriteList.draw
+        # replaces every per-cell draw_rect_filled.  ~14 GL ops/frame
+        # → 1, measured as the hottest overhead on the HUD path.
+        self._rect_sprites: arcade.SpriteList = arcade.SpriteList()
+        self._rect_slot: int = 0
+
+    def _rect_reset(self) -> None:
+        self._rect_slot = 0
+
+    def _rect_add(self, x: float, y: float, w: float, h: float,
+                  color: tuple[int, int, int, int]) -> None:
+        if self._rect_slot >= len(self._rect_sprites):
+            self._rect_sprites.append(arcade.SpriteSolidColor(
+                int(w), int(h), 0, 0, color))
+        s = self._rect_sprites[self._rect_slot]
+        s.width = w
+        s.height = h
+        s.center_x = x + w / 2
+        s.center_y = y + h / 2
+        s.color = color
+        s.visible = True
+        self._rect_slot += 1
+
+    def _rect_flush(self) -> None:
+        for i in range(self._rect_slot, len(self._rect_sprites)):
+            self._rect_sprites[i].visible = False
+        self._rect_sprites.draw()
+
     @property
     def char_video_rect(self) -> tuple[float, float, float]:
         """Return (x, y, max_w) for drawing the character video in the HUD."""
@@ -310,28 +339,36 @@ class HUD:
         # Flash phase advances each frame; 0.0..1.0 sawtooth at ~3 Hz
         import math as _math
         flash_on = _math.sin(self._mod_flash_t * 6.28 * 3.0) > 0.0
+        # Resolve per-slot (fill, outline) once; pool fills into a
+        # single SpriteList.draw, then outlines go in a second pass
+        # after (outlines stay immediate-mode — one GL op each, ≤4).
+        slot_colors: list[tuple[tuple[int, int, int, int],
+                                tuple[int, int, int]]] = []
         for i in range(self._mod_count):
-            sx = mod_x + i * (self._mod_cell + 4)
             mod = self._mod_slots[i]
             is_drag = (i == self._mod_drag_src)
             cooling = (mod is not None and mod in self._mod_cooldowns)
             if is_drag:
-                fill = (60, 60, 20, 200)
-                outline = (200, 180, 80)
+                slot_colors.append(((60, 60, 20, 200), (200, 180, 80)))
             elif cooling and flash_on:
-                fill = (120, 25, 25, 230)
-                outline = (255, 60, 60)
+                slot_colors.append(((120, 25, 25, 230), (255, 60, 60)))
             elif mod is not None:
-                fill = (40, 60, 80, 230)
-                outline = (200, 180, 80)
+                slot_colors.append(((40, 60, 80, 230), (200, 180, 80)))
             else:
-                fill = (20, 20, 40, 200)
-                outline = (80, 80, 120)
-            arcade.draw_rect_filled(
-                arcade.LBWH(sx, mod_y, self._mod_cell, self._mod_cell), fill)
+                slot_colors.append(((20, 20, 40, 200), (80, 80, 120)))
+        self._rect_reset()
+        for i in range(self._mod_count):
+            sx = mod_x + i * (self._mod_cell + 4)
+            self._rect_add(sx, mod_y, self._mod_cell, self._mod_cell,
+                           slot_colors[i][0])
+        self._rect_flush()
+        for i in range(self._mod_count):
+            sx = mod_x + i * (self._mod_cell + 4)
+            mod = self._mod_slots[i]
+            is_drag = (i == self._mod_drag_src)
             arcade.draw_rect_outline(
                 arcade.LBWH(sx, mod_y, self._mod_cell, self._mod_cell),
-                outline, border_width=1)
+                slot_colors[i][1], border_width=1)
             if mod is not None and not is_drag:
                 icon = self._mod_icons.get(mod)
                 if icon:
@@ -396,6 +433,10 @@ class HUD:
         # single shared ``arcade.Text`` N times per frame (each
         # ``.text`` mutation runs pyglet label layout — major hotspot
         # in Zone 2 profiling).
+        # Phase 1 — batch every slot's fill through the rect pool so
+        # the 10 per-frame draw_rect_filled calls collapse into a
+        # single SpriteList.draw().
+        self._rect_reset()
         for i in range(self._qu_count):
             sx = qu_x + i * (cs + 2)
             is_drag_src = (i == self._qu_drag_src)
@@ -406,7 +447,15 @@ class HUD:
                 fill = (50, 70, 50, 220)
             else:
                 fill = (25, 25, 50, 200)
-            arcade.draw_rect_filled(arcade.LBWH(sx, qu_y, cs, cs), fill)
+            self._rect_add(sx, qu_y, cs, cs, fill)
+        self._rect_flush()
+        # Phase 2 — outlines + per-slot text + icons.  Outlines stay
+        # in immediate mode (one GL op each, 10/frame) since hollow
+        # rects aren't sprite-batchable without building 4 edge
+        # sprites per cell.
+        for i in range(self._qu_count):
+            sx = qu_x + i * (cs + 2)
+            is_drag_src = (i == self._qu_drag_src)
             arcade.draw_rect_outline(arcade.LBWH(sx, qu_y, cs, cs),
                                      (80, 100, 140), border_width=1)
             # Slot number (never changes text) — just reposition.
