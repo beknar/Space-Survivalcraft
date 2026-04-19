@@ -197,3 +197,17 @@ class TestMisc:
         assert SHIELD_ROWS > 0
         assert SHIELD_ANIM_FPS > 0
         assert SHIELD_HIT_FLASH > 0
+
+    def test_zone2_is_50_percent_larger_than_zone1(self):
+        """Nebula field was expanded on 2026-04-19 from 6400×6400 to
+        9600×9600 (+50% per axis).  Zone 1 (WORLD_WIDTH/HEIGHT)
+        stays at 6400 per the original design.  Any regression of
+        this pair fails here rather than silently shrinking the
+        Nebula back to the old size."""
+        from constants import (
+            ZONE2_WIDTH, ZONE2_HEIGHT, WORLD_WIDTH, WORLD_HEIGHT,
+        )
+        assert ZONE2_WIDTH == 9600
+        assert ZONE2_HEIGHT == 9600
+        assert ZONE2_WIDTH == int(WORLD_WIDTH * 1.5)
+        assert ZONE2_HEIGHT == int(WORLD_HEIGHT * 1.5)

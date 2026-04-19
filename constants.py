@@ -588,8 +588,8 @@ BUILD_MENU_PAD: int = 10
 # ═══════════════════════════════════════════════════════════════════════════════
 # 14. Zone 2 (Nebula)
 # ═══════════════════════════════════════════════════════════════════════════════
-ZONE2_WIDTH: int = 6400
-ZONE2_HEIGHT: int = 6400
+ZONE2_WIDTH: int = 9600           # +50% of the original 6400
+ZONE2_HEIGHT: int = 9600
 
 # Double iron asteroids
 DOUBLE_IRON_COUNT: int = 15
