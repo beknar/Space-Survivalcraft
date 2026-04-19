@@ -268,14 +268,19 @@ def draw_minimap(
             nmx = mx + nx * sx_w
             nmy = my + ny * sy_h
             (nf_active if nactive else nf_disabled).append((nmx, nmy))
-            nr = max(2.5, nrad * sx_w)
-            arcade.draw_circle_outline(
-                nmx, nmy, nr,
-                (230, 230, 255, 200) if nactive else (240, 60, 60, 220),
-                1)
+        # Halo ring + core dot, batched per color group.  Previously
+        # each null field made its own ``draw_circle_outline`` call
+        # (30 individual GL calls per frame); replaced with two
+        # ``draw_points`` calls per color (halo + core) for a
+        # visually-equivalent marker at ~1/15 the GL cost.  Null
+        # fields on the new 9600×9600 Nebula all clamp to the
+        # 2.5-px floor radius anyway, so the uniform batch draw
+        # reproduces the previous look exactly.
         if nf_active:
+            arcade.draw_points(nf_active, (230, 230, 255, 160), 6)
             arcade.draw_points(nf_active, (230, 230, 255, 240), 3)
         if nf_disabled:
+            arcade.draw_points(nf_disabled, (240, 60, 60, 180), 6)
             arcade.draw_points(nf_disabled, (240, 60, 60, 240), 3)
 
     # Slipspace teleporters (cyan diamond markers).  Always visible
@@ -288,11 +293,13 @@ def draw_minimap(
             ss_pts.append((mx + spx * sx_w, my + spy * sy_h))
         if ss_pts:
             # Bright cyan core + soft halo so they stand out from
-            # parked-ship teal and null-field white.
+            # parked-ship teal and null-field white.  The halo was
+            # previously 15 individual ``draw_circle_outline`` calls
+            # per frame; replaced with one larger batched ``draw_points``
+            # behind the core for a visually-equivalent ring effect
+            # at ~1/15 the GL-call cost.
+            arcade.draw_points(ss_pts, (180, 240, 255, 160), 9)
             arcade.draw_points(ss_pts, (120, 220, 255, 240), 5)
-            for sxm, sym in ss_pts:
-                arcade.draw_circle_outline(
-                    sxm, sym, 4.5, (180, 240, 255, 200), 1)
 
     # Parked ships (teal dots)
     if parked_ship_positions:

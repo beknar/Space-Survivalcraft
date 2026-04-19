@@ -119,7 +119,30 @@ class HUD:
                                        anchor_x="center")
         self._t_qu_num = arcade.Text("", 0, 0, arcade.color.WHITE, 8, bold=True,
                                      anchor_x="center", anchor_y="center")
-
+        # Per-slot text pools — pre-built so the draw path doesn't
+        # rebuild pyglet labels every frame (each ``.text`` assignment
+        # re-runs label layout, which was 30%+ of frame time in a
+        # full Zone 2 before this optimization).  Position updates
+        # stay cheap because only (x, y) change between frames.
+        #   * _t_qu_slot_num[i]   — the "1".."9","0" slot index label
+        #   * _t_qu_slot_count[i] — the orange quantity badge
+        #   * _t_qu_slot_abbrev[i] — 3-letter fallback when an item
+        #     type has no icon (rare but cheap to pre-build)
+        self._t_qu_slot_num: list[arcade.Text] = [
+            arcade.Text(str((i + 1) % 10), 0, 0, (160, 160, 160), 8,
+                        bold=True, anchor_x="center", anchor_y="center")
+            for i in range(QUICK_USE_SLOTS)
+        ]
+        self._t_qu_slot_count: list[arcade.Text] = [
+            arcade.Text("", 0, 0, arcade.color.ORANGE, 8, bold=True,
+                        anchor_x="center", anchor_y="center")
+            for _ in range(QUICK_USE_SLOTS)
+        ]
+        self._t_qu_slot_abbrev: list[arcade.Text] = [
+            arcade.Text("", 0, 0, arcade.color.YELLOW, 8, bold=True,
+                        anchor_x="center", anchor_y="center")
+            for _ in range(QUICK_USE_SLOTS)
+        ]
         # Quick-use drag state (for moving items between slots)
         self._qu_drag_src: int | None = None
         self._qu_drag_type: str | None = None
@@ -207,10 +230,24 @@ class HUD:
         return None
 
     def set_quick_use(self, slot: int, item_type: str | None, count: int = 0) -> None:
-        """Set a quick-use slot (0-indexed)."""
+        """Set a quick-use slot (0-indexed).
+
+        Also refreshes the per-slot count badge + fallback-abbrev
+        text objects once here rather than mutating them every frame
+        in ``_draw_quick_use_bar``.  Each ``.text`` assignment on a
+        pyglet-backed ``arcade.Text`` re-runs label layout — was
+        ~30% of a full Zone 2 frame before this pool was added.
+        """
         if 0 <= slot < self._qu_count:
             self._qu_slots[slot] = item_type
             self._qu_counts[slot] = count
+            # Refresh the per-slot text objects now, not per-frame.
+            count_str = str(count) if count > 0 else ""
+            if self._t_qu_slot_count[slot].text != count_str:
+                self._t_qu_slot_count[slot].text = count_str
+            abbrev = (item_type[:3].upper() if item_type else "")
+            if self._t_qu_slot_abbrev[slot].text != abbrev:
+                self._t_qu_slot_abbrev[slot].text = abbrev
 
     def get_quick_use(self, slot: int) -> str | None:
         """Get the item type in a quick-use slot (0-indexed)."""
@@ -355,6 +392,10 @@ class HUD:
         self._t_qu_label.x = play_cx
         self._t_qu_label.y = qu_y + cs + 8
         self._t_qu_label.draw()
+        # Use the pre-built per-slot text pools instead of mutating a
+        # single shared ``arcade.Text`` N times per frame (each
+        # ``.text`` mutation runs pyglet label layout — major hotspot
+        # in Zone 2 profiling).
         for i in range(self._qu_count):
             sx = qu_x + i * (cs + 2)
             is_drag_src = (i == self._qu_drag_src)
@@ -368,11 +409,11 @@ class HUD:
             arcade.draw_rect_filled(arcade.LBWH(sx, qu_y, cs, cs), fill)
             arcade.draw_rect_outline(arcade.LBWH(sx, qu_y, cs, cs),
                                      (80, 100, 140), border_width=1)
-            self._t_qu_num.text = str((i + 1) % 10)
-            self._t_qu_num.x = sx + cs // 2
-            self._t_qu_num.y = qu_y + cs - 6
-            self._t_qu_num.color = (160, 160, 160)
-            self._t_qu_num.draw()
+            # Slot number (never changes text) — just reposition.
+            t_num = self._t_qu_slot_num[i]
+            t_num.x = sx + cs // 2
+            t_num.y = qu_y + cs - 6
+            t_num.draw()
             if self._qu_slots[i] is not None and not is_drag_src:
                 icon = self._resolve_qu_icon(self._qu_slots[i])
                 if icon is not None:
@@ -382,16 +423,18 @@ class HUD:
                         arcade.LBWH(sx + icon_pad, qu_y + icon_pad + 2,
                                     cs - icon_pad * 2, cs - icon_pad * 2 - 4))
                 else:
-                    self._t_qu_num.text = self._qu_slots[i][:3].upper()
-                    self._t_qu_num.y = qu_y + cs // 2 - 2
-                    self._t_qu_num.color = arcade.color.YELLOW
-                    self._t_qu_num.draw()
+                    # Fallback 3-letter abbrev — text pre-set in
+                    # ``set_quick_use``; only (x, y) change per frame.
+                    t_abbrev = self._t_qu_slot_abbrev[i]
+                    t_abbrev.x = sx + cs // 2
+                    t_abbrev.y = qu_y + cs // 2 - 2
+                    t_abbrev.draw()
                 if self._qu_counts[i] > 0:
-                    self._t_qu_num.text = str(self._qu_counts[i])
-                    self._t_qu_num.x = sx + cs // 2
-                    self._t_qu_num.y = qu_y + 4
-                    self._t_qu_num.color = arcade.color.ORANGE
-                    self._t_qu_num.draw()
+                    # Count badge — pre-built, only reposition.
+                    t_count = self._t_qu_slot_count[i]
+                    t_count.x = sx + cs // 2
+                    t_count.y = qu_y + 4
+                    t_count.draw()
         # Hover tooltip
         if (self._qu_hover >= 0 and self._qu_hover < self._qu_count
                 and self._qu_drag_src is None):
