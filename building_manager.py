@@ -111,87 +111,90 @@ from ship_manager import (  # noqa: F401,E402
 )
 
 
+def _flash_fail(gv: GameView, msg: str, duration: float = 2.0) -> None:
+    """Show a temporary failure message and bail out of placement."""
+    gv._flash_msg = msg
+    gv._flash_timer = duration
+
+
+def _check_resources(gv: GameView, building_type: str) -> bool:
+    """Validate iron + copper for ``building_type``.  Sets flash
+    message + returns False if either is short.  Returns True when
+    the player can afford the build."""
+    from character_data import build_cost_multiplier
+    bt_stats = BUILDING_TYPES[building_type]
+    cost_mult = build_cost_multiplier(audio.character_name, gv._char_level)
+    cost = int(bt_stats["cost"] * cost_mult)
+    copper_cost = int(bt_stats.get("cost_copper", 0) * cost_mult)
+    total_iron = gv.inventory.total_iron + gv._station_inv.total_iron
+    if total_iron < cost:
+        _flash_fail(gv, "Not enough iron!")
+        return False
+    if copper_cost > 0:
+        total_copper = (gv.inventory.count_item("copper")
+                        + gv._station_inv.count_item("copper"))
+        if total_copper < copper_cost:
+            _flash_fail(gv, "Not enough copper!")
+            return False
+    return True
+
+
+def _enter_ship_placement(
+    gv: GameView,
+    *,
+    building_type: str,
+    ship_level: int,
+    scale: float,
+) -> None:
+    """Shared body for Basic Ship and Advanced Ship placement.
+
+    The calling branches handle their own specific gates (L1-count
+    for Basic, SHIP_MAX_LEVEL for Advanced) BEFORE calling this —
+    this helper just does the common work: verify resources, build
+    the ghost sprite using the correct ship-level texture, enter
+    placement mode."""
+    from sprites.player import PlayerShip
+    if not _check_resources(gv, building_type):
+        return
+    tex = PlayerShip._extract_ship_texture(
+        gv._faction, gv._ship_type, ship_level)
+    gv._ghost_sprite = arcade.Sprite(path_or_texture=tex, scale=scale)
+    gv._ghost_sprite.alpha = 140
+    gv._ghost_list = arcade.SpriteList()
+    gv._ghost_list.append(gv._ghost_sprite)
+    gv._ghost_rotation = 0.0
+    gv._placing_building = building_type
+    gv._build_menu.open = False
+
+
 def enter_placement_mode(gv: GameView, building_type: str) -> None:
     """Start building placement -- create ghost sprite following cursor.
 
-    Advanced Ship enters placement mode with the next-level ship texture
-    instead of a building texture.  Resource check happens up front.
+    Ship-building branches (Basic Ship, Advanced Ship) use the
+    player-ship texture as the ghost; other buildings use the
+    stock BUILDING_TYPES[...]["png"] texture.  Resource + gate
+    checks happen up front so the player never enters placement
+    mode for a build they can't afford or a ship they can't
+    rebuild.
     """
     if building_type == "Basic Ship":
-        # Basic Ship — half the Advanced Ship cost, only if no L1 ship
-        # already exists.  Resource gate up front so we don't enter
-        # placement mode for a build the player can't afford.
-        from character_data import build_cost_multiplier
-        bt_stats = BUILDING_TYPES[building_type]
+        # Only one L1 ship allowed at a time.
         if count_l1_ships(gv) > 0:
-            gv._flash_msg = "Already have a level-1 ship!"
-            gv._flash_timer = 2.0
+            _flash_fail(gv, "Already have a level-1 ship!")
             return
-        cost_mult = build_cost_multiplier(audio.character_name, gv._char_level)
-        cost = int(bt_stats["cost"] * cost_mult)
-        copper_cost = int(bt_stats.get("cost_copper", 0) * cost_mult)
-        total_iron = gv.inventory.total_iron + gv._station_inv.total_iron
-        if total_iron < cost:
-            gv._flash_msg = "Not enough iron!"
-            gv._flash_timer = 2.0
-            return
-        if copper_cost > 0:
-            total_copper = (gv.inventory.count_item("copper")
-                            + gv._station_inv.count_item("copper"))
-            if total_copper < copper_cost:
-                gv._flash_msg = "Not enough copper!"
-                gv._flash_timer = 2.0
-                return
-        # Use level-1 ship texture as the ghost (rebuild visual matches
-        # the L1 silhouette the player remembers losing).
-        from sprites.player import PlayerShip
-        tex = PlayerShip._extract_ship_texture(
-            gv._faction, gv._ship_type, 1)
-        gv._ghost_sprite = arcade.Sprite(path_or_texture=tex, scale=0.6)
-        gv._ghost_sprite.alpha = 140
-        gv._ghost_list = arcade.SpriteList()
-        gv._ghost_list.append(gv._ghost_sprite)
-        gv._ghost_rotation = 0.0
-        gv._placing_building = building_type
-        gv._build_menu.open = False
+        _enter_ship_placement(
+            gv, building_type=building_type, ship_level=1, scale=0.6)
         return
     if building_type == "Advanced Ship":
-        # Resource check before entering placement mode
         from constants import SHIP_MAX_LEVEL
-        from character_data import build_cost_multiplier
-        bt_stats = BUILDING_TYPES[building_type]
         if gv._ship_level >= SHIP_MAX_LEVEL:
-            gv._flash_msg = "Ship already at maximum level!"
-            gv._flash_timer = 2.0
+            _flash_fail(gv, "Ship already at maximum level!")
             return
-        cost_mult = build_cost_multiplier(audio.character_name, gv._char_level)
-        cost = int(bt_stats["cost"] * cost_mult)
-        copper_cost = int(bt_stats.get("cost_copper", 0) * cost_mult)
-        total_iron = gv.inventory.total_iron + gv._station_inv.total_iron
-        if total_iron < cost:
-            gv._flash_msg = "Not enough iron!"
-            gv._flash_timer = 2.0
-            return
-        if copper_cost > 0:
-            total_copper = (gv.inventory.count_item("copper")
-                            + gv._station_inv.count_item("copper"))
-            if total_copper < copper_cost:
-                gv._flash_msg = "Not enough copper!"
-                gv._flash_timer = 2.0
-                return
-        # Use next-level ship texture as the ghost
-        from sprites.player import PlayerShip
-        next_level = gv._ship_level + 1
-        tex = PlayerShip._extract_ship_texture(
-            gv._faction, gv._ship_type, next_level)
-        gv._ghost_sprite = arcade.Sprite(path_or_texture=tex, scale=0.75)
-        gv._ghost_sprite.alpha = 140
-        gv._ghost_list = arcade.SpriteList()
-        gv._ghost_list.append(gv._ghost_sprite)
-        gv._ghost_rotation = 0.0
-        gv._placing_building = building_type
-        gv._build_menu.open = False
+        _enter_ship_placement(
+            gv, building_type=building_type,
+            ship_level=gv._ship_level + 1, scale=0.75)
         return
+    # Regular station modules — use the BUILDING_TYPES texture.
     gv._placing_building = building_type
     tex = gv._building_textures[building_type]
     gv._ghost_sprite = arcade.Sprite(path_or_texture=tex, scale=0.5)
@@ -285,23 +288,10 @@ def place_building(gv: GameView, wx: float, wy: float) -> None:
         if total_copper < copper_cost:
             cancel_placement(gv)
             return
-    # Deduct iron
-    remaining = cost
-    ship_iron = min(remaining, gv.inventory.total_iron)
-    if ship_iron > 0:
-        gv.inventory.remove_item("iron", ship_iron)
-        remaining -= ship_iron
-    if remaining > 0:
-        gv._station_inv.remove_item("iron", remaining)
-    # Deduct copper
-    if copper_cost > 0:
-        remaining_cu = copper_cost
-        ship_cu = min(remaining_cu, gv.inventory.count_item("copper"))
-        if ship_cu > 0:
-            gv.inventory.remove_item("copper", ship_cu)
-            remaining_cu -= ship_cu
-        if remaining_cu > 0:
-            gv._station_inv.remove_item("copper", remaining_cu)
+    # Deduct iron + copper via the shared helper (ship inv first,
+    # station inv for any shortfall).
+    from inventory_ops import deduct_resources
+    deduct_resources(gv, cost, copper_cost)
 
     tex = gv._building_textures[bt]
     laser_tex = gv._turret_laser_tex if "Turret" in bt else None

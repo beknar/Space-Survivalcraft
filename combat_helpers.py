@@ -297,24 +297,11 @@ def spawn_nebula_boss(gv: GameView) -> bool:
     if home is None:
         return False
 
-    # Deduct iron — player ship first, then station.
-    remaining = QWI_SPAWN_NEBULA_BOSS_IRON_COST
-    ship_iron = min(remaining, gv.inventory.total_iron)
-    if ship_iron > 0:
-        gv.inventory.remove_item("iron", ship_iron)
-        remaining -= ship_iron
-    if remaining > 0:
-        gv._station_inv.remove_item("iron", remaining)
+    # Deduct iron — shared helper handles ship-first-then-station.
+    from inventory_ops import deduct_resources
+    deduct_resources(gv, QWI_SPAWN_NEBULA_BOSS_IRON_COST)
 
-    corners = [
-        (100.0, 100.0),
-        (WORLD_WIDTH - 100.0, 100.0),
-        (100.0, WORLD_HEIGHT - 100.0),
-        (WORLD_WIDTH - 100.0, WORLD_HEIGHT - 100.0),
-    ]
-    best = max(corners,
-               key=lambda c: math.hypot(c[0] - home.center_x,
-                                        c[1] - home.center_y))
+    best = _furthest_corner_from(home.center_x, home.center_y)
 
     tex = load_nebula_boss_texture()
     gv._nebula_boss = NebulaBossShip(
@@ -336,18 +323,27 @@ def spawn_nebula_boss(gv: GameView) -> bool:
     return True
 
 
-def spawn_boss(gv: GameView, station_x: float, station_y: float) -> None:
-    """Spawn the boss as far as possible from the station."""
-    corners = [
+def _furthest_corner_from(x: float, y: float) -> tuple[float, float]:
+    """Return the world corner (100 px inset) furthest from (x, y).
+
+    Both ``spawn_boss`` and ``spawn_nebula_boss`` place their boss at
+    the corner of Zone 1 / Zone 2 that's furthest from the Home
+    Station so the player gets an approach warning before combat
+    starts.  Factored out to eliminate the 6-line corner-picking
+    duplication between them.
+    """
+    corners = (
         (100.0, 100.0),
         (WORLD_WIDTH - 100.0, 100.0),
         (100.0, WORLD_HEIGHT - 100.0),
         (WORLD_WIDTH - 100.0, WORLD_HEIGHT - 100.0),
-    ]
-    best_corner = max(
-        corners,
-        key=lambda c: math.hypot(c[0] - station_x, c[1] - station_y),
     )
+    return max(corners, key=lambda c: math.hypot(c[0] - x, c[1] - y))
+
+
+def spawn_boss(gv: GameView, station_x: float, station_y: float) -> None:
+    """Spawn the boss as far as possible from the station."""
+    best_corner = _furthest_corner_from(station_x, station_y)
     gv._boss = BossAlienShip(
         gv._boss_tex, gv._boss_laser_tex,
         best_corner[0], best_corner[1],

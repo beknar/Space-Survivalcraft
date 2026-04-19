@@ -6,6 +6,7 @@ from typing import Optional
 import arcade
 
 from menu_overlay import MenuOverlay
+from menu_scroll import ScrollState, SCROLL_W as _SCROLL_W_SHARED
 from constants import (
     BUILD_MENU_W, BUILD_MENU_ITEM_H, BUILD_MENU_PAD,
     BUILDING_TYPES,
@@ -34,10 +35,10 @@ _MENU_ORDER = [
     "Quantum Wave Integrator",
 ]
 
-# Scrollbar geometry — small enough to stay out of the way of the row
-# layout but big enough to grab with the mouse.
-_SCROLL_W = 10            # scrollbar track width
-_SCROLL_THUMB_MIN_H = 22  # minimum drag-thumb height in pixels
+# Scrollbar track width — sourced from the shared ``menu_scroll``
+# module.  Kept as a module-local alias so existing ``_SCROLL_W``
+# references in this file continue to work.
+_SCROLL_W = _SCROLL_W_SHARED
 
 
 class BuildMenu(MenuOverlay):
@@ -71,12 +72,10 @@ class BuildMenu(MenuOverlay):
         self._max_ship_exists: bool = False
         self._l1_ship_exists: bool = False
 
-        # Scroll state: pixel offset from the top of the row list.
-        self._scroll_px: float = 0.0
-        # Drag state: when True, mouse motion sets scroll position.
-        self._dragging_scrollbar: bool = False
-        self._drag_anchor_y: float = 0.0
-        self._drag_anchor_scroll: float = 0.0
+        # Scroll state + scrollbar geometry delegated to the shared
+        # ``menu_scroll.ScrollState`` component (was ~70 lines of
+        # private code here, identical to craft_menu).
+        self._scroll = ScrollState(line_h=BUILD_MENU_ITEM_H)
 
         # Panel geometry — right side of screen, vertically centred
         item_count = len(_MENU_ORDER)
@@ -120,22 +119,40 @@ class BuildMenu(MenuOverlay):
         self.open = not self.open
         if self.open:
             # Reset scroll on open so the player always lands at the top.
-            self._scroll_px = 0.0
-            self._dragging_scrollbar = False
+            self._scroll.scroll_px = 0.0
+            self._scroll.dragging = False
+
+    # ── Backward-compatible attribute shims ─────────────────────────────────
+    # Tests and legacy call sites may still access ``_scroll_px`` and
+    # ``_dragging_scrollbar`` directly.  These properties keep that
+    # contract while the actual state lives in ``self._scroll``.
+
+    @property
+    def _scroll_px(self) -> float:
+        return self._scroll.scroll_px
+
+    @_scroll_px.setter
+    def _scroll_px(self, v: float) -> None:
+        self._scroll.scroll_px = v
+
+    @property
+    def _dragging_scrollbar(self) -> bool:
+        return self._scroll.dragging
+
+    @_dragging_scrollbar.setter
+    def _dragging_scrollbar(self, v: bool) -> None:
+        self._scroll.dragging = v
 
     def _update_layout(self) -> None:
         """Recalculate panel position and size from current window."""
         max_h = int(self._window.height * self._MAX_PANEL_H_FRACTION)
-        # Title (~40 px) + capacity row (~20 px) + hint (~24 px) chrome +
-        # padding.  When the content is shorter than the cap the panel
-        # shrinks to fit; when it's longer, the row area is clipped and
-        # the rest scrolls.
         chrome = BUILD_MENU_PAD * 2 + 32 + 24
         wanted = chrome + self._content_h
         self._panel_h = min(max_h, wanted)
         self._panel_x = self._window.width - self._panel_w - 8
         self._panel_y = (self._window.height - self._panel_h) // 2
-        self._clamp_scroll()
+        _, _, _, viewport_h = self._viewport_rect()
+        self._scroll.clamp(self._content_h, viewport_h)
 
     # ── Scroll geometry ───────────────────────────────────────────────────────
 
@@ -155,18 +172,14 @@ class BuildMenu(MenuOverlay):
 
     def _needs_scrollbar(self) -> bool:
         """True when the row list is taller than the viewport."""
-        x = self._panel_x + BUILD_MENU_PAD
         top = self._panel_y + self._panel_h - BUILD_MENU_PAD - 32
         bottom = self._panel_y + 24
         viewport_h = max(0, top - bottom)
-        return self._content_h > viewport_h
+        return self._scroll.needs(self._content_h, viewport_h)
 
     def _max_scroll(self) -> float:
         _, _, _, viewport_h = self._viewport_rect()
-        return max(0.0, self._content_h - viewport_h)
-
-    def _clamp_scroll(self) -> None:
-        self._scroll_px = max(0.0, min(self._max_scroll(), self._scroll_px))
+        return self._scroll.max_scroll(self._content_h, viewport_h)
 
     def _scrollbar_rect(self) -> tuple[int, int, int, int]:
         """(x, y, w, h) for the scrollbar TRACK."""
@@ -176,17 +189,8 @@ class BuildMenu(MenuOverlay):
 
     def _scrollbar_thumb_rect(self) -> tuple[int, int, int, int]:
         """(x, y, w, h) for the draggable scrollbar THUMB."""
-        tx, ty, tw, th = self._scrollbar_rect()
-        max_scroll = self._max_scroll()
-        if max_scroll <= 0:
-            return tx, ty, tw, th
-        # Thumb height proportional to viewport / content ratio.
-        ratio = th / (th + max_scroll)
-        thumb_h = max(_SCROLL_THUMB_MIN_H, int(th * ratio))
-        # Top-anchored: scroll_px = 0 → thumb at top of track
-        thumb_y = ty + th - thumb_h - int(
-            (th - thumb_h) * (self._scroll_px / max_scroll))
-        return tx, thumb_y, tw, thumb_h
+        return self._scroll.thumb_rect(
+            self._scrollbar_rect(), self._content_h)
 
     # ── Geometry helpers ──────────────────────────────────────────────────────
 
@@ -302,10 +306,10 @@ class BuildMenu(MenuOverlay):
         self._update_layout()
         self._mouse_x = x
         self._mouse_y = y
-        # Drag-scroll: while the scrollbar thumb is held, mouse motion
-        # converts vertical delta into a scroll position.
-        if self._dragging_scrollbar:
-            self._set_scroll_from_drag(y)
+        # Drag-scroll: delegate to the shared scroll component.
+        if self._scroll.dragging:
+            self._scroll.on_motion(
+                y, self._scrollbar_rect(), self._content_h)
             return
         self._hover_idx = -1
         self._hover_destroy = False
@@ -325,56 +329,19 @@ class BuildMenu(MenuOverlay):
 
     def on_mouse_release(self, x: float, y: float) -> None:
         """Drop scrollbar drag on mouse-up."""
-        self._dragging_scrollbar = False
+        self._scroll.on_release()
 
     def on_mouse_scroll(self, scroll_y: float) -> None:
         """Mouse-wheel scroll — one row per click, up = scroll up."""
-        if not self.open or not self._needs_scrollbar():
+        if not self.open:
             return
-        # Up scroll (positive scroll_y) reveals earlier items, which
-        # means a SMALLER scroll_px (we anchor scroll at the top).
-        self._scroll_px -= scroll_y * BUILD_MENU_ITEM_H
-        self._clamp_scroll()
-
-    def _set_scroll_from_drag(self, mouse_y: float) -> None:
-        """Translate a thumb drag into a scroll_px value."""
-        tx, ty, tw, th = self._scrollbar_rect()
-        max_scroll = self._max_scroll()
-        if max_scroll <= 0:
-            return
-        # Thumb anchor: scroll grows as thumb moves DOWN.
-        # Compute the thumb top position based on current drag vs anchor.
-        delta = self._drag_anchor_y - mouse_y
-        ratio = th / (th + max_scroll)
-        thumb_h = max(_SCROLL_THUMB_MIN_H, int(th * ratio))
-        movable = max(1, th - thumb_h)
-        self._scroll_px = (self._drag_anchor_scroll
-                           + (delta / movable) * max_scroll)
-        self._clamp_scroll()
+        _, _, _, viewport_h = self._viewport_rect()
+        self._scroll.on_wheel(scroll_y, self._content_h, viewport_h)
 
     def _handle_scrollbar_press(self, x: float, y: float) -> bool:
         """If the click hit the scrollbar, handle it and return True."""
-        if not self._needs_scrollbar():
-            return False
-        tx, ty, tw, th = self._scrollbar_rect()
-        if not (tx <= x <= tx + tw and ty <= y <= ty + th):
-            return False
-        thx, thy, thw, thh = self._scrollbar_thumb_rect()
-        if thy <= y <= thy + thh:
-            # Started a thumb drag.
-            self._dragging_scrollbar = True
-            self._drag_anchor_y = y
-            self._drag_anchor_scroll = self._scroll_px
-            return True
-        # Clicked above thumb → page up; below → page down.
-        _, _, _, vh = self._viewport_rect()
-        page = max(BUILD_MENU_ITEM_H, vh - BUILD_MENU_ITEM_H)
-        if y > thy + thh:
-            self._scroll_px -= page  # toward top
-        else:
-            self._scroll_px += page  # toward bottom
-        self._clamp_scroll()
-        return True
+        return self._scroll.on_press(
+            x, y, self._scrollbar_rect(), self._content_h)
 
     def on_mouse_press(
         self,
@@ -579,13 +546,5 @@ class BuildMenu(MenuOverlay):
         self._t_destroy.draw()
 
     def _draw_scrollbar(self) -> None:
-        tx, ty, tw, th = self._scrollbar_rect()
-        # Track
-        arcade.draw_rect_filled(
-            arcade.LBWH(tx, ty, tw, th), (20, 30, 50, 220))
-        # Thumb
-        thx, thy, thw, thh = self._scrollbar_thumb_rect()
-        thumb_color = ((180, 220, 255, 240) if self._dragging_scrollbar
-                       else (120, 160, 220, 240))
-        arcade.draw_rect_filled(
-            arcade.LBWH(thx, thy, thw, thh), thumb_color)
+        """Delegate to the shared ScrollState draw path."""
+        self._scroll.draw(self._scrollbar_rect(), self._content_h)

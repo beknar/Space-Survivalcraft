@@ -6,6 +6,7 @@ from typing import Optional
 import arcade
 
 from menu_overlay import MenuOverlay
+from menu_scroll import ScrollState, SCROLL_W as _SCROLL_W_SHARED
 from constants import (
     SCREEN_WIDTH, SCREEN_HEIGHT,
     CRAFT_TIME, CRAFT_IRON_COST, CRAFT_RESULT_COUNT,
@@ -21,8 +22,7 @@ _PANEL_H_MAX = 560
 _RECIPE_H = 28     # single-line recipe row height
 _RECIPE_H2 = 42    # two-line recipe row height
 _ICON_AREA = 28    # icon column width
-_SCROLL_W = 10     # scrollbar track width
-_SCROLL_THUMB_MIN_H = 22
+_SCROLL_W = _SCROLL_W_SHARED
 _TEXT_W = _PANEL_W - 20 - _ICON_AREA  # available text width (panel - padding - icon)
 _HEADER = 55   # title area
 _DETAIL = 40   # detail text + padding
@@ -46,10 +46,8 @@ class CraftMenu(MenuOverlay):
         # Available module recipes
         self._recipes: list[dict] = []
         self._unlocked: set[str] = set()  # permanently unlocked module keys
-        self._scroll_px: float = 0.0     # pixel offset into the recipe list
-        self._dragging_scrollbar: bool = False
-        self._drag_anchor_y: float = 0.0
-        self._drag_anchor_scroll: float = 0.0
+        # Scroll state lives in the shared ScrollState component.
+        self._scroll = ScrollState(line_h=_RECIPE_H)
         self._selected: int = 0  # 0 = repair pack, 1+ = module recipes
 
         # Pre-built recipe text objects (avoid .text churn per frame)
@@ -93,8 +91,8 @@ class CraftMenu(MenuOverlay):
                     "cost_copper": info.get("craft_cost_copper", 0),
                 })
         self._selected = 0
-        self._scroll_px = 0.0
-        self._dragging_scrollbar = False
+        self._scroll.scroll_px = 0.0
+        self._scroll.dragging = False
         # Pre-build recipe text objects (index 0 = repair pack, 1 = shield recharge, then modules)
         self._t_recipes = []
         self._recipe_heights: list[int] = []  # per-row pixel height
@@ -129,6 +127,23 @@ class CraftMenu(MenuOverlay):
     def toggle(self) -> None:
         self.open = not self.open
 
+    # ── Backward-compatible scroll attribute shims ──────────────────────────
+    @property
+    def _scroll_px(self) -> float:
+        return self._scroll.scroll_px
+
+    @_scroll_px.setter
+    def _scroll_px(self, v: float) -> None:
+        self._scroll.scroll_px = v
+
+    @property
+    def _dragging_scrollbar(self) -> bool:
+        return self._scroll.dragging
+
+    @_dragging_scrollbar.setter
+    def _dragging_scrollbar(self, v: bool) -> None:
+        self._scroll.dragging = v
+
     def _panel_height(self) -> int:
         list_h = sum(self._recipe_heights) if self._recipe_heights else 2 * _RECIPE_H
         wanted = _HEADER + list_h + _DETAIL + _BTN_AREA
@@ -145,13 +160,12 @@ class CraftMenu(MenuOverlay):
         return sum(self._recipe_heights) if self._recipe_heights else 0
 
     def _max_scroll(self) -> float:
-        return max(0.0, self._content_h() - self._list_viewport_h())
+        return self._scroll.max_scroll(
+            self._content_h(), self._list_viewport_h())
 
     def _needs_scrollbar(self) -> bool:
-        return self._content_h() > self._list_viewport_h()
-
-    def _clamp_scroll(self) -> None:
-        self._scroll_px = max(0.0, min(self._max_scroll(), self._scroll_px))
+        return self._scroll.needs(
+            self._content_h(), self._list_viewport_h())
 
     def _scrollbar_rect(self) -> tuple[int, int, int, int]:
         """(x, y, w, h) for the scrollbar TRACK."""
@@ -163,66 +177,28 @@ class CraftMenu(MenuOverlay):
         return track_x, track_y, _SCROLL_W, track_h
 
     def _scrollbar_thumb_rect(self) -> tuple[int, int, int, int]:
-        tx, ty, tw, th = self._scrollbar_rect()
-        max_scroll = self._max_scroll()
-        if max_scroll <= 0:
-            return tx, ty, tw, th
-        ratio = th / (th + max_scroll)
-        thumb_h = max(_SCROLL_THUMB_MIN_H, int(th * ratio))
-        thumb_y = ty + th - thumb_h - int(
-            (th - thumb_h) * (self._scroll_px / max_scroll))
-        return tx, thumb_y, tw, thumb_h
+        return self._scroll.thumb_rect(
+            self._scrollbar_rect(), self._content_h())
 
     def on_mouse_scroll(self, scroll_y: float) -> None:
-        """Mouse-wheel scrolls the recipe list one row per click.
-        No-op if the list fits in the panel."""
-        if not self.open or not self._needs_scrollbar():
+        """Mouse-wheel scrolls the recipe list one row per click."""
+        if not self.open:
             return
-        self._scroll_px -= scroll_y * _RECIPE_H
-        self._clamp_scroll()
+        self._scroll.on_wheel(
+            scroll_y, self._content_h(), self._list_viewport_h())
 
     def on_mouse_release(self, x: float, y: float) -> None:
-        """Drop scrollbar drag on mouse-up."""
-        self._dragging_scrollbar = False
-
-    def _set_scroll_from_drag(self, mouse_y: float) -> None:
-        tx, ty, tw, th = self._scrollbar_rect()
-        max_scroll = self._max_scroll()
-        if max_scroll <= 0:
-            return
-        delta = self._drag_anchor_y - mouse_y
-        ratio = th / (th + max_scroll)
-        thumb_h = max(_SCROLL_THUMB_MIN_H, int(th * ratio))
-        movable = max(1, th - thumb_h)
-        self._scroll_px = (self._drag_anchor_scroll
-                           + (delta / movable) * max_scroll)
-        self._clamp_scroll()
+        self._scroll.on_release()
 
     def on_mouse_motion(self, x: float, y: float) -> None:
         """Drag-scroll while the scrollbar thumb is held."""
-        if self._dragging_scrollbar:
-            self._set_scroll_from_drag(y)
+        if self._scroll.dragging:
+            self._scroll.on_motion(
+                y, self._scrollbar_rect(), self._content_h())
 
     def _handle_scrollbar_press(self, x: float, y: float) -> bool:
-        if not self._needs_scrollbar():
-            return False
-        tx, ty, tw, th = self._scrollbar_rect()
-        if not (tx <= x <= tx + tw and ty <= y <= ty + th):
-            return False
-        thx, thy, thw, thh = self._scrollbar_thumb_rect()
-        if thy <= y <= thy + thh:
-            self._dragging_scrollbar = True
-            self._drag_anchor_y = y
-            self._drag_anchor_scroll = self._scroll_px
-            return True
-        # Click above thumb → page up; below → page down.
-        page = max(_RECIPE_H, self._list_viewport_h() - _RECIPE_H)
-        if y > thy + thh:
-            self._scroll_px -= page
-        else:
-            self._scroll_px += page
-        self._clamp_scroll()
-        return True
+        return self._scroll.on_press(
+            x, y, self._scrollbar_rect(), self._content_h())
 
     def _panel_origin(self) -> tuple[int, int]:
         sw = self._window.width if self._window else SCREEN_WIDTH
@@ -449,14 +425,8 @@ class CraftMenu(MenuOverlay):
 
 
     def _draw_scrollbar(self) -> None:
-        tx, ty, tw, th = self._scrollbar_rect()
-        arcade.draw_rect_filled(
-            arcade.LBWH(tx, ty, tw, th), (20, 30, 50, 220))
-        thx, thy, thw, thh = self._scrollbar_thumb_rect()
-        thumb_color = ((180, 220, 255, 240) if self._dragging_scrollbar
-                       else (120, 160, 220, 240))
-        arcade.draw_rect_filled(
-            arcade.LBWH(thx, thy, thw, thh), thumb_color)
+        """Delegate to the shared ScrollState draw path."""
+        self._scroll.draw(self._scrollbar_rect(), self._content_h())
 
 
 def _effect_desc(info: dict) -> str:

@@ -16,22 +16,15 @@ if TYPE_CHECKING:
 
 
 def _deduct_ship_cost(gv: GameView, cost: int, copper_cost: int) -> None:
-    """Deduct iron + copper across ship and station inventories."""
-    remaining = cost
-    ship_iron = min(remaining, gv.inventory.total_iron)
-    if ship_iron > 0:
-        gv.inventory.remove_item("iron", ship_iron)
-        remaining -= ship_iron
-    if remaining > 0:
-        gv._station_inv.remove_item("iron", remaining)
-    if copper_cost > 0:
-        remaining_cu = copper_cost
-        ship_cu = min(remaining_cu, gv.inventory.count_item("copper"))
-        if ship_cu > 0:
-            gv.inventory.remove_item("copper", ship_cu)
-            remaining_cu -= ship_cu
-        if remaining_cu > 0:
-            gv._station_inv.remove_item("copper", remaining_cu)
+    """Deduct iron + copper across ship and station inventories.
+
+    Thin backward-compat shim over ``inventory_ops.deduct_resources``
+    — the real logic moved to the shared helper on 2026-04-19
+    (three-way duplicate across ship_manager / building_manager /
+    combat_helpers).
+    """
+    from inventory_ops import deduct_resources
+    deduct_resources(gv, cost, copper_cost)
 
 
 def _resize_module_slots(gv: GameView, new_slot_count: int) -> None:

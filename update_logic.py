@@ -678,19 +678,32 @@ def update_respawns(gv: GameView, dt: float) -> None:
         gv._try_respawn_aliens()
 
 
+def _boss_update_context(gv: GameView) -> tuple[float, float, float, float]:
+    """Return (station_x, station_y, boss_px, boss_py) for the boss
+    update path.  Looks up the active Home Station (falls back to
+    world centre) and feeds the boss a cloak-aware player position:
+    when the player is inside an active null field, we hand the boss
+    coordinates a billion pixels away so its AI stays in patrol
+    instead of engaging.  Shared by both the Double Star boss and
+    the Nebula boss update loops.
+    """
+    station_x, station_y = WORLD_WIDTH / 2, WORLD_HEIGHT / 2
+    for b in gv.building_list:
+        if isinstance(b, HomeStation) and not b.disabled:
+            station_x, station_y = b.center_x, b.center_y
+            break
+    if player_is_cloaked(gv):
+        boss_px, boss_py = gv.player.center_x + 1e9, gv.player.center_y + 1e9
+    else:
+        boss_px, boss_py = gv.player.center_x, gv.player.center_y
+    return station_x, station_y, boss_px, boss_py
+
+
 def update_boss(gv: GameView, dt: float) -> None:
     """Boss spawn check and update."""
     gv._check_boss_spawn()
     if gv._boss is not None and gv._boss.hp > 0:
-        station_x, station_y = WORLD_WIDTH / 2, WORLD_HEIGHT / 2
-        for b in gv.building_list:
-            if isinstance(b, HomeStation) and not b.disabled:
-                station_x, station_y = b.center_x, b.center_y
-                break
-        if player_is_cloaked(gv):
-            boss_px, boss_py = gv.player.center_x + 1e9, gv.player.center_y + 1e9
-        else:
-            boss_px, boss_py = gv.player.center_x, gv.player.center_y
+        station_x, station_y, boss_px, boss_py = _boss_update_context(gv)
         projs = gv._boss.update_boss(
             dt, boss_px, boss_py,
             station_x, station_y,
@@ -721,17 +734,8 @@ def update_nebula_boss(gv: GameView, dt: float) -> None:
     if nb is None or nb.hp <= 0:
         return
 
-    # Station position anchors the boss target (same as parent).
-    station_x, station_y = WORLD_WIDTH / 2, WORLD_HEIGHT / 2
-    for b in gv.building_list:
-        if isinstance(b, HomeStation) and not b.disabled:
-            station_x, station_y = b.center_x, b.center_y
-            break
-
-    if player_is_cloaked(gv):
-        boss_px, boss_py = gv.player.center_x + 1e9, gv.player.center_y + 1e9
-    else:
-        boss_px, boss_py = gv.player.center_x, gv.player.center_y
+    # Shared preamble: home station anchor + cloak-aware player pos.
+    station_x, station_y, boss_px, boss_py = _boss_update_context(gv)
 
     # Run the base BossAlienShip update (movement, cannon + spread,
     # charge dash).  Projectiles go to the standard boss projectile
