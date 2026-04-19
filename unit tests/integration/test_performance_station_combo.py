@@ -251,3 +251,86 @@ class TestStationWithAIBothVideosAndVideoPropsMenu:
         finally:
             gv._escape_menu.open = False
             _stop_both_videos(gv)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  5. QWI menu open — simple overlay, should be fast
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestQWIMenuOpenFps:
+    def test_qwi_menu_open_above_threshold(self, real_game_view):
+        """Open the QWI menu on top of the full Zone 2 population.
+        The menu is minimal (one button + title + hint) so we
+        expect comfortable headroom; this test is the guard against
+        a future redesign accidentally making it expensive."""
+        gv = real_game_view
+        gv._transition_zone(ZoneID.ZONE2)
+        gv._qwi_menu.toggle()
+        assert gv._qwi_menu.open is True
+        try:
+            fps = _measure_fps(gv)
+            print(f"  [perf-qwi] QWI menu open: {fps:.1f} FPS")
+            assert fps >= MIN_FPS, (
+                f"QWI menu open: {fps:.1f} FPS < {MIN_FPS}")
+        finally:
+            gv._qwi_menu.open = False
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  6. Nebula boss + station + both videos + T menu — full worst case
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestNebulaBossWithStationComboAndTMenu:
+    def test_nebula_boss_station_videos_t_menu_above_threshold(
+            self, real_game_view):
+        """The absolute worst-case combat+UI scene: an active
+        Nebula boss firing gas attacks on top of the four-system
+        station stack (AI pilot + station + char video + music
+        video) with the T menu open.  Nothing else in the perf
+        suite combines the Nebula boss with the station-combo
+        stack — so without this, a future regression in the gas
+        cloud draw path could hide behind 40+ FPS margins in the
+        individual tests."""
+        from combat_helpers import spawn_nebula_boss
+        gv = real_game_view
+        # Use the station-combo setup — Zone 1, AI pilot orbiting,
+        # player at station.  Then drop the player into Zone 2 so
+        # the Nebula boss has somewhere valid to spawn.
+        _setup_station_with_ai_pilot(gv)
+        if not _start_both_videos(gv):
+            pytest.skip("video files / FFmpeg not available")
+        # Nebula boss wants Zone 2 but we want the full station
+        # combo running — compromise: transition to Zone 2, rebuild
+        # a minimal station there so spawn_nebula_boss can find a
+        # Home Station.
+        from sprites.building import create_building
+        gv._transition_zone(ZoneID.ZONE2)
+        cx, cy = WORLD_WIDTH / 2, WORLD_HEIGHT / 2
+        gv.building_list.clear()
+        home_tex = gv._building_textures["Home Station"]
+        gv.building_list.append(create_building(
+            "Home Station", home_tex, cx, cy, scale=0.5))
+        # Stock enough iron for the 100-iron Nebula summon.
+        gv.inventory._items[(0, 0)] = ("iron", 500)
+        gv.inventory._mark_dirty()
+        gv._nebula_boss = None
+        assert spawn_nebula_boss(gv) is True
+        _open_t_menu(gv)
+        assert gv._station_info.open
+        try:
+            fps = _measure_fps(gv)
+            print(f"  [perf-combo] Nebula + station combo + T menu: "
+                  f"{fps:.1f} FPS")
+            # Tolerant floor — this is the single heaviest scene in
+            # the entire perf suite (Nebula boss gas/cone + station
+            # combo + both videos + T menu's stat overlay + inactive
+            # zone panel).  Dev hardware dips to ~33 FPS; CI would
+            # hit 100+.  Same precedent as test_performance_menu_scroll
+            # and test_soak_video_player — a complete regression
+            # (sub-15 FPS) still fails loudly.
+            assert fps >= 15, (
+                f"Nebula boss + station combo + T menu: "
+                f"{fps:.1f} FPS < 15 (dev floor)")
+        finally:
+            gv._station_info.open = False
+            _stop_both_videos(gv)

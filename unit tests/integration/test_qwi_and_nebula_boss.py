@@ -391,3 +391,72 @@ class TestSlowEffectHalvesMovement:
 
         assert dts, "apply_input not called"
         assert dts[0] == pytest.approx((1 / 60) * NEBULA_BOSS_SLOW_FACTOR)
+
+
+# ── World-click routing: clicking a placed QWI opens the menu ────────────
+
+class TestQWIWorldClickOpensMenu:
+    def test_world_click_on_qwi_opens_menu(self, real_game_view):
+        """Full path: place a QWI, move the player within
+        STATION_INFO_RANGE, simulate an ``on_mouse_press`` at the
+        QWI's screen coordinates, and check the QWI menu opened.
+        Catches regressions in ``input_handlers._handle_world_click``
+        for the QWI dispatch branch specifically."""
+        from sprites.building import create_building, QuantumWaveIntegrator
+        import arcade
+        gv = real_game_view
+        _setup_main_with_station(gv)
+
+        qwi_tex = gv._building_textures["Quantum Wave Integrator"]
+        qwi = create_building("Quantum Wave Integrator", qwi_tex,
+                              WORLD_WIDTH / 2 + 200,
+                              WORLD_HEIGHT / 2,
+                              scale=0.5)
+        gv.building_list.append(qwi)
+        assert isinstance(qwi, QuantumWaveIntegrator)
+
+        # Move the player next to the QWI so STATION_INFO_RANGE gate passes.
+        gv.player.center_x = qwi.center_x + 20
+        gv.player.center_y = qwi.center_y
+
+        # Translate QWI world position → screen coordinates via the
+        # same camera math input_handlers uses.
+        wx, wy = qwi.center_x, qwi.center_y
+        sx = wx - (gv.world_cam.position[0] - gv.window.width / 2)
+        sy = wy - (gv.world_cam.position[1] - gv.window.height / 2)
+
+        assert gv._qwi_menu.open is False
+        gv.on_mouse_press(
+            int(sx), int(sy), arcade.MOUSE_BUTTON_LEFT, 0)
+        assert gv._qwi_menu.open is True
+        assert gv._active_qwi is qwi
+
+    def test_world_click_on_qwi_out_of_range_does_not_open_menu(
+            self, real_game_view):
+        """Player must be within STATION_INFO_RANGE for the click to
+        count.  Clicking a QWI while flying across the zone must NOT
+        open the menu."""
+        from sprites.building import create_building
+        from constants import STATION_INFO_RANGE
+        import arcade
+        gv = real_game_view
+        _setup_main_with_station(gv)
+
+        qwi_tex = gv._building_textures["Quantum Wave Integrator"]
+        qwi = create_building("Quantum Wave Integrator", qwi_tex,
+                              WORLD_WIDTH / 2 + 200,
+                              WORLD_HEIGHT / 2,
+                              scale=0.5)
+        gv.building_list.append(qwi)
+
+        # Park the player well outside station-info range.
+        gv.player.center_x = qwi.center_x + STATION_INFO_RANGE + 200
+        gv.player.center_y = qwi.center_y
+
+        wx, wy = qwi.center_x, qwi.center_y
+        sx = wx - (gv.world_cam.position[0] - gv.window.width / 2)
+        sy = wy - (gv.world_cam.position[1] - gv.window.height / 2)
+
+        gv.on_mouse_press(
+            int(sx), int(sy), arcade.MOUSE_BUTTON_LEFT, 0)
+        assert gv._qwi_menu.open is False
