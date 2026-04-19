@@ -18,6 +18,50 @@ if TYPE_CHECKING:
     from game_view import GameView
 
 
+def _draw_nebula_boss(gv: GameView) -> None:
+    """Draw the Nebula boss sprite, its gas clouds, and (if active)
+    its gas cone overlay.  Gas visuals are primitives — the gas
+    cloud sprite carries no texture."""
+    import math as _math
+    nb = getattr(gv, "_nebula_boss", None)
+    if nb is None or nb.hp <= 0:
+        return
+    if not hasattr(gv, "_nebula_boss_list"):
+        return
+    gv._nebula_boss_list.draw()
+    # Gas clouds — pulsing green circles.
+    clouds = getattr(gv, "_nebula_gas_clouds", None) or []
+    for c in clouds:
+        pulse = 0.6 + 0.4 * _math.sin(c._phase)
+        alpha = int(140 * pulse + 40)
+        arcade.draw_circle_filled(
+            c.center_x, c.center_y, c.radius,
+            (120, 220, 110, alpha))
+        arcade.draw_circle_outline(
+            c.center_x, c.center_y, c.radius,
+            (80, 200, 80, 200), 2)
+    # Gas cone — draw a translucent triangle toward the player.
+    if getattr(nb, "_cone_active", False):
+        from constants import NEBULA_BOSS_CONE_RANGE, NEBULA_BOSS_CONE_WIDTH
+        dx, dy = nb._cone_dir_x, nb._cone_dir_y
+        # Perpendicular.
+        px_, py_ = -dy, dx
+        tip_x = nb.center_x + dx * NEBULA_BOSS_CONE_RANGE
+        tip_y = nb.center_y + dy * NEBULA_BOSS_CONE_RANGE
+        half_w = NEBULA_BOSS_CONE_WIDTH / 2.0
+        x1 = tip_x + px_ * half_w
+        y1 = tip_y + py_ * half_w
+        x2 = tip_x - px_ * half_w
+        y2 = tip_y - py_ * half_w
+        # Simple filled triangle.
+        try:
+            arcade.draw_triangle_filled(
+                nb.center_x, nb.center_y, x1, y1, x2, y2,
+                (80, 200, 80, 120))
+        except Exception:
+            pass
+
+
 def _draw_slipspaces(gv: GameView) -> None:
     """Draw every slipspace teleporter in the active zone.  The PNG
     has its own background so we don't paint anything behind it; the
@@ -153,6 +197,9 @@ def draw_world(gv: GameView, cx: float, cy: float, hw: float, hh: float) -> None
         gv._zone.draw_world(gv, cx, cy, hw, hh)
         gv._parked_ships.draw()
         _draw_parked_ship_shields(gv)
+        # Nebula boss lives in Zone 2 — draw it here so its gas
+        # clouds + cone overlay the zone's own entities.
+        _draw_nebula_boss(gv)
 
     # Trade station (shared across all zones — drawn after zone entities)
     _draw_trade_station(gv)
@@ -519,6 +566,7 @@ def draw_ui(gv: GameView) -> None:
     gv._ship_stats.draw()
     gv._craft_menu.draw(gv._station_inv.total_iron)
     gv._trade_menu.draw()
+    gv._qwi_menu.draw()
     gv._dialogue.draw()
 
     # Building hover tooltip

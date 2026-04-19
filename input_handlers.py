@@ -40,6 +40,10 @@ def handle_key_press(gv: GameView, key: int, modifiers: int) -> None:
             gv._craft_menu.open = False
             gv._active_crafter = None
             return
+        if gv._qwi_menu.open:
+            gv._qwi_menu.open = False
+            gv._active_qwi = None
+            return
         if gv._station_inv.open:
             gv._station_inv.open = False
             return
@@ -306,6 +310,19 @@ def handle_mouse_press(gv: GameView, x: int, y: int, button: int, modifiers: int
         if action is not None:
             apply_trade_action(gv, action)
         return
+    # QWI menu click — the "SUMMON NEBULA BOSS" button.
+    if gv._qwi_menu.open:
+        action = gv._qwi_menu.on_mouse_press(x, y)
+        if action == "spawn_nebula_boss":
+            from combat_helpers import spawn_nebula_boss
+            if spawn_nebula_boss(gv):
+                gv._qwi_menu.set_status("Nebula boss spawned!")
+                gv._qwi_menu.open = False
+                gv._active_qwi = None
+            else:
+                gv._qwi_menu.set_status(
+                    "Not enough iron (need 100).")
+        return
     # World clicks (parked ships, trade station, buildings)
     if not gv._build_menu.open and not gv._player_dead:
         if _try_start_building_move(gv, x, y):
@@ -513,6 +530,13 @@ def _handle_world_click(gv: GameView, x: int, y: int) -> bool:
             )
             gv._craft_menu.toggle()
             gv._craft_menu.update(b.craft_progress, b.crafting)
+            return True
+        # Quantum Wave Integrator — open the Nebula-boss spawn menu.
+        from sprites.building import QuantumWaveIntegrator
+        if isinstance(b, QuantumWaveIntegrator) and not b.disabled:
+            gv._active_qwi = b
+            gv._qwi_menu.set_status("")
+            gv._qwi_menu.toggle()
             return True
     return False
 
@@ -852,6 +876,8 @@ def handle_mouse_motion(gv: GameView, x: int, y: int, dx: int, dy: int) -> None:
         gv._build_menu.on_mouse_motion(x, y)
     if gv._craft_menu.open:
         gv._craft_menu.on_mouse_motion(x, y)
+    if gv._qwi_menu.open:
+        gv._qwi_menu.on_mouse_motion(x, y)
     # Ghost sprite follows cursor
     if gv._ghost_sprite is not None and gv._placing_building is not None:
         wx = gv.world_cam.position[0] - gv.window.width / 2 + x

@@ -302,10 +302,16 @@ def populate_null_fields(
 
 
 def load_building_textures() -> dict[str, arcade.Texture]:
-    """Load one texture per building type from the BUILDING_DIR asset folder."""
+    """Load one texture per building type.
+
+    Most building PNGs live under ``BUILDING_DIR``, but individual
+    entries can override via ``png_path`` to point at any absolute
+    asset path (e.g. the Quantum Wave Integrator uses a Kenney RTS
+    Sci-fi sprite from a different pack)."""
     textures: dict[str, arcade.Texture] = {}
     for name, stats in BUILDING_TYPES.items():
-        path = os.path.join(BUILDING_DIR, stats["png"])
+        path = stats.get("png_path") or os.path.join(
+            BUILDING_DIR, stats["png"])
         textures[name] = arcade.load_texture(path)
     return textures
 

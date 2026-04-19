@@ -402,6 +402,19 @@ def place_building(gv: GameView, wx: float, wy: float) -> None:
     if isinstance(building, RepairModule) and gv._trade_station is None:
         spawn_trade_station(gv)
 
+    # Quantum Wave Integrator — auto-spawns the Double Star boss on
+    # first build.  Replaces the old ``check_boss_spawn`` conditions
+    # (char level + all module slots + 5 repair packs) with a single
+    # "player committed to building the QWI" trigger.
+    from sprites.building import QuantumWaveIntegrator
+    if isinstance(building, QuantumWaveIntegrator):
+        from combat_helpers import spawn_boss
+        home = next((b for b in gv.building_list
+                     if isinstance(b, HomeStation) and not b.disabled), None)
+        if (home is not None and not gv._boss_spawned
+                and not gv._boss_defeated):
+            spawn_boss(gv, home.center_x, home.center_y)
+
     _DIR_ORDER_AC = ["N", "E", "S", "W"]
     bld_steps_ac = round(building.angle / 90.0) % 4
     for new_port in building.get_unoccupied_ports():

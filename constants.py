@@ -506,6 +506,23 @@ BUILDING_TYPES = {
                         "cost_copper": 300,
                         "max": None, "module_slots": 0, "connectable": False,
                         "free_place": True,  "slots_used": 2},
+    # Quantum Wave Integrator — the late-game boss-trigger structure.
+    # Built within 300 px of the Home Station.  Building it auto-spawns
+    # the Double Star boss; clicking it opens a menu that lets the
+    # player spend 100 iron to spawn the Nebula boss.  Uses a custom
+    # asset path so ``png_path`` takes precedence over ``png`` +
+    # BUILDING_DIR in ``world_setup.load_building_textures``.
+    "Quantum Wave Integrator": {
+        "png": "scifiStructure_16.png",
+        "png_path": os.path.join(
+            _HERE, "assets", "Kenney Game Assets All-in-1 3.4.0",
+            "2D assets", "RTS Sci-fi", "PNG", "Retina", "Structure",
+            "scifiStructure_16.png"),
+        "hp": 200, "cost": 1000, "cost_copper": 2000,
+        "max": 1, "module_slots": 0, "connectable": False,
+        "free_place": True, "slots_used": 0,
+        "is_qwi": True,
+    },
 }
 
 # Turret combat
@@ -737,3 +754,35 @@ BOSS_PHASE3_HP: float = 0.25            # 25% HP → Phase 3
 # Boss rewards
 BOSS_XP_REWARD: int = 500
 BOSS_IRON_DROP: int = 200
+
+# ── Quantum Wave Integrator ───────────────────────────────────────────────
+QWI_PLACE_RADIUS: float = 300.0             # must sit within this of home
+QWI_SPAWN_NEBULA_BOSS_IRON_COST: int = 100  # click-menu button cost
+
+# ── Nebula Boss ───────────────────────────────────────────────────────────
+# Inherits the base BOSS_* stats (HP, shields, speed, phases, etc.) and
+# adds two Nebula-specific attacks: a slow-moving gas cloud projectile
+# and a short-range gas cone.  Sprite is cropped from the 2nd column
+# (zero-indexed col=1) of the 8×8 faction_6_monsters_128x128 sheet.
+NEBULA_BOSS_PNG = os.path.join(
+    _HERE, "assets", "256Spacemonsters",
+    "faction_6_monsters_128x128.png")
+NEBULA_BOSS_FRAME_SIZE: int = 128
+NEBULA_BOSS_COL_INDEX: int = 1             # "second column" — zero-based
+NEBULA_BOSS_ROW_INDEX: int = 0             # first row of that column
+
+# Gas cloud projectile — slow, persistent, damage + slow-on-hit
+NEBULA_BOSS_GAS_SPEED: float = BOSS_CANNON_SPEED / 2.0   # 275 px/s
+NEBULA_BOSS_GAS_RANGE: float = 500.0                     # px before despawn
+NEBULA_BOSS_GAS_DAMAGE: float = 15.0                     # damage per hit
+NEBULA_BOSS_GAS_COOLDOWN: float = 4.0                    # seconds
+NEBULA_BOSS_GAS_RADIUS: float = 60.0                     # cloud collision radius
+NEBULA_BOSS_SLOW_FACTOR: float = 0.5                     # player speed multiplier while slowed
+NEBULA_BOSS_SLOW_DURATION: float = 1.5                   # seconds of slow per hit
+
+# Gas cone — short-range AoE
+NEBULA_BOSS_CONE_RANGE: float = 200.0      # cone length
+NEBULA_BOSS_CONE_WIDTH: float = 200.0      # width at far end
+NEBULA_BOSS_CONE_DURATION: float = 1.5     # seconds the cone stays active
+NEBULA_BOSS_CONE_COOLDOWN: float = 6.0
+NEBULA_BOSS_CONE_DAMAGE: float = 10.0      # damage per 0.5 s tick while inside

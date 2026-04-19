@@ -306,7 +306,14 @@ def update_movement(gv: GameView, dt: float) -> bool:
             gv.inventory.toggle()
         gv._prev_y = y_btn
 
-    gv.player.apply_input(dt, rl, rr, tf, tb, sl, sr)
+    # Scale movement dt by the Nebula-boss gas-slow factor when the
+    # slow timer is active.  Halves effective thrust/speed by
+    # shortening the simulated frame the player sees.
+    from constants import NEBULA_BOSS_SLOW_FACTOR
+    move_dt = dt
+    if getattr(gv, "_nebula_slow_timer", 0.0) > 0.0:
+        move_dt = dt * NEBULA_BOSS_SLOW_FACTOR
+    gv.player.apply_input(move_dt, rl, rr, tf, tb, sl, sr)
 
     # Shield sprite + animation
     gv.shield_sprite.update_shield(
@@ -699,6 +706,98 @@ def update_boss(gv: GameView, dt: float) -> None:
         handle_boss_building_hits(gv)
         if gv._boss is not None and gv._boss._charging and gv._boss._charge_windup <= 0.0:
             handle_boss_charge_hit(gv)
+
+
+def update_nebula_boss(gv: GameView, dt: float) -> None:
+    """Per-frame tick for the Nebula boss (spawned via QWI menu).
+
+    Inherits the parent ``update_boss`` flow for movement + cannon
+    fire + phase management, and layers on the gas-cloud projectile
+    + cone-AoE attacks.  Gas clouds apply damage + a time-limited
+    slow to the player on contact.  The cone applies both while the
+    player is inside it."""
+    import math as _math
+    nb = getattr(gv, "_nebula_boss", None)
+    if nb is None or nb.hp <= 0:
+        return
+
+    # Station position anchors the boss target (same as parent).
+    station_x, station_y = WORLD_WIDTH / 2, WORLD_HEIGHT / 2
+    for b in gv.building_list:
+        if isinstance(b, HomeStation) and not b.disabled:
+            station_x, station_y = b.center_x, b.center_y
+            break
+
+    if player_is_cloaked(gv):
+        boss_px, boss_py = gv.player.center_x + 1e9, gv.player.center_y + 1e9
+    else:
+        boss_px, boss_py = gv.player.center_x, gv.player.center_y
+
+    # Run the base BossAlienShip update (movement, cannon + spread,
+    # charge dash).  Projectiles go to the standard boss projectile
+    # list so existing collision handlers deliver damage.
+    asteroid_list = gv.asteroid_list
+    zone = getattr(gv, "_zone", None)
+    zone_asts = getattr(zone, "_iron_asteroids", None)
+    if zone_asts is not None:
+        asteroid_list = zone_asts
+    projs = nb.update_boss(
+        dt, boss_px, boss_py, station_x, station_y, asteroid_list)
+    for p in projs:
+        gv._boss_projectile_list.append(p)
+
+    # Nebula-specific tick — returns a GasCloudProjectile when the
+    # gas cooldown expires.
+    new_gas = nb.tick_nebula(dt, boss_px, boss_py)
+    if new_gas is not None:
+        gv._nebula_gas_clouds.append(new_gas)
+
+    # Advance gas clouds + test hit on the player.
+    px, py = gv.player.center_x, gv.player.center_y
+    survivors = []
+    for c in gv._nebula_gas_clouds:
+        expired = c.update_gas(dt)
+        hit = c.contains_point(px, py)
+        if hit and not getattr(gv, "_player_dead", False):
+            from combat_helpers import apply_damage_to_player
+            apply_damage_to_player(gv, int(c.damage))
+            _apply_nebula_slow(gv)
+            # Cloud dissipates on hit.
+            continue
+        if not expired:
+            survivors.append(c)
+    gv._nebula_gas_clouds = survivors
+
+    # Cone tick — damage while player inside; slow + damage ~2 Hz.
+    if getattr(nb, "_cone_active", False):
+        if nb.cone_contains_point(px, py):
+            if not hasattr(gv, "_nebula_cone_tick_cd"):
+                gv._nebula_cone_tick_cd = 0.0
+            gv._nebula_cone_tick_cd -= dt
+            if gv._nebula_cone_tick_cd <= 0.0:
+                from constants import NEBULA_BOSS_CONE_DAMAGE
+                from combat_helpers import apply_damage_to_player
+                apply_damage_to_player(gv, int(NEBULA_BOSS_CONE_DAMAGE))
+                _apply_nebula_slow(gv)
+                gv._nebula_cone_tick_cd = 0.5
+
+    # Clear the boss from GameView once HP drops to zero.
+    if nb.hp <= 0:
+        gv._nebula_boss = None
+        gv._nebula_boss_list.clear()
+        gv._nebula_gas_clouds.clear()
+
+
+def _apply_nebula_slow(gv) -> None:
+    """Mark the player as slowed for ``NEBULA_BOSS_SLOW_DURATION``
+    seconds.  Player movement code (update_movement) honors the
+    ``_nebula_slow_timer`` by halving effective speed while it's
+    positive."""
+    from constants import NEBULA_BOSS_SLOW_DURATION
+    gv._nebula_slow_timer = max(
+        getattr(gv, "_nebula_slow_timer", 0.0),
+        NEBULA_BOSS_SLOW_DURATION,
+    )
 
 
 def update_wormholes(gv: GameView, dt: float) -> None:

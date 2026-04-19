@@ -359,6 +359,19 @@ class MissileArray(StationModule):
 
 # ── Factory function ──────────────────────────────────────────────────────────
 
+
+class QuantumWaveIntegrator(StationModule):
+    """Late-game boss-trigger structure.
+
+    Building one (via the B menu) auto-spawns the Double Star boss.
+    Clicking one opens the ``QWIMenu`` overlay which lets the player
+    spend 100 iron to summon the Nebula boss.  Placement is gated to
+    a 300 px radius of the active Home Station (same gate as turrets
+    and missile arrays).
+    """
+    pass
+
+
 _TYPE_MAP = {
     "Home Station":      HomeStation,
     "Service Module":    ServiceModule,
@@ -373,6 +386,7 @@ _TYPE_MAP = {
     "Fission Generator": SolarArray,
     "Shield Generator":  StationModule,
     "Missile Array":     MissileArray,
+    "Quantum Wave Integrator": QuantumWaveIntegrator,
 }
 
 

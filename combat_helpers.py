@@ -258,26 +258,82 @@ def try_respawn_aliens(gv: GameView) -> None:
 
 
 def check_boss_spawn(gv: GameView) -> None:
-    """Check if boss spawn conditions are met and spawn if so."""
+    """No-op kept for backward compatibility.
+
+    The Double Star boss is now auto-spawned by
+    ``building_manager.place_building`` the moment a Quantum Wave
+    Integrator is built.  Previous trigger logic (character level ≥ 5,
+    every module slot filled, 5 repair packs stockpiled) was retired
+    in favour of a single player-committed trigger — the QWI costs
+    1000 iron + 2000 copper, which is itself the commitment gate."""
+    return
+
+
+def spawn_nebula_boss(gv: GameView) -> bool:
+    """Summon the Nebula boss via the QWI click-menu button.
+
+    Deducts ``QWI_SPAWN_NEBULA_BOSS_IRON_COST`` from the player's
+    ship inventory (falling back to the station inventory if short).
+    Spawns a ``NebulaBossShip`` in Zone 2 at the world corner
+    furthest from the active Home Station — same placement rule as
+    the Double Star boss.  Returns True on success, False when the
+    player can't afford it or preconditions fail.
+    """
+    from constants import QWI_SPAWN_NEBULA_BOSS_IRON_COST
+    from sprites.nebula_boss import NebulaBossShip, load_nebula_boss_texture
     from sprites.building import HomeStation
-    if gv._boss_spawned or gv._boss_defeated or gv._boss is not None:
-        return
-    if gv._char_level < 5:
-        return
-    if any(m is None for m in gv._module_slots):
-        return
-    rp_count = gv.inventory.count_item("repair_pack")
-    rp_count += gv._station_inv.count_item("repair_pack")
-    if rp_count < 5:
-        return
-    home = None
-    for b in gv.building_list:
-        if isinstance(b, HomeStation) and not b.disabled:
-            home = b
-            break
+
+    if getattr(gv, "_nebula_boss", None) is not None:
+        return False
+
+    # Resource gate.
+    total_iron = gv.inventory.total_iron + gv._station_inv.total_iron
+    if total_iron < QWI_SPAWN_NEBULA_BOSS_IRON_COST:
+        return False
+
+    # Need an active Home Station to anchor the spawn direction.
+    home = next((b for b in gv.building_list
+                 if isinstance(b, HomeStation) and not b.disabled), None)
     if home is None:
-        return
-    spawn_boss(gv, home.center_x, home.center_y)
+        return False
+
+    # Deduct iron — player ship first, then station.
+    remaining = QWI_SPAWN_NEBULA_BOSS_IRON_COST
+    ship_iron = min(remaining, gv.inventory.total_iron)
+    if ship_iron > 0:
+        gv.inventory.remove_item("iron", ship_iron)
+        remaining -= ship_iron
+    if remaining > 0:
+        gv._station_inv.remove_item("iron", remaining)
+
+    corners = [
+        (100.0, 100.0),
+        (WORLD_WIDTH - 100.0, 100.0),
+        (100.0, WORLD_HEIGHT - 100.0),
+        (WORLD_WIDTH - 100.0, WORLD_HEIGHT - 100.0),
+    ]
+    best = max(corners,
+               key=lambda c: math.hypot(c[0] - home.center_x,
+                                        c[1] - home.center_y))
+
+    tex = load_nebula_boss_texture()
+    gv._nebula_boss = NebulaBossShip(
+        tex, gv._boss_laser_tex,
+        best[0], best[1],
+        home.center_x, home.center_y,
+    )
+    if not hasattr(gv, "_nebula_boss_list"):
+        gv._nebula_boss_list = arcade.SpriteList()
+    gv._nebula_boss_list.clear()
+    gv._nebula_boss_list.append(gv._nebula_boss)
+    if not hasattr(gv, "_nebula_gas_clouds"):
+        gv._nebula_gas_clouds = []
+    gv._nebula_gas_clouds.clear()
+    # Reuse the existing boss-announce banner text.
+    gv._boss_announce_timer = 5.0
+    gv._t_boss_announce.text = "WARNING: NEBULA BOSS"
+    gv._t_boss_subtitle.text = "A gaseous horror stirs in the nebula!"
+    return True
 
 
 def spawn_boss(gv: GameView, station_x: float, station_y: float) -> None:

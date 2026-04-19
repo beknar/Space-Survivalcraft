@@ -31,6 +31,7 @@ _MENU_ORDER = [
     "Advanced Ship",
     "Shield Generator",
     "Missile Array",
+    "Quantum Wave Integrator",
 ]
 
 # Scrollbar geometry — small enough to stay out of the way of the row

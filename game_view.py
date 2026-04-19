@@ -436,6 +436,14 @@ class GameView(arcade.View):
             os.path.join(os.path.dirname(os.path.abspath(__file__)),
                          "assets", "ai generated", "space station.PNG"))
 
+        # Quantum Wave Integrator click-menu overlay + Nebula boss state.
+        from qwi_menu import QWIMenu
+        self._qwi_menu = QWIMenu()
+        self._active_qwi = None  # QuantumWaveIntegrator | None
+        self._nebula_boss = None
+        self._nebula_boss_list: arcade.SpriteList = arcade.SpriteList()
+        self._nebula_gas_clouds: list = []    # list[GasCloudProjectile]
+
         # Station shield — spawned by the first Shield Generator built.
         from constants import STATION_SHIELD_HP
         self._station_shield_sprite = None   # ShieldSprite | None
@@ -884,6 +892,11 @@ class GameView(arcade.View):
         _ul.update_force_walls(self, delta_time)
         _ul.update_null_fields(self, delta_time)
         _ul.update_slipspaces(self, delta_time)
+        _ul.update_nebula_boss(self, delta_time)
+        # Decay the gas-slow timer set by nebula boss cloud/cone hits.
+        if getattr(self, "_nebula_slow_timer", 0.0) > 0.0:
+            self._nebula_slow_timer = max(
+                0.0, self._nebula_slow_timer - delta_time)
         _ul.update_station_shield(self, delta_time)
         _ul.update_refugee_npc(self, delta_time)
         _ul.update_missiles(self, delta_time)
