@@ -333,6 +333,29 @@ class TestConeGeometry:
         nb._cone_active = False
         assert nb.cone_contains_point(1.0, 0.0) is False
 
+    def test_tick_nebula_does_not_reference_self_radius(
+            self, real_window):
+        """Regression guard for PR #14's nebula soak crash.
+
+        ``tick_nebula`` used ``self.radius`` in its cone-range check,
+        but ``BossAlienShip`` doesn't set ``radius`` as an instance
+        attribute (it's the module-level constant ``BOSS_RADIUS``).
+        The soak took ~6 seconds to trigger — this test reproduces
+        by forcing the cone-cooldown ready and ticking once."""
+        from sprites.nebula_boss import (
+            NebulaBossShip, load_nebula_boss_texture,
+        )
+        tex = load_nebula_boss_texture()
+        nb = NebulaBossShip(tex, tex, 500.0, 500.0, 0.0, 0.0)
+        # Force cone cooldown ready + player in range so the
+        # "cone_contains_point" check fires (which was the crash site).
+        nb._cone_cd = 0.0
+        nb._gas_cd = 999.0   # suppress the gas-cloud branch
+        nb._cone_active = False
+        nb._charging = False
+        # Tick once — must not raise AttributeError.
+        nb.tick_nebula(1 / 60, player_x=550.0, player_y=500.0)
+
 
 class TestQWIMenuAPI:
     def test_click_button_returns_spawn_action(self, real_window):

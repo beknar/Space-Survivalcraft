@@ -186,13 +186,22 @@ class TestWarpZoneRoundTrip:
 # ═══════════════════════════════════════════════════════════════════════════
 
 class TestBossSpawn:
-    def test_boss_spawns_when_all_conditions_met(self, real_game_view):
-        """Set all preconditions (level 5, 4 modules, 5 repair packs,
-        Home Station built) and verify the boss spawns."""
-        from sprites.building import HomeStation, create_building
+    """As of 2026-04-19 (commit ``a51e8c5``) the Double Star boss no
+    longer spawns via the old ``check_boss_spawn`` conditions
+    (character level / module slots / repair packs).  The trigger
+    is now the Quantum Wave Integrator — building one auto-spawns
+    the boss from ``building_manager.place_building``.  These tests
+    track the new path."""
+
+    def test_boss_spawns_when_qwi_is_built(self, real_game_view):
+        """Placing a QuantumWaveIntegrator in the building list +
+        firing the spawn hook must produce a live boss."""
+        from sprites.building import (
+            HomeStation, QuantumWaveIntegrator, create_building,
+        )
+        from combat_helpers import spawn_boss
 
         gv = real_game_view
-        # Ensure we're in Zone 1
         if gv._zone.zone_id != ZoneID.MAIN:
             gv._transition_zone(ZoneID.MAIN, entry_side="wormhole_return")
 
@@ -202,38 +211,37 @@ class TestBossSpawn:
         gv._boss_defeated = False
         gv._boss_list.clear()
 
-        # Character level 5
-        gv._char_level = 5
-        gv._char_xp = 1000
-
-        # Fill all module slots
-        module_keys = list(dict.fromkeys(
-            k for k in ("armor_plate", "engine_booster",
-                        "shield_booster", "damage_absorber")))
-        for i in range(MODULE_SLOT_COUNT):
-            gv._module_slots[i] = module_keys[i % len(module_keys)]
-
-        # 5 repair packs in inventory
-        gv.inventory.add_item("repair_pack", 5)
-
-        # Place a Home Station
-        tex = gv._building_textures["Home Station"]
-        home = create_building("Home Station", tex,
+        # Place a Home Station + a Quantum Wave Integrator next to it
+        # — same arrangement the build menu produces once the player
+        # has enough iron + copper for the QWI.
+        home_tex = gv._building_textures["Home Station"]
+        home = create_building("Home Station", home_tex,
                                WORLD_WIDTH / 2, WORLD_HEIGHT / 2,
                                scale=0.5)
         gv.building_list.append(home)
+        qwi_tex = gv._building_textures["Quantum Wave Integrator"]
+        qwi = create_building("Quantum Wave Integrator", qwi_tex,
+                              WORLD_WIDTH / 2 + 120,
+                              WORLD_HEIGHT / 2, scale=0.5)
+        assert isinstance(qwi, QuantumWaveIntegrator)
+        gv.building_list.append(qwi)
 
-        # Trigger the spawn check
-        from combat_helpers import check_boss_spawn
-        check_boss_spawn(gv)
+        # ``place_building`` fires ``spawn_boss`` after append; the
+        # fixture doesn't go through place_building so call it
+        # directly — same code path the real flow hits.
+        spawn_boss(gv, home.center_x, home.center_y)
 
         assert gv._boss is not None, "Boss should have spawned"
         assert gv._boss.hp > 0
         assert gv._boss_spawned is True
 
-    def test_boss_does_not_spawn_without_home_station(self, real_game_view):
-        """If no Home Station is built, the boss doesn't spawn even if
-        all other conditions are met."""
+    def test_check_boss_spawn_is_now_a_noop(self, real_game_view):
+        """Regression guard: ``combat_helpers.check_boss_spawn`` is
+        intentionally a no-op as of ``a51e8c5`` — it's kept only so
+        the ``GameView._check_boss_spawn`` delegate from
+        ``update_logic`` keeps working during zone ticks.  Any
+        attempt to re-add the old 5-level / modules / repair-packs
+        gating must fail this test loudly."""
         from combat_helpers import check_boss_spawn
 
         gv = real_game_view
@@ -243,15 +251,25 @@ class TestBossSpawn:
         gv._boss = None
         gv._boss_spawned = False
         gv._boss_defeated = False
+        # Meet every old condition — level 5, all modules filled,
+        # 5 repair packs, home station — and assert check_boss_spawn
+        # still does nothing.  A real spawn requires a QWI now.
+        from sprites.building import create_building
         gv._char_level = 5
         for i in range(MODULE_SLOT_COUNT):
             gv._module_slots[i] = "armor_plate"
         gv.inventory.add_item("repair_pack", 5)
-        # No home station — clear building list
         gv.building_list.clear()
+        home_tex = gv._building_textures["Home Station"]
+        gv.building_list.append(create_building(
+            "Home Station", home_tex,
+            WORLD_WIDTH / 2, WORLD_HEIGHT / 2, scale=0.5))
 
         check_boss_spawn(gv)
-        assert gv._boss is None
+        assert gv._boss is None, (
+            "check_boss_spawn must not spawn the boss — "
+            "the QWI is the trigger now")
+        assert gv._boss_spawned is False
 
 
 # ═══════════════════════════════════════════════════════════════════════════
