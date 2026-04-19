@@ -274,20 +274,48 @@ class VideoPlayer:
     def _drain_pending_cleanup(cls) -> None:
         """Actually ``.delete()`` players whose quiescence window has
         passed.  Called from per-frame update paths so the cleanup runs
-        on the main thread alongside pyglet's clock dispatch."""
+        on the main thread alongside pyglet's clock dispatch.
+
+        IMPORTANT: ``pyglet.media.Player.delete()`` does NOT release
+        ``self._source`` — it only sets ``is_player_source = False``
+        on the source (see pyglet/media/player.py:234).  The Source
+        (an FFmpegSource carrying ~12 MB of decoder + frame-buffer
+        state per video) stays alive via the player's own attribute
+        until the player itself is GC'd, which can be deferred for
+        a long time.  We explicitly null the player's source ref +
+        force gc.collect() so ``FFmpegSource.__del__`` fires (it
+        closes the FFmpeg streams + the format context).  Without
+        this, every play/stop cycle leaked one full FFmpeg context.
+        """
         if not cls._pending_cleanup:
             return
         now = _time.monotonic()
         survivors = []
+        drained = 0
         for deadline, pl in cls._pending_cleanup:
             if now >= deadline:
                 try:
                     pl.delete()
                 except Exception:
                     pass
+                # Player keeps the source on TWO attributes —
+                # ``_source`` (current) and ``_playlists`` (queued).
+                # Both must be cleared so FFmpegSource.__del__ fires.
+                try:
+                    pl._source = None
+                except Exception:
+                    pass
+                try:
+                    pl._playlists.clear()
+                except Exception:
+                    pass
+                drained += 1
             else:
                 survivors.append((deadline, pl))
         cls._pending_cleanup = survivors
+        if drained:
+            import gc as _gc
+            _gc.collect()
 
     def stop(self) -> None:
         """Stop playback and release all resources including cached texture."""

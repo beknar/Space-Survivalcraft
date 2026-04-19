@@ -239,3 +239,160 @@ class TestStopPlayerDoesNotDrainSourceQueue:
             "video_player.py contains a call to next_source — that "
             "races the pyglet media worker thread.  Offending lines:\n"
             + "\n  ".join(offending))
+
+
+class TestDrainExplicitlyReleasesPyglerSourceRefs:
+    """Regression — ``pyglet.media.Player.delete()`` only marks
+    ``is_player_source = False`` on its source, leaving ``self._source``
+    and ``self._playlists`` populated.  That kept the FFmpeg context
+    alive for ~12 MB per play/stop cycle.  ``_drain_pending_cleanup``
+    now nulls both refs and forces ``gc.collect()`` after deleting
+    a batch.  These tests lock those calls in so a future "simplify"
+    refactor can't silently re-introduce the leak."""
+
+    def setup_method(self):
+        from video_player import VideoPlayer
+        VideoPlayer._pending_cleanup = []
+
+    def test_drain_clears_source_attribute(self):
+        from video_player import VideoPlayer
+        import time as _time
+
+        class _PlayerWithSource(_FakePlayer):
+            def __init__(self):
+                super().__init__()
+                self._source = object()
+                self._playlists = []
+
+        pl = _PlayerWithSource()
+        pl._source = "leaky-source"
+        VideoPlayer._pending_cleanup.append((_time.monotonic() - 1.0, pl))
+        VideoPlayer._drain_pending_cleanup()
+        assert pl.deleted is True
+        assert pl._source is None, (
+            "Drain must null pl._source so pyglet's Source ref is "
+            "released — Player.delete() doesn't do this itself")
+
+    def test_drain_clears_playlists(self):
+        from video_player import VideoPlayer
+        import time as _time
+
+        class _PlayerWithPlaylists(_FakePlayer):
+            def __init__(self):
+                super().__init__()
+                self._source = None
+                self._playlists = ["src1", "src2"]
+
+        pl = _PlayerWithPlaylists()
+        VideoPlayer._pending_cleanup.append((_time.monotonic() - 1.0, pl))
+        VideoPlayer._drain_pending_cleanup()
+        assert pl._playlists == [], (
+            "Drain must clear pl._playlists — pyglet stores queued "
+            "sources there in addition to _source")
+
+    def test_drain_forces_gc_collect_when_anything_drained(self, monkeypatch):
+        """Cells in pyglet closures hold the source via cycles —
+        gc.collect() after deletion lets ``FFmpegSource.__del__``
+        actually fire."""
+        from video_player import VideoPlayer
+        import time as _time
+        import gc as _gc
+
+        calls = {"n": 0}
+        real = _gc.collect
+
+        def spy(*a, **kw):
+            calls["n"] += 1
+            return real(*a, **kw)
+
+        monkeypatch.setattr(_gc, "collect", spy)
+
+        class _PlayerNoExtras(_FakePlayer):
+            def __init__(self):
+                super().__init__()
+                self._source = None
+                self._playlists = []
+
+        VideoPlayer._pending_cleanup.append(
+            (_time.monotonic() - 1.0, _PlayerNoExtras()))
+        VideoPlayer._drain_pending_cleanup()
+        assert calls["n"] >= 1, (
+            "Drain must call gc.collect after deleting players to "
+            "break pyglet's cell-reference cycles")
+
+    def test_drain_does_not_force_gc_when_nothing_drained(
+            self, monkeypatch):
+        """Cost discipline — gc.collect is expensive, only fire it
+        when at least one player was actually deleted."""
+        from video_player import VideoPlayer
+        import time as _time
+        import gc as _gc
+
+        calls = {"n": 0}
+        real = _gc.collect
+
+        def spy(*a, **kw):
+            calls["n"] += 1
+            return real(*a, **kw)
+
+        monkeypatch.setattr(_gc, "collect", spy)
+
+        class _PlayerNoExtras(_FakePlayer):
+            def __init__(self):
+                super().__init__()
+                self._source = None
+                self._playlists = []
+
+        # Future deadline — nothing will be drained.
+        VideoPlayer._pending_cleanup.append(
+            (_time.monotonic() + 60.0, _PlayerNoExtras()))
+        VideoPlayer._drain_pending_cleanup()
+        assert calls["n"] == 0, (
+            "gc.collect should NOT be called when no players were "
+            "drained — that would cost a full GC pass per frame")
+
+    def test_drain_swallows_attribute_errors_on_source_clear(self):
+        """Defensively — if pyglet ever changes its attribute names,
+        the AttributeError must be swallowed (the attempt to clear
+        is best-effort, the leak rate may regress but the game must
+        not crash)."""
+        from video_player import VideoPlayer
+        import time as _time
+
+        class _PlayerNoSource(_FakePlayer):
+            """No ``_source`` or ``_playlists`` attrs at all."""
+
+        VideoPlayer._pending_cleanup.append(
+            (_time.monotonic() - 1.0, _PlayerNoSource()))
+        VideoPlayer._drain_pending_cleanup()  # must not raise
+
+
+class TestUpdateLogicAlwaysDrainsCleanupQueue:
+    """Regression — ``_drain_pending_cleanup`` used to only run from
+    ``VideoPlayer.update`` / ``update_volume``, which themselves only
+    fire when ``vp.active``.  In a play -> stop -> idle cycle, the
+    drain never ran during the idle window and retired pyglet Players
+    accumulated in the queue (each holding ~12 MB of FFmpeg state).
+    ``update_logic.update_repair_and_shields`` now drains
+    unconditionally so cleanup happens even when no video is playing."""
+
+    def test_update_logic_calls_drain_unconditionally_each_tick(self):
+        """Lock the unconditional drain call in update_preamble (the
+        first thing on_update runs).  Anywhere in update_logic that
+        runs every tick is fine — what matters is the call sits
+        OUTSIDE any ``if vp.active`` gate."""
+        import inspect
+        import update_logic as _ul
+        src = inspect.getsource(_ul)
+        # Must mention the drain.
+        assert "_drain_pending_cleanup" in src, (
+            "update_logic.py must call VideoPlayer._drain_pending_cleanup() "
+            "unconditionally — otherwise retired pyglet Players accumulate "
+            "during idle windows between video sessions, leaking FFmpeg state")
+        # And the call must NOT be guarded by ``if gv._video_player.active``.
+        # Flatten to a single line and look for the gated pattern.
+        joined = " ".join(src.split())
+        assert "if gv._video_player.active: VideoPlayer._drain_pending_cleanup" not in joined, (
+            "_drain_pending_cleanup is gated by vp.active — that defeats "
+            "the whole point.  The drain must run even when no video is "
+            "playing so the cleanup queue actually empties.")

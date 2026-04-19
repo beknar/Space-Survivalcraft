@@ -127,6 +127,13 @@ def update_preamble(gv: GameView, dt: float) -> None:
         cooling.add("death_blossom")
     gv._hud._mod_cooldowns = cooling
     gv._hud._mod_flash_t += dt
+    # Always drain VideoPlayer's deferred-cleanup queue, even when
+    # neither video player is active.  vp.update / vp.update_volume
+    # only run while active, so without this an idle window between
+    # video sessions would let retired pyglet Players pile up in
+    # the cleanup queue, leaking ~12 MB of FFmpeg state per cycle.
+    from video_player import VideoPlayer
+    VideoPlayer._drain_pending_cleanup()
     # Character video
     if gv._char_video_player.active:
         gv._char_video_player.update_volume(0.0)
