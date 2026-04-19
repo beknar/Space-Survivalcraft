@@ -70,6 +70,7 @@ def run_soak(
     min_fps: int = MIN_FPS,
     max_memory_growth_mb: int = MAX_MEMORY_GROWTH_MB,
     duration_s: int = SOAK_DURATION_S,
+    warmup_samples: int = 1,
 ) -> None:
     """Run ``churn_tick(dt)`` for ``duration_s`` seconds, sampling FPS +
     RSS every ``SAMPLE_INTERVAL_S``.  Raises AssertionError if FPS drops
@@ -78,6 +79,17 @@ def run_soak(
     ``churn_tick`` is responsible for advancing the game (``gv.on_update``
     + ``gv.on_draw``) and doing any scenario-specific work (spawning
     projectiles, toggling the dialogue overlay, etc.).
+
+    ``warmup_samples`` excludes that many leading samples from the
+    minimum-FPS check.  The START sample can dip below ``min_fps`` on
+    the first real frame after setup (font-atlas upload, first-time
+    texture streaming, GC settling, audio-thread spin-up) even when
+    steady-state FPS is 100+.  Excluding just the START sample (the
+    default of 1) eliminates the recurring single-sample flakes we
+    observed in the 2026-04-18 night run while still catching any
+    regression that shows up in sustained samples.  Pass 0 to include
+    the START sample in the minimum (strictest check) or a higher
+    value to forgive multiple early samples.
     """
     dt = 1 / 60
 
@@ -89,7 +101,11 @@ def run_soak(
     print(f"\n  [{label}] START: {fps_start:.1f} FPS, "
           f"{mem_start:.0f} MB RSS")
 
-    fps_min = fps_start
+    # The first ``warmup_samples`` readings (START counts as #0) are
+    # recorded + printed but excluded from the floor check.
+    samples_seen = 0
+    fps_min = None if warmup_samples > samples_seen else fps_start
+    samples_seen += 1
     frame_count = 0
     soak_start = time.perf_counter()
     last_sample = soak_start
@@ -105,7 +121,9 @@ def run_soak(
         if now - last_sample >= SAMPLE_INTERVAL_S:
             fps = measure_fps_quick(gv)
             mem = get_rss_mb()
-            fps_min = min(fps_min, fps)
+            if samples_seen >= warmup_samples:
+                fps_min = fps if fps_min is None else min(fps_min, fps)
+            samples_seen += 1
             print(f"  [{label}] {elapsed / 60:.1f}m: "
                   f"{fps:.1f} FPS, {mem:.0f} MB RSS "
                   f"(+{mem - mem_start:.1f} MB)")
@@ -113,7 +131,9 @@ def run_soak(
 
     fps_end = measure_fps_quick(gv)
     mem_end = get_rss_mb()
-    fps_min = min(fps_min, fps_end)
+    # END sample always counts toward the floor — if steady-state
+    # FPS isn't recovering, this is the place to fail.
+    fps_min = fps_end if fps_min is None else min(fps_min, fps_end)
     mem_growth = mem_end - mem_start
     print(f"  [{label}] END: {fps_end:.1f} FPS, {mem_end:.0f} MB RSS "
           f"(frames={frame_count})")

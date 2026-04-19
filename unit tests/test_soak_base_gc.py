@@ -13,6 +13,8 @@ from __future__ import annotations
 import os
 import sys
 
+import pytest
+
 # Make integration package importable from the fast-suite directory.
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "integration"))
 
@@ -65,3 +67,101 @@ class TestGetRssMb:
         assert abs(a - b) < 5.0, (
             f"Stabilized RSS swung from {a:.1f} to {b:.1f} MB — "
             f"GC stabilization may not be working")
+
+
+class TestRunSoakWarmupSamples:
+    """The warmup-grace-window fix for cold-start FPS dips.
+
+    The 2026-04-18 night run saw 3 soak failures (StationInfoZone2,
+    StationShield, TelemetryNoCrash) all dipping below the 40 FPS
+    floor on the very first sample while steady-state held above
+    100.  ``run_soak`` now excludes the first ``warmup_samples``
+    readings from the minimum-FPS check so those cold-start dips
+    no longer fail the suite.
+
+    NOTE: these tests pass ``duration_s=0`` explicitly — the default
+    is captured at function-definition time so monkeypatching
+    ``SOAK_DURATION_S`` on the module doesn't affect the default.
+    """
+
+    @staticmethod
+    def _patch(monkeypatch, fps_values):
+        """Install a FPS iterator + constant-RSS stub + zero warmup
+        frames so the call completes in well under a second."""
+        from integration import _soak_base as _sb
+        it = iter(fps_values)
+        monkeypatch.setattr(
+            _sb, "measure_fps_quick", lambda *_a, **_kw: next(it))
+        monkeypatch.setattr(_sb, "get_rss_mb", lambda *_a, **_kw: 100.0)
+        monkeypatch.setattr(_sb, "WARMUP_FRAMES", 0)
+        return _sb
+
+    def test_warmup_samples_one_excludes_start_cold_dip(self, monkeypatch):
+        """START = 10 FPS (cold), END = 100 FPS (steady).  With
+        warmup_samples=1 the 10 is excluded → passes at 40 floor."""
+        _sb = self._patch(monkeypatch, [10.0, 100.0])
+        _sb.run_soak(
+            object(), "warmup=1",
+            lambda dt: None,
+            min_fps=40, max_memory_growth_mb=10_000,
+            duration_s=0, warmup_samples=1)
+
+    def test_warmup_samples_zero_catches_start_dip(self, monkeypatch):
+        """With warmup_samples=0 the 10 FPS START is INCLUDED in
+        the floor check → test fails loudly."""
+        _sb = self._patch(monkeypatch, [10.0, 100.0])
+        with pytest.raises(AssertionError, match="FPS dropped to"):
+            _sb.run_soak(
+                object(), "warmup=0",
+                lambda dt: None,
+                min_fps=40, max_memory_growth_mb=10_000,
+                duration_s=0, warmup_samples=0)
+
+    def test_warmup_samples_defaults_to_one(self, monkeypatch):
+        """Default behaviour: START is excluded so cold-start dips
+        don't fail.  Mirrors the real 2026-04-18 night pattern
+        where TestSoakStationInfoZone2 dipped to 39.1 FPS at START
+        but steady-state held at 125+."""
+        _sb = self._patch(monkeypatch, [39.1, 125.0])
+        _sb.run_soak(
+            object(), "real-world",
+            lambda dt: None,
+            min_fps=40, max_memory_growth_mb=10_000,
+            duration_s=0)   # warmup_samples defaults to 1
+
+    def test_end_sample_still_enforced(self, monkeypatch):
+        """The END sample ALWAYS counts toward the floor — without
+        that, a soak that regresses by the end could hide behind
+        the warmup grace."""
+        _sb = self._patch(monkeypatch, [100.0, 30.0])
+        with pytest.raises(AssertionError, match="FPS dropped to 30"):
+            _sb.run_soak(
+                object(), "end-regression",
+                lambda dt: None,
+                min_fps=40, max_memory_growth_mb=10_000,
+                duration_s=0)
+
+    def test_mid_sample_regression_still_caught(self, monkeypatch):
+        """Steady-state dips (any sample after warmup_samples) must
+        still fail the floor — the grace window is only for cold
+        start, not a permanent get-out-of-jail card."""
+        from integration import _soak_base as _sb
+        # Enough FPS entries for a couple of loop ticks worth of
+        # sampling: START, one mid sample (the 15 dip), then END.
+        import itertools
+        fps_stream = itertools.chain(
+            iter([100.0, 15.0]),    # START, then mid-sample dip
+            itertools.repeat(100.0),  # any further samples + END
+        )
+        monkeypatch.setattr(
+            _sb, "measure_fps_quick", lambda *_a, **_kw: next(fps_stream))
+        monkeypatch.setattr(_sb, "get_rss_mb", lambda *_a, **_kw: 100.0)
+        monkeypatch.setattr(_sb, "WARMUP_FRAMES", 0)
+        monkeypatch.setattr(_sb, "SAMPLE_INTERVAL_S", 0)
+
+        with pytest.raises(AssertionError, match="FPS dropped to 15"):
+            _sb.run_soak(
+                object(), "mid-regression",
+                lambda dt: None,
+                min_fps=40, max_memory_growth_mb=10_000,
+                duration_s=0.05)
