@@ -263,6 +263,7 @@ def handle_mouse_press(gv: GameView, x: int, y: int, button: int, modifiers: int
         return
     # Build menu click
     if gv._build_menu.open:
+        from ship_manager import count_l1_ships
         selected = gv._build_menu.on_mouse_press(
             x, y,
             iron=gv.inventory.total_iron + gv._station_inv.total_iron,
@@ -276,6 +277,7 @@ def handle_mouse_press(gv: GameView, x: int, y: int, button: int, modifiers: int
             max_ship_exists=any(
                 p.ship_level >= SHIP_MAX_LEVEL for p in gv._parked_ships
             ) or gv._ship_level >= SHIP_MAX_LEVEL,
+            l1_ship_exists=count_l1_ships(gv) > 0,
         )
         if selected is not None:
             if selected == "__destroy__":
@@ -576,6 +578,11 @@ def handle_mouse_release(gv: GameView, x: int, y: int, button: int, modifiers: i
     # Clear any hold-to-sell loop in the trade menu.
     if gv._trade_menu.open:
         gv._trade_menu.on_mouse_release(x, y)
+    # Drop any in-flight scrollbar drag in the build / craft menus.
+    if gv._build_menu.open:
+        gv._build_menu.on_mouse_release(x, y)
+    if gv._craft_menu.open:
+        gv._craft_menu.on_mouse_release(x, y)
     # Finish a long-press building move (if any).
     if _finish_building_move(gv, x, y):
         return
@@ -813,6 +820,18 @@ def handle_mouse_scroll(
     if gv._escape_menu.open:
         gv._escape_menu.on_mouse_scroll(scroll_y)
         return
+    # Build menu and Craft menu are scrollable when their content
+    # exceeds the panel height.  Wheel events are consumed by the
+    # menu so they don't double-route into placement-mode rotation.
+    if gv._build_menu.open:
+        gv._build_menu.on_mouse_scroll(scroll_y)
+        return
+    if gv._craft_menu.open:
+        gv._craft_menu.on_mouse_scroll(scroll_y)
+        return
+    if gv._trade_menu.open:
+        gv._trade_menu.on_mouse_scroll(scroll_y)
+        return
     if gv._ghost_sprite is not None and gv._placing_building is not None:
         gv._ghost_rotation = (gv._ghost_rotation + scroll_y * 15.0) % 360.0
         gv._ghost_sprite.angle = gv._ghost_rotation
@@ -831,6 +850,8 @@ def handle_mouse_motion(gv: GameView, x: int, y: int, dx: int, dy: int) -> None:
         return
     if gv._build_menu.open:
         gv._build_menu.on_mouse_motion(x, y)
+    if gv._craft_menu.open:
+        gv._craft_menu.on_mouse_motion(x, y)
     # Ghost sprite follows cursor
     if gv._ghost_sprite is not None and gv._placing_building is not None:
         wx = gv.world_cam.position[0] - gv.window.width / 2 + x

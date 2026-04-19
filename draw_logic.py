@@ -500,6 +500,7 @@ def draw_ui(gv: GameView) -> None:
     gv._station_inv.draw()
     gv.inventory.draw()
     gv._station_inv.draw_drag_preview()
+    from ship_manager import count_l1_ships
     gv._build_menu.draw(
         iron=gv.inventory.total_iron + gv._station_inv.total_iron,
         building_counts=gv._building_counts(),
@@ -512,6 +513,7 @@ def draw_ui(gv: GameView) -> None:
         max_ship_exists=any(
             p.ship_level >= SHIP_MAX_LEVEL for p in gv._parked_ships
         ) or gv._ship_level >= SHIP_MAX_LEVEL,
+        l1_ship_exists=count_l1_ships(gv) > 0,
     )
     gv._station_info.draw()
     gv._ship_stats.draw()

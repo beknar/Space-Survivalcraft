@@ -137,6 +137,58 @@ def _place_new_ship(gv: GameView, wx: float, wy: float) -> None:
     gv._flash_timer = 3.0
 
 
+def count_l1_ships(gv: GameView) -> int:
+    """Count how many level-1 ships exist (player + parked).
+
+    Used by the build menu to gate "Basic Ship" so we can't end up
+    with two L1 ships at once.  When the player upgrades from L1 to
+    L2, the old L1 ship gets parked; if aliens then destroy that
+    parked ship, the count drops to zero and "Basic Ship" unlocks
+    in the build menu so the player can rebuild their AI scout."""
+    n = 0
+    if getattr(gv, "_ship_level", 1) == 1 and not getattr(gv, "_player_dead", False):
+        n += 1
+    parked = getattr(gv, "_parked_ships", None) or []
+    for ps in parked:
+        if getattr(ps, "ship_level", 1) == 1:
+            n += 1
+    return n
+
+
+def _place_basic_ship(gv: GameView, wx: float, wy: float) -> None:
+    """Place a fresh level-1 parked ship at (wx, wy).
+
+    Charges the half-cost listed in BUILDING_TYPES["Basic Ship"]
+    (500 iron + 250 copper at default character rates).  Unlike
+    ``_place_new_ship``, this does NOT touch the player's ship —
+    it spawns a brand-new empty L1 parked ship that the player can
+    later install modules on (e.g. AI Pilot to make it a scout)."""
+    from character_data import build_cost_multiplier
+    from sprites.parked_ship import ParkedShip
+    from sprites.player import PlayerShip
+
+    bt_stats = BUILDING_TYPES["Basic Ship"]
+    cost_mult = build_cost_multiplier(audio.character_name, gv._char_level)
+    cost = int(bt_stats["cost"] * cost_mult)
+    copper_cost = int(bt_stats.get("cost_copper", 0) * cost_mult)
+
+    _deduct_ship_cost(gv, cost, copper_cost)
+
+    new_ship = ParkedShip(
+        faction=gv._faction,
+        ship_type=gv._ship_type,
+        ship_level=1,
+        x=wx,
+        y=wy,
+        heading=0.0,
+    )
+    # Fresh ship — full HP and shields, no modules, no cargo.
+    gv._parked_ships.append(new_ship)
+
+    gv._flash_msg = "Basic ship built!"
+    gv._flash_timer = 3.0
+
+
 def switch_to_ship(gv: GameView, target) -> None:
     """Swap control from the active PlayerShip to a parked ship."""
     from constants import (

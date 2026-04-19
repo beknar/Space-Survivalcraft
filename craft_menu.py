@@ -14,9 +14,15 @@ from constants import (
 
 _PANEL_W = 300
 _PANEL_H_MIN = 280
+# Cap so the Advanced Crafter doesn't overflow the screen once many
+# blueprints are unlocked.  The recipe list scrolls when total height
+# exceeds this minus chrome (header + detail + button area).
+_PANEL_H_MAX = 560
 _RECIPE_H = 28     # single-line recipe row height
 _RECIPE_H2 = 42    # two-line recipe row height
 _ICON_AREA = 28    # icon column width
+_SCROLL_W = 10     # scrollbar track width
+_SCROLL_THUMB_MIN_H = 22
 _TEXT_W = _PANEL_W - 20 - _ICON_AREA  # available text width (panel - padding - icon)
 _HEADER = 55   # title area
 _DETAIL = 40   # detail text + padding
@@ -40,7 +46,10 @@ class CraftMenu(MenuOverlay):
         # Available module recipes
         self._recipes: list[dict] = []
         self._unlocked: set[str] = set()  # permanently unlocked module keys
-        self._scroll: int = 0
+        self._scroll_px: float = 0.0     # pixel offset into the recipe list
+        self._dragging_scrollbar: bool = False
+        self._drag_anchor_y: float = 0.0
+        self._drag_anchor_scroll: float = 0.0
         self._selected: int = 0  # 0 = repair pack, 1+ = module recipes
 
         # Pre-built recipe text objects (avoid .text churn per frame)
@@ -84,7 +93,8 @@ class CraftMenu(MenuOverlay):
                     "cost_copper": info.get("craft_cost_copper", 0),
                 })
         self._selected = 0
-        self._scroll = 0
+        self._scroll_px = 0.0
+        self._dragging_scrollbar = False
         # Pre-build recipe text objects (index 0 = repair pack, 1 = shield recharge, then modules)
         self._t_recipes = []
         self._recipe_heights: list[int] = []  # per-row pixel height
@@ -121,7 +131,98 @@ class CraftMenu(MenuOverlay):
 
     def _panel_height(self) -> int:
         list_h = sum(self._recipe_heights) if self._recipe_heights else 2 * _RECIPE_H
-        return max(_PANEL_H_MIN, _HEADER + list_h + _DETAIL + _BTN_AREA)
+        wanted = _HEADER + list_h + _DETAIL + _BTN_AREA
+        return max(_PANEL_H_MIN, min(_PANEL_H_MAX, wanted))
+
+    # ── Scroll geometry ───────────────────────────────────────────────────────
+
+    def _list_viewport_h(self) -> int:
+        """Height of the recipe-list viewport (between header and detail)."""
+        ph = self._panel_height()
+        return max(_RECIPE_H, ph - _HEADER - _DETAIL - _BTN_AREA)
+
+    def _content_h(self) -> int:
+        return sum(self._recipe_heights) if self._recipe_heights else 0
+
+    def _max_scroll(self) -> float:
+        return max(0.0, self._content_h() - self._list_viewport_h())
+
+    def _needs_scrollbar(self) -> bool:
+        return self._content_h() > self._list_viewport_h()
+
+    def _clamp_scroll(self) -> None:
+        self._scroll_px = max(0.0, min(self._max_scroll(), self._scroll_px))
+
+    def _scrollbar_rect(self) -> tuple[int, int, int, int]:
+        """(x, y, w, h) for the scrollbar TRACK."""
+        px, py = self._panel_origin()
+        ph = self._panel_height()
+        track_h = self._list_viewport_h()
+        track_y = py + ph - _HEADER - track_h
+        track_x = px + _PANEL_W - 10 - _SCROLL_W
+        return track_x, track_y, _SCROLL_W, track_h
+
+    def _scrollbar_thumb_rect(self) -> tuple[int, int, int, int]:
+        tx, ty, tw, th = self._scrollbar_rect()
+        max_scroll = self._max_scroll()
+        if max_scroll <= 0:
+            return tx, ty, tw, th
+        ratio = th / (th + max_scroll)
+        thumb_h = max(_SCROLL_THUMB_MIN_H, int(th * ratio))
+        thumb_y = ty + th - thumb_h - int(
+            (th - thumb_h) * (self._scroll_px / max_scroll))
+        return tx, thumb_y, tw, thumb_h
+
+    def on_mouse_scroll(self, scroll_y: float) -> None:
+        """Mouse-wheel scrolls the recipe list one row per click.
+        No-op if the list fits in the panel."""
+        if not self.open or not self._needs_scrollbar():
+            return
+        self._scroll_px -= scroll_y * _RECIPE_H
+        self._clamp_scroll()
+
+    def on_mouse_release(self, x: float, y: float) -> None:
+        """Drop scrollbar drag on mouse-up."""
+        self._dragging_scrollbar = False
+
+    def _set_scroll_from_drag(self, mouse_y: float) -> None:
+        tx, ty, tw, th = self._scrollbar_rect()
+        max_scroll = self._max_scroll()
+        if max_scroll <= 0:
+            return
+        delta = self._drag_anchor_y - mouse_y
+        ratio = th / (th + max_scroll)
+        thumb_h = max(_SCROLL_THUMB_MIN_H, int(th * ratio))
+        movable = max(1, th - thumb_h)
+        self._scroll_px = (self._drag_anchor_scroll
+                           + (delta / movable) * max_scroll)
+        self._clamp_scroll()
+
+    def on_mouse_motion(self, x: float, y: float) -> None:
+        """Drag-scroll while the scrollbar thumb is held."""
+        if self._dragging_scrollbar:
+            self._set_scroll_from_drag(y)
+
+    def _handle_scrollbar_press(self, x: float, y: float) -> bool:
+        if not self._needs_scrollbar():
+            return False
+        tx, ty, tw, th = self._scrollbar_rect()
+        if not (tx <= x <= tx + tw and ty <= y <= ty + th):
+            return False
+        thx, thy, thw, thh = self._scrollbar_thumb_rect()
+        if thy <= y <= thy + thh:
+            self._dragging_scrollbar = True
+            self._drag_anchor_y = y
+            self._drag_anchor_scroll = self._scroll_px
+            return True
+        # Click above thumb → page up; below → page down.
+        page = max(_RECIPE_H, self._list_viewport_h() - _RECIPE_H)
+        if y > thy + thh:
+            self._scroll_px -= page
+        else:
+            self._scroll_px += page
+        self._clamp_scroll()
+        return True
 
     def _panel_origin(self) -> tuple[int, int]:
         sw = self._window.width if self._window else SCREEN_WIDTH
@@ -146,14 +247,29 @@ class CraftMenu(MenuOverlay):
             self.open = False
             return None
 
+        # Scrollbar takes priority — never falls through to a row.
+        if self._handle_scrollbar_press(x, y):
+            return None
+
         # Recipe list clicks (0=repair pack, 1=shield recharge, 2+=modules)
-        top_y = py + ph - _HEADER
+        # Coordinates honour the scroll offset so clicks on visible rows
+        # map to the right recipe even when the list is scrolled down.
+        top_y = py + ph - _HEADER + int(self._scroll_px)
+        view_top = py + ph - _HEADER
+        view_bottom = view_top - self._list_viewport_h()
+        # Reserve scrollbar gutter from the row hitbox when present.
+        right = px + _PANEL_W - 10
+        if self._needs_scrollbar():
+            right -= (_SCROLL_W + 4)
         cum_y = 0
         for i in range(len(self._t_recipes)):
             rh = self._recipe_heights[i] if i < len(self._recipe_heights) else _RECIPE_H
             ry = top_y - cum_y - rh
             cum_y += rh
-            if px + 10 <= x <= px + _PANEL_W - 10 and ry <= y <= ry + rh:
+            # Skip rows scrolled out of view.
+            if ry + rh < view_bottom or ry > view_top:
+                continue
+            if px + 10 <= x <= right and ry <= y <= ry + rh:
                 self._selected = i
                 return None
 
@@ -210,7 +326,11 @@ class CraftMenu(MenuOverlay):
 
     def _draw_recipe_list(self, px: int, py: int, ph: int, station_iron: int) -> None:
         """Draw the scrollable recipe list and selected recipe detail."""
-        top_y = py + ph - _HEADER
+        view_top = py + ph - _HEADER
+        view_bottom = view_top - self._list_viewport_h()
+        top_y = view_top + int(self._scroll_px)
+        # Adjust panel-internal width when scrollbar reserves a gutter.
+        right_inset = (_SCROLL_W + 4) if self._needs_scrollbar() else 0
 
         # Draw recipe list using pre-built text objects
         costs = [CRAFT_IRON_COST, CRAFT_IRON_COST] + [r["cost"] for r in self._recipes]
@@ -219,9 +339,14 @@ class CraftMenu(MenuOverlay):
             rh = self._recipe_heights[i] if i < len(self._recipe_heights) else _RECIPE_H
             ry = top_y - cum_y - rh
             cum_y += rh
+            # Skip rows entirely outside the viewport.
+            if ry + rh < view_bottom or ry > view_top:
+                continue
             sel = (self._selected == i)
             fill = (50, 70, 100, 220) if sel else (25, 30, 50, 180)
-            arcade.draw_rect_filled(arcade.LBWH(px + 10, ry, _PANEL_W - 20, rh - 2), fill)
+            arcade.draw_rect_filled(
+                arcade.LBWH(px + 10, ry, _PANEL_W - 20 - right_inset, rh - 2),
+                fill)
             affordable = station_iron >= costs[i] if i < len(costs) else False
             tr.color = arcade.color.CYAN if sel else (arcade.color.WHITE if affordable else (150, 80, 80))
             # Draw recipe icon
@@ -244,8 +369,13 @@ class CraftMenu(MenuOverlay):
             tr.x = px + 16 + icon_w; tr.y = ry + rh // 2
             tr.draw()
 
-        # Selected recipe detail with icon
-        detail_y = top_y - cum_y - 10
+        if self._needs_scrollbar():
+            self._draw_scrollbar()
+
+        # Selected recipe detail with icon — anchored to the panel,
+        # not the scrolled list, so it stays visible regardless of
+        # current scroll position.
+        detail_y = view_bottom - 10
         icon = None
         if self._selected == 0:
             _dt = f"Produces {CRAFT_RESULT_COUNT}x Repair Pack ({int(CRAFT_TIME)}s)"
@@ -316,6 +446,17 @@ class CraftMenu(MenuOverlay):
             self._t_detail.color = arcade.color.YELLOW
             self._t_detail.x = px + 16; self._t_detail.y = bar_y - 14
             self._t_detail.draw()
+
+
+    def _draw_scrollbar(self) -> None:
+        tx, ty, tw, th = self._scrollbar_rect()
+        arcade.draw_rect_filled(
+            arcade.LBWH(tx, ty, tw, th), (20, 30, 50, 220))
+        thx, thy, thw, thh = self._scrollbar_thumb_rect()
+        thumb_color = ((180, 220, 255, 240) if self._dragging_scrollbar
+                       else (120, 160, 220, 240))
+        arcade.draw_rect_filled(
+            arcade.LBWH(thx, thy, thw, thh), thumb_color)
 
 
 def _effect_desc(info: dict) -> str:

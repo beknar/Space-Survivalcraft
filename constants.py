@@ -488,6 +488,16 @@ BUILDING_TYPES = {
                         "max": None, "module_slots": 0, "connectable": False,
                         "free_place": True, "slots_used": 0,
                         "is_ship": True},
+    # Replacement L1 ship — half the Advanced Ship cost.  Only buildable
+    # while no other L1 ship exists (player + parked ships counted), so
+    # players can rebuild a destroyed AI-piloted scout without
+    # accidentally fielding two L1 ships.  Spawns as a parked ship at
+    # the placement spot — does NOT touch the player ship.
+    "Basic Ship":      {"png": "spaceBuilding_006.png", "hp": 100, "cost": 500,
+                        "cost_copper": 250,
+                        "max": None, "module_slots": 0, "connectable": False,
+                        "free_place": True, "slots_used": 0,
+                        "is_ship": True, "is_basic_ship": True},
     "Shield Generator": {"png": "spaceBuilding_002.png", "hp": 150, "cost": 800,
                         "cost_copper": 400,
                         "max": 1,    "module_slots": 0, "connectable": True,

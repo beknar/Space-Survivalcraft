@@ -105,7 +105,10 @@ def find_nearest_snap_port(
 # Ship upgrade/placement/switching lives in ship_manager.py; re-exported below
 # so existing imports (`from building_manager import _place_new_ship`, etc.)
 # and the GameView delegates keep working.
-from ship_manager import _upgrade_ship, _place_new_ship, switch_to_ship  # noqa: F401,E402
+from ship_manager import (  # noqa: F401,E402
+    _upgrade_ship, _place_new_ship, switch_to_ship,
+    _place_basic_ship, count_l1_ships,
+)
 
 
 def enter_placement_mode(gv: GameView, building_type: str) -> None:
@@ -114,6 +117,44 @@ def enter_placement_mode(gv: GameView, building_type: str) -> None:
     Advanced Ship enters placement mode with the next-level ship texture
     instead of a building texture.  Resource check happens up front.
     """
+    if building_type == "Basic Ship":
+        # Basic Ship — half the Advanced Ship cost, only if no L1 ship
+        # already exists.  Resource gate up front so we don't enter
+        # placement mode for a build the player can't afford.
+        from character_data import build_cost_multiplier
+        bt_stats = BUILDING_TYPES[building_type]
+        if count_l1_ships(gv) > 0:
+            gv._flash_msg = "Already have a level-1 ship!"
+            gv._flash_timer = 2.0
+            return
+        cost_mult = build_cost_multiplier(audio.character_name, gv._char_level)
+        cost = int(bt_stats["cost"] * cost_mult)
+        copper_cost = int(bt_stats.get("cost_copper", 0) * cost_mult)
+        total_iron = gv.inventory.total_iron + gv._station_inv.total_iron
+        if total_iron < cost:
+            gv._flash_msg = "Not enough iron!"
+            gv._flash_timer = 2.0
+            return
+        if copper_cost > 0:
+            total_copper = (gv.inventory.count_item("copper")
+                            + gv._station_inv.count_item("copper"))
+            if total_copper < copper_cost:
+                gv._flash_msg = "Not enough copper!"
+                gv._flash_timer = 2.0
+                return
+        # Use level-1 ship texture as the ghost (rebuild visual matches
+        # the L1 silhouette the player remembers losing).
+        from sprites.player import PlayerShip
+        tex = PlayerShip._extract_ship_texture(
+            gv._faction, gv._ship_type, 1)
+        gv._ghost_sprite = arcade.Sprite(path_or_texture=tex, scale=0.6)
+        gv._ghost_sprite.alpha = 140
+        gv._ghost_list = arcade.SpriteList()
+        gv._ghost_list.append(gv._ghost_sprite)
+        gv._ghost_rotation = 0.0
+        gv._placing_building = building_type
+        gv._build_menu.open = False
+        return
     if building_type == "Advanced Ship":
         # Resource check before entering placement mode
         from constants import SHIP_MAX_LEVEL
@@ -222,6 +263,11 @@ def place_building(gv: GameView, wx: float, wy: float) -> None:
     # Advanced Ship — place a new ship in the world
     if bt == "Advanced Ship":
         _place_new_ship(gv, wx, wy)
+        cancel_placement(gv)
+        return
+    # Basic Ship — drop a fresh L1 parked ship at the placement spot
+    if bt == "Basic Ship":
+        _place_basic_ship(gv, wx, wy)
         cancel_placement(gv)
         return
     stats = BUILDING_TYPES[bt]
