@@ -92,14 +92,30 @@ def _tracked_play_sound(*args, **kwargs):
 arcade.play_sound = _tracked_play_sound
 
 
+_MAX_DELETES_PER_TICK = 4  # spread pyglet Player.delete over frames
+
+
 def _cleanup_finished_sounds() -> None:
-    """Delete pyglet Players older than _SOUND_MAX_AGE seconds."""
+    """Delete at most ``_MAX_DELETES_PER_TICK`` pyglet Players older
+    than ``_SOUND_MAX_AGE`` seconds.
+
+    ``Player.delete`` releases native OpenAL + FFmpeg resources and
+    can stall 20–40 ms each — with 10+ stale players piling up
+    during a combat burst, the prior "delete everything at once"
+    pass caused the 150–200 ms mid-session spikes seen in
+    fps_drops.log.  Rate-limiting to 4 per tick keeps the worst
+    cleanup cost under ~160 ms total across separate frames.
+    Remaining stale players survive into the next 5-s tick, which
+    is fine — they're already finished playing.
+    """
     now = _time.perf_counter()
-    alive = []
+    deletes_remaining = _MAX_DELETES_PER_TICK
+    alive: list[tuple[float, object]] = []
     for created_at, p in _sound_players:
-        if now - created_at < _SOUND_MAX_AGE:
+        if now - created_at < _SOUND_MAX_AGE or deletes_remaining <= 0:
             alive.append((created_at, p))
         else:
+            deletes_remaining -= 1
             try:
                 p.delete()
             except Exception:
@@ -111,13 +127,12 @@ def _cleanup_finished_sounds() -> None:
 def update_preamble(gv: GameView, dt: float) -> None:
     """GC, FPS, video/music sync, sound cleanup, and escape menu tick."""
     global _sound_cleanup_timer, _full_gc_timer
-    # Full GC when ESC menu opens (existing behaviour — the ESC frame
-    # is already a natural pause, so the 60–100 ms hit is invisible).
-    if gv._escape_menu.open and not gv._gc_ran:
-        gc.collect()
-        gv._gc_ran = True
-    elif not gv._escape_menu.open:
-        gv._gc_ran = False
+    # (Previously ran a forced ``gc.collect()`` the first frame the
+    # ESC menu opened — the comment claimed the 60–100 ms hit was
+    # "invisible" because the frame is paused anyway.  fps_drops.log
+    # then showed a 602 ms spike on ESC-open.  Removed; the 120-s
+    # periodic full GC below is sufficient and doesn't spike visibly.)
+    gv._gc_ran = False
     # Periodic sound-player cleanup (every 5 s).  Always paired with
     # a cheap gen-0 collection to reclaim the short-lived cycles the
     # cleanup itself creates (list churn, exception objects from the
@@ -127,13 +142,13 @@ def update_preamble(gv: GameView, dt: float) -> None:
         _sound_cleanup_timer = 0.0
         _cleanup_finished_sounds()
         gc.collect(0)
-    # Full cross-generational GC (gen-2) moved to a 30-s cadence — it
-    # still reclaims the arcade.Sprite cycles from inventory render
-    # caches, just 6× less often so the periodic 60–100 ms spike
-    # shows up in the fps-drop log 6× less often.  Skipped entirely
-    # while the ESC menu is open (already handled above).
+    # Full cross-generational GC (gen-2) on a 120-s cadence — it
+    # reclaims arcade.Sprite cycles from inventory render caches.
+    # Flight-recorder RSS is stable at ~270 MB within 30 s of spawn,
+    # so each run frees only ~3 MB but costs 60–100 ms; 120 s gives
+    # the same reclaim amortised at 1/4 the spike frequency.
     _full_gc_timer += dt
-    if _full_gc_timer >= _FULL_GC_INTERVAL and not gv._escape_menu.open:
+    if _full_gc_timer >= _FULL_GC_INTERVAL:
         _full_gc_timer = 0.0
         gc.collect()
     # FPS
