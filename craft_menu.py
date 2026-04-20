@@ -4,6 +4,7 @@ from __future__ import annotations
 from typing import Optional
 
 import arcade
+import pyglet
 
 from menu_overlay import MenuOverlay
 from menu_scroll import ScrollState, SCROLL_W as _SCROLL_W_SHARED
@@ -50,8 +51,13 @@ class CraftMenu(MenuOverlay):
         self._scroll = ScrollState(line_h=_RECIPE_H)
         self._selected: int = 0  # 0 = repair pack, 1+ = module recipes
 
-        # Pre-built recipe text objects (avoid .text churn per frame)
+        # Pre-built recipe text objects (avoid .text churn per frame).
+        # All recipe labels share ``_recipe_batch`` so a single
+        # ``batch.draw()`` replaces 13 individual ``Text.draw()`` calls
+        # per frame — the profile showed 44 Text.draw calls/frame with
+        # Advanced Crafter open, of which 13 were recipe rows.
         self._t_recipes: list[arcade.Text] = []
+        self._recipe_batch = pyglet.graphics.Batch()
         self._t_detail = arcade.Text("", 0, 0, arcade.color.LIME_GREEN, 9)
         self._last_pct: int = -1  # cached progress percentage
         self._t_btn.text = "CRAFT"
@@ -140,6 +146,9 @@ class CraftMenu(MenuOverlay):
         def _add_recipe_text(text: str) -> None:
             t = arcade.Text(text, 0, 0, arcade.color.WHITE, 9,
                             width=_TEXT_W, multiline=True)
+            # Route the underlying pyglet Label through the shared
+            # ``_recipe_batch`` so all rows can blit in one draw call.
+            t._label.batch = self._recipe_batch
             self._t_recipes.append(t)
             # Estimate lines: if content_width > available width, 2 lines
             h = _RECIPE_H2 if len(text) * 5.4 > _TEXT_W else _RECIPE_H
@@ -380,12 +389,26 @@ class CraftMenu(MenuOverlay):
             rh = self._recipe_heights[i] if i < len(self._recipe_heights) else _RECIPE_H
             ry = top_y - cum_y - rh
             cum_y += rh
-            # Skip rows entirely outside the viewport.
+            # Skip rows entirely outside the viewport.  Hide from the
+            # shared batch so ``_recipe_batch.draw()`` below doesn't
+            # render rows above/below the panel while the user scrolls.
             if ry + rh < view_bottom or ry > view_top:
+                if tr._label.visible:
+                    tr._label.visible = False
                 continue
             sel = (self._selected == i)
             affordable = station_iron >= costs[i] if i < len(costs) else False
-            tr.color = arcade.color.CYAN if sel else (arcade.color.WHITE if affordable else (150, 80, 80))
+            want = (arcade.color.CYAN if sel
+                    else arcade.color.WHITE if affordable
+                    else (150, 80, 80, 255))  # keep as 4-tuple so the
+                                              # tr.color != want guard
+                                              # below actually matches.
+            # Guard the color setter — pyglet's color assignment runs
+            # through ``text.color`` property and re-tints every glyph
+            # in the label.  With 13 rows × 60 FPS that was 780 color
+            # writes/sec even though the colors rarely change.
+            if tuple(tr.color) != tuple(want):
+                tr.color = want
             # Draw recipe icon
             icon_w = 0
             icon_size = min(rh - 6, _RECIPE_H - 6)
@@ -403,8 +426,25 @@ class CraftMenu(MenuOverlay):
                     arcade.draw_texture_rect(ricon,
                         arcade.LBWH(px + 14, ry + (rh - icon_size) // 2, icon_size, icon_size))
                     icon_w = _ICON_AREA
-            tr.x = px + 16 + icon_w; tr.y = ry + rh // 2
-            tr.draw()
+            # Guard .x/.y setters too — each pyglet.text.Label position
+            # setter rebuilds the vertex layout.  During static draws
+            # (no scroll) positions never change, so the guard makes
+            # the per-row cost ~0 outside of the actual GL blit.
+            _tx = px + 16 + icon_w
+            _ty = ry + rh // 2
+            if tr.x != _tx:
+                tr.x = _tx
+            if tr.y != _ty:
+                tr.y = _ty
+            # Mark this row visible — the shared batch.draw below
+            # renders it alongside the other in-viewport rows.
+            if not tr._label.visible:
+                tr._label.visible = True
+
+        # Single batch draw replaces up to 13 per-row ``tr.draw()``
+        # calls — the dominant remaining cost in the Advanced Crafter
+        # dialogue.
+        self._recipe_batch.draw()
 
         if self._needs_scrollbar():
             self._draw_scrollbar()
