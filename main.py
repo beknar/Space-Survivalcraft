@@ -1,13 +1,6 @@
 """Space Survivalcraft -- main entry point."""
 from __future__ import annotations
 
-# Telemetry must initialise BEFORE arcade / pyglet load any C
-# extensions so faulthandler is armed when the OpenGL context / ffmpeg
-# / audio backends come up (those are where most silent crashes
-# originate).  See telemetry.py for the full story.
-from telemetry import init_crash_telemetry, mark_clean_shutdown
-init_crash_telemetry()
-
 import arcade
 import pyglet.clock
 
@@ -42,12 +35,7 @@ def main() -> None:
     if audio.fullscreen:
         window.set_fullscreen(True)
     window.show_view(SplashView())
-    try:
-        arcade.run()
-    finally:
-        # Normal quit path — mark the atexit flight-recorder entry as
-        # clean so it's distinguishable from a crash on the next boot.
-        mark_clean_shutdown()
+    arcade.run()
 
 
 if __name__ == "__main__":

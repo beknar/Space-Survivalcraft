@@ -548,12 +548,6 @@ class GameView(arcade.View):
     def _transition_zone(self, target_zone_id, entry_side: str = "bottom") -> None:
         """Tear down current zone, set up target zone, reposition player."""
         from zones import ZoneID, create_zone
-        from telemetry import note as _tnote
-        _tnote("ZONE_TRANSITION",
-               src=getattr(getattr(self, "_zone", None),
-                           "zone_id", None).__repr__(),
-               dst=target_zone_id.__repr__(),
-               entry=entry_side)
         # Store player position for return
         if hasattr(self._zone, '_stash'):
             self._zone._stash["_player_pos"] = (
@@ -841,19 +835,9 @@ class GameView(arcade.View):
             _dl.draw_world(self, cx, cy, hw, hh)
         with self.ui_cam.activate():
             _dl.draw_ui(self)
-        # PERF_TELEMETRY — temporary: log any frame ≥25 ms (<40 FPS)
-        # to crash_logs/fps_drops.log with full scene context so we
-        # can pinpoint where live drops happen.  Delete this import +
-        # call and the perf_telemetry.py module to remove.
-        from perf_telemetry import record_frame as _pt_record
-        _pt_record(self)
 
     # ── Update ───────────────────────────────────────────────────────────────
     def on_update(self, delta_time: float) -> None:
-        # Flight-recorder tick — always first so even a crash during
-        # update_preamble leaves one last state snapshot on disk.
-        from telemetry import record_frame
-        record_frame(self)
         _ul.update_preamble(self, delta_time)
         if self._player_dead:
             _ul.update_death_state(self, delta_time)

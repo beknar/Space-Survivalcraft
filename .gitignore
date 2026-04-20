@@ -15,4 +15,3 @@ config.json
 *.dll
 yvideos/
 .claude/
-crash_logs/
