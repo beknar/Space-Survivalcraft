@@ -496,7 +496,22 @@ def draw_ui(gv: GameView) -> None:
     """Draw all UI-space elements (called inside ui_cam.activate)."""
     from sprites.building import compute_modules_used, compute_module_capacity
 
-    menu_open = gv._escape_menu.open
+    # Treat every modal overlay as "menu open" so the expensive video
+    # blit + pixel-readback is skipped while the user is in a panel.
+    # fps_drops.log showed ~1250 drops with CRAFT open (worst 81 ms)
+    # — the HUD videos were still decoding behind the panel the user
+    # can't even see through.
+    menu_open = (
+        gv._escape_menu.open
+        or gv._craft_menu.open
+        or gv._trade_menu.open
+        or gv._build_menu.open
+        or gv._station_inv.open
+        or gv._qwi_menu.open
+        or gv._station_info.open
+        or gv._ship_stats.open
+        or gv._dialogue.open
+    )
     gv._hud.draw(
         weapon_name=gv._active_weapon.name,
         hp=gv.player.hp,

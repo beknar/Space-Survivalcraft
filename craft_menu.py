@@ -63,6 +63,38 @@ class CraftMenu(MenuOverlay):
         self.repair_pack_icon: Optional[arcade.Texture] = None
         self.shield_recharge_icon: Optional[arcade.Texture] = None
 
+        # Pooled fill-rect SpriteList — mirrors trade_menu's pattern.
+        # Each frame the craft menu otherwise issues 1 (panel) + N
+        # (recipe rows) + 1 (craft button) + 2 (progress bar)
+        # ``draw_rect_filled`` calls.  Batching into one
+        # SpriteList.draw() removes ~15 GL ops/frame while the Advanced
+        # Crafter dialogue is open — which fps_drops.log showed as
+        # the single hottest overlay (1244 drops @ 36 ms avg).
+        self._rect_sprites: arcade.SpriteList = arcade.SpriteList()
+        self._rect_slot: int = 0
+
+    def _rect_reset(self) -> None:
+        self._rect_slot = 0
+
+    def _rect_add(self, x: float, y: float, w: float, h: float,
+                  color: tuple) -> None:
+        if self._rect_slot >= len(self._rect_sprites):
+            self._rect_sprites.append(arcade.SpriteSolidColor(
+                int(max(1, w)), int(max(1, h)), 0, 0, color))
+        s = self._rect_sprites[self._rect_slot]
+        s.width = max(1.0, w)
+        s.height = max(1.0, h)
+        s.center_x = x + w / 2
+        s.center_y = y + h / 2
+        s.color = color
+        s.visible = True
+        self._rect_slot += 1
+
+    def _rect_flush(self) -> None:
+        for i in range(self._rect_slot, len(self._rect_sprites)):
+            self._rect_sprites[i].visible = False
+        self._rect_sprites.draw()
+
     def refresh_recipes(self, station_inv, is_advanced: bool = False) -> None:
         """Scan station inventory for blueprints and build recipe list.
 
@@ -284,8 +316,14 @@ class CraftMenu(MenuOverlay):
         px, py = self._panel_origin()
         ph = self._panel_height()
 
-        arcade.draw_rect_filled(
-            arcade.LBWH(px, py, _PANEL_W, ph), (15, 20, 45, 240))
+        # Collect every fill for this frame into the pool, flush once
+        # before outlines/icons/text go on top.
+        self._rect_reset()
+        self._rect_add(px, py, _PANEL_W, ph, (15, 20, 45, 240))
+        self._draw_recipe_list_fills(px, py, ph, station_iron)
+        self._draw_craft_button_fills(px, py, station_iron)
+        self._rect_flush()
+
         arcade.draw_rect_outline(
             arcade.LBWH(px, py, _PANEL_W, ph),
             arcade.color.STEEL_BLUE, border_width=2)
@@ -299,6 +337,25 @@ class CraftMenu(MenuOverlay):
 
         self._t_close.x = px + _PANEL_W // 2; self._t_close.y = py + 10
         self._t_close.draw()
+
+    def _draw_recipe_list_fills(self, px: int, py: int, ph: int,
+                                 station_iron: int) -> None:
+        """Enqueue only the recipe row background fills into the pool."""
+        view_top = py + ph - _HEADER
+        view_bottom = view_top - self._list_viewport_h()
+        top_y = view_top + int(self._scroll_px)
+        right_inset = (_SCROLL_W + 4) if self._needs_scrollbar() else 0
+        cum_y = 0
+        for i in range(len(self._t_recipes)):
+            rh = self._recipe_heights[i] if i < len(self._recipe_heights) else _RECIPE_H
+            ry = top_y - cum_y - rh
+            cum_y += rh
+            if ry + rh < view_bottom or ry > view_top:
+                continue
+            sel = (self._selected == i)
+            fill = (50, 70, 100, 220) if sel else (25, 30, 50, 180)
+            self._rect_add(
+                px + 10, ry, _PANEL_W - 20 - right_inset, rh - 2, fill)
 
     def _draw_recipe_list(self, px: int, py: int, ph: int, station_iron: int) -> None:
         """Draw the scrollable recipe list and selected recipe detail."""
@@ -319,10 +376,6 @@ class CraftMenu(MenuOverlay):
             if ry + rh < view_bottom or ry > view_top:
                 continue
             sel = (self._selected == i)
-            fill = (50, 70, 100, 220) if sel else (25, 30, 50, 180)
-            arcade.draw_rect_filled(
-                arcade.LBWH(px + 10, ry, _PANEL_W - 20 - right_inset, rh - 2),
-                fill)
             affordable = station_iron >= costs[i] if i < len(costs) else False
             tr.color = arcade.color.CYAN if sel else (arcade.color.WHITE if affordable else (150, 80, 80))
             # Draw recipe icon
@@ -377,19 +430,34 @@ class CraftMenu(MenuOverlay):
         self._t_detail.x = px + 16 + icon_w; self._t_detail.y = detail_y
         self._t_detail.draw()
 
+    def _draw_craft_button_fills(self, px: int, py: int,
+                                  station_iron: int) -> None:
+        """Enqueue the craft button + progress bar fills into the pool."""
+        bx, by, bw, bh = self._craft_btn_rect()
+        btn_fill = self._craft_button_fill(station_iron)
+        self._rect_add(bx, by, bw, bh, btn_fill)
+        if self._crafting:
+            bar_w = _PANEL_W - 32
+            bar_x = px + 16
+            bar_y = by - 22
+            self._rect_add(bar_x, bar_y, bar_w, 12, (30, 30, 50))
+            prog_w = int(bar_w * self._progress)
+            if prog_w > 0:
+                self._rect_add(bar_x, bar_y, prog_w, 12, (50, 180, 50))
+
+    def _craft_button_fill(self, station_iron: int) -> tuple:
+        if self._crafting:
+            return (40, 40, 60, 220)
+        if self._selected <= 1 and station_iron >= CRAFT_IRON_COST:
+            return (30, 80, 30, 220)
+        if self._selected >= 2 and self._selected - 2 < len(self._recipes):
+            cost = self._recipes[self._selected - 2]["cost"]
+            return (30, 80, 30, 220) if station_iron >= cost else (60, 30, 30, 220)
+        return (60, 30, 30, 220)
+
     def _draw_craft_button(self, px: int, py: int, station_iron: int) -> None:
         """Draw the craft/cancel button and progress bar."""
         bx, by, bw, bh = self._craft_btn_rect()
-        if self._crafting:
-            btn_fill = (40, 40, 60, 220)
-        elif self._selected <= 1 and station_iron >= CRAFT_IRON_COST:
-            btn_fill = (30, 80, 30, 220)
-        elif self._selected >= 2 and self._selected - 2 < len(self._recipes):
-            cost = self._recipes[self._selected - 2]["cost"]
-            btn_fill = (30, 80, 30, 220) if station_iron >= cost else (60, 30, 30, 220)
-        else:
-            btn_fill = (60, 30, 30, 220)
-        arcade.draw_rect_filled(arcade.LBWH(bx, by, bw, bh), btn_fill)
         arcade.draw_rect_outline(arcade.LBWH(bx, by, bw, bh),
                                  arcade.color.STEEL_BLUE, border_width=1)
         _btn_label = "CANCEL" if self._crafting else "CRAFT"
@@ -398,7 +466,9 @@ class CraftMenu(MenuOverlay):
         self._t_btn.x = bx + bw // 2; self._t_btn.y = by + bh // 2
         self._t_btn.draw()
 
-        # Progress bar + crafting label (below craft button)
+        # Progress bar + crafting label (below craft button) — the
+        # two fills are pooled via ``_draw_craft_button_fills``;
+        # only the outline + text remain here.
         if self._crafting:
             if self._craft_target and self._craft_target in MODULE_TYPES:
                 crafting_name = MODULE_TYPES[self._craft_target]["label"]
@@ -407,9 +477,6 @@ class CraftMenu(MenuOverlay):
             else:
                 crafting_name = "Repair Pack"
             bar_w = _PANEL_W - 32; bar_x = px + 16; bar_y = by - 22
-            arcade.draw_rect_filled(arcade.LBWH(bar_x, bar_y, bar_w, 12), (30, 30, 50))
-            arcade.draw_rect_filled(
-                arcade.LBWH(bar_x, bar_y, int(bar_w * self._progress), 12), (50, 180, 50))
             arcade.draw_rect_outline(
                 arcade.LBWH(bar_x, bar_y, bar_w, 12), arcade.color.STEEL_BLUE, border_width=1)
             pct = int(self._progress * 100)
