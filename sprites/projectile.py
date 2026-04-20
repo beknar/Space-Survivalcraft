@@ -6,8 +6,6 @@ from typing import Optional
 
 import arcade
 
-from constants import WORLD_WIDTH, WORLD_HEIGHT
-
 
 class Projectile(arcade.Sprite):
     """A fired weapon projectile that travels in a straight line."""
@@ -41,12 +39,17 @@ class Projectile(arcade.Sprite):
         self.center_x += self._vx * dt
         self.center_y += self._vy * dt
         self._dist_travelled += self._speed * dt
-        # Despawn when range exhausted or projectile leaves the world
-        if (
-            self._dist_travelled >= self._max_dist
-            or self.center_x < 0 or self.center_x > WORLD_WIDTH
-            or self.center_y < 0 or self.center_y > WORLD_HEIGHT
-        ):
+        # Despawn when range exhausted.  Previously also checked the
+        # projectile had left the WORLD_WIDTH × WORLD_HEIGHT box, but
+        # those are Zone 1 dimensions (6400) — Zone 2 is 9600 × 9600,
+        # so shots fired from x > 6400 were killed on the first tick,
+        # which is why the basic laser + mining beam looked like they
+        # couldn't fire beyond the shield once the player crossed
+        # into the expanded Nebula area.  The range check below
+        # already caps every projectile (max 1200 px for basic
+        # laser) so the world-bounds gate was only a defensive
+        # backstop and is safe to drop.
+        if self._dist_travelled >= self._max_dist:
             self.remove_from_sprite_lists()
 
 
