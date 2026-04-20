@@ -58,6 +58,14 @@ class CraftMenu(MenuOverlay):
         self._t_btn.font_size = 12
         self._t_status = arcade.Text("", 0, 0, arcade.color.YELLOW, 10,
                                      bold=True, anchor_x="center")
+        # Dedicated Text for the "Crafting: <name>" banner during an
+        # active craft.  Previously we reused ``_t_detail`` for this
+        # which fought with the recipe-selected line: every frame
+        # rewrote ``_t_detail.text`` twice (recipe → banner → recipe
+        # …), so pyglet rebuilt the label layout 2×/frame.  Cached
+        # and guarded update removes that churn.
+        self._t_crafting = arcade.Text("", 0, 0, arcade.color.YELLOW, 9)
+        self._last_craft_name: str = ""
         # Item icons (set by game_view)
         self.item_icons: dict[str, arcade.Texture] = {}
         self.repair_pack_icon: Optional[arcade.Texture] = None
@@ -485,10 +493,18 @@ class CraftMenu(MenuOverlay):
                 self._t_status.text = f"{pct}%"
             self._t_status.x = px + _PANEL_W // 2; self._t_status.y = bar_y + 6
             self._t_status.draw()
-            self._t_detail.text = f"Crafting: {crafting_name}"
-            self._t_detail.color = arcade.color.YELLOW
-            self._t_detail.x = px + 16; self._t_detail.y = bar_y - 14
-            self._t_detail.draw()
+            # Use the dedicated ``_t_crafting`` Text so we don't fight
+            # with ``_t_detail`` (which describes the currently-
+            # selected recipe).  Text is only rebuilt when the active
+            # craft target changes, not every frame — profile showed
+            # the prior unguarded reassignment rebuilding the pyglet
+            # label ~180×/frame during a craft, the single hottest
+            # text cost.
+            if crafting_name != self._last_craft_name:
+                self._last_craft_name = crafting_name
+                self._t_crafting.text = f"Crafting: {crafting_name}"
+            self._t_crafting.x = px + 16; self._t_crafting.y = bar_y - 14
+            self._t_crafting.draw()
 
 
     def _draw_scrollbar(self) -> None:
