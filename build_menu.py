@@ -4,6 +4,7 @@ from __future__ import annotations
 from typing import Optional
 
 import arcade
+import pyglet
 
 from menu_overlay import MenuOverlay
 from menu_scroll import ScrollState, SCROLL_W as _SCROLL_W_SHARED
@@ -102,14 +103,74 @@ class BuildMenu(MenuOverlay):
             (160, 160, 160), 9,
             anchor_x="center", anchor_y="center",
         )
-        # Reusable text objects for item rows
-        self._t_name = arcade.Text("", 0, 0, arcade.color.WHITE, 10, bold=True)
-        self._t_cost = arcade.Text("", 0, 0, arcade.color.ORANGE, 9)
-        self._t_reason = arcade.Text("", 0, 0, (200, 80, 80), 8)
+        # Top-of-panel capacity readout — used to reuse ``_t_name``
+        # which created a per-frame label rebuild fight with the
+        # per-row name labels (see profile).  Now a dedicated Text,
+        # guarded below so it only rebuilds when the counts change.
+        self._t_capacity = arcade.Text(
+            "", 0, 0, arcade.color.LIGHT_GRAY, 10, anchor_x="center",
+        )
+        self._last_cap_text: str = ""
+
+        # Per-item Text pools.  The Advanced Crafter refactor
+        # (commit d79cdaa) showed that rewriting one shared Text's
+        # ``.text`` / ``.color`` per row per frame is the dominant
+        # cost of a scrollable menu.  Build menu has ~16 rows × 3
+        # Text mutations/row = ~48 pyglet layout rebuilds per frame
+        # during scroll.  Pre-built per-row Texts sharing a pyglet
+        # Batch collapses that to near-zero.
+        self._text_batch = pyglet.graphics.Batch()
+        self._t_names: list[arcade.Text] = []
+        self._t_costs: list[arcade.Text] = []
+        self._t_reasons: list[arcade.Text] = []
+        for name in _MENU_ORDER:
+            tn = arcade.Text(name, 0, 0, arcade.color.WHITE, 10, bold=True)
+            tn._label.batch = self._text_batch
+            self._t_names.append(tn)
+            tc = arcade.Text("", 0, 0, arcade.color.ORANGE, 9)
+            tc._label.batch = self._text_batch
+            self._t_costs.append(tc)
+            tr = arcade.Text("", 0, 0, (200, 80, 80), 8, anchor_x="right")
+            tr._label.batch = self._text_batch
+            self._t_reasons.append(tr)
+        # Cached per-row state so we only touch pyglet when something
+        # changed (cost labels + reasons are stable unless the world
+        # state shifts).
+        self._last_cost_text: list[str] = [""] * len(_MENU_ORDER)
+        self._last_reason_text: list[str] = [""] * len(_MENU_ORDER)
+
+        # Pooled fill rects for row backgrounds (same pattern as
+        # craft_menu + HUD) — one SpriteList.draw replaces 16 per-
+        # frame draw_rect_filled calls during scroll.
+        self._rect_sprites: arcade.SpriteList = arcade.SpriteList()
+        self._rect_slot: int = 0
+
         self._t_destroy = arcade.Text(
             "DESTROY", 0, 0, (255, 80, 80), 12, bold=True,
             anchor_x="center", anchor_y="center",
         )
+
+    def _rect_reset(self) -> None:
+        self._rect_slot = 0
+
+    def _rect_add(self, x: float, y: float, w: float, h: float,
+                  color: tuple) -> None:
+        if self._rect_slot >= len(self._rect_sprites):
+            self._rect_sprites.append(arcade.SpriteSolidColor(
+                int(max(1, w)), int(max(1, h)), 0, 0, color))
+        s = self._rect_sprites[self._rect_slot]
+        s.width = max(1.0, w)
+        s.height = max(1.0, h)
+        s.center_x = x + w / 2
+        s.center_y = y + h / 2
+        s.color = color
+        s.visible = True
+        self._rect_slot += 1
+
+    def _rect_flush(self) -> None:
+        for i in range(self._rect_slot, len(self._rect_sprites)):
+            self._rect_sprites[i].visible = False
+        self._rect_sprites.draw()
 
     def set_textures(self, textures: dict[str, arcade.Texture]) -> None:
         """Provide icon textures for each building type (called once at init)."""
@@ -433,17 +494,15 @@ class BuildMenu(MenuOverlay):
         self._t_title.draw()
         self._t_hint.draw()
 
-        # Capacity indicator
+        # Capacity indicator — dedicated Text, text rebuilt only on
+        # count change.
         cap_text = f"Modules: {modules_used}/{module_capacity}"
-        self._t_name.text = cap_text
-        self._t_name.x = self._panel_x + self._panel_w // 2
-        self._t_name.y = self._panel_y + self._panel_h - BUILD_MENU_PAD - 28
-        self._t_name.color = arcade.color.LIGHT_GRAY
-        self._t_name.anchor_x = "center"
-        self._t_name.bold = False
-        self._t_name.draw()
-        self._t_name.anchor_x = "left"
-        self._t_name.bold = True
+        if cap_text != self._last_cap_text:
+            self._last_cap_text = cap_text
+            self._t_capacity.text = cap_text
+        self._t_capacity.x = self._panel_x + self._panel_w // 2
+        self._t_capacity.y = self._panel_y + self._panel_h - BUILD_MENU_PAD - 28
+        self._t_capacity.draw()
 
         self._draw_menu_items(iron, building_counts, modules_used,
                               module_capacity, has_home, copper,
@@ -462,19 +521,39 @@ class BuildMenu(MenuOverlay):
         copper: int = 0,
         unlocked_blueprints: set | None = None,
     ) -> None:
-        """Draw the list of buildable module rows."""
+        """Draw the list of buildable module rows.
+
+        Phase 1 collects every fill rect into the shared SpriteList
+        pool; Phase 2 updates per-row Text state (guarded) and marks
+        off-viewport labels invisible; ``batch.draw()`` renders every
+        label in one GL call.  Outlines + icons stay immediate-mode —
+        border_width=1 isn't sprite-batchable without 4 edge sprites
+        per row, and textures are already batched by arcade's atlas.
+        """
+        # Pre-compute availability once per row so Phase 1 + Phase 2
+        # share the same visibility/color decisions without re-running
+        # the ``_check_availability`` cost (~1 ms/frame cumulatively
+        # over 16 rows).
+        statuses: list[tuple] = []
         for i, name in enumerate(_MENU_ORDER):
             ix, iy, iw, ih = self._item_rect(i)
-            if not self._row_visible(iy, ih):
-                continue
-            avail, reason = self._check_availability(
-                name, iron, building_counts,
-                modules_used, module_capacity, has_home,
-                copper, unlocked_blueprints, self._ship_level,
-                self._max_ship_exists, self._l1_ship_exists,
-            )
+            visible = self._row_visible(iy, ih)
+            avail: bool = False
+            reason: str = ""
+            if visible:
+                avail, reason = self._check_availability(
+                    name, iron, building_counts,
+                    modules_used, module_capacity, has_home,
+                    copper, unlocked_blueprints, self._ship_level,
+                    self._max_ship_exists, self._l1_ship_exists,
+                )
+            statuses.append((ix, iy, iw, ih, visible, avail, reason))
 
-            # Row background
+        # Phase 1 — pool fills.
+        self._rect_reset()
+        for i, (ix, iy, iw, ih, visible, avail, _reason) in enumerate(statuses):
+            if not visible:
+                continue
             is_hover = (i == self._hover_idx)
             if is_hover and avail:
                 fill = (50, 70, 100, 220)
@@ -482,13 +561,28 @@ class BuildMenu(MenuOverlay):
                 fill = (30, 50, 30, 200)
             else:
                 fill = (40, 30, 30, 200)
+            self._rect_add(ix, iy, iw, ih, fill)
+        self._rect_flush()
 
-            arcade.draw_rect_filled(arcade.LBWH(ix, iy, iw, ih), fill)
+        # Phase 2 — outlines, icons, and per-row Text state.  Each
+        # Text mutation is guarded so pyglet only rebuilds a label
+        # when its content / color / position actually changed.
+        for i, (ix, iy, iw, ih, visible, avail, reason) in enumerate(statuses):
+            tn = self._t_names[i]
+            tc = self._t_costs[i]
+            tr = self._t_reasons[i]
+            if not visible:
+                if tn._label.visible:
+                    tn._label.visible = False
+                if tc._label.visible:
+                    tc._label.visible = False
+                if tr._label.visible:
+                    tr._label.visible = False
+                continue
             arcade.draw_rect_outline(
                 arcade.LBWH(ix, iy, iw, ih), (60, 80, 120), border_width=1,
             )
-
-            # Icon thumbnail
+            name = _MENU_ORDER[i]
             tex = self._textures.get(name)
             if tex is not None:
                 icon_size = ih - 8
@@ -498,35 +592,60 @@ class BuildMenu(MenuOverlay):
                     arcade.LBWH(ix + 4, iy + 4, icon_size, icon_size),
                     alpha=alpha,
                 )
-
-            # Name
             name_x = ix + ih + 4
-            name_colour = arcade.color.WHITE if avail else (120, 120, 120)
-            self._t_name.text = name
-            self._t_name.x = name_x
-            self._t_name.y = iy + ih - 16
-            self._t_name.color = name_colour
-            self._t_name.draw()
-
-            # Cost
+            # Name label (content is static per row — ``.text`` was
+            # preset in __init__; only position + color change).
+            name_colour = (arcade.color.WHITE if avail
+                           else arcade.color.Color(120, 120, 120, 255))
+            if tn.x != name_x:
+                tn.x = name_x
+            ny = iy + ih - 16
+            if tn.y != ny:
+                tn.y = ny
+            if tuple(tn.color) != tuple(name_colour):
+                tn.color = name_colour
+            if not tn._label.visible:
+                tn._label.visible = True
+            # Cost label.
             stats = BUILDING_TYPES[name]
             cost_label = f"{stats['cost']} iron"
             if stats.get("cost_copper", 0) > 0:
                 cost_label += f" + {stats['cost_copper']} copper"
-            self._t_cost.text = cost_label
-            self._t_cost.x = name_x
-            self._t_cost.y = iy + 6
-            self._t_cost.color = arcade.color.ORANGE if avail else (100, 70, 30)
-            self._t_cost.draw()
-
-            # Reason (unavailable)
+            if cost_label != self._last_cost_text[i]:
+                self._last_cost_text[i] = cost_label
+                tc.text = cost_label
+            if tc.x != name_x:
+                tc.x = name_x
+            cy = iy + 6
+            if tc.y != cy:
+                tc.y = cy
+            cost_colour = (arcade.color.ORANGE if avail
+                           else arcade.color.Color(100, 70, 30, 255))
+            if tuple(tc.color) != tuple(cost_colour):
+                tc.color = cost_colour
+            if not tc._label.visible:
+                tc._label.visible = True
+            # Reason label — only set when unavailable + non-empty.
             if not avail and reason:
-                self._t_reason.text = reason
-                self._t_reason.x = ix + iw - 8
-                self._t_reason.y = iy + ih // 2 - 4
-                self._t_reason.anchor_x = "right"
-                self._t_reason.draw()
-                self._t_reason.anchor_x = "left"
+                if reason != self._last_reason_text[i]:
+                    self._last_reason_text[i] = reason
+                    tr.text = reason
+                rx = ix + iw - 8
+                ry_ = iy + ih // 2 - 4
+                if tr.x != rx:
+                    tr.x = rx
+                if tr.y != ry_:
+                    tr.y = ry_
+                if not tr._label.visible:
+                    tr._label.visible = True
+            else:
+                if tr._label.visible:
+                    tr._label.visible = False
+
+        # One batch draw for every per-row label — replaces ~48
+        # pyglet ``Label.draw`` calls and 48 ``set_state`` invocations
+        # per frame while scrolling.
+        self._text_batch.draw()
 
     def _draw_destroy_button(self, has_home: bool) -> None:
         """Draw the destroy-mode button at the bottom of the menu."""
