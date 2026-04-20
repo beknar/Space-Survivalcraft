@@ -4,7 +4,8 @@
 
 | Property | Value |
 |---|---|
-| World size | 6,400 x 6,400 px |
+| Zone 1 world size | 6,400 x 6,400 px |
+| Nebula (Zone 2) world size | 9,600 x 9,600 px (+50 % per axis vs Zone 1 — 2.25× total area) |
 | Default window resolution | 1,280 x 800 px |
 | Resolution presets | 1280x800, 1366x768, 1600x900, 1920x1080, 2560x1440, 3840x2160 |
 | Status panel width | 213 px (left side) |
@@ -58,21 +59,21 @@ All ships start at world centre. Ships rendered at 0.75x scale (96 px in-game). 
 
 ## Ship Modules
 
-| Module | Effect | Craft Cost |
-|---|---|---|
-| Armor Plate | +20 max HP | 50 iron |
-| Engine Booster | +50 max speed | 75 iron |
-| Shield Booster | +20 max shields | 100 iron |
-| Shield Enhancer | +3 shield regen/s | 125 iron |
-| Damage Absorber | -3 damage to shields | 150 iron |
-| Broadside Module | Auto-fires perpendicular lasers | 200 iron |
-| Misty Step | Double-tap WASD to teleport 100 px | 150 iron + 50 copper |
-| Force Wall | Deploy 400 px barrier (G key); 20 s lifetime; blocks enemy projectiles + movement | 200 iron + 75 copper |
-| Death Blossom | Fire all missiles radially (X key) | 250 iron + 100 copper |
-| Missile Rack | +100 missile capacity | 100 iron + 50 copper |
-| Ability Capacitor | +25 max ability points | 175 iron + 75 copper |
-| Hull Reinforcement | +30 max HP | 200 iron + 50 copper |
-| AI Pilot | Install on a parked ship to make it autonomous; circular patrol at ~360 px around home; 600 px engage range; returns to base after firing when no other enemies are in range | 800 iron + 400 copper |
+| Icon | Module | Effect | Craft Cost |
+|:---:|---|---|---|
+| ![](images/modules/armor_plate.png)       | Armor Plate       | +20 max HP | 50 iron |
+| ![](images/modules/engine_booster.png)    | Engine Booster    | +50 max speed | 75 iron |
+| ![](images/modules/shield_booster.png)    | Shield Booster    | +20 max shields | 100 iron |
+| ![](images/modules/shield_enhancer.png)   | Shield Enhancer   | +3 shield regen/s | 125 iron |
+| ![](images/modules/damage_absorber.png)   | Damage Absorber   | -3 damage to shields | 150 iron |
+| ![](images/modules/broadside.png)         | Broadside Module  | Auto-fires perpendicular lasers | 200 iron |
+| ![](images/modules/misty_step.png)        | Misty Step        | Double-tap WASD to teleport 100 px | 400 iron + 200 copper |
+| ![](images/modules/force_wall.png)        | Force Wall        | Deploy 400 px barrier (G key); 20 s lifetime; blocks enemy projectiles + movement | 400 iron + 250 copper |
+| ![](images/modules/death_blossom.png)     | Death Blossom     | Fire all missiles radially (X key) | 600 iron + 400 copper |
+| ![](images/modules/rear_turret.png)       | Rear Turret       | Auto-fires a broadside-class shot backward every 0.5 s while holding fire | 200 iron |
+| ![](images/modules/homing_missile.png)    | Homing Missiles   | Consumable; craft produces 20 missiles per batch | 50 iron + 25 copper |
+| ![](images/modules/ai_pilot.png)          | AI Pilot          | Install on a parked ship to make it autonomous; 400 px patrol, 600 px engage, returns to base after firing when no other enemies are in range | 800 iron + 400 copper |
+| ![](images/modules/advanced_crafter.png)  | Adv. Crafter BP   | Blueprint only — unlocks building the Advanced Crafter | drop / trade |
 
 - 4 module slots on the ship
 - Only 1 of each type can be equipped
@@ -94,6 +95,8 @@ All ships start at world centre. Ships rendered at 0.75x scale (96 px in-game). 
 ---
 
 ## Small Alien Ships
+
+![Small Alien](images/enemies/small_alien.png)
 
 | Property | Value |
 |---|---|
@@ -127,6 +130,8 @@ All ships start at world centre. Ships rendered at 0.75x scale (96 px in-game). 
 ---
 
 ## Boss Encounter
+
+![Double Star Boss](images/enemies/double_star_boss.png)
 
 | Property | Value |
 |---|---|
@@ -180,12 +185,12 @@ All ships start at world centre. Ships rendered at 0.75x scale (96 px in-game). 
 
 ## Zone 2 Aliens
 
-| Type | HP | Shields | Speed | XP Reward | Special |
-|---|---|---|---|---|---|
-| Shielded Alien | 50 | 50 | 120 px/s | 50 | Extra shield durability; orbits at range |
-| Fast Alien | 50 | 0 | 160 px/s | 60 | High speed; flips orbit direction unpredictably |
-| Gunner Alien | 50 | 0 | 120 px/s | 70 | 2 guns, double firepower; orbits at range |
-| Rammer Alien | 100 | 50 | 120 px/s | 80 | Charges directly toward player (no guns) |
+|  | Type | HP | Shields | Speed | XP Reward | Special |
+|:---:|---|---|---|---|---|---|
+| ![Shielded](images/enemies/shielded.png) | Shielded Alien | 50 | 50 | 120 px/s | 50 | Extra shield durability; orbits at range |
+| ![Fast](images/enemies/fast.png)         | Fast Alien     | 50 |  0 | 160 px/s | 60 | High speed; flips orbit direction unpredictably |
+| ![Gunner](images/enemies/gunner.png)     | Gunner Alien   | 50 |  0 | 120 px/s | 70 | 2 guns, double firepower; orbits at range |
+| ![Rammer](images/enemies/rammer.png)     | Rammer Alien   | 100 | 50 | 120 px/s | 80 | Charges directly toward player (no guns) |
 
 ---
 
@@ -268,17 +273,17 @@ All ships start at world centre. Ships rendered at 0.75x scale (96 px in-game). 
 
 ## Station Buildings
 
-| Type | HP | Iron Cost | Max Count | Capacity Slots | Notes |
-|---|---|---|---|---|---|
-| Home Station | 100 | 100 | 1 | --- | Root module; must be built first |
-| Service Module | 50 | 25 | 4 | 1 | General connector |
-| Power Receiver | 75 | 50 | unlimited | 1 | Links to solar arrays |
-| Solar Array 1 | 50 | 75 | 2 | 1 (+6 capacity) | |
-| Solar Array 2 | 50 | 100 | 2 | 1 (+10 capacity) | |
-| Turret 1 | 100 | 50 | unlimited | 1 | Single-barrel auto-fire |
-| Turret 2 | 100 | 75 | unlimited | 2 | Dual-barrel auto-fire |
-| Repair Module | 75 | 75 | 1 | 1 | Passive HP repair |
-| Basic Crafter | 75 | 150 | 1 | 1 | Crafts repair packs |
+|  | Type | HP | Iron Cost | Max Count | Capacity Slots | Notes |
+|:---:|---|---|---|---|---|---|
+| ![](images/buildings/home_station.png)    | Home Station     | 100 | 100 | 1         | ---              | Root module; must be built first |
+| ![](images/buildings/service_module.png)  | Service Module   |  50 |  25 | 4         | 1                | General connector |
+| ![](images/buildings/power_receiver.png)  | Power Receiver   |  75 |  50 | unlimited | 1                | Links to solar arrays |
+| ![](images/buildings/solar_array_1.png)   | Solar Array 1    |  50 |  75 | 2         | 1 (+6 capacity)  | |
+| ![](images/buildings/solar_array_2.png)   | Solar Array 2    |  50 | 100 | 2         | 1 (+10 capacity) | |
+| ![](images/buildings/turret_1.png)        | Turret 1         | 100 |  50 | unlimited | 1                | Single-barrel auto-fire |
+| ![](images/buildings/turret_2.png)        | Turret 2         | 100 |  75 | unlimited | 2                | Dual-barrel auto-fire |
+| ![](images/buildings/repair_module.png)   | Repair Module    |  75 |  75 | 1         | 1                | Passive HP repair |
+| ![](images/buildings/basic_crafter.png)   | Basic Crafter    |  75 | 150 | 1         | 1                | Crafts repair packs |
 
 ### Turret Stats
 
@@ -308,17 +313,25 @@ All ships start at world centre. Ships rendered at 0.75x scale (96 px in-game). 
 
 ## New Buildings (Zone 2)
 
-| Type | HP | Iron Cost | Copper Cost | Max Count | Notes |
-|---|---|---|---|---|---|
-| Advanced Crafter | 100 | 200 | 50 | 1 | Crafts advanced modules and missiles |
-| Fission Generator | 150 | 300 | 100 | 1 | Powers Zone 2 buildings |
-| Advanced Ship | 125 | 250 | 75 | 1 | Unlocks advanced module slots |
-| Shield Generator | 100 | 200 | 50 | 1 | Area shield for station buildings |
-| Missile Array | 100 | 150 | 50 | 2 | Auto-fires homing missiles at enemies |
+|  | Type | HP | Iron Cost | Copper Cost | Max Count | Notes |
+|:---:|---|---|---|---|---|---|
+| ![](images/buildings/advanced_crafter.png)          | Advanced Crafter         | 150 | 1000 | 500  | unlimited | Crafts advanced modules and missiles (blueprint-gated) |
+| ![](images/buildings/fission_generator.png)         | Fission Generator        | 200 | 1000 | 500  | 2         | +12 module capacity; Zone-2 power source |
+| ![](images/buildings/shield_generator.png)          | Shield Generator         | 150 |  800 | 400  | 1         | Spawns the station energy-shield bubble |
+| ![](images/buildings/missile_array.png)             | Missile Array            | 150 |  600 | 300  | unlimited | Auto-fires homing missiles at aliens within 600 px |
+| ![](images/buildings/basic_ship.png)                | Basic Ship (placement)   | 100 |  500 | 250  | unlimited | Places a level-1 `ParkedShip`; only while no other L1 exists |
+| ![](images/buildings/advanced_ship.png)             | Advanced Ship (upgrade)  | 100 | 1000 | 500  | unlimited | Upgrade placement — new level-2 ship at cursor; old ship persists as parked |
+| ![](images/buildings/quantum_wave_integrator.png)   | Quantum Wave Integrator  | 200 | 1000 | 2000 | 1         | Auto-spawns the Double Star boss on build; clicking opens the Nebula-boss summon menu (100 iron) |
 
 ---
 
 ## Trading Station
+
+![Trading Station](images/trade_station.png)
+
+Spawns the first time the player builds a **Repair Module**. Renders
+in-world at 0.15× scale; click within interaction range to open the
+trade panel.
 
 | Item | Sell Price | Buy Price |
 |---|---|---|

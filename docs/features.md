@@ -8,6 +8,30 @@
 - Character selection with 3 unique characters (Debra, Ellie, Tara), each with 10 levels of progression
 - Mouse and keyboard selection across all three phases
 
+### Factions (selection-screen previews)
+
+| Earth | Colonial | Heavy World | Ascended |
+|:---:|:---:|:---:|:---:|
+| ![Earth](images/factions/earth.png) | ![Colonial](images/factions/colonial.png) | ![Heavy World](images/factions/heavy_world.png) | ![Ascended](images/factions/ascended.png) |
+
+### Ship types (per faction)
+
+The faction pick locks in the colour palette; the ship-type pick
+chooses the stats. All five types are available under every faction.
+
+|  | Cruiser | Bastion | Aegis | Striker | Thunderbolt |
+|:---|:---:|:---:|:---:|:---:|:---:|
+| **Earth**       | ![](images/ships/earth/cruiser.png)       | ![](images/ships/earth/bastion.png)       | ![](images/ships/earth/aegis.png)       | ![](images/ships/earth/striker.png)       | ![](images/ships/earth/thunderbolt.png)       |
+| **Colonial**    | ![](images/ships/colonial/cruiser.png)    | ![](images/ships/colonial/bastion.png)    | ![](images/ships/colonial/aegis.png)    | ![](images/ships/colonial/striker.png)    | ![](images/ships/colonial/thunderbolt.png)    |
+| **Heavy World** | ![](images/ships/heavy_world/cruiser.png) | ![](images/ships/heavy_world/bastion.png) | ![](images/ships/heavy_world/aegis.png) | ![](images/ships/heavy_world/striker.png) | ![](images/ships/heavy_world/thunderbolt.png) |
+| **Ascended**    | ![](images/ships/ascended/cruiser.png)    | ![](images/ships/ascended/bastion.png)    | ![](images/ships/ascended/aegis.png)    | ![](images/ships/ascended/striker.png)    | ![](images/ships/ascended/thunderbolt.png)    |
+
+### Characters
+
+| Debra | Ellie | Tara |
+|:---:|:---:|:---:|
+| ![Debra](images/characters/debra.png) | ![Ellie](images/characters/ellie.png) | ![Tara](images/characters/tara.png) |
+
 ## Newtonian Flight Model
 
 - Realistic thrust-based movement with inertia and space drag
@@ -75,6 +99,7 @@
 - **Misty Step** --- double-tap WASD to teleport 100 px in that direction; costs 20 ability points
 - **Force Wall** --- press G to deploy a 400 px shimmering barrier behind the ship; costs 30 ability points. Blocks enemy lasers and boss projectiles on contact; aliens steer around the wall and cannot cross it (any movement that would cut through the wall is reverted)
 - **Death Blossom** --- press X to fire all homing missiles in a radial burst
+- **Rear Turret** --- while the module is installed, holding fire auto-fires a broadside-class shot backward (opposite of heading) once every 0.5 s. 25 damage, 600 px/s, 400 px range. Crafts at the Advanced Crafter (200 iron)
 
 ## Homing Missiles
 
