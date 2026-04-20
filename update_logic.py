@@ -60,6 +60,13 @@ import time as _time
 _SOUND_MAX_AGE = 3.0  # seconds — all game SFX finish within this
 _sound_players: list[tuple[float, object]] = []  # (creation_time, Player)
 _sound_cleanup_timer: float = 0.0
+# Full ``gc.collect()`` (gen-2) is measurably expensive in a populated
+# Zone 2 — the fps_drops log showed one 60–100 ms spike every 5 s that
+# lined up exactly with this timer.  Split so the 5-s cadence only
+# runs a cheap gen-0 sweep and the heavy full collection runs 6×
+# less often (every 30 s).
+_full_gc_timer: float = 0.0
+_FULL_GC_INTERVAL = 30.0
 
 _real_play_sound = arcade.play_sound
 
@@ -95,23 +102,31 @@ def _cleanup_finished_sounds() -> None:
 
 def update_preamble(gv: GameView, dt: float) -> None:
     """GC, FPS, video/music sync, sound cleanup, and escape menu tick."""
-    global _sound_cleanup_timer
-    # Full GC when ESC menu opens (existing behaviour)
+    global _sound_cleanup_timer, _full_gc_timer
+    # Full GC when ESC menu opens (existing behaviour — the ESC frame
+    # is already a natural pause, so the 60–100 ms hit is invisible).
     if gv._escape_menu.open and not gv._gc_ran:
         gc.collect()
         gv._gc_ran = True
     elif not gv._escape_menu.open:
         gv._gc_ran = False
-    # Periodic sound player cleanup + full GC (every 5 seconds).
-    # Sound cleanup: .delete()s finished pyglet Players that hold native
-    # audio resources (prevents FPS degradation over minutes of combat).
-    # Full GC: frees arcade.Sprite objects with cross-generational circular
-    # references from inventory render-cache rebuilds. Cost is ~0.5–1 ms
-    # which is acceptable within a 16.7 ms frame budget at 60 FPS.
+    # Periodic sound-player cleanup (every 5 s).  Always paired with
+    # a cheap gen-0 collection to reclaim the short-lived cycles the
+    # cleanup itself creates (list churn, exception objects from the
+    # occasional ``p.delete()`` throw).  gen-0 is ~0.1–0.2 ms.
     _sound_cleanup_timer += dt
     if _sound_cleanup_timer >= 5.0:
         _sound_cleanup_timer = 0.0
         _cleanup_finished_sounds()
+        gc.collect(0)
+    # Full cross-generational GC (gen-2) moved to a 30-s cadence — it
+    # still reclaims the arcade.Sprite cycles from inventory render
+    # caches, just 6× less often so the periodic 60–100 ms spike
+    # shows up in the fps-drop log 6× less often.  Skipped entirely
+    # while the ESC menu is open (already handled above).
+    _full_gc_timer += dt
+    if _full_gc_timer >= _FULL_GC_INTERVAL and not gv._escape_menu.open:
+        _full_gc_timer = 0.0
         gc.collect()
     # FPS
     gv._hud.update_fps(dt)
@@ -376,6 +391,7 @@ def update_weapons(gv: GameView, dt: float, fire: bool) -> None:
 
     fired_any = False
     if fire:
+        from sprites.explosion import HitSpark
         spawn_pts = gv.player.gun_spawn_points()
         gun_count = gv.player.guns
         base_idx = (gv._weapon_idx // gun_count) * gun_count
@@ -386,6 +402,11 @@ def update_weapons(gv: GameView, dt: float, fire: bool) -> None:
             if proj is not None:
                 gv.projectile_list.append(proj)
                 fired_any = True
+                # Muzzle flash — short ring-flash at the gun barrel so
+                # every shot reads visibly regardless of projectile
+                # speed.  Re-uses the existing HitSpark primitive
+                # (0.18 s lifetime, already drawn in draw_world).
+                gv.hit_sparks.append(HitSpark(pt[0], pt[1]))
     if fired_any:
         disable_null_field_around_player(gv)
 

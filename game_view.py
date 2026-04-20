@@ -841,6 +841,12 @@ class GameView(arcade.View):
             _dl.draw_world(self, cx, cy, hw, hh)
         with self.ui_cam.activate():
             _dl.draw_ui(self)
+        # PERF_TELEMETRY — temporary: log any frame ≥25 ms (<40 FPS)
+        # to crash_logs/fps_drops.log with full scene context so we
+        # can pinpoint where live drops happen.  Delete this import +
+        # call and the perf_telemetry.py module to remove.
+        from perf_telemetry import record_frame as _pt_record
+        _pt_record(self)
 
     # ── Update ───────────────────────────────────────────────────────────────
     def on_update(self, delta_time: float) -> None:

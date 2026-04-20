@@ -258,13 +258,18 @@ def draw_minimap(
                 arcade.draw_circle_outline(wmx, wmy, 5.5, (200, 140, 255), 1)
 
     # Null fields (white-dot clusters, pulse red when disabled).
-    # Each entry is (x, y, radius, active).  Drawn as a small outlined
-    # circle on the minimap — always visible so the player can plan
-    # stealth routes regardless of fog.
+    # Each entry is (x, y, radius, active).  Hidden behind fog so
+    # the player has to actually explore the area before the
+    # stealth-route marker appears.
     if null_field_positions:
         nf_active: list[tuple[float, float]] = []
         nf_disabled: list[tuple[float, float]] = []
         for nx, ny, nrad, nactive in null_field_positions:
+            if _has_fog:
+                gx = int(nx * _inv_cell)
+                gy = int(ny * _inv_cell)
+                if not (0 <= gx < _fw and 0 <= gy < _fh and _fg[gy][gx]):
+                    continue
             nmx = mx + nx * sx_w
             nmy = my + ny * sy_h
             (nf_active if nactive else nf_disabled).append((nmx, nmy))
@@ -283,13 +288,18 @@ def draw_minimap(
             arcade.draw_points(nf_disabled, (240, 60, 60, 180), 6)
             arcade.draw_points(nf_disabled, (240, 60, 60, 240), 3)
 
-    # Slipspace teleporters (cyan diamond markers).  Always visible
-    # regardless of fog so the player can plan jumps before exploring
-    # an area — same convention as null fields.  Note: in warp zones
-    # ``active_slipspaces`` returns [] so this is naturally empty.
+    # Slipspace teleporters (cyan diamond markers).  Hidden behind
+    # fog — same convention as every other marker type.  Note: in
+    # warp zones ``active_slipspaces`` returns [] so this is
+    # naturally empty.
     if slipspace_positions:
         ss_pts: list[tuple[float, float]] = []
         for spx, spy in slipspace_positions:
+            if _has_fog:
+                gx = int(spx * _inv_cell)
+                gy = int(spy * _inv_cell)
+                if not (0 <= gx < _fw and 0 <= gy < _fh and _fg[gy][gx]):
+                    continue
             ss_pts.append((mx + spx * sx_w, my + spy * sy_h))
         if ss_pts:
             # Bright cyan core + soft halo so they stand out from
