@@ -66,7 +66,15 @@ _sound_cleanup_timer: float = 0.0
 # runs a cheap gen-0 sweep and the heavy full collection runs 6×
 # less often (every 30 s).
 _full_gc_timer: float = 0.0
-_FULL_GC_INTERVAL = 30.0
+# Last fps_drops.log showed the 30-s scheduled full gc.collect was
+# freeing only ~3 MB per run (memory steady at ~268 MB from frame
+# 36s onwards) yet costing 100–230 ms spikes that visibly stutter
+# the game.  Extend to 120 s — same 3 MB / 30 s average reclaim,
+# just 4× fewer pauses.  The sound-cleanup gen-0 sweep every 5 s
+# still runs, and modal overlays (ESC, CRAFT, …) still trigger an
+# opportunistic full gc below since those frames are already
+# pause-natural.
+_FULL_GC_INTERVAL = 120.0
 
 _real_play_sound = arcade.play_sound
 

@@ -34,7 +34,12 @@ class IronAsteroid(arcade.Sprite):
 
     def update_asteroid(self, dt: float) -> None:
         self.angle = (self.angle + self._rot_speed * dt) % 360
-        # Shake: while hit timer is active, jitter position around base
+        # Shake: while hit timer is active, jitter position around base.
+        # For the far more common idle case we skip the ``center_x = …``
+        # self-assignment — writing ``center_x`` on an arcade.Sprite
+        # triggers spatial-hash bucket rebuilds every frame (profile
+        # showed 13500 spatial_hash.add calls / 180 frames = 75/frame,
+        # one per stationary iron asteroid).
         if self._hit_timer > 0.0:
             prev = self._hit_timer
             self._hit_timer = max(0.0, self._hit_timer - dt)
@@ -43,10 +48,11 @@ class IronAsteroid(arcade.Sprite):
             self.center_x = self._base_x + random.uniform(-amp, amp)
             self.center_y = self._base_y + random.uniform(-amp, amp)
             if self._hit_timer == 0.0 and prev > 0.0:
+                # Snap back to base exactly once so the spatial hash
+                # lands at the canonical position.
+                self.center_x = self._base_x
+                self.center_y = self._base_y
                 self.color = (255, 255, 255, 255)   # restore normal tint
-        else:
-            self.center_x = self._base_x
-            self.center_y = self._base_y
 
     def take_damage(self, amount: int) -> None:
         self.hp -= amount

@@ -46,7 +46,11 @@ def _open_log():
     os.makedirs("crash_logs", exist_ok=True)
     # Append so successive runs accumulate; truncation is easier by
     # deleting the file manually between sessions.
-    _log_fh = open(_LOG_PATH, "a", buffering=1, encoding="utf-8")
+    # 8 KB buffer (not line-buffered) so drop-cluster cascades don't
+    # hit the disk sync for every line — prior line-buffered mode was
+    # a positive feedback loop: slow frame → log write → slower → more
+    # writes.  The 10-s summary heartbeat below flushes explicitly.
+    _log_fh = open(_LOG_PATH, "a", buffering=8192, encoding="utf-8")
     _session_start = time.perf_counter()
     _log_fh.write(
         f"\n=== perf_telemetry session start "
@@ -188,4 +192,10 @@ def record_frame(gv) -> None:
             f"{_frame_no} frames "
             f"(worst {_worst_ft * 1000:.1f} ms at f{_worst_frame}) ---\n"
         )
+        # Explicit flush so a crash mid-run leaves up to 10 s of
+        # buffered drop lines on disk, not up to 8 KB.
+        try:
+            fh.flush()
+        except Exception:
+            pass
         _last_summary = now

@@ -21,6 +21,8 @@ class CopperAsteroid(arcade.Sprite):
 
     def update_asteroid(self, dt: float) -> None:
         self.angle = (self.angle + self._rot_speed * dt) % 360
+        # See sprites/asteroid.py for the spatial-hash-churn rationale
+        # — idle copper asteroids skip the center_x = _base_x self-write.
         if self._hit_timer > 0.0:
             prev = self._hit_timer
             self._hit_timer = max(0.0, self._hit_timer - dt)
@@ -29,10 +31,9 @@ class CopperAsteroid(arcade.Sprite):
             self.center_x = self._base_x + random.uniform(-amp, amp)
             self.center_y = self._base_y + random.uniform(-amp, amp)
             if self._hit_timer == 0.0 and prev > 0.0:
+                self.center_x = self._base_x
+                self.center_y = self._base_y
                 self.color = (255, 255, 255, 255)
-        else:
-            self.center_x = self._base_x
-            self.center_y = self._base_y
 
     def take_damage(self, amount: int) -> None:
         self.hp -= amount
