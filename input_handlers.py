@@ -53,6 +53,9 @@ def handle_key_press(gv: GameView, key: int, modifiers: int) -> None:
         if gv._ship_stats.open:
             gv._ship_stats.open = False
             return
+        if gv._map_overlay.open:
+            gv._map_overlay.open = False
+            return
         if gv._moving_building is not None:
             gv._moving_building.center_x = gv._move_origin_x
             gv._moving_building.center_y = gv._move_origin_y
@@ -115,6 +118,12 @@ def handle_key_press(gv: GameView, key: int, modifiers: int) -> None:
                 char_xp=gv._char_xp,
                 char_level=gv._char_level)
             gv._ship_stats.toggle()
+    elif key == arcade.key.M:
+        # Full-screen map — toggle on/off.  draw_logic.draw_ui treats
+        # it as a modal overlay so the character + music videos stop
+        # decoding behind it.
+        if not gv._escape_menu.open and not gv._player_dead:
+            gv._map_overlay.toggle()
     elif key in (arcade.key.KEY_1, arcade.key.KEY_2, arcade.key.KEY_3,
                  arcade.key.KEY_4, arcade.key.KEY_5, arcade.key.KEY_6,
                  arcade.key.KEY_7, arcade.key.KEY_8, arcade.key.KEY_9,

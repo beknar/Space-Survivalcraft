@@ -311,6 +311,19 @@ _MODULE_ITEMS_DIR = os.path.join(
     _HERE, "assets", "gamedevmarket assets",
     "alien spaceship creation kit", "png", "Separate", "Items",
 )
+# Kenney Space Shooter Redux power-up pack — used for the late-game
+# module / blueprint icons that previously clashed with earlier items.
+_POWERUPS_DIR = os.path.join(
+    _HERE, "assets", "kenney space combat assets",
+    "Space Shooter Redux", "PNG", "Power-ups",
+)
+# Kenney Space Shooter Extension rocket sheet — used as the build-menu
+# thumbnail for Basic Ship + Advanced Ship (the in-world ship sprite
+# still renders from the faction/ship player-ship texture).
+_ROCKETS_X2_DIR = os.path.join(
+    _HERE, "assets", "kenney space combat assets",
+    "Space Shooter Extension", "PNG", "Sprites X2", "Rockets",
+)
 
 MODULE_TYPES: dict[str, dict] = {
     "armor_plate":     {"label": "Armor Plate",      "effect": "max_hp",        "value": 20,
@@ -326,7 +339,7 @@ MODULE_TYPES: dict[str, dict] = {
     "broadside":       {"label": "Broadside Module",  "effect": "broadside",     "value": 1,
                         "craft_cost": 200, "icon": os.path.join(_MODULE_ITEMS_DIR, "Poison.png")},
     "rear_turret":     {"label": "Rear Turret",       "effect": "rear_turret",   "value": 1,
-                        "craft_cost": 200, "icon": os.path.join(_MODULE_ITEMS_DIR, "Poison.png"),
+                        "craft_cost": 200, "icon": os.path.join(_POWERUPS_DIR, "powerupGreen_bolt.png"),
                         "advanced": True},
     "homing_missile":  {"label": "Homing Missiles",   "effect": "homing",        "value": 1,
                         "craft_cost": 50, "craft_cost_copper": 25,
@@ -335,22 +348,22 @@ MODULE_TYPES: dict[str, dict] = {
                         "item_key": "missile"},
     "misty_step":      {"label": "Misty Step",        "effect": "misty_step",    "value": 1,
                         "craft_cost": 400, "craft_cost_copper": 200,
-                        "icon": os.path.join(_MODULE_ITEMS_DIR, "Energy.png"),
+                        "icon": os.path.join(_POWERUPS_DIR, "shield_silver.png"),
                         "advanced": True},
     "force_wall":      {"label": "Force Wall",        "effect": "force_wall",    "value": 1,
                         "craft_cost": 400, "craft_cost_copper": 250,
-                        "icon": os.path.join(_MODULE_ITEMS_DIR, "Shield.png"),
+                        "icon": os.path.join(_POWERUPS_DIR, "powerupBlue.png"),
                         "advanced": True},
     "death_blossom":   {"label": "Death Blossom",     "effect": "death_blossom", "value": 1,
                         "craft_cost": 600, "craft_cost_copper": 400,
-                        "icon": os.path.join(_MODULE_ITEMS_DIR, "Nuke.png"),
+                        "icon": os.path.join(_POWERUPS_DIR, "bolt_gold.png"),
                         "advanced": True},
     "ai_pilot":        {"label": "AI Pilot",          "effect": "ai_pilot",      "value": 1,
                         "craft_cost": 800, "craft_cost_copper": 400,
-                        "icon": os.path.join(_MODULE_ITEMS_DIR, "Energy.png"),
+                        "icon": os.path.join(_POWERUPS_DIR, "powerupRed_star.png"),
                         "advanced": True},
     "advanced_crafter": {"label": "Adv. Crafter BP",  "effect": "none",          "value": 0,
-                        "craft_cost": 0, "icon": os.path.join(_MODULE_ITEMS_DIR, "Blank.png"),
+                        "craft_cost": 0, "icon": os.path.join(_POWERUPS_DIR, "shield_gold.png"),
                         "blueprint_only": True},
 }
 
@@ -483,7 +496,10 @@ BUILDING_TYPES = {
                         "cost_copper": 500,
                         "max": 2,    "module_slots": 12, "connectable": True,
                         "free_place": False, "slots_used": 2},
-    "Advanced Ship":   {"png": "spaceBuilding_006.png", "hp": 100, "cost": 1000,
+    "Advanced Ship":   {"png": "spaceRockets_001.png",
+                        "png_path": os.path.join(_ROCKETS_X2_DIR,
+                                                 "spaceRockets_001.png"),
+                        "hp": 100, "cost": 1000,
                         "cost_copper": 500,
                         "max": None, "module_slots": 0, "connectable": False,
                         "free_place": True, "slots_used": 0,
@@ -493,7 +509,10 @@ BUILDING_TYPES = {
     # players can rebuild a destroyed AI-piloted scout without
     # accidentally fielding two L1 ships.  Spawns as a parked ship at
     # the placement spot — does NOT touch the player ship.
-    "Basic Ship":      {"png": "spaceBuilding_006.png", "hp": 100, "cost": 500,
+    "Basic Ship":      {"png": "spaceRockets_004.png",
+                        "png_path": os.path.join(_ROCKETS_X2_DIR,
+                                                 "spaceRockets_004.png"),
+                        "hp": 100, "cost": 500,
                         "cost_copper": 250,
                         "max": None, "module_slots": 0, "connectable": False,
                         "free_place": True, "slots_used": 0,

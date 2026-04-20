@@ -511,6 +511,7 @@ def draw_ui(gv: GameView) -> None:
         or gv._station_info.open
         or gv._ship_stats.open
         or gv._dialogue.open
+        or gv._map_overlay.open
     )
     gv._hud.draw(
         weapon_name=gv._active_weapon.name,
@@ -583,6 +584,8 @@ def draw_ui(gv: GameView) -> None:
     gv._trade_menu.draw()
     gv._qwi_menu.draw()
     gv._dialogue.draw()
+    # Full-screen map last so it sits on top of every other overlay.
+    gv._map_overlay.draw(gv)
 
     # Building hover tooltip
     if (gv._hover_building is not None

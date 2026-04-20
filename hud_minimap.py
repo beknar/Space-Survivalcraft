@@ -90,12 +90,23 @@ def draw_minimap(
     parked_ship_positions: list[tuple[float, float]] | None = None,
     null_field_positions: list[tuple[float, float, float, bool]] | None = None,
     slipspace_positions: list[tuple[float, float]] | None = None,
+    rect: tuple[int, int, int, int] | None = None,
 ) -> None:
-    """Draw a scaled overview of the world inside the status panel."""
+    """Draw a scaled overview of the world inside the status panel.
+
+    ``rect`` lets a caller render the same content at arbitrary
+    screen coords — the full-screen map overlay reuses this function
+    with a window-sized rect so it doesn't have to duplicate the
+    fog + asteroid + alien + building + trade + boss + gas +
+    wormhole + slipspace + null-field + parked-ship markers.
+    Defaults to the HUD status-panel minimap.
+    """
     global _fog_cache_tex, _fog_cache_revealed, _fog_cache_grid_id
 
-    mx, my = MINIMAP_X, MINIMAP_Y
-    mw, mh = MINIMAP_W, MINIMAP_H
+    if rect is None:
+        mx, my, mw, mh = MINIMAP_X, MINIMAP_Y, MINIMAP_W, MINIMAP_H
+    else:
+        mx, my, mw, mh = rect
 
     arcade.draw_rect_filled(arcade.LBWH(mx, my, mw, mh), (5, 5, 20, 245))
     arcade.draw_rect_outline(

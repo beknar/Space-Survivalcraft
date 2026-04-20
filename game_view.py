@@ -43,6 +43,7 @@ from world_setup import (
 )
 from station_info import StationInfo
 from ship_stats import ShipStats
+from map_overlay import MapOverlay
 from station_inventory import StationInventory
 from craft_menu import CraftMenu
 from trade_menu import TradeMenu
@@ -409,6 +410,7 @@ class GameView(arcade.View):
 
         self._station_info = StationInfo()
         self._ship_stats = ShipStats()
+        self._map_overlay = MapOverlay()
 
         # Station inventory (10x10) — register icons for blueprints/modules
         self._station_inv = StationInventory(
