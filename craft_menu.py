@@ -1,4 +1,22 @@
-"""Craft menu overlay for the Basic Crafter module."""
+"""Craft menu overlay for the Basic Crafter and Advanced Crafter.
+
+Draw path (see ``build_menu`` for the mirror implementation):
+
+  * Recipe row labels share a ``pyglet.graphics.Batch``; one
+    ``_recipe_batch.draw()`` replaces up to 13 individual
+    ``Text.draw()`` calls per frame.  Off-viewport rows toggle
+    ``_label.visible`` so scroll clips naturally.
+  * Panel / row / button / progress-bar fills are pooled through a
+    shared ``SpriteList`` and flushed once per frame.
+  * ``_t_crafting`` is a dedicated Text for the active "Crafting:
+    {name}" banner so it doesn't fight the selected-recipe detail
+    line for pyglet label state.
+  * ``.color`` and ``.x`` / ``.y`` setters on every pooled Text are
+    guarded so pyglet only rebuilds the layout when the value
+    actually changed (previous colour mismatch between 3-tuple
+    constants and the 4-tuple getter meant the guard never
+    matched — now normalised to 4-tuples).
+"""
 from __future__ import annotations
 
 from typing import Optional

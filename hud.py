@@ -1,4 +1,16 @@
-"""HUD status panel and mini-map drawing for Space Survivalcraft."""
+"""HUD status panel and mini-map drawing for Space Survivalcraft.
+
+Performance pattern (shared with ``craft_menu`` / ``build_menu`` /
+``trade_menu``): the quick-use bar and module slots fill their cell
+backgrounds through a pooled ``arcade.SpriteList`` (``_rect_add`` /
+``_rect_flush``) so one ``SpriteList.draw()`` replaces ~14 immediate-
+mode ``draw_rect_filled`` calls per frame.  Per-slot ``arcade.Text``
+pools (``_t_qu_slot_num`` / ``_t_qu_slot_count`` / ``_t_qu_slot_abbrev``
+and ``_t_mod_text``) are pre-built in ``__init__``; the draw path
+only repositions them and sets text/color when the underlying state
+actually changes, which keeps pyglet from rebuilding each label
+layout every frame.
+"""
 from __future__ import annotations
 
 

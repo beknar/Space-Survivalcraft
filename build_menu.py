@@ -1,4 +1,24 @@
-"""Build menu UI overlay for constructing space station modules."""
+"""Build menu UI overlay for constructing space station modules.
+
+Draw path (same pattern as ``craft_menu``):
+
+  * Per-row ``arcade.Text`` pools for name / cost / reason labels,
+    each attached to a shared ``pyglet.graphics.Batch`` so the whole
+    list blits in one ``batch.draw()`` — off-viewport rows toggle
+    ``_label.visible = False`` to stay clipped to the panel during
+    scroll.
+  * Row-background fills pooled through a shared
+    ``arcade.SpriteList`` (``_rect_add`` / ``_rect_flush``) so N
+    per-frame ``draw_rect_filled`` calls collapse into one
+    ``SpriteList.draw``.
+  * Position + colour setters on the pooled Texts are guarded so
+    pyglet only rebuilds a label's layout when the value actually
+    changed.  ``_last_cost_text`` / ``_last_reason_text`` cache the
+    row strings.
+  * ``_t_capacity`` is a dedicated label for the "Modules: X/Y"
+    header — previously shared ``_t_name`` and fought it for pyglet
+    label state every frame.
+"""
 from __future__ import annotations
 
 from typing import Optional
