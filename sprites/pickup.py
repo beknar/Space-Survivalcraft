@@ -81,6 +81,14 @@ class BlueprintPickup(IronPickup):
     animation and stores the module type for inventory integration.
     """
 
+    # Target on-screen pixel size (larger side) for every blueprint
+    # drop.  The spinning sprite now uses each module's crafter icon,
+    # which ranges wildly in native size (19×30 ``bolt_gold`` up to
+    # 96×96 ``Energy`` etc.); normalising to a single target keeps
+    # every drop recognisable and roughly the same scale regardless
+    # of which texture it happens to be.
+    _DROP_DISPLAY_PX: float = 40.0
+
     def __init__(
         self,
         texture: arcade.Texture,
@@ -92,7 +100,8 @@ class BlueprintPickup(IronPickup):
         super().__init__(texture, x, y, amount=1, lifetime=lifetime)
         self.module_type: str = module_type
         self.item_type: str = f"bp_{module_type}"
-        self.scale = 0.4
+        base = max(texture.width, texture.height)
+        self.scale = (self._DROP_DISPLAY_PX / base) if base > 0 else 1.0
 
     def update_pickup(
         self, dt: float, ship_x: float, ship_y: float, ship_radius: float = 0.0

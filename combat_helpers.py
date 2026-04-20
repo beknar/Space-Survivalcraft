@@ -183,7 +183,7 @@ def spawn_iron_pickup(
 def spawn_blueprint_pickup(gv: GameView, x: float, y: float) -> None:
     """Spawn a random blueprint pickup at world position (x, y)."""
     mod_type = random.choice(list(MODULE_TYPES.keys()))
-    tex = gv._blueprint_tinted.get(mod_type, gv._blueprint_tex)
+    tex = gv._blueprint_drop_tex.get(mod_type, gv._blueprint_tex)
     bp = BlueprintPickup(tex, x, y, mod_type,
                          lifetime=WORLD_ITEM_LIFETIME)
     gv.blueprint_pickup_list.append(bp)

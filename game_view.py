@@ -253,9 +253,21 @@ class GameView(arcade.View):
         self._init_aliens()
 
     def _init_blueprint_textures(self) -> None:
-        """Load and tint the blueprint textures (one per module type)."""
+        """Load and tint the blueprint textures (one per module type).
+
+        Also exposes ``_blueprint_drop_tex[key]`` — the module-icon
+        texture used for the *spinning world drop* sprite.  The drop
+        used to be ``BLUEPRINT_PNG`` tinted per module so only 6 of
+        13 modules had a distinct appearance (the rest shared one
+        untinted fallback).  Matching the crafter-menu icon gives
+        every module a unique, recognisable drop.  The dict is
+        populated alongside the crafter/inventory icon loads in
+        ``_init_inventory_and_tip`` so the texture is only decoded
+        once per key.
+        """
         from PIL import Image as PILImage
         self._blueprint_tex = arcade.load_texture(BLUEPRINT_PNG)
+        self._blueprint_drop_tex: dict[str, arcade.Texture] = {}
         _bp_colors = {
             "armor_plate":     (80, 130, 255),
             "engine_booster":  (255, 80, 80),
@@ -363,6 +375,10 @@ class GameView(arcade.View):
             self.inventory.item_icons[f"bp_{key}"] = self._blueprint_tinted.get(key, self._blueprint_tex)
             self.inventory._item_names[f"bp_{key}"] = f"BP {info['label']}"
             self.inventory._item_names[f"mod_{key}"] = info["label"]
+            # Spinning world-drop sprite reuses the crafter icon so
+            # each module's dropped blueprint looks the same as its
+            # Basic / Advanced Crafter entry.
+            self._blueprint_drop_tex[key] = mod_icon
         self.inventory.item_icons["copper"] = self._copper_tex
         self.inventory.item_icons["missile"] = self._missile_tex
 

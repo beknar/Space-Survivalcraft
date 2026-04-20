@@ -588,12 +588,16 @@ def _destroy_parked_ship(gv: GameView, ship) -> None:
             gv._spawn_iron_pickup(ship.center_x, ship.center_y, amount=count)
         elif item_type == "copper" and count > 0:
             gv._spawn_iron_pickup(ship.center_x, ship.center_y, amount=count)
-    # Drop modules as blueprint pickups
+    # Drop modules as blueprint pickups — prefer the per-module
+    # crafter icon so each drop is visually distinct, fall back to
+    # the legacy base texture for stub GameViews in unit tests.
+    _bp_icons = getattr(gv, "_blueprint_drop_tex", {}) or {}
     for mod in ship.module_slots:
         if mod is not None:
             from sprites.pickup import BlueprintPickup
+            tex = _bp_icons.get(mod, gv._blueprint_tex)
             bp = BlueprintPickup(
-                gv._blueprint_tex, ship.center_x, ship.center_y,
+                tex, ship.center_x, ship.center_y,
                 module_type=mod)
             gv.blueprint_pickup_list.append(bp)
     ship.remove_from_sprite_lists()
