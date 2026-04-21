@@ -803,6 +803,13 @@ def update_nebula_boss(gv: GameView, dt: float) -> None:
     projs = nb.update_boss(
         dt, boss_px, boss_py, station_x, station_y, asteroid_list,
         force_walls=getattr(gv, "_force_walls", None))
+    # Nebula boss rams through asteroids instead of steering around
+    # them — destroy any the boss is currently overlapping and drop
+    # normal loot.  Only runs when the boss lives in Zone 2 (the
+    # crush helper reads from ``zone._iron_asteroids`` etc.).
+    if zone is not None and hasattr(zone, "_iron_asteroids"):
+        from zones.zone2_world import nebula_boss_destroy_asteroids
+        nebula_boss_destroy_asteroids(zone, gv, nb)
     for p in projs:
         gv._boss_projectile_list.append(p)
 

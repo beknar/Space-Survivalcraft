@@ -164,6 +164,22 @@ class NebulaBossShip(BossAlienShip):
     # once within firing distance.
     _PLAYER_PRIORITY_RANGE: float = 1000.0
 
+    def _compute_avoidance(
+        self,
+        base_x: float,
+        base_y: float,
+        asteroid_list,
+        force_walls: list | None = None,
+    ) -> tuple[float, float]:
+        """Nebula boss plows through asteroids instead of steering
+        around them.  Force-wall repulsion still applies — only the
+        asteroid term is suppressed.  The actual asteroid destruction
+        on contact is handled in ``update_logic.update_nebula_boss``
+        after the movement step.
+        """
+        return super()._compute_avoidance(
+            base_x, base_y, [], force_walls=force_walls)
+
     def __init__(
         self,
         texture: arcade.Texture,

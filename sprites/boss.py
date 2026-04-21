@@ -282,6 +282,14 @@ class BossAlienShip(arcade.Sprite):
         """
         fired: list[Projectile] = []
 
+        # Snapshot the pre-frame position so downstream code (e.g. the
+        # Nebula boss's asteroid-crush pass) can test the entire
+        # movement segment rather than just the post-frame sample —
+        # otherwise fast rotations arc the boss over obstacles that a
+        # point-check misses.
+        self._prev_frame_x: float = self.center_x
+        self._prev_frame_y: float = self.center_y
+
         # ── Physics velocity decay ──
         damp = 0.97 ** (dt * 60.0)
         self.vel_x *= damp
