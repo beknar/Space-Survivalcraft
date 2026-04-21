@@ -31,8 +31,10 @@ from constants import (
     NEBULA_BOSS_CONE_RANGE, NEBULA_BOSS_CONE_WIDTH,
     NEBULA_BOSS_CONE_DURATION, NEBULA_BOSS_CONE_COOLDOWN,
     BOSS_DETECT_RANGE, BOSS_RADIUS,
+    BOSS_CANNON_SPEED, BOSS_CANNON_RANGE, BOSS_CANNON_DAMAGE,
 )
 from sprites.boss import BossAlienShip, _PHASE1, _PHASE2, _PHASE3
+from sprites.projectile import Projectile
 
 
 # One cached texture per (col, row) cell so repeat spawns with the
@@ -187,10 +189,35 @@ class NebulaBossShip(BossAlienShip):
     # can open a cone AoE when its cone cooldown expires and the
     # player is inside range.
     def _try_fire_weapons(self, dist_player: float) -> list:
-        """Fire cannon + spread (via super) + optionally queue a gas
-        cloud projectile.  Returns the list of projectiles the parent
-        would have returned, PLUS any gas clouds this frame."""
+        """Fire cannon + spread (via super) + an extended-range cannon
+        volley the Nebula boss gets on top so the main cannon stays a
+        visible part of its kit even at the outer edge of the gas
+        effects.
+
+        Parent cannon only fires inside ``BOSS_CANNON_RANGE`` (700 px)
+        — which at a 230 px boss sprite means the player rarely sees
+        a cannon shot while strafing at gas-cloud distance.  The
+        Nebula boss instead fires its cannon inside
+        ``BOSS_DETECT_RANGE`` (800 px), matching its gas-cloud
+        engagement radius, so cannon + spread + gas cloud + cone all
+        fire in the same engagement.
+        """
         result = super()._try_fire_weapons(dist_player)
+        # Parent already consumed the cannon cooldown if dist_player
+        # <= BOSS_CANNON_RANGE (700).  For the 700..800 band we fire
+        # an extra cannon shot here instead — still respects the
+        # shared ``_cannon_cd`` so the fire rate is unchanged.
+        if (BOSS_CANNON_RANGE < dist_player <= BOSS_DETECT_RANGE
+                and self._cannon_cd <= 0.0):
+            self._cannon_cd = self._cannon_cooldown()
+            result.append(Projectile(
+                self._laser_tex,
+                self.center_x, self.center_y,
+                self._heading,
+                BOSS_CANNON_SPEED, BOSS_CANNON_RANGE,
+                scale=0.8,
+                damage=BOSS_CANNON_DAMAGE,
+            ))
         # Gas cloud cooldown is independent of the parent's weapons;
         # the actual cooldown tick + attack trigger runs in
         # ``tick_nebula`` so the return path stays compatible with
