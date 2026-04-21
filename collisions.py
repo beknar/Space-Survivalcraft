@@ -454,14 +454,18 @@ def _boss_death(gv: GameView) -> None:
     gv._t_boss_subtitle.text = "Wormholes have appeared at the edges of the sector!"
 
 
-def handle_boss_projectile_hits(gv: GameView) -> None:
-    """Player projectiles hitting the boss."""
-    boss = gv._boss
+def _projectiles_vs_boss(gv: GameView, boss, on_death) -> None:
+    """Shared helper: player + turret projectiles damage ``boss``.
+
+    Used for both the Double Star and the Nebula boss — the same
+    player laser or station-turret shot should hurt whichever boss
+    is alive.  ``on_death(gv)`` runs exactly once when HP hits 0.
+    """
     if boss is None or boss.hp <= 0:
         return
     for proj in list(gv.projectile_list):
         if proj.mines_rock:
-            continue  # mining beam doesn't hurt the boss
+            continue  # mining beam doesn't hurt bosses
         dx = proj.center_x - boss.center_x
         dy = proj.center_y - boss.center_y
         if math.hypot(dx, dy) <= BOSS_RADIUS + 10.0:
@@ -470,11 +474,12 @@ def handle_boss_projectile_hits(gv: GameView) -> None:
             proj.remove_from_sprite_lists()
             boss.take_damage(int(proj.damage))
             if boss.hp <= 0:
-                _boss_death(gv)
+                on_death(gv)
                 return
-    # Also check turret projectiles
+    # Also check turret projectiles (station turrets + AI-pilot ships
+    # both push shots into ``gv.turret_projectile_list``).
     for proj in list(gv.turret_projectile_list):
-        if boss is None or boss.hp <= 0:
+        if boss.hp <= 0:
             return
         dx = proj.center_x - boss.center_x
         dy = proj.center_y - boss.center_y
@@ -483,8 +488,42 @@ def handle_boss_projectile_hits(gv: GameView) -> None:
             proj.remove_from_sprite_lists()
             boss.take_damage(int(proj.damage))
             if boss.hp <= 0:
-                _boss_death(gv)
+                on_death(gv)
                 return
+
+
+def handle_boss_projectile_hits(gv: GameView) -> None:
+    """Player + turret projectiles hitting the Double Star boss."""
+    _projectiles_vs_boss(gv, gv._boss, _boss_death)
+
+
+def _nebula_boss_death(gv: GameView) -> None:
+    """Handle Nebula boss death: loot + announce.  Mirrors
+    ``_boss_death`` but doesn't spawn wormholes (those already exist
+    after the Double Star defeat)."""
+    nb = gv._nebula_boss
+    if nb is None:
+        return
+    gv._spawn_explosion(nb.center_x, nb.center_y)
+    arcade.play_sound(gv._explosion_snd, volume=1.0)
+    arcade.play_sound(gv._victory_snd, volume=0.8)
+    gv._spawn_iron_pickup(nb.center_x, nb.center_y, amount=BOSS_IRON_DROP)
+    gv._add_xp(BOSS_XP_REWARD)
+    gv._nebula_boss = None
+    if hasattr(gv, "_nebula_boss_list"):
+        gv._nebula_boss_list.clear()
+    if hasattr(gv, "_nebula_gas_clouds"):
+        gv._nebula_gas_clouds.clear()
+    gv._boss_announce_timer = 5.0
+    gv._t_boss_announce.text = "Nebula Boss KILLED"
+    gv._t_boss_subtitle.text = (
+        "Gas clouds dissipate as the Nebula boss falls.")
+
+
+def handle_nebula_boss_projectile_hits(gv: GameView) -> None:
+    """Player + turret projectiles hitting the Nebula boss."""
+    nb = getattr(gv, "_nebula_boss", None)
+    _projectiles_vs_boss(gv, nb, _nebula_boss_death)
 
 
 def handle_boss_laser_hits(gv: GameView) -> None:

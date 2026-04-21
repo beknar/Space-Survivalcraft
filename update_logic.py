@@ -34,6 +34,7 @@ from collisions import (
     handle_turret_projectile_hits,
     handle_ship_building_collision,
     handle_boss_projectile_hits,
+    handle_nebula_boss_projectile_hits,
     handle_boss_player_collision,
     handle_boss_laser_hits,
     handle_boss_building_hits,
@@ -658,6 +659,9 @@ def _update_parked_ships(gv: GameView, dt: float) -> None:
         targets.extend(z2_aliens)
     if gv._boss is not None and gv._boss.hp > 0:
         targets.append(gv._boss)
+    nb = getattr(gv, "_nebula_boss", None)
+    if nb is not None and nb.hp > 0:
+        targets.append(nb)
     laser_tex = getattr(gv, "_turret_laser_tex", None)
     for ps in gv._parked_ships:
         ps.update_parked(dt)
@@ -669,16 +673,22 @@ def _update_parked_ships(gv: GameView, dt: float) -> None:
 def update_buildings(gv: GameView, dt: float) -> None:
     """Update buildings, turrets, and station info."""
     from sprites.building import MissileArray
+    # Station defenders (turrets + missile arrays) fire at every live
+    # boss, not just the Double Star, so summoning the Nebula boss
+    # via the QWI doesn't leave the station staring at an enemy it
+    # can't engage.  ``bosses`` is a list of current targets; dead /
+    # missing ones are filtered inside the building's targeting loop.
+    live_bosses = [gv._boss, getattr(gv, "_nebula_boss", None)]
     for b in list(gv.building_list):
         b.update_building(dt)
         if isinstance(b, Turret):
             b.update_turret(dt, gv.alien_list,
                             gv.turret_projectile_list,
-                            boss=gv._boss)
+                            bosses=live_bosses)
         elif isinstance(b, MissileArray):
             b.update_missile_array(
                 dt, gv.alien_list, gv._missile_list,
-                gv._missile_tex, boss=gv._boss,
+                gv._missile_tex, bosses=live_bosses,
             )
 
     for proj in list(gv.turret_projectile_list):
@@ -829,8 +839,19 @@ def update_nebula_boss(gv: GameView, dt: float) -> None:
                 _apply_nebula_slow(gv)
                 gv._nebula_cone_tick_cd = 0.5
 
-    # Clear the boss from GameView once HP drops to zero.
-    if nb.hp <= 0:
+    # Route player + turret projectiles at the Nebula boss.  Station
+    # turrets, Missile Arrays (via missile-explosion hits below), and
+    # AI-piloted parked ships all push shots into the same two lists
+    # ``_projectiles_vs_boss`` walks, so this one call wires every
+    # friendly damage source into the Nebula boss's HP pool.
+    handle_nebula_boss_projectile_hits(gv)
+
+    # Clear the boss from GameView once HP drops to zero — the
+    # projectile handler already runs _nebula_boss_death on the
+    # frame that lands the killing shot, but the boss can also die
+    # from gas-cloud / cone internals touching its own HP in
+    # future changes, so keep this fallback.
+    if gv._nebula_boss is not None and gv._nebula_boss.hp <= 0:
         gv._nebula_boss = None
         gv._nebula_boss_list.clear()
         gv._nebula_gas_clouds.clear()
@@ -1095,17 +1116,22 @@ def update_missiles(gv: GameView, dt: float) -> None:
     """Update homing missiles and check hits."""
     from sprites.explosion import HitSpark
 
-    # Gather targets (aliens in current zone)
+    # Gather targets (aliens in current zone + any live boss in any zone).
     from zones import ZoneID
     targets = []
     if gv._zone.zone_id == ZoneID.MAIN:
         for a in gv.alien_list:
             targets.append((a.center_x, a.center_y))
-        if gv._boss is not None and gv._boss.hp > 0:
-            targets.append((gv._boss.center_x, gv._boss.center_y))
     elif hasattr(gv._zone, '_aliens'):
         for a in gv._zone._aliens:
             targets.append((a.center_x, a.center_y))
+    # Bosses are zone-agnostic targets — the Double Star lives in the
+    # zone it was summoned in, the Nebula boss in Zone 2 via the QWI.
+    if gv._boss is not None and gv._boss.hp > 0:
+        targets.append((gv._boss.center_x, gv._boss.center_y))
+    nb_target = getattr(gv, "_nebula_boss", None)
+    if nb_target is not None and nb_target.hp > 0:
+        targets.append((nb_target.center_x, nb_target.center_y))
 
     from collisions import _apply_kill_rewards
     from character_data import bonus_iron_enemy
@@ -1139,6 +1165,33 @@ def update_missiles(gv: GameView, dt: float) -> None:
                         drop_zone2_alien_loot(gv._zone, gv, a)
                     m.remove_from_sprite_lists()
                     break
+
+        # Missile vs bosses.  Homing already steers missiles toward
+        # live bosses via the ``targets`` list above; this block is
+        # what actually deals damage on arrival.  Uses the boss's
+        # collision radius + a small fudge to match the laser hit
+        # box.  Missiles are cheap to spawn so always re-check both
+        # bosses every frame.
+        if not m.sprite_lists:
+            continue  # already consumed by an alien hit above
+        from constants import BOSS_RADIUS as _BR
+        _boss_hit = _BR + 10.0
+        for _boss in (gv._boss, getattr(gv, "_nebula_boss", None)):
+            if _boss is None or _boss.hp <= 0:
+                continue
+            if math.hypot(m.center_x - _boss.center_x,
+                          m.center_y - _boss.center_y) < _boss_hit:
+                gv.hit_sparks.append(HitSpark(m.center_x, m.center_y))
+                gv._spawn_explosion(m.center_x, m.center_y)
+                _boss.take_damage(int(m.damage))
+                m.remove_from_sprite_lists()
+                if _boss.hp <= 0:
+                    from collisions import _boss_death, _nebula_boss_death
+                    if _boss is gv._boss:
+                        _boss_death(gv)
+                    else:
+                        _nebula_boss_death(gv)
+                break
 
 
 def update_death_blossom(gv: GameView, dt: float) -> None:

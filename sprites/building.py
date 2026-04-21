@@ -198,8 +198,14 @@ class Turret(StationModule):
         alien_list: arcade.SpriteList,
         projectile_list: arcade.SpriteList,
         boss=None,
+        bosses=None,
     ) -> None:
-        """Find nearest enemy (alien or boss) in range and fire if off cooldown."""
+        """Find nearest enemy (alien or any boss) in range and fire if off cooldown.
+
+        ``boss`` (single) and ``bosses`` (iterable) are both supported
+        so legacy callers with one boss keep working while the game
+        loop passes both the Double Star and Nebula bosses at once.
+        """
         if self.disabled:
             return
 
@@ -208,6 +214,11 @@ class Turret(StationModule):
 
         tr_sq = TURRET_RANGE * TURRET_RANGE
         tx, ty = self.center_x, self.center_y
+
+        # Collect every boss candidate passed by the caller.
+        boss_candidates = list(bosses) if bosses else []
+        if boss is not None:
+            boss_candidates.append(boss)
 
         # Use cached target if still valid (alive and in range)
         target = self._cached_target
@@ -233,14 +244,16 @@ class Turret(StationModule):
                 if dsq < best_dsq:
                     best_dsq = dsq
                     target = alien
-            # Also consider the boss as a target
-            if boss is not None and boss.hp > 0:
-                dx = boss.center_x - tx
-                dy = boss.center_y - ty
+            # Also consider every live boss as a target.
+            for b in boss_candidates:
+                if b is None or getattr(b, 'hp', 0) <= 0:
+                    continue
+                dx = b.center_x - tx
+                dy = b.center_y - ty
                 dsq = dx * dx + dy * dy
                 if dsq < best_dsq:
                     best_dsq = dsq
-                    target = boss
+                    target = b
             self._cached_target = target
             self._target_rescan_cd = 0.5  # rescan 2x per second
 
@@ -305,6 +318,7 @@ class MissileArray(StationModule):
         missile_list: arcade.SpriteList,
         missile_tex: arcade.Texture,
         boss=None,
+        bosses=None,
     ) -> None:
         if self.disabled or missile_tex is None:
             return
@@ -313,6 +327,13 @@ class MissileArray(StationModule):
 
         mr_sq = MISSILE_ARRAY_RANGE * MISSILE_ARRAY_RANGE
         tx, ty = self.center_x, self.center_y
+
+        # Accept either the legacy single-``boss`` kwarg or the
+        # multi-boss ``bosses`` iterable so both the Double Star and
+        # Nebula boss can be targeted in the same game tick.
+        boss_candidates = list(bosses) if bosses else []
+        if boss is not None:
+            boss_candidates.append(boss)
 
         target = self._cached_target
         if target is not None:
@@ -334,13 +355,15 @@ class MissileArray(StationModule):
                 if dsq < best:
                     best = dsq
                     target = a
-            if boss is not None and boss.hp > 0:
-                dx = boss.center_x - tx
-                dy = boss.center_y - ty
+            for b in boss_candidates:
+                if b is None or getattr(b, 'hp', 0) <= 0:
+                    continue
+                dx = b.center_x - tx
+                dy = b.center_y - ty
                 dsq = dx * dx + dy * dy
                 if dsq < best:
                     best = dsq
-                    target = boss
+                    target = b
             self._cached_target = target
             self._target_rescan_cd = 0.5
 
