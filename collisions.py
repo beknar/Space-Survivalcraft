@@ -525,18 +525,36 @@ def handle_boss_projectile_hits(gv: GameView) -> None:
     _projectiles_vs_boss(gv, gv._boss, _boss_death)
 
 
+_NEBULA_BOSS_IRON_DROP: int = 3000
+_NEBULA_BOSS_COPPER_DROP: int = 1000
+
+
 def _nebula_boss_death(gv: GameView) -> None:
     """Handle Nebula boss death: loot + announce.  Mirrors
-    ``_boss_death`` but doesn't spawn wormholes (those already exist
-    after the Double Star defeat)."""
+    ``_boss_death`` but:
+      * drops **3000 iron + 1000 copper** (per user spec) instead of
+        the standard ``BOSS_IRON_DROP``;
+      * awards **no XP** — the Nebula boss is a resource-summonable
+        encore boss, not an XP milestone;
+      * doesn't spawn wormholes (those already exist after the
+        Double Star defeat).
+    """
     nb = gv._nebula_boss
     if nb is None:
         return
     gv._spawn_explosion(nb.center_x, nb.center_y)
     arcade.play_sound(gv._explosion_snd, volume=1.0)
     arcade.play_sound(gv._victory_snd, volume=0.8)
-    gv._spawn_iron_pickup(nb.center_x, nb.center_y, amount=BOSS_IRON_DROP)
-    gv._add_xp(BOSS_XP_REWARD)
+    # Scatter the two drops so they're next to each other instead of
+    # stacked at the boss centre.
+    (ix, iy), (cx, cy) = _drop_scatter(nb.center_x, nb.center_y, 2)
+    gv._spawn_iron_pickup(ix, iy, amount=_NEBULA_BOSS_IRON_DROP)
+    from sprites.pickup import IronPickup
+    copper_tex = getattr(gv, "_copper_tex", None) or gv._iron_tex
+    copper_pickup = IronPickup(copper_tex, cx, cy,
+                                amount=_NEBULA_BOSS_COPPER_DROP)
+    copper_pickup.item_type = "copper"
+    gv.iron_pickup_list.append(copper_pickup)
     gv._nebula_boss = None
     if hasattr(gv, "_nebula_boss_list"):
         gv._nebula_boss_list.clear()
