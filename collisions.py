@@ -28,6 +28,30 @@ if TYPE_CHECKING:
     from game_view import GameView
 
 
+def _drop_scatter(cx: float, cy: float, n: int,
+                  base_radius: float = 24.0) -> list[tuple[float, float]]:
+    """Return ``n`` (x, y) positions evenly spaced on a circle around
+    ``(cx, cy)`` so multi-item kill drops don't pile on top of each
+    other.  ``n`` ≤ 1 returns the centre itself so single-item drops
+    are unaffected.  The radius grows with ``n`` so five-to-ten-item
+    cargo dumps spread wide enough that the pickup sprites don't
+    fully overlap; a small random rotation prevents every death at
+    the same spot from producing the identical ring layout.
+    """
+    if n <= 1:
+        return [(cx, cy)]
+    # Fan out further the more items there are, but cap so the ring
+    # stays visually local to the death point.
+    radius = min(base_radius + 6.0 * (n - 1), base_radius * 3.0)
+    theta0 = random.uniform(0.0, math.tau)
+    out: list[tuple[float, float]] = []
+    for i in range(n):
+        theta = theta0 + (math.tau * i) / n
+        out.append((cx + math.cos(theta) * radius,
+                    cy + math.sin(theta) * radius))
+    return out
+
+
 def _apply_kill_rewards(
     gv: GameView, x: float, y: float,
     base_iron: int,
@@ -463,12 +487,16 @@ def _projectiles_vs_boss(gv: GameView, boss, on_death) -> None:
     """
     if boss is None or boss.hp <= 0:
         return
+    # Collision radius follows the rendered sprite size — see
+    # ``BossAlienShip.radius`` — so if ``BOSS_SCALE`` ever changes
+    # again the hitbox scales with it automatically.
+    hit_r = boss.radius + 10.0
     for proj in list(gv.projectile_list):
         if proj.mines_rock:
             continue  # mining beam doesn't hurt bosses
         dx = proj.center_x - boss.center_x
         dy = proj.center_y - boss.center_y
-        if math.hypot(dx, dy) <= BOSS_RADIUS + 10.0:
+        if math.hypot(dx, dy) <= hit_r:
             gv.hit_sparks.append(HitSpark(proj.center_x, proj.center_y))
             gv._trigger_shake()
             proj.remove_from_sprite_lists()
@@ -483,7 +511,7 @@ def _projectiles_vs_boss(gv: GameView, boss, on_death) -> None:
             return
         dx = proj.center_x - boss.center_x
         dy = proj.center_y - boss.center_y
-        if math.hypot(dx, dy) <= BOSS_RADIUS + 10.0:
+        if math.hypot(dx, dy) <= hit_r:
             gv.hit_sparks.append(HitSpark(proj.center_x, proj.center_y))
             proj.remove_from_sprite_lists()
             boss.take_damage(int(proj.damage))
@@ -546,7 +574,7 @@ def handle_boss_player_collision(gv: GameView) -> None:
     dx = boss.center_x - gv.player.center_x
     dy = boss.center_y - gv.player.center_y
     dist = math.hypot(dx, dy)
-    combined_r = BOSS_RADIUS + SHIP_RADIUS
+    combined_r = boss.radius + SHIP_RADIUS
     if dist >= combined_r or dist <= 0.0:
         return
     nx, ny = dx / dist, dy / dist
@@ -605,7 +633,7 @@ def handle_boss_charge_hit(gv: GameView) -> None:
     dx = boss.center_x - gv.player.center_x
     dy = boss.center_y - gv.player.center_y
     dist = math.hypot(dx, dy)
-    if dist < BOSS_RADIUS + SHIP_RADIUS:
+    if dist < boss.radius + SHIP_RADIUS:
         if _hit_player_on_cooldown(gv, int(BOSS_CHARGE_DAMAGE), volume=0.8):
             # Knock player back hard on the charge hit.
             if dist > 0.0:
@@ -618,27 +646,41 @@ def handle_boss_charge_hit(gv: GameView) -> None:
 
 
 def _destroy_parked_ship(gv: GameView, ship) -> None:
-    """Destroy a parked ship, dropping cargo as pickups."""
+    """Destroy a parked ship, dropping cargo + modules as pickups.
+
+    Cargo dumps used to spawn every pickup at the exact ship centre,
+    which stacked them into a single hard-to-distinguish blob.  Now
+    every item is placed on an evenly-spaced ring around the death
+    point via ``_drop_scatter`` so the player can tell what dropped
+    at a glance and the auto-attraction code picks them up cleanly.
+    """
     gv._spawn_explosion(ship.center_x, ship.center_y)
     arcade.play_sound(gv._explosion_snd, volume=0.7)
-    # Drop cargo as iron/copper pickups
+    # Pre-count every pickup this death will produce so we can lay
+    # them out on one ring.
+    cargo_drops: list[tuple[str, int]] = []
     for (_r, _c), (item_type, count) in ship.cargo_items.items():
-        if item_type == "iron" and count > 0:
-            gv._spawn_iron_pickup(ship.center_x, ship.center_y, amount=count)
-        elif item_type == "copper" and count > 0:
-            gv._spawn_iron_pickup(ship.center_x, ship.center_y, amount=count)
-    # Drop modules as blueprint pickups — prefer the per-module
-    # crafter icon so each drop is visually distinct, fall back to
-    # the legacy base texture for stub GameViews in unit tests.
+        if item_type in ("iron", "copper") and count > 0:
+            cargo_drops.append((item_type, count))
+    module_drops: list[str] = [m for m in ship.module_slots if m is not None]
+    total = len(cargo_drops) + len(module_drops)
+    positions = _drop_scatter(ship.center_x, ship.center_y, total)
+    pos_i = 0
+    for item_type, count in cargo_drops:
+        x, y = positions[pos_i]
+        pos_i += 1
+        # ``_spawn_iron_pickup`` also handles copper — the pickup
+        # records its own item_type.  Keep the two branches for
+        # clarity in case copper ever needs a dedicated spawner.
+        gv._spawn_iron_pickup(x, y, amount=count)
     _bp_icons = getattr(gv, "_blueprint_drop_tex", {}) or {}
-    for mod in ship.module_slots:
-        if mod is not None:
-            from sprites.pickup import BlueprintPickup
-            tex = _bp_icons.get(mod, gv._blueprint_tex)
-            bp = BlueprintPickup(
-                tex, ship.center_x, ship.center_y,
-                module_type=mod)
-            gv.blueprint_pickup_list.append(bp)
+    for mod in module_drops:
+        x, y = positions[pos_i]
+        pos_i += 1
+        from sprites.pickup import BlueprintPickup
+        tex = _bp_icons.get(mod, gv._blueprint_tex)
+        bp = BlueprintPickup(tex, x, y, module_type=mod)
+        gv.blueprint_pickup_list.append(bp)
     ship.remove_from_sprite_lists()
 
 

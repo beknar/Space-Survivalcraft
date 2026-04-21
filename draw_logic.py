@@ -18,6 +18,60 @@ if TYPE_CHECKING:
     from game_view import GameView
 
 
+def _draw_boss_health_bars(gv: GameView) -> None:
+    """Render an HP bar (and shield bar when max_shields > 0) above
+    every live boss.  Bars read directly off the boss's current
+    values each frame, so they increment / decrement live as
+    damage + regen flow.  Sized relative to the rendered sprite so
+    a future ``BOSS_SCALE`` change doesn't need a separate tweak.
+    """
+    import arcade as _arcade
+    bosses = []
+    if gv._boss is not None and gv._boss.hp > 0:
+        bosses.append(gv._boss)
+    nb = getattr(gv, "_nebula_boss", None)
+    if nb is not None and nb.hp > 0:
+        bosses.append(nb)
+    if not bosses:
+        return
+    for boss in bosses:
+        # Anchor the bars above the rendered hull + a small gap.
+        bar_w = max(120.0, float(boss.width) * 0.6)
+        bar_h = 8.0
+        bx = boss.center_x - bar_w * 0.5
+        hp_y = boss.center_y + float(boss.height) * 0.5 + 14.0
+        # HP bar — background + filled portion, colour shifts as HP drops.
+        hp_frac = max(0.0, min(1.0, float(boss.hp) / float(boss.max_hp)))
+        if hp_frac > 0.5:
+            hp_fill = (40, 200, 60, 235)
+        elif hp_frac > 0.25:
+            hp_fill = (225, 155, 45, 235)
+        else:
+            hp_fill = (220, 50, 50, 235)
+        _arcade.draw_rect_filled(
+            _arcade.LBWH(bx, hp_y, bar_w, bar_h), (30, 30, 30, 220))
+        if hp_frac > 0.0:
+            _arcade.draw_rect_filled(
+                _arcade.LBWH(bx, hp_y, bar_w * hp_frac, bar_h), hp_fill)
+        _arcade.draw_rect_outline(
+            _arcade.LBWH(bx, hp_y, bar_w, bar_h),
+            (200, 200, 220), border_width=1)
+        # Shield bar (only if this boss type has shields at all).
+        if getattr(boss, "max_shields", 0) > 0:
+            sh_frac = max(0.0, min(1.0,
+                float(getattr(boss, "shields", 0)) / float(boss.max_shields)))
+            sh_y = hp_y + bar_h + 3.0
+            _arcade.draw_rect_filled(
+                _arcade.LBWH(bx, sh_y, bar_w, bar_h), (20, 30, 50, 220))
+            if sh_frac > 0.0:
+                _arcade.draw_rect_filled(
+                    _arcade.LBWH(bx, sh_y, bar_w * sh_frac, bar_h),
+                    (60, 180, 255, 235))
+            _arcade.draw_rect_outline(
+                _arcade.LBWH(bx, sh_y, bar_w, bar_h),
+                (150, 190, 230), border_width=1)
+
+
 def _draw_nebula_boss(gv: GameView) -> None:
     """Draw the Nebula boss sprite, its gas clouds, and (if active)
     its gas cone overlay.  Gas visuals are primitives — the gas
@@ -200,6 +254,11 @@ def draw_world(gv: GameView, cx: float, cy: float, hw: float, hh: float) -> None
         # Nebula boss lives in Zone 2 — draw it here so its gas
         # clouds + cone overlay the zone's own entities.
         _draw_nebula_boss(gv)
+
+    # HP + shield bars above every live boss (Double Star + Nebula).
+    # Same shape as the parked-ship HP bar, just wider and with an
+    # extra blue shield row when shields are non-zero.
+    _draw_boss_health_bars(gv)
 
     # Trade station (shared across all zones — drawn after zone entities)
     _draw_trade_station(gv)

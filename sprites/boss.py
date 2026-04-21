@@ -84,6 +84,19 @@ class BossAlienShip(arcade.Sprite):
     def phase(self) -> int:
         return self._phase
 
+    @property
+    def radius(self) -> float:
+        """Collision radius derived from the current sprite size so the
+        hitbox always matches what's rendered on screen.  Subclasses
+        inherit this automatically.  Prefer this over the legacy
+        ``BOSS_RADIUS`` constant at collision call sites — the constant
+        remains for spawn-time distance checks and for code that needs
+        the "canonical" boss size before any sprite is alive.
+        """
+        # ``self.width`` is the post-scale display width in world px;
+        # half of that is the radius the player sees.
+        return float(self.width) * 0.5
+
     def _update_phase(self) -> None:
         hp_frac = self.hp / self.max_hp
         if hp_frac <= BOSS_PHASE3_HP:
@@ -141,7 +154,9 @@ class BossAlienShip(arcade.Sprite):
             adx = self.center_x - asteroid.center_x
             ady = self.center_y - asteroid.center_y
             adist = math.hypot(adx, ady)
-            thresh = BOSS_RADIUS + ASTEROID_RADIUS + ALIEN_AVOIDANCE_RADIUS
+            # ``self.radius`` (derived from sprite size) keeps the
+            # avoidance buffer proportional to the visible hull.
+            thresh = self.radius + ASTEROID_RADIUS + ALIEN_AVOIDANCE_RADIUS
             if 0.0 < adist < thresh:
                 w = ALIEN_AVOIDANCE_FORCE * (1.0 - adist / thresh)
                 steer_x += adx / adist * w

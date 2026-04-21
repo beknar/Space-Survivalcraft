@@ -372,12 +372,13 @@ class GameView(arcade.View):
         for key, info in MODULE_TYPES.items():
             mod_icon = arcade.load_texture(info["icon"])
             self.inventory.item_icons[f"mod_{key}"] = mod_icon
-            self.inventory.item_icons[f"bp_{key}"] = self._blueprint_tinted.get(key, self._blueprint_tex)
+            # Inventory + crafter + world-drop all share the same
+            # per-module icon — previously the inventory bp_{key}
+            # cell used a tinted BLUEPRINT_PNG, so picking up a
+            # world-drop blueprint made the icon change mid-flight.
+            self.inventory.item_icons[f"bp_{key}"] = mod_icon
             self.inventory._item_names[f"bp_{key}"] = f"BP {info['label']}"
             self.inventory._item_names[f"mod_{key}"] = info["label"]
-            # Spinning world-drop sprite reuses the crafter icon so
-            # each module's dropped blueprint looks the same as its
-            # Basic / Advanced Crafter entry.
             self._blueprint_drop_tex[key] = mod_icon
         self.inventory.item_icons["copper"] = self._copper_tex
         self.inventory.item_icons["missile"] = self._missile_tex
@@ -437,7 +438,11 @@ class GameView(arcade.View):
         for key, info in MODULE_TYPES.items():
             mod_icon = arcade.load_texture(info["icon"])
             self._station_inv.item_icons[f"mod_{key}"] = mod_icon
-            self._station_inv.item_icons[f"bp_{key}"] = self._blueprint_tinted.get(key, self._blueprint_tex)
+            # Same per-module icon for station-inventory blueprint
+            # cells — matches the ship inventory + craft menu +
+            # world-drop sprite, so a blueprint looks consistent
+            # from ground to station shelf.
+            self._station_inv.item_icons[f"bp_{key}"] = mod_icon
         self._station_inv.item_icons["copper"] = self._copper_tex
         self._station_inv.item_icons["missile"] = self._missile_tex
 

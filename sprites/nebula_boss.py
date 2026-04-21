@@ -206,12 +206,11 @@ class NebulaBossShip(BossAlienShip):
             )
 
         # Cone fire — short-range, only while the player is within
-        # the cone's own reach.  Uses the module-level ``BOSS_RADIUS``
-        # because ``BossAlienShip`` doesn't expose ``self.radius``
-        # (the previous reference here was a crash waiting to happen —
-        # caught by the 2026-04-19 PM soak, see PR #14).
+        # the cone's own reach.  ``self.radius`` (added to
+        # ``BossAlienShip``) tracks the rendered sprite size so the
+        # cone gate scales automatically with BOSS_SCALE changes.
         if (not self._cone_active and self._cone_cd <= 0.0
-                and dist <= NEBULA_BOSS_CONE_RANGE + BOSS_RADIUS
+                and dist <= NEBULA_BOSS_CONE_RANGE + self.radius
                 and not self._charging):
             self._cone_active = True
             self._cone_timer = NEBULA_BOSS_CONE_DURATION

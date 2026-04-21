@@ -1169,16 +1169,14 @@ def update_missiles(gv: GameView, dt: float) -> None:
         # Missile vs bosses.  Homing already steers missiles toward
         # live bosses via the ``targets`` list above; this block is
         # what actually deals damage on arrival.  Uses the boss's
-        # collision radius + a small fudge to match the laser hit
-        # box.  Missiles are cheap to spawn so always re-check both
-        # bosses every frame.
+        # live ``.radius`` (derived from the rendered sprite size)
+        # so the hitbox always matches what the player sees.
         if not m.sprite_lists:
             continue  # already consumed by an alien hit above
-        from constants import BOSS_RADIUS as _BR
-        _boss_hit = _BR + 10.0
         for _boss in (gv._boss, getattr(gv, "_nebula_boss", None)):
             if _boss is None or _boss.hp <= 0:
                 continue
+            _boss_hit = _boss.radius + 10.0
             if math.hypot(m.center_x - _boss.center_x,
                           m.center_y - _boss.center_y) < _boss_hit:
                 gv.hit_sparks.append(HitSpark(m.center_x, m.center_y))
