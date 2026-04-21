@@ -800,7 +800,13 @@ NEBULA_BOSS_ROW_INDEX: int = 0             # first row of that column
 # Gas cloud projectile — slow, persistent, damage + slow-on-hit
 NEBULA_BOSS_GAS_SPEED: float = BOSS_CANNON_SPEED / 2.0   # 275 px/s
 NEBULA_BOSS_GAS_RANGE: float = 500.0                     # px before despawn
-NEBULA_BOSS_GAS_DAMAGE: float = 15.0                     # damage per hit
+NEBULA_BOSS_GAS_DAMAGE: float = 30.0                     # damage per hit
+                                                         # (doubled from 15 per
+                                                         # user tuning; Phase 3
+                                                         # multiplier in
+                                                         # ``_gas_damage_for_phase``
+                                                         # still applies a 1.5×
+                                                         # on top).
 NEBULA_BOSS_GAS_COOLDOWN: float = 4.0                    # seconds
 NEBULA_BOSS_GAS_RADIUS: float = 60.0                     # cloud collision radius
 NEBULA_BOSS_SLOW_FACTOR: float = 0.5                     # player speed multiplier while slowed
@@ -811,4 +817,5 @@ NEBULA_BOSS_CONE_RANGE: float = 400.0      # cone length
 NEBULA_BOSS_CONE_WIDTH: float = 200.0      # width at far end
 NEBULA_BOSS_CONE_DURATION: float = 1.5     # seconds the cone stays active
 NEBULA_BOSS_CONE_COOLDOWN: float = 6.0
-NEBULA_BOSS_CONE_DAMAGE: float = 10.0      # damage per 0.5 s tick while inside
+NEBULA_BOSS_CONE_DAMAGE: float = 20.0      # damage per 0.5 s tick while inside
+                                           # (doubled from 10 per user tuning).
