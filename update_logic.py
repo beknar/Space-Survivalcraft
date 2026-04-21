@@ -762,6 +762,7 @@ def update_boss(gv: GameView, dt: float) -> None:
             dt, boss_px, boss_py,
             station_x, station_y,
             gv.asteroid_list,
+            force_walls=getattr(gv, "_force_walls", None),
         )
         for p in projs:
             gv._boss_projectile_list.append(p)
@@ -800,7 +801,8 @@ def update_nebula_boss(gv: GameView, dt: float) -> None:
     if zone_asts is not None:
         asteroid_list = zone_asts
     projs = nb.update_boss(
-        dt, boss_px, boss_py, station_x, station_y, asteroid_list)
+        dt, boss_px, boss_py, station_x, station_y, asteroid_list,
+        force_walls=getattr(gv, "_force_walls", None))
     for p in projs:
         gv._boss_projectile_list.append(p)
 
@@ -1110,6 +1112,23 @@ def update_force_walls(gv: GameView, dt: float) -> None:
                     gv.hit_sparks.append(HitSpark(proj.center_x, proj.center_y))
                     proj.remove_from_sprite_lists()
                     break
+
+    # Nebula-boss gas clouds also stop at force walls.  These live in
+    # ``gv._nebula_gas_clouds`` (a plain list of ``GasCloudProjectile``
+    # instances, not an arcade.SpriteList), so filter in place.
+    gas_clouds = getattr(gv, "_nebula_gas_clouds", None)
+    if gas_clouds:
+        survivors = []
+        for c in gas_clouds:
+            hit_wall = False
+            for wall in walls:
+                if wall.blocks_point(c.center_x, c.center_y, radius=c.radius):
+                    gv.hit_sparks.append(HitSpark(c.center_x, c.center_y))
+                    hit_wall = True
+                    break
+            if not hit_wall:
+                survivors.append(c)
+        gv._nebula_gas_clouds = survivors
 
 
 def update_missiles(gv: GameView, dt: float) -> None:

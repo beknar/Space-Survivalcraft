@@ -169,6 +169,7 @@ class BossAlienShip(arcade.Sprite):
         ty: float,
         dt: float,
         asteroid_list: arcade.SpriteList,
+        force_walls: list | None = None,
     ) -> None:
         """Move toward a target with obstacle avoidance and rotation speed limit."""
         dx = tx - self.center_x
@@ -198,7 +199,9 @@ class BossAlienShip(arcade.Sprite):
             self._heading = (self._heading + max_rot * (1.0 if diff > 0 else -1.0)) % 360.0
         self.angle = self._heading
 
-        # Move in current heading direction
+        # Move in current heading direction — save the pre-move
+        # position so a force-wall-crossing step can revert cleanly.
+        prev_x, prev_y = self.center_x, self.center_y
         rad = math.radians(self._heading)
         move_x = math.sin(rad)
         move_y = math.cos(rad)
@@ -211,6 +214,19 @@ class BossAlienShip(arcade.Sprite):
         self.center_x = max(50.0, min(WORLD_WIDTH - 50.0, self.center_x))
         self.center_y = max(50.0, min(WORLD_HEIGHT - 50.0, self.center_y))
 
+        # Force-wall block — same policy aliens use: if the movement
+        # segment cuts a wall, snap back and kill forward velocity.
+        if force_walls:
+            from sprites.alien_ai import segment_crosses_any_wall
+            if segment_crosses_any_wall(prev_x, prev_y,
+                                         self.center_x, self.center_y,
+                                         force_walls):
+                self.center_x, self.center_y = prev_x, prev_y
+                # Absorb a chunk of velocity so the boss doesn't keep
+                # hammering the wall at full tilt next frame.
+                self.vel_x *= 0.25
+                self.vel_y *= 0.25
+
     def update_boss(
         self,
         dt: float,
@@ -219,8 +235,16 @@ class BossAlienShip(arcade.Sprite):
         station_x: float,
         station_y: float,
         asteroid_list: arcade.SpriteList,
+        force_walls: list | None = None,
     ) -> list[Projectile]:
-        """Advance boss AI. Returns list of fired projectiles."""
+        """Advance boss AI. Returns list of fired projectiles.
+
+        ``force_walls`` is an optional list of active ``ForceWall``
+        sprites; when provided, any movement segment (physics-decay,
+        steer-toward, or charge-dash) that would cross a wall is
+        reverted so the boss can't tunnel through the player's
+        shimmering barrier.
+        """
         fired: list[Projectile] = []
 
         # ── Physics velocity decay ──
@@ -229,8 +253,19 @@ class BossAlienShip(arcade.Sprite):
         self.vel_y *= damp
         if math.hypot(self.vel_x, self.vel_y) < 0.5:
             self.vel_x = self.vel_y = 0.0
+        prev_x, prev_y = self.center_x, self.center_y
         self.center_x += self.vel_x * dt
         self.center_y += self.vel_y * dt
+        if force_walls:
+            from sprites.alien_ai import segment_crosses_any_wall
+            if segment_crosses_any_wall(prev_x, prev_y,
+                                         self.center_x, self.center_y,
+                                         force_walls):
+                self.center_x, self.center_y = prev_x, prev_y
+                # Bounce back: invert + dampen so the boss can't
+                # wedge against the wall with residual velocity.
+                self.vel_x *= -0.25
+                self.vel_y *= -0.25
 
         # ── Collision cooldown ──
         if self._col_cd > 0.0:
@@ -251,14 +286,16 @@ class BossAlienShip(arcade.Sprite):
         dist_player = math.hypot(dx_p, dy_p)
 
         # ── Charge attack (Phase 2+) ──
-        if self._update_charge(dt):
+        if self._update_charge(dt, force_walls=force_walls):
             return fired
 
         # ── Movement: head toward station, but engage player if close ──
         if dist_player <= BOSS_DETECT_RANGE:
-            self._steer_toward(player_x, player_y, dt, asteroid_list)
+            self._steer_toward(player_x, player_y, dt, asteroid_list,
+                                force_walls=force_walls)
         else:
-            self._steer_toward(self._target_x, self._target_y, dt, asteroid_list)
+            self._steer_toward(self._target_x, self._target_y, dt,
+                                asteroid_list, force_walls=force_walls)
 
         # ── Weapon cooldowns ──
         self._cannon_cd = max(0.0, self._cannon_cd - dt)
@@ -289,8 +326,17 @@ class BossAlienShip(arcade.Sprite):
 
         return fired
 
-    def _update_charge(self, dt: float) -> bool:
-        """Handle charge attack state (windup + dash). Returns True if charging."""
+    def _update_charge(
+        self, dt: float, force_walls: list | None = None,
+    ) -> bool:
+        """Handle charge attack state (windup + dash). Returns True if charging.
+
+        A dash that would cross a force wall is clipped to the
+        pre-move position AND immediately aborts the charge — the
+        boss bleeds off its dash cooldown and gets a smaller fraction
+        of the normal CD before retrying, so a single wall doesn't
+        lock the boss into an infinite reset loop.
+        """
         if not self._charging:
             return False
 
@@ -301,12 +347,26 @@ class BossAlienShip(arcade.Sprite):
             pulse = int(abs(math.sin(self._charge_windup * 8.0)) * 200) + 55
             self.color = (pulse, pulse, 255, 255)
         else:
-            # Dashing
+            # Dashing — track pre-move for wall check.
+            prev_x, prev_y = self.center_x, self.center_y
             self._charge_timer -= dt
             self.center_x += self._charge_dir_x * BOSS_CHARGE_SPEED * dt
             self.center_y += self._charge_dir_y * BOSS_CHARGE_SPEED * dt
             self.center_x = max(50.0, min(WORLD_WIDTH - 50.0, self.center_x))
             self.center_y = max(50.0, min(WORLD_HEIGHT - 50.0, self.center_y))
+            if force_walls:
+                from sprites.alien_ai import segment_crosses_any_wall
+                if segment_crosses_any_wall(prev_x, prev_y,
+                                             self.center_x, self.center_y,
+                                             force_walls):
+                    # Revert + cut the charge short.  Half the normal
+                    # cooldown so the boss can re-attempt once the
+                    # wall decays rather than stalling for 8 s.
+                    self.center_x, self.center_y = prev_x, prev_y
+                    self._charging = False
+                    self._charge_cd = BOSS_CHARGE_COOLDOWN * 0.5
+                    self.color = (255, 255, 255, 255)
+                    return True
             self.color = (255, 100, 100, 255)
             if self._charge_timer <= 0.0:
                 self._charging = False
