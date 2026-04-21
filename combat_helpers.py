@@ -303,11 +303,19 @@ def spawn_nebula_boss(gv: GameView) -> bool:
 
     best = _furthest_corner_from(home.center_x, home.center_y)
 
-    tex = load_nebula_boss_texture()
+    # Roll a random row of the second column of
+    # ``faction_6_monsters_128x128.png`` so each Nebula boss spawn
+    # gets its own appearance from the 8 monster variants.  The row
+    # is stored on the boss so save/load (or any future replay
+    # system) can recreate the exact visual.
+    from sprites.nebula_boss import NEBULA_BOSS_ROW_COUNT
+    sprite_row = random.randrange(NEBULA_BOSS_ROW_COUNT)
+    tex = load_nebula_boss_texture(sprite_row)
     gv._nebula_boss = NebulaBossShip(
         tex, gv._boss_laser_tex,
         best[0], best[1],
         home.center_x, home.center_y,
+        sprite_row=sprite_row,
     )
     if not hasattr(gv, "_nebula_boss_list"):
         gv._nebula_boss_list = arcade.SpriteList()

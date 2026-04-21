@@ -25,7 +25,7 @@ from PIL import Image as PILImage
 
 from constants import (
     NEBULA_BOSS_PNG, NEBULA_BOSS_FRAME_SIZE,
-    NEBULA_BOSS_COL_INDEX, NEBULA_BOSS_ROW_INDEX,
+    NEBULA_BOSS_COL_INDEX,
     NEBULA_BOSS_GAS_SPEED, NEBULA_BOSS_GAS_RANGE,
     NEBULA_BOSS_GAS_COOLDOWN, NEBULA_BOSS_GAS_RADIUS,
     NEBULA_BOSS_CONE_RANGE, NEBULA_BOSS_CONE_WIDTH,
@@ -35,23 +35,47 @@ from constants import (
 from sprites.boss import BossAlienShip, _PHASE1, _PHASE2, _PHASE3
 
 
-_nebula_boss_texture_cache: arcade.Texture | None = None
+# One cached texture per (col, row) cell so repeat spawns with the
+# same row don't re-decode the 1024×1024 sheet.  Keyed on (col, row)
+# tuple so future variants (different column) slot in cleanly.
+_nebula_boss_texture_cache: dict[tuple[int, int], arcade.Texture] = {}
+
+NEBULA_BOSS_ROW_COUNT: int = 8  # second column has 8 monster variants
 
 
-def load_nebula_boss_texture() -> arcade.Texture:
-    """Crop and cache the Nebula boss texture (col=1, row=0 of the
-    128×128 grid)."""
-    global _nebula_boss_texture_cache
-    if _nebula_boss_texture_cache is not None:
-        return _nebula_boss_texture_cache
+def load_nebula_boss_texture(
+    row_index: int | None = None,
+) -> arcade.Texture:
+    """Crop and cache one of the 8 Nebula-boss-column frames.
+
+    ``row_index`` selects which of the 8 rows to use (0..7).  ``None``
+    rolls a fresh random row — callers that want to remember which
+    appearance was chosen (e.g. for save/load) should pick the row
+    up front via ``random.randrange(NEBULA_BOSS_ROW_COUNT)`` and pass
+    it here explicitly.
+
+    The column is fixed at ``NEBULA_BOSS_COL_INDEX`` (second column
+    of ``faction_6_monsters_128x128.png``).  Every returned texture
+    is cached for the session so repeat spawns with the same row
+    don't re-open the PNG.
+    """
+    import random as _random
+    if row_index is None:
+        row_index = _random.randrange(NEBULA_BOSS_ROW_COUNT)
+    row_index = max(0, min(NEBULA_BOSS_ROW_COUNT - 1, int(row_index)))
+    key = (NEBULA_BOSS_COL_INDEX, row_index)
+    cached = _nebula_boss_texture_cache.get(key)
+    if cached is not None:
+        return cached
     sheet = PILImage.open(NEBULA_BOSS_PNG).convert("RGBA")
     size = NEBULA_BOSS_FRAME_SIZE
     x = NEBULA_BOSS_COL_INDEX * size
-    y = NEBULA_BOSS_ROW_INDEX * size
+    y = row_index * size
     crop = sheet.crop((x, y, x + size, y + size))
     sheet.close()
-    _nebula_boss_texture_cache = arcade.Texture(crop)
-    return _nebula_boss_texture_cache
+    tex = arcade.Texture(crop)
+    _nebula_boss_texture_cache[key] = tex
+    return tex
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -137,8 +161,16 @@ class NebulaBossShip(BossAlienShip):
         y: float,
         target_x: float,
         target_y: float,
+        sprite_row: int = 0,
     ) -> None:
         super().__init__(texture, laser_tex, x, y, target_x, target_y)
+
+        # Which row of the monster sheet's second column this boss
+        # was built from (0..NEBULA_BOSS_ROW_COUNT - 1).  Stored so
+        # a future save/load codec can persist the chosen appearance
+        # and a reloaded Nebula boss keeps the same sprite instead
+        # of rolling a fresh random on every restore.
+        self.sprite_row: int = sprite_row
 
         # Gas cloud cooldown — staggered from the cone so both don't
         # fire on the same tick.
