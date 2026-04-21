@@ -89,9 +89,12 @@ class TestNebulaBossConstants:
         from constants import NEBULA_BOSS_SLOW_FACTOR
         assert NEBULA_BOSS_SLOW_FACTOR == 0.5
 
-    def test_cone_range_is_200(self):
+    def test_cone_range_is_400(self):
+        # Doubled from 200 per user tuning — the Nebula boss's cone
+        # AoE is meant to be a real threat rather than a glancing
+        # close-range hazard.
         from constants import NEBULA_BOSS_CONE_RANGE
-        assert NEBULA_BOSS_CONE_RANGE == 200.0
+        assert NEBULA_BOSS_CONE_RANGE == 400.0
 
     def test_cone_width_is_200(self):
         from constants import NEBULA_BOSS_CONE_WIDTH

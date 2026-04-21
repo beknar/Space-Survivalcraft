@@ -537,6 +537,11 @@ def draw_ui(gv: GameView) -> None:
             if gv._trade_station is not None else None,
         boss_pos=(gv._boss.center_x, gv._boss.center_y)
             if gv._boss is not None and gv._boss.hp > 0 else None,
+        extra_boss_positions=(
+            [(gv._nebula_boss.center_x, gv._nebula_boss.center_y)]
+            if getattr(gv, "_nebula_boss", None) is not None
+               and gv._nebula_boss.hp > 0 else None
+        ),
         wormhole_positions=[(wh.center_x, wh.center_y) for wh in gv._wormholes],
         zone_width=gv._zone.world_width,
         zone_height=gv._zone.world_height,

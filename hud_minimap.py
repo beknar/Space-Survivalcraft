@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import math
+import time
 
 import arcade
 
@@ -82,6 +83,7 @@ def draw_minimap(
     fog_revealed: int = 0,
     trade_station_pos: tuple[float, float] | None = None,
     boss_pos: tuple[float, float] | None = None,
+    extra_boss_positions: list[tuple[float, float]] | None = None,
     wormhole_positions: list[tuple[float, float]] | None = None,
     zone_width: float = WORLD_WIDTH,
     zone_height: float = WORLD_HEIGHT,
@@ -215,18 +217,32 @@ def draw_minimap(
                 arcade.LBWH(tmx - 3, tmy - 3, 6, 6),
                 (255, 255, 150), border_width=1)
 
-    # Boss marker
+    # Boss markers — every live boss (Double Star + Nebula) pulses
+    # yellow so it stands out from the red alien dots and so the
+    # player can't miss which direction the big threat is in.  Uses
+    # a 2 Hz ``math.sin`` pulse on the alpha channel of the outline;
+    # fill stays fully opaque so the blip never vanishes mid-pulse.
+    _boss_markers: list[tuple[float, float]] = []
     if boss_pos is not None:
-        bpx, bpy = boss_pos
-        _vis = True
-        if _has_fog:
-            gx = int(bpx * _inv_cell)
-            gy = int(bpy * _inv_cell)
-            _vis = 0 <= gx < _fw and 0 <= gy < _fh and _fg[gy][gx]
-        if _vis:
+        _boss_markers.append(boss_pos)
+    if extra_boss_positions:
+        _boss_markers.extend(extra_boss_positions)
+    if _boss_markers:
+        # Sine in [0..1] at 2 Hz -> halo alpha 80..255.
+        _pulse = 0.5 + 0.5 * math.sin(time.monotonic() * math.pi * 2.0)
+        _halo_alpha = int(80 + 175 * _pulse)
+        for bpx, bpy in _boss_markers:
+            _vis = True
+            if _has_fog:
+                gx = int(bpx * _inv_cell)
+                gy = int(bpy * _inv_cell)
+                _vis = 0 <= gx < _fw and 0 <= gy < _fh and _fg[gy][gx]
+            if not _vis:
+                continue
             bmx, bmy = to_map(bpx, bpy)
-            arcade.draw_circle_filled(bmx, bmy, 4.0, (255, 50, 50))
-            arcade.draw_circle_outline(bmx, bmy, 5.5, (255, 100, 100), 1)
+            arcade.draw_circle_filled(bmx, bmy, 4.0, (255, 220, 40))
+            arcade.draw_circle_outline(
+                bmx, bmy, 7.0, (255, 255, 120, _halo_alpha), 2)
 
     # Gas areas (green octagonal outlines scaled to world radius)
     if gas_positions:

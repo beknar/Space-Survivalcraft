@@ -800,7 +800,7 @@ NEBULA_BOSS_SLOW_FACTOR: float = 0.5                     # player speed multipli
 NEBULA_BOSS_SLOW_DURATION: float = 1.5                   # seconds of slow per hit
 
 # Gas cone — short-range AoE
-NEBULA_BOSS_CONE_RANGE: float = 200.0      # cone length
+NEBULA_BOSS_CONE_RANGE: float = 400.0      # cone length
 NEBULA_BOSS_CONE_WIDTH: float = 200.0      # width at far end
 NEBULA_BOSS_CONE_DURATION: float = 1.5     # seconds the cone stays active
 NEBULA_BOSS_CONE_COOLDOWN: float = 6.0
