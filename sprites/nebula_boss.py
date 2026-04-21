@@ -155,6 +155,15 @@ class NebulaBossShip(BossAlienShip):
     damage-tested by ``update_logic`` each frame.
     """
 
+    # Nebula boss stays locked on the player out to 1000 px (vs 800
+    # on the Double Star).  Wider priority so it stays aggressive
+    # while closing to weapon range instead of veering off to the
+    # station once the player starts kiting.  Charge attack + weapon
+    # gates stay at their own ranges (700 cannon / 800 detect) so
+    # the boss chases silently in the 800..1000 band, then opens up
+    # once within firing distance.
+    _PLAYER_PRIORITY_RANGE: float = 1000.0
+
     def __init__(
         self,
         texture: arcade.Texture,

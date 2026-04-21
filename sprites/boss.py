@@ -32,6 +32,14 @@ _PHASE3 = 3  # <25% HP: enraged — cooldowns halved, no shield regen
 class BossAlienShip(arcade.Sprite):
     """Boss-class enemy that targets the player's space station."""
 
+    # Distance at which the boss drops the station target and chases
+    # the player directly.  Default is ``BOSS_DETECT_RANGE`` (800 px);
+    # subclasses can widen it (``NebulaBossShip`` overrides to 1000
+    # so it stays locked on the player while closing to weapon
+    # range).  Centralising the threshold here keeps the movement
+    # branch in ``update_boss`` easy to read.
+    _PLAYER_PRIORITY_RANGE: float = BOSS_DETECT_RANGE
+
     def __init__(
         self,
         texture: arcade.Texture,
@@ -289,8 +297,13 @@ class BossAlienShip(arcade.Sprite):
         if self._update_charge(dt, force_walls=force_walls):
             return fired
 
-        # ── Movement: head toward station, but engage player if close ──
-        if dist_player <= BOSS_DETECT_RANGE:
+        # ── Movement: chase the player once they're inside the
+        # boss's priority range (``_PLAYER_PRIORITY_RANGE``); fall
+        # back to the station target otherwise.  ``BossAlienShip``
+        # uses ``BOSS_DETECT_RANGE`` (800 px), the Nebula subclass
+        # extends it to 1000 so it stays glued to the player while
+        # closing to weapon range.
+        if dist_player <= self._PLAYER_PRIORITY_RANGE:
             self._steer_toward(player_x, player_y, dt, asteroid_list,
                                 force_walls=force_walls)
         else:
