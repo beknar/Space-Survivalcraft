@@ -736,8 +736,15 @@ BOSS_SHIELD_REGEN_P2: float = 10.0      # shields/s (Phase 2)
 BOSS_SPEED: float = 180.0               # px/s
 BOSS_SPEED_P2: float = 220.0            # px/s (Phase 2+)
 BOSS_ROT_SPEED: float = 60.0            # deg/s
-BOSS_SCALE: float = 0.60                # 128*0.6 ≈ 77 px displayed
-BOSS_RADIUS: float = 38.0               # collision radius in px
+BOSS_SCALE: float = 1.80                # 128*1.8 ≈ 230 px displayed — 3× the
+                                        # original 0.60 per user tuning so
+                                        # both bosses read as a real threat
+                                        # silhouette against the Nebula + Zone 1.
+BOSS_RADIUS: float = 114.0              # collision radius in px — kept in sync
+                                        # with BOSS_SCALE (previously 38 at
+                                        # scale 0.60; tripled alongside it so
+                                        # lasers/missiles still land on the
+                                        # visible hull, not empty space around it).
 BOSS_DETECT_RANGE: float = 800.0        # px — aggro range
 
 # Boss main cannon
