@@ -155,8 +155,17 @@ class BossAlienShip(arcade.Sprite):
         base_x: float,
         base_y: float,
         asteroid_list: arcade.SpriteList,
+        force_walls: list | None = None,
     ) -> tuple[float, float]:
-        """Steer around asteroids."""
+        """Steer around asteroids + force walls.
+
+        ``force_walls`` (optional): any player-deployed walls that
+        should repel the boss so it routes around them instead of
+        hammering into the hard-block revert.  Wall repulsion uses
+        the same 2× weight aliens use (``ALIEN_AVOIDANCE_FORCE * 2``)
+        and an avoidance radius scaled to the boss's own size so a
+        large sprite starts curving early.
+        """
         steer_x, steer_y = base_x, base_y
         for asteroid in asteroid_list:
             adx = self.center_x - asteroid.center_x
@@ -169,6 +178,21 @@ class BossAlienShip(arcade.Sprite):
                 w = ALIEN_AVOIDANCE_FORCE * (1.0 - adist / thresh)
                 steer_x += adx / adist * w
                 steer_y += ady / adist * w
+        if force_walls:
+            # Buffer scales with the boss hull so the giant Nebula
+            # boss (115 px radius) starts curving well before contact.
+            # Aliens use ALIEN_RADIUS + 65 + 30 ≈ 115 — similar order.
+            wall_thresh = self.radius + ALIEN_AVOIDANCE_RADIUS + 60.0
+            bx, by = self.center_x, self.center_y
+            for wall in force_walls:
+                cx, cy, wdist = wall.closest_point(bx, by)
+                if 0.0 < wdist < wall_thresh:
+                    w = ALIEN_AVOIDANCE_FORCE * 2.0 * (
+                        1.0 - wdist / wall_thresh)
+                    wdx = bx - cx
+                    wdy = by - cy
+                    steer_x += wdx / wdist * w
+                    steer_y += wdy / wdist * w
         return steer_x, steer_y
 
     def _steer_toward(
@@ -188,7 +212,10 @@ class BossAlienShip(arcade.Sprite):
 
         base_x = dx / dist
         base_y = dy / dist
-        steer_x, steer_y = self._compute_avoidance(base_x, base_y, asteroid_list)
+        # Pass force walls into avoidance so the boss curves around
+        # the barrier instead of ramming it and stalling.
+        steer_x, steer_y = self._compute_avoidance(
+            base_x, base_y, asteroid_list, force_walls=force_walls)
         smag = math.hypot(steer_x, steer_y)
         if smag < 0.001:
             return
