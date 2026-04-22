@@ -98,6 +98,7 @@ class TradeMenu(MenuOverlay):
         self.open = not self.open
         if self.open:
             self._mode = "main"
+            self._sell_scroll = 0
             self._refresh_sell_list(inventory, station_inv)
 
     def _refresh_sell_list(self, inventory=None, station_inv=None) -> None:
@@ -125,7 +126,11 @@ class TradeMenu(MenuOverlay):
             name = _ITEM_NAMES.get(it, it)
             price = SELL_PRICES.get(it, 1)
             self._sell_items.append((it, name, price, ct))
-        self._sell_scroll = 0
+        # Scroll position is NOT reset here — this runs after every sale
+        # and resetting would snap the view back to the top mid-sell.
+        # Callers that open the sell view (``toggle`` / SELL button) reset
+        # ``_sell_scroll`` themselves; ``_draw_sell`` clamps if the list
+        # shrunk below the current scroll offset.
 
     def _panel_height(self) -> int:
         """Dynamic height — in sell mode grows to fit every row."""
@@ -359,6 +364,7 @@ class TradeMenu(MenuOverlay):
             by = py + ph - 90
             if bx <= x <= bx + 200 and by <= y <= by + 36:
                 self._mode = "sell"
+                self._sell_scroll = 0
                 self._refresh_sell_list(inventory, station_inv)
                 return None
             # Buy button
