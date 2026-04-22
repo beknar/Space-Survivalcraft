@@ -122,15 +122,21 @@ class TestSoakNebulaAsteroidCrush:
         refill_cd = [0.0]
 
         def refill_asteroids() -> None:
-            """Put ~20 fresh asteroids back around the boss."""
+            """Top up the asteroid field, capped so 5 min of boss-
+            can't-keep-up doesn't balloon the list.  Only adds
+            enough to bring the field back up to the baseline — any
+            leak in the crush pass would show as RSS growth
+            (caught by ``run_soak``'s memory-growth floor)."""
             _r.seed(42)
-            for _ in range(15):
+            iron_target = 15
+            copper_target = 5
+            while len(z._iron_asteroids) < iron_target:
                 ox = _r.uniform(-400, 400)
                 oy = _r.uniform(-400, 400)
                 z._iron_asteroids.append(
                     IronAsteroid(z._iron_tex,
                                   nb.center_x + ox, nb.center_y + oy))
-            for _ in range(5):
+            while len(z._copper_asteroids) < copper_target:
                 ox = _r.uniform(-400, 400)
                 oy = _r.uniform(-400, 400)
                 z._copper_asteroids.append(

@@ -221,11 +221,24 @@ class _StubNebulaBoss:
         self.center_y = y
         self.hp = 100
         self.max_hp = 100
+        self.shields = 0
+        self.max_shields = 0
         self._charging = False
         self._cone_active = False
         self._cone_timer = 0.0
         self._cone_dir_x = 1.0
         self._cone_dir_y = 0.0
+        # Added for ``collisions._projectiles_vs_boss`` which now
+        # reads ``boss.radius`` (derived from sprite width on the
+        # real ``BossAlienShip``).  Stub uses the canonical 38 px
+        # the old ``BOSS_RADIUS`` constant represented at
+        # ``BOSS_SCALE = 0.60`` — good enough for the gas-attack
+        # tests that only hit the player-side code path.
+        from constants import BOSS_RADIUS
+        self.radius = BOSS_RADIUS
+        # Also the ``width`` for the HP-bar draw path.
+        self.width = BOSS_RADIUS * 2.0
+        self.height = BOSS_RADIUS * 2.0
 
     def update_boss(self, *a, **kw):
         return []
