@@ -127,21 +127,31 @@ class StationInventory(BaseInventoryData):
         self._mouse_y = y
 
     # ── Input ────────────────────────────────────────────────────────────
-    def on_mouse_press(self, x: float, y: float) -> bool:
+    def on_mouse_press(self, x: float, y: float,
+                       button: int = arcade.MOUSE_BUTTON_LEFT) -> bool:
+        """Returns True if the click was consumed.
+
+        Right-click on a cell with a stack ≥ 2 splits it in half rather
+        than starting a drag.
+        """
         if not self.open:
             return False
         if not self._panel_contains(x, y):
             return False  # click outside — don't close, let caller handle
-        # Consolidate button
-        ox, oy = self._panel_origin()
-        cbx = ox + _INV_W - 70
-        cby = oy + _INV_H - _INV_HEADER + 4
-        if cbx <= x <= cbx + 60 and cby <= y <= cby + 18:
-            self.consolidate()
-            return True
+        # Consolidate button — left-click only.
+        if button == arcade.MOUSE_BUTTON_LEFT:
+            ox, oy = self._panel_origin()
+            cbx = ox + _INV_W - 70
+            cby = oy + _INV_H - _INV_HEADER + 4
+            if cbx <= x <= cbx + 60 and cby <= y <= cby + 18:
+                self.consolidate()
+                return True
         cell = self._cell_at(x, y)
         if cell is None:
             return False
+        if button == arcade.MOUSE_BUTTON_RIGHT:
+            self._split_stack(cell)
+            return True
         return self._start_drag(cell, x, y)
 
     def on_mouse_drag(self, x: float, y: float) -> None:

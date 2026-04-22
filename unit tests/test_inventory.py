@@ -318,3 +318,48 @@ class TestRenderCacheDirtyFlag:
         assert inv._cache_badge_list is None
         assert inv._cache_origin == (-1, -1)
 
+
+class TestSplitStack:
+    def test_split_even(self, inv):
+        inv._items[(0, 0)] = ("iron", 10)
+        assert inv._split_stack((0, 0)) is True
+        assert inv._items[(0, 0)] == ("iron", 5)
+        # Second cell in row 0 is the first scanned empty slot.
+        assert inv._items[(0, 1)] == ("iron", 5)
+
+    def test_split_odd_keeps_larger_half(self, inv):
+        inv._items[(0, 0)] = ("iron", 7)
+        assert inv._split_stack((0, 0)) is True
+        assert inv._items[(0, 0)] == ("iron", 4)
+        assert inv._items[(0, 1)] == ("iron", 3)
+
+    def test_split_refuses_single_unit(self, inv):
+        inv._items[(0, 0)] = ("iron", 1)
+        assert inv._split_stack((0, 0)) is False
+        assert inv._items[(0, 0)] == ("iron", 1)
+
+    def test_split_refuses_empty_cell(self, inv):
+        assert inv._split_stack((0, 0)) is False
+
+    def test_split_refuses_when_grid_full(self, inv):
+        for r in range(INV_ROWS):
+            for c in range(INV_COLS):
+                inv._items[(r, c)] = ("iron", 4)
+        inv._items[(0, 0)] = ("iron", 10)
+        assert inv._split_stack((0, 0)) is False
+        assert inv._items[(0, 0)] == ("iron", 10)
+
+    def test_split_refuses_during_drag(self, inv):
+        inv.add_item("iron", 10)
+        inv.add_item("copper", 8)
+        inv._start_drag((0, 0), 100.0, 100.0)
+        # The copper stack is untouched by the drag; splitting it
+        # mid-drag would strand the carried iron, so the split refuses.
+        assert inv._split_stack((0, 1)) is False
+
+    def test_split_marks_dirty(self, inv):
+        inv._items[(0, 0)] = ("iron", 10)
+        inv._render_dirty = False
+        inv._split_stack((0, 0))
+        assert inv._render_dirty is True
+

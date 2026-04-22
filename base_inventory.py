@@ -181,6 +181,37 @@ class BaseInventoryData:
         ct_text.y = y + 3
         ct_text.draw()
 
+    def _split_stack(self, cell: tuple[int, int]) -> bool:
+        """Split the stack in ``cell`` into two roughly-equal halves.
+
+        The original cell keeps the larger half (``ceil(n / 2)``) and the
+        first empty cell in the grid receives the smaller half
+        (``floor(n / 2)``).  Returns ``True`` if a split actually
+        happened — i.e. the stack had at least 2 units and an empty cell
+        was available.  No-op while a drag is in progress so the right-
+        click can't strand carried items.
+        """
+        if self._drag_type is not None:
+            return False
+        item = self._items.get(cell)
+        if item is None:
+            return False
+        it, ct = item
+        if ct < 2:
+            return False
+        for r in range(self._rows):
+            for c in range(self._cols):
+                if (r, c) == cell:
+                    continue
+                if (r, c) not in self._items:
+                    keep = (ct + 1) // 2
+                    moved = ct - keep
+                    self._items[cell] = (it, keep)
+                    self._items[(r, c)] = (it, moved)
+                    self._mark_dirty()
+                    return True
+        return False
+
     def _start_drag(self, cell: tuple[int, int], x: float, y: float) -> bool:
         """Start dragging item from cell. Returns True if drag started."""
         item = self._items.get(cell)

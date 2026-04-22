@@ -128,24 +128,33 @@ class Inventory(BaseInventoryData):
         oy = (sh - INV_H) // 2
         return ox <= x <= ox + INV_W and oy <= y <= oy + INV_H
 
-    def on_mouse_press(self, x: float, y: float) -> bool:
-        """Attempt to pick up the item at (x, y).  Returns True if drag started."""
+    def on_mouse_press(self, x: float, y: float,
+                       button: int = arcade.MOUSE_BUTTON_LEFT) -> bool:
+        """Attempt to pick up the item at (x, y).  Returns True if drag started.
+
+        Right-click on a cell with a stack ≥ 2 splits it in half instead
+        of starting a drag (the original keeps the larger half, the
+        first empty cell gets the smaller half).
+        """
         if not self.open:
             return False
-        # Consolidate button (above panel)
-        sw = self._window.width if self._window else SCREEN_WIDTH
-        sh = self._window.height if self._window else SCREEN_HEIGHT
-        ox = (sw - INV_W) // 2
-        oy = (sh - INV_H) // 2
-        cbw, cbh = 70, 20
-        cbx = ox + (INV_W - cbw) // 2
-        cby = oy + INV_H + 4
-        if cbx <= x <= cbx + cbw and cby <= y <= cby + cbh:
-            self.consolidate()
-            return True
+        # Consolidate button (above panel) — only responds to left-click.
+        if button == arcade.MOUSE_BUTTON_LEFT:
+            sw = self._window.width if self._window else SCREEN_WIDTH
+            sh = self._window.height if self._window else SCREEN_HEIGHT
+            ox = (sw - INV_W) // 2
+            oy = (sh - INV_H) // 2
+            cbw, cbh = 70, 20
+            cbx = ox + (INV_W - cbw) // 2
+            cby = oy + INV_H + 4
+            if cbx <= x <= cbx + cbw and cby <= y <= cby + cbh:
+                self.consolidate()
+                return True
         cell = self._cell_at(x, y)
         if cell is None:
             return False
+        if button == arcade.MOUSE_BUTTON_RIGHT:
+            return self._split_stack(cell)
         return self._start_drag(cell, x, y)
 
     def on_mouse_drag(self, x: float, y: float) -> None:

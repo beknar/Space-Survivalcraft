@@ -226,6 +226,15 @@ def _try_misty_step(gv: GameView, key: int) -> None:
 
 
 def handle_mouse_press(gv: GameView, x: int, y: int, button: int, modifiers: int) -> None:
+    # Right-click routes ONLY to the two inventory panels so stacks can
+    # be split; all other overlays + world clicks stay left-click only.
+    if button == arcade.MOUSE_BUTTON_RIGHT:
+        if gv._station_inv.open and gv._station_inv.on_mouse_press(
+                x, y, button=button):
+            return
+        if gv.inventory.open:
+            gv.inventory.on_mouse_press(x, y, button=button)
+        return
     if button != arcade.MOUSE_BUTTON_LEFT:
         return
     if gv._death_screen.active:
