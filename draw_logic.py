@@ -11,7 +11,37 @@ from constants import (
     SHIELD_SCALE,
     MINIMAP_Y, MINIMAP_H,
     SHIP_MAX_LEVEL,
+    NOSE_OFFSET,
 )
+
+# Pixels beyond the nose at which the Ascended Striker / Thunderbolt
+# front-marker is drawn, plus the arm length + line thickness of the X.
+_NOSE_MARKER_LEAD: float = 14.0
+_NOSE_MARKER_ARM: float = 5.0
+_NOSE_MARKER_WIDTH: float = 2.0
+_NOSE_MARKER_COLOR: tuple[int, int, int] = (230, 40, 40)
+
+
+def _draw_nose_marker(gv: GameView) -> None:
+    """Draw a small red X a few px ahead of the player's nose so the
+    point-symmetric Ascended Striker / Thunderbolt sprites have a clear
+    'this is the front' cue."""
+    rad = math.radians(gv.player.heading)
+    sx, cy = math.sin(rad), math.cos(rad)
+    lead = NOSE_OFFSET + _NOSE_MARKER_LEAD
+    mx = gv.player.center_x + sx * lead
+    my = gv.player.center_y + cy * lead
+    # Perpendicular unit vector (right of heading) for the X arms.
+    px, py = cy, -sx
+    arm = _NOSE_MARKER_ARM
+    a1x, a1y = mx + (sx + px) * arm, my + (cy + py) * arm
+    a2x, a2y = mx - (sx + px) * arm, my - (cy + py) * arm
+    b1x, b1y = mx + (sx - px) * arm, my + (cy - py) * arm
+    b2x, b2y = mx - (sx - px) * arm, my - (cy - py) * arm
+    arcade.draw_line(a1x, a1y, a2x, a2y,
+                     _NOSE_MARKER_COLOR, _NOSE_MARKER_WIDTH)
+    arcade.draw_line(b1x, b1y, b2x, b2y,
+                     _NOSE_MARKER_COLOR, _NOSE_MARKER_WIDTH)
 from settings import audio
 
 if TYPE_CHECKING:
@@ -310,6 +340,16 @@ def draw_world(gv: GameView, cx: float, cy: float, hw: float, hh: float) -> None
     gv.player_list.draw()
     if _cloaked_now:
         gv.player.color = _saved_color
+    # Ascended Striker + Thunderbolt sprites are point-symmetric enough
+    # that the front is hard to read mid-combat; stick a small red X
+    # just ahead of the nose as a visual cue.  Skipped while cloaked so
+    # the marker doesn't defeat the null-field stealth.
+    if (not _cloaked_now
+            and not gv._player_dead
+            and getattr(gv.player, "_faction", None) == "Ascended"
+            and getattr(gv.player, "_ship_type", None)
+                in ("Striker", "Thunderbolt")):
+        _draw_nose_marker(gv)
     gv.shield_list.draw()
     # Shield enhancer ring
     if ("shield_enhancer" in gv._module_slots
