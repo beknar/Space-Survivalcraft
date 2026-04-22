@@ -300,6 +300,7 @@ def handle_mouse_press(gv: GameView, x: int, y: int, button: int, modifiers: int
                 p.ship_level >= SHIP_MAX_LEVEL for p in gv._parked_ships
             ) or gv._ship_level >= SHIP_MAX_LEVEL,
             l1_ship_exists=count_l1_ships(gv) > 0,
+            zone_id=getattr(getattr(gv, "_zone", None), "zone_id", None),
         )
         if selected is not None:
             if selected == "__destroy__":
@@ -545,6 +546,7 @@ def _handle_world_click(gv: GameView, x: int, y: int) -> bool:
             gv._craft_menu.refresh_recipes(
                 gv._station_inv,
                 is_advanced=(b.building_type == "Advanced Crafter"),
+                zone_id=getattr(getattr(gv, "_zone", None), "zone_id", None),
             )
             gv._craft_menu.toggle()
             gv._craft_menu.update(b.craft_progress, b.crafting)
@@ -866,7 +868,9 @@ def handle_mouse_scroll(
     # exceeds the panel height.  Wheel events are consumed by the
     # menu so they don't double-route into placement-mode rotation.
     if gv._build_menu.open:
-        gv._build_menu.on_mouse_scroll(scroll_y)
+        gv._build_menu.on_mouse_scroll(
+            scroll_y,
+            zone_id=getattr(getattr(gv, "_zone", None), "zone_id", None))
         return
     if gv._craft_menu.open:
         gv._craft_menu.on_mouse_scroll(scroll_y)
@@ -891,7 +895,9 @@ def handle_mouse_motion(gv: GameView, x: int, y: int, dx: int, dy: int) -> None:
         gv._destroy_cursor_y = gv.world_cam.position[1] - gv.window.height / 2 + y
         return
     if gv._build_menu.open:
-        gv._build_menu.on_mouse_motion(x, y)
+        gv._build_menu.on_mouse_motion(
+            x, y,
+            zone_id=getattr(getattr(gv, "_zone", None), "zone_id", None))
     if gv._craft_menu.open:
         gv._craft_menu.on_mouse_motion(x, y)
     if gv._qwi_menu.open:

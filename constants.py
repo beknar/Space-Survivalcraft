@@ -367,6 +367,40 @@ MODULE_TYPES: dict[str, dict] = {
                         "blueprint_only": True},
 }
 
+# Modules whose world-drop blueprints + craft-menu recipes are gated to
+# Nebula (ZONE2) and the post-Nebula warp zones.  In Zone 1 these
+# blueprints never drop and, even if the player already holds one from
+# a prior zone, the recipe is hidden from the craft menu.  The set is
+# written out explicitly (rather than derived from ``advanced`` /
+# ``blueprint_only`` flags) so future tuning of those flags can't
+# silently move a module into or out of the early-game pool.
+ZONE_GATED_MODULES: frozenset[str] = frozenset({
+    "rear_turret",
+    "homing_missile",
+    "misty_step",
+    "force_wall",
+    "death_blossom",
+    "ai_pilot",
+    "advanced_crafter",
+})
+
+# Build-menu rows hidden in Zone 1.  They appear only in the Nebula
+# and its four warp zones.
+ZONE_GATED_BUILDINGS: frozenset[str] = frozenset({
+    "Advanced Crafter",
+    "Fission Generator",
+    "Basic Ship",
+    "Advanced Ship",
+    "Shield Generator",
+    "Missile Array",
+})
+
+# Late-game boss-trigger building — visible ONLY in the Nebula, not
+# even in the post-Nebula warp zones.
+ZONE2_ONLY_BUILDINGS: frozenset[str] = frozenset({
+    "Quantum Wave Integrator",
+})
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # 9. Asteroid / Explosion
 # ═══════════════════════════════════════════════════════════════════════════════

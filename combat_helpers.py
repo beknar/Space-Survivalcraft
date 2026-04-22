@@ -13,7 +13,7 @@ from constants import (
     ALIEN_COUNT, ALIEN_MIN_DIST,
     RESPAWN_EXCLUSION_RADIUS, SHIELD_RECHARGE_HEAL,
     REPAIR_PACK_HEAL, WORLD_ITEM_LIFETIME,
-    MODULE_TYPES,
+    MODULE_TYPES, ZONE_GATED_MODULES,
 )
 from settings import audio
 from sprites.explosion import Explosion, HitSpark, FireSpark
@@ -181,8 +181,22 @@ def spawn_iron_pickup(
 
 
 def spawn_blueprint_pickup(gv: GameView, x: float, y: float) -> None:
-    """Spawn a random blueprint pickup at world position (x, y)."""
-    mod_type = random.choice(list(MODULE_TYPES.keys()))
+    """Spawn a random blueprint pickup at world position (x, y).
+
+    In Zone 1 the pool is filtered to exclude the Nebula-gated modules
+    (rear turret, homing missiles, misty step, force wall, death
+    blossom, AI pilot, advanced crafter); those only drop in Zone 2
+    and its post-Nebula warp zones.
+    """
+    from zones import ZoneID
+    zone_id = getattr(getattr(gv, "_zone", None), "zone_id", None)
+    if zone_id is ZoneID.MAIN:
+        pool = [k for k in MODULE_TYPES if k not in ZONE_GATED_MODULES]
+    else:
+        pool = list(MODULE_TYPES.keys())
+    if not pool:
+        return
+    mod_type = random.choice(pool)
     tex = gv._blueprint_drop_tex.get(mod_type, gv._blueprint_tex)
     bp = BlueprintPickup(tex, x, y, mod_type,
                          lifetime=WORLD_ITEM_LIFETIME)

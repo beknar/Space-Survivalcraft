@@ -29,7 +29,7 @@ from menu_scroll import ScrollState, SCROLL_W as _SCROLL_W_SHARED
 from constants import (
     SCREEN_WIDTH, SCREEN_HEIGHT,
     CRAFT_TIME, CRAFT_IRON_COST, CRAFT_RESULT_COUNT,
-    MODULE_TYPES,
+    MODULE_TYPES, ZONE_GATED_MODULES,
 )
 
 _PANEL_W = 300
@@ -127,17 +127,27 @@ class CraftMenu(MenuOverlay):
             self._rect_sprites[i].visible = False
         self._rect_sprites.draw()
 
-    def refresh_recipes(self, station_inv, is_advanced: bool = False) -> None:
+    def refresh_recipes(self, station_inv, is_advanced: bool = False,
+                        zone_id=None) -> None:
         """Scan station inventory for blueprints and build recipe list.
 
         Once a blueprint is deposited, the recipe is permanently unlocked.
         ``is_advanced`` gates recipes flagged ``"advanced": True``.
+
+        ``zone_id`` (``ZoneID`` or ``None``) hides the Nebula-gated
+        recipes in Zone 1 even if the player already unlocked them.
+        ``None`` means 'no zone gating' — used by tests and any legacy
+        caller; it keeps the previous behaviour intact.
         """
+        from zones import ZoneID
+        zone_gated = (zone_id is ZoneID.MAIN)
         self._is_advanced = is_advanced
         title = "ADVANCED CRAFTER" if is_advanced else "BASIC CRAFTER"
         if self._t_title.text != title:
             self._t_title.text = title
-        # Unlock any new blueprints found in station inv
+        # Unlock any new blueprints found in station inv — unlock
+        # persistence is zone-independent so that returning to Zone 2
+        # still shows everything the player has earned.
         for key in MODULE_TYPES:
             if station_inv.count_item(f"bp_{key}") > 0:
                 self._unlocked.add(key)
@@ -145,6 +155,8 @@ class CraftMenu(MenuOverlay):
         self._recipes = []
         for key in MODULE_TYPES:
             if key in self._unlocked:
+                if zone_gated and key in ZONE_GATED_MODULES:
+                    continue
                 info = MODULE_TYPES[key]
                 if info.get("advanced") and not is_advanced:
                     continue

@@ -681,6 +681,7 @@ def draw_ui(gv: GameView) -> None:
             p.ship_level >= SHIP_MAX_LEVEL for p in gv._parked_ships
         ) or gv._ship_level >= SHIP_MAX_LEVEL,
         l1_ship_exists=count_l1_ships(gv) > 0,
+        zone_id=getattr(getattr(gv, "_zone", None), "zone_id", None),
     )
     gv._station_info.draw()
     gv._ship_stats.draw()

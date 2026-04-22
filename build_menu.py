@@ -30,7 +30,7 @@ from menu_overlay import MenuOverlay
 from menu_scroll import ScrollState, SCROLL_W as _SCROLL_W_SHARED
 from constants import (
     BUILD_MENU_W, BUILD_MENU_ITEM_H, BUILD_MENU_PAD,
-    BUILDING_TYPES,
+    BUILDING_TYPES, ZONE_GATED_BUILDINGS, ZONE2_ONLY_BUILDINGS,
 )
 
 
@@ -60,6 +60,40 @@ _MENU_ORDER = [
 # module.  Kept as a module-local alias so existing ``_SCROLL_W``
 # references in this file continue to work.
 _SCROLL_W = _SCROLL_W_SHARED
+
+
+def _visible_menu_order(zone_id) -> list[tuple[int, str]]:
+    """Return ``[(orig_idx, name), …]`` filtered for ``zone_id``.
+
+    Orig-idx is the position of ``name`` in ``_MENU_ORDER``, used by
+    the draw path to index the per-row Text pool (sized once to the
+    full menu length; never rebuilt per zone).
+
+    ``zone_id`` semantics:
+      * ``ZoneID.MAIN`` — hide every building in ``ZONE_GATED_BUILDINGS``
+        and every building in ``ZONE2_ONLY_BUILDINGS``.
+      * ``ZoneID.ZONE2`` — show everything.
+      * Warp zones — hide only ``ZONE2_ONLY_BUILDINGS`` (the QWI is
+        Nebula-exclusive; the other late-game buildings carry over).
+      * ``None`` — no filtering.  Used by tests that instantiate
+        ``BuildMenu`` directly without a game view; keeps the existing
+        full-list contract.
+    """
+    if zone_id is None:
+        return list(enumerate(_MENU_ORDER))
+    from zones import ZoneID
+    in_main = zone_id is ZoneID.MAIN
+    in_nebula = zone_id is ZoneID.ZONE2
+    out: list[tuple[int, str]] = []
+    for i, name in enumerate(_MENU_ORDER):
+        if name in ZONE2_ONLY_BUILDINGS:
+            if not in_nebula:
+                continue
+        elif name in ZONE_GATED_BUILDINGS:
+            if in_main:
+                continue
+        out.append((i, name))
+    return out
 
 
 class BuildMenu(MenuOverlay):
@@ -92,6 +126,13 @@ class BuildMenu(MenuOverlay):
         self._ship_level: int = 1
         self._max_ship_exists: bool = False
         self._l1_ship_exists: bool = False
+        # Current zone governs which rows are visible.  ``None`` keeps
+        # the pre-gating behaviour (all rows shown) so tests that
+        # instantiate ``BuildMenu`` without a game view keep working.
+        self._zone_id = None
+        # Cached visible count + last zone; used to reclamp scroll and
+        # drop stale hover state when the filter changes.
+        self._last_visible_count: int = len(_MENU_ORDER)
 
         # Scroll state + scrollbar geometry delegated to the shared
         # ``menu_scroll.ScrollState`` component (was ~70 lines of
@@ -169,6 +210,26 @@ class BuildMenu(MenuOverlay):
             "DESTROY", 0, 0, (255, 80, 80), 12, bold=True,
             anchor_x="center", anchor_y="center",
         )
+
+    # ── Zone filtering ────────────────────────────────────────────────────────
+
+    def _visible_order(self) -> list[tuple[int, str]]:
+        """Return the currently-visible ``[(orig_idx, name), …]`` list."""
+        return _visible_menu_order(self._zone_id)
+
+    def _sync_zone(self, zone_id) -> None:
+        """Update cached zone state.  On a zone change, drop stale hover
+        state, recompute ``_content_h``, and reclamp scroll so the thumb
+        doesn't outrun the new shorter list."""
+        visible = _visible_menu_order(zone_id)
+        count = len(visible)
+        if zone_id is not self._zone_id:
+            self._zone_id = zone_id
+            self._hover_idx = -1
+            self._hover_destroy = False
+        self._last_visible_count = count
+        self._content_h = (count * BUILD_MENU_ITEM_H
+                           + BUILD_MENU_ITEM_H + 8)
 
     def _rect_reset(self) -> None:
         self._rect_slot = 0
@@ -300,7 +361,10 @@ class BuildMenu(MenuOverlay):
         """Return (x, y, w, h) for the Destroy button."""
         vx, vy, vw, vh = self._viewport_rect()
         top = vy + vh
-        rel_y = self._row_y(len(_MENU_ORDER)) + 4
+        # The Destroy button sits one row below the last visible row —
+        # when rows are filtered out by zone it must ride up too, not
+        # stay anchored to the full-menu index.
+        rel_y = self._row_y(self._last_visible_count) + 4
         y = top - rel_y - BUILD_MENU_ITEM_H + int(self._scroll_px)
         h = BUILD_MENU_ITEM_H - 4
         return vx, y, vw, h
@@ -383,7 +447,8 @@ class BuildMenu(MenuOverlay):
 
     # ── Input ─────────────────────────────────────────────────────────────────
 
-    def on_mouse_motion(self, x: float, y: float) -> None:
+    def on_mouse_motion(self, x: float, y: float, zone_id=None) -> None:
+        self._sync_zone(zone_id)
         self._update_layout()
         self._mouse_x = x
         self._mouse_y = y
@@ -396,12 +461,12 @@ class BuildMenu(MenuOverlay):
         self._hover_destroy = False
         if not self.open:
             return
-        for i in range(len(_MENU_ORDER)):
-            ix, iy, iw, ih = self._item_rect(i)
+        for visible_pos in range(self._last_visible_count):
+            ix, iy, iw, ih = self._item_rect(visible_pos)
             if not self._row_visible(iy, ih):
                 continue
             if ix <= x <= ix + iw and iy <= y <= iy + ih:
-                self._hover_idx = i
+                self._hover_idx = visible_pos
                 return
         # Check destroy button hover
         dx, dy, dw, dh = self._destroy_rect()
@@ -412,10 +477,11 @@ class BuildMenu(MenuOverlay):
         """Drop scrollbar drag on mouse-up."""
         self._scroll.on_release()
 
-    def on_mouse_scroll(self, scroll_y: float) -> None:
+    def on_mouse_scroll(self, scroll_y: float, zone_id=None) -> None:
         """Mouse-wheel scroll — one row per click, up = scroll up."""
         if not self.open:
             return
+        self._sync_zone(zone_id)
         _, _, _, viewport_h = self._viewport_rect()
         self._scroll.on_wheel(scroll_y, self._content_h, viewport_h)
 
@@ -438,8 +504,10 @@ class BuildMenu(MenuOverlay):
         ship_level: int = 1,
         max_ship_exists: bool = False,
         l1_ship_exists: bool = True,
+        zone_id=None,
     ) -> Optional[str]:
         """Handle a click. Returns building type name, or "__destroy__" for destroy mode."""
+        self._sync_zone(zone_id)
         self._update_layout()
         self._ship_level = ship_level
         self._max_ship_exists = max_ship_exists
@@ -450,8 +518,8 @@ class BuildMenu(MenuOverlay):
         # never falls through to a row click underneath.
         if self._handle_scrollbar_press(x, y):
             return None
-        for i, name in enumerate(_MENU_ORDER):
-            ix, iy, iw, ih = self._item_rect(i)
+        for visible_pos, (_orig_idx, name) in enumerate(self._visible_order()):
+            ix, iy, iw, ih = self._item_rect(visible_pos)
             if not self._row_visible(iy, ih):
                 continue
             if ix <= x <= ix + iw and iy <= y <= iy + ih:
@@ -486,9 +554,11 @@ class BuildMenu(MenuOverlay):
         ship_level: int = 1,
         max_ship_exists: bool = False,
         l1_ship_exists: bool = True,
+        zone_id=None,
     ) -> None:
         if not self.open:
             return
+        self._sync_zone(zone_id)
         self._update_layout()
         self._ship_level = ship_level
         self._max_ship_exists = max_ship_exists
@@ -554,27 +624,39 @@ class BuildMenu(MenuOverlay):
         # share the same visibility/color decisions without re-running
         # the ``_check_availability`` cost (~1 ms/frame cumulatively
         # over 16 rows).
+        #
+        # Row iteration is keyed by visible_pos (position in the
+        # zone-filtered list), while the per-row Text pool is keyed by
+        # orig_idx (position in ``_MENU_ORDER``).  Rows hidden by the
+        # zone filter fall through to the "hide all labels for this
+        # orig_idx" pass at the end.
+        visible_order = self._visible_order()
+        visible_orig_idxs: set[int] = set()
         statuses: list[tuple] = []
-        for i, name in enumerate(_MENU_ORDER):
-            ix, iy, iw, ih = self._item_rect(i)
-            visible = self._row_visible(iy, ih)
+        for visible_pos, (orig_idx, name) in enumerate(visible_order):
+            visible_orig_idxs.add(orig_idx)
+            ix, iy, iw, ih = self._item_rect(visible_pos)
+            on_screen = self._row_visible(iy, ih)
             avail: bool = False
             reason: str = ""
-            if visible:
+            if on_screen:
                 avail, reason = self._check_availability(
                     name, iron, building_counts,
                     modules_used, module_capacity, has_home,
                     copper, unlocked_blueprints, self._ship_level,
                     self._max_ship_exists, self._l1_ship_exists,
                 )
-            statuses.append((ix, iy, iw, ih, visible, avail, reason))
+            statuses.append(
+                (visible_pos, orig_idx, name,
+                 ix, iy, iw, ih, on_screen, avail, reason))
 
         # Phase 1 — pool fills.
         self._rect_reset()
-        for i, (ix, iy, iw, ih, visible, avail, _reason) in enumerate(statuses):
-            if not visible:
+        for (visible_pos, _orig, _name,
+             ix, iy, iw, ih, on_screen, avail, _reason) in statuses:
+            if not on_screen:
                 continue
-            is_hover = (i == self._hover_idx)
+            is_hover = (visible_pos == self._hover_idx)
             if is_hover and avail:
                 fill = (50, 70, 100, 220)
             elif avail:
@@ -587,11 +669,12 @@ class BuildMenu(MenuOverlay):
         # Phase 2 — outlines, icons, and per-row Text state.  Each
         # Text mutation is guarded so pyglet only rebuilds a label
         # when its content / color / position actually changed.
-        for i, (ix, iy, iw, ih, visible, avail, reason) in enumerate(statuses):
-            tn = self._t_names[i]
-            tc = self._t_costs[i]
-            tr = self._t_reasons[i]
-            if not visible:
+        for (_visible_pos, orig_idx, name,
+             ix, iy, iw, ih, on_screen, avail, reason) in statuses:
+            tn = self._t_names[orig_idx]
+            tc = self._t_costs[orig_idx]
+            tr = self._t_reasons[orig_idx]
+            if not on_screen:
                 if tn._label.visible:
                     tn._label.visible = False
                 if tc._label.visible:
@@ -602,7 +685,6 @@ class BuildMenu(MenuOverlay):
             arcade.draw_rect_outline(
                 arcade.LBWH(ix, iy, iw, ih), (60, 80, 120), border_width=1,
             )
-            name = _MENU_ORDER[i]
             tex = self._textures.get(name)
             if tex is not None:
                 icon_size = ih - 8
@@ -631,8 +713,8 @@ class BuildMenu(MenuOverlay):
             cost_label = f"{stats['cost']} iron"
             if stats.get("cost_copper", 0) > 0:
                 cost_label += f" + {stats['cost_copper']} copper"
-            if cost_label != self._last_cost_text[i]:
-                self._last_cost_text[i] = cost_label
+            if cost_label != self._last_cost_text[orig_idx]:
+                self._last_cost_text[orig_idx] = cost_label
                 tc.text = cost_label
             if tc.x != name_x:
                 tc.x = name_x
@@ -647,8 +729,8 @@ class BuildMenu(MenuOverlay):
                 tc._label.visible = True
             # Reason label — only set when unavailable + non-empty.
             if not avail and reason:
-                if reason != self._last_reason_text[i]:
-                    self._last_reason_text[i] = reason
+                if reason != self._last_reason_text[orig_idx]:
+                    self._last_reason_text[orig_idx] = reason
                     tr.text = reason
                 rx = ix + iw - 8
                 ry_ = iy + ih // 2 - 4
@@ -661,6 +743,17 @@ class BuildMenu(MenuOverlay):
             else:
                 if tr._label.visible:
                     tr._label.visible = False
+
+        # Rows filtered out by the zone gate — hide their labels so
+        # stale text (e.g. "Need blueprint" on Advanced Crafter) doesn't
+        # leak through after a zone change.
+        for orig_idx in range(len(_MENU_ORDER)):
+            if orig_idx in visible_orig_idxs:
+                continue
+            for pool in (self._t_names, self._t_costs, self._t_reasons):
+                lbl = pool[orig_idx]._label
+                if lbl.visible:
+                    lbl.visible = False
 
         # One batch draw for every per-row label — replaces ~48
         # pyglet ``Label.draw`` calls and 48 ``set_state`` invocations
