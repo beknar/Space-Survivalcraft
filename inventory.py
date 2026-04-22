@@ -280,6 +280,11 @@ class Inventory(BaseInventoryData):
             self._cache_icon_list.draw()
         if self._cache_badge_list is not None and len(self._cache_badge_list) > 0:
             self._cache_badge_list.draw()
+        # Blueprint red-dot overlay — drawn last so it sits on top of
+        # the icon and the count badge.
+        if (self._cache_bp_marker_list is not None
+                and len(self._cache_bp_marker_list) > 0):
+            self._cache_bp_marker_list.draw()
 
         # Drag-source / hover overlays (1–2 cells, cheap per-frame).
         if self._drag_src is not None and self._drag_type is not None:

@@ -35,6 +35,11 @@ class BaseInventoryData:
         self._cache_icon_list: Optional[arcade.SpriteList] = None
         self._cache_fill_list: Optional[arcade.SpriteList] = None
         self._cache_badge_list: Optional[arcade.SpriteList] = None
+        # Blueprint-marker overlay: small red dot at top-right of any
+        # cell holding a ``bp_*`` item so the player can tell at a
+        # glance which stacks are blueprints (install into a crafter)
+        # vs. consumables or pre-built modules.
+        self._cache_bp_marker_list: Optional[arcade.SpriteList] = None
         self._cache_origin: tuple[int, int] = (-1, -1)
         # PIL-rendered count badge textures keyed by count string
         self._badge_tex_cache: dict[str, arcade.Texture] = {}
@@ -42,6 +47,10 @@ class BaseInventoryData:
         # to avoid leaking atlas entries — SpriteSolidColor creates a new
         # atlas slot per instance)
         self._fill_tex: arcade.Texture | None = None
+        # Shared red-dot texture for the blueprint marker.  One atlas
+        # entry used by every ``bp_*`` cell across ship + station
+        # inventories.
+        self._bp_marker_tex: arcade.Texture | None = None
 
     def _mark_dirty(self) -> None:
         self._render_dirty = True
@@ -272,22 +281,43 @@ class BaseInventoryData:
             self._cache_badge_list = SpriteList()
         else:
             self._cache_badge_list.clear()
+        if self._cache_bp_marker_list is None:
+            self._cache_bp_marker_list = SpriteList()
+        else:
+            self._cache_bp_marker_list.clear()
         if not hasattr(self, "_fill_pool"):
             self._fill_pool: list = []
             self._icon_pool: list = []
             self._badge_pool: list = []
+            self._bp_marker_pool: list = []
         fills = self._cache_fill_list
         icons = self._cache_icon_list
         badges = self._cache_badge_list
+        bp_markers = self._cache_bp_marker_list
         fill_pool = self._fill_pool
         icon_pool = self._icon_pool
         badge_pool = self._badge_pool
+        bp_marker_pool = self._bp_marker_pool
+        # Lazily build the red-dot texture once — same pattern the fill
+        # texture uses.  Drawn with PIL (anti-aliased circle) into a
+        # tiny RGBA image; atlas holds a single entry shared by every
+        # blueprint cell.
+        if self._bp_marker_tex is None:
+            from PIL import Image, ImageDraw
+            dot_size = 12
+            img = Image.new("RGBA", (dot_size, dot_size), (0, 0, 0, 0))
+            draw = ImageDraw.Draw(img)
+            draw.ellipse((1, 1, dot_size - 2, dot_size - 2),
+                         fill=(230, 40, 40, 255),
+                         outline=(255, 255, 255, 220))
+            self._bp_marker_tex = arcade.Texture(img)
         if self._fill_tex is None:
             _tmp = SpriteSolidColor(cs - 2, cs - 2, 0, 0, (255, 255, 255))
             self._fill_tex = _tmp.texture
         fill_idx = 0
         icon_idx = 0
         badge_idx = 0
+        bp_marker_idx = 0
         for cell, (it, ct) in self._items.items():
             r, c = cell
             row_from_bottom = self._rows - 1 - r
@@ -340,6 +370,23 @@ class BaseInventoryData:
                 badge_pool.append(badge)
             badges.append(badge)
             badge_idx += 1
+            # Blueprint marker — small red dot in the top-right corner
+            # for any ``bp_*`` cell so the player can visually pick
+            # blueprints out of a mixed stack of modules + consumables.
+            if it.startswith("bp_"):
+                marker_tex = self._bp_marker_tex
+                mx = cx + cs - marker_tex.width / 2 - 2
+                my = cy + cs - marker_tex.height / 2 - 2
+                if bp_marker_idx < len(bp_marker_pool):
+                    marker = bp_marker_pool[bp_marker_idx]
+                    marker.texture = marker_tex
+                    marker.center_x = mx
+                    marker.center_y = my
+                else:
+                    marker = Sprite(marker_tex, center_x=mx, center_y=my)
+                    bp_marker_pool.append(marker)
+                bp_markers.append(marker)
+                bp_marker_idx += 1
         self._cache_origin = (gx, gy)
         self._render_dirty = False
 
