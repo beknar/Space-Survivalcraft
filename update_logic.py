@@ -388,8 +388,17 @@ def update_contrail(gv: GameView, dt: float) -> None:
             gv._contrail_timer -= interval
             if len(gv._contrail) < CONTRAIL_MAX_PARTICLES:
                 rad = math.radians(gv.player.heading)
-                ex = gv.player.center_x - math.sin(rad) * abs(CONTRAIL_OFFSET)
-                ey = gv.player.center_y - math.cos(rad) * abs(CONTRAIL_OFFSET)
+                # Ascended Thunderbolt's engine exhaust sits at the
+                # centre of the sprite, not the tail — emit from the
+                # ship centre for that combo only.
+                if (getattr(gv.player, "_faction", None) == "Ascended"
+                        and getattr(gv.player, "_ship_type", None)
+                            == "Thunderbolt"):
+                    offset = 0.0
+                else:
+                    offset = abs(CONTRAIL_OFFSET)
+                ex = gv.player.center_x - math.sin(rad) * offset
+                ey = gv.player.center_y - math.cos(rad) * offset
                 ex += random.uniform(-3, 3)
                 ey += random.uniform(-3, 3)
                 start_sz = CONTRAIL_START_SIZE * intensity
