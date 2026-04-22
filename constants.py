@@ -720,6 +720,95 @@ Z2_RAMMER_SHIELD: int = 50
 Z2_RAMMER_XP: int = 80
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# 14b. Star Maze (post-Nebula-boss content)
+# ═══════════════════════════════════════════════════════════════════════════════
+#
+# Carved out of a Zone 2-sized field.  81 rooms on a 9×9 grid, each
+# 600×600 px, cover ~31 % of the zone (spec: "around 30 %"); user
+# asked for rooms equally spaced, so a uniform grid is the right fit.
+# Gaps between rooms are ~467 px — wide enough for a ship + a wandering
+# asteroid to pass comfortably.
+
+# Zone dimensions — same as Zone 2, per spec.
+STAR_MAZE_WIDTH: int = ZONE2_WIDTH
+STAR_MAZE_HEIGHT: int = ZONE2_HEIGHT
+
+# Maze room geometry.
+STAR_MAZE_ROOM_SIZE: int = 600                 # outer side length (px)
+STAR_MAZE_ROOM_COLS: int = 9
+STAR_MAZE_ROOM_ROWS: int = 9
+STAR_MAZE_WALL_TILE: int = 16                  # dungeon-sheet tile pixel size
+STAR_MAZE_WALL_SCALE: float = 2.0              # each 16 px tile renders at 32 px
+STAR_MAZE_WALL_THICK: int = int(STAR_MAZE_WALL_TILE * STAR_MAZE_WALL_SCALE)  # 32
+# Door opening width — ship diameter is ~56 px, so 128 px gives plenty
+# of clearance for U-turns inside a corridor.
+STAR_MAZE_DOOR_WIDTH: int = 128
+
+# Dungeon wall tile sheet (16 × 16 px tiles).  Column/row choice is
+# resolved inside the maze generator.
+DUNGEON_WALL_SHEET_PNG = os.path.join(
+    _HERE, "assets", "dungeon sci fi",
+    "Sci-fi dungeon assets 16x16.png",
+)
+
+# Maze-alien stats (all per spec).
+MAZE_ALIEN_HP: int = 50
+MAZE_ALIEN_SPEED: float = 120.0
+MAZE_ALIEN_RADIUS: float = 20.0
+MAZE_ALIEN_LASER_DAMAGE: float = 10.0
+MAZE_ALIEN_LASER_RANGE: float = 200.0
+MAZE_ALIEN_LASER_SPEED: float = 300.0
+MAZE_ALIEN_FIRE_CD: float = 1.5
+MAZE_ALIEN_DETECT_DIST: float = 300.0
+MAZE_ALIEN_IRON_DROP: int = 10
+MAZE_ALIEN_XP: int = 30
+
+# Maze-spawner stats (all per spec).
+MAZE_SPAWNER_HP: int = 100
+MAZE_SPAWNER_SHIELD: int = 100
+MAZE_SPAWNER_SPEED: float = 0.0
+MAZE_SPAWNER_LASER_DAMAGE: float = 30.0
+MAZE_SPAWNER_LASER_RANGE: float = 200.0
+MAZE_SPAWNER_LASER_SPEED: float = 300.0
+MAZE_SPAWNER_FIRE_CD: float = 1.0
+MAZE_SPAWNER_DETECT_DIST: float = 300.0
+MAZE_SPAWNER_IRON_DROP: int = 1000
+MAZE_SPAWNER_XP: int = 100
+# One alien per tick, up to 20 alive at a time; cadence is 30 s.
+MAZE_SPAWNER_MAX_ALIVE: int = 20
+MAZE_SPAWNER_SPAWN_INTERVAL: float = 30.0
+MAZE_SPAWNER_RADIUS: float = 40.0              # collision radius (~sprite size)
+
+# Source sheets for maze entities.
+MAZE_ALIEN_SHEET_PNG = os.path.join(
+    _HERE, "assets", "256Spacemonsters",
+    "faction_3_monsters_128x128.png",
+)
+# Sheet is 8 columns × N rows of 128 px frames.  "Third row from the
+# bottom" with the Pillow origin at the top-left is resolved inside
+# the sprite loader (needs the actual sheet height to anchor from
+# the bottom).
+MAZE_ALIEN_SHEET_FRAME_SIZE: int = 128
+MAZE_ALIEN_SHEET_ROWS_FROM_BOTTOM: int = 3
+MAZE_ALIEN_SHEET_COLS: int = 8
+
+MAZE_SPAWNER_SPRITE_PNG = os.path.join(
+    _HERE, "assets",
+    "Kenney Game Assets All-in-1 3.4.0",
+    "2D assets", "RTS Sci-fi", "PNG", "Retina", "Structure",
+    "scifiStructure_04.png",
+)
+MAZE_SPAWNER_SCALE: float = 0.35               # shrink Kenney retina asset
+
+# Warp-zone danger multiplier.  Zone 1 → warp zones run at 1.0×; the
+# Nebula-boss-triggered variants and the Star Maze's onward variants
+# both run at 2.0× (spec: "twice as dangerous").  Applied to enemy
+# counts / spawn rates / meteor cadences inside each warp zone class.
+WARP_DANGER_DEFAULT: float = 1.0
+WARP_DANGER_NEBULA: float = 2.0
+WARP_DANGER_MAZE: float = 2.0
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # 15. Homing Missiles / Special Abilities
 # ═══════════════════════════════════════════════════════════════════════════════
 MISSILE_COST_IRON: int = 50

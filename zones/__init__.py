@@ -15,6 +15,45 @@ class ZoneID(Enum):
     WARP_GAS = auto()
     WARP_ENEMY = auto()
     ZONE2 = auto()
+    # Post-Nebula-boss warp variants: same four themes as the Zone 1
+    # variants but with a 2× danger scalar applied.  These route the
+    # player OUT to the Star Maze on exit rather than back to Zone 2.
+    NEBULA_WARP_METEOR = auto()
+    NEBULA_WARP_LIGHTNING = auto()
+    NEBULA_WARP_GAS = auto()
+    NEBULA_WARP_ENEMY = auto()
+    # The Star Maze itself — a full-size zone filled with dungeon-wall
+    # rooms, each guarded by a MazeSpawner.  Reached via the Nebula
+    # corner wormholes.
+    STAR_MAZE = auto()
+    # Star Maze's own corner wormholes chain onward to deeper warp
+    # variants that return the player to the Star Maze (same pattern
+    # as Zone 2's existing warp access).
+    MAZE_WARP_METEOR = auto()
+    MAZE_WARP_LIGHTNING = auto()
+    MAZE_WARP_GAS = auto()
+    MAZE_WARP_ENEMY = auto()
+
+
+# Zone-id groupings used throughout the code for routing decisions.
+NEBULA_WARP_ZONES = frozenset({
+    ZoneID.NEBULA_WARP_METEOR,
+    ZoneID.NEBULA_WARP_LIGHTNING,
+    ZoneID.NEBULA_WARP_GAS,
+    ZoneID.NEBULA_WARP_ENEMY,
+})
+MAZE_WARP_ZONES = frozenset({
+    ZoneID.MAZE_WARP_METEOR,
+    ZoneID.MAZE_WARP_LIGHTNING,
+    ZoneID.MAZE_WARP_GAS,
+    ZoneID.MAZE_WARP_ENEMY,
+})
+# Every warp-zone id, whether launched from Zone 1, Zone 2, or the
+# Star Maze.  Used for "am I currently in a warp zone" checks.
+ALL_WARP_ZONES = frozenset({
+    ZoneID.WARP_METEOR, ZoneID.WARP_LIGHTNING,
+    ZoneID.WARP_GAS, ZoneID.WARP_ENEMY,
+}) | NEBULA_WARP_ZONES | MAZE_WARP_ZONES
 
 
 class ZoneState:
@@ -71,6 +110,10 @@ def create_zone(zone_id: ZoneID) -> ZoneState:
     from zones.zone_warp_enemy import EnemySpawnerWarpZone
     from zones.zone2 import Zone2
 
+    # Post-Nebula-boss + post-Star-Maze warp variants reuse the same
+    # four warp-zone classes as Zone 1's access points; the difficulty
+    # scalar and the zone they route back to on exit are set inside
+    # ``setup()`` based on the actual ``zone_id`` of this instance.
     _MAP = {
         ZoneID.MAIN: MainZone,
         ZoneID.WARP_METEOR: MeteorWarpZone,
@@ -78,5 +121,25 @@ def create_zone(zone_id: ZoneID) -> ZoneState:
         ZoneID.WARP_GAS: GasCloudWarpZone,
         ZoneID.WARP_ENEMY: EnemySpawnerWarpZone,
         ZoneID.ZONE2: Zone2,
+        ZoneID.NEBULA_WARP_METEOR: MeteorWarpZone,
+        ZoneID.NEBULA_WARP_LIGHTNING: LightningWarpZone,
+        ZoneID.NEBULA_WARP_GAS: GasCloudWarpZone,
+        ZoneID.NEBULA_WARP_ENEMY: EnemySpawnerWarpZone,
+        ZoneID.MAZE_WARP_METEOR: MeteorWarpZone,
+        ZoneID.MAZE_WARP_LIGHTNING: LightningWarpZone,
+        ZoneID.MAZE_WARP_GAS: GasCloudWarpZone,
+        ZoneID.MAZE_WARP_ENEMY: EnemySpawnerWarpZone,
     }
-    return _MAP[zone_id]()
+    if zone_id is ZoneID.STAR_MAZE:
+        # Late-imported so the module-level import graph of ``zones``
+        # stays cycle-free.  StarMazeZone depends on sprite + combat
+        # modules that in turn import from ``zones``.
+        from zones.star_maze import StarMazeZone
+        instance: ZoneState = StarMazeZone()
+    else:
+        instance = _MAP[zone_id]()
+    # Tag reused warp-zone instances so their setup() can branch on
+    # the actual id rather than on class identity (MeteorWarpZone is
+    # used by three different ZoneIDs).
+    instance.zone_id = zone_id
+    return instance
