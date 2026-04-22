@@ -28,6 +28,7 @@ Welcome to the full documentation for **Call of Orion**, a top-down space surviv
 - Top-down alien spaceship: https://pzuh.itch.io/top-down-alien-spaceship
 - Top-down space shooter 1: https://pzuh.itch.io/top-down-space-shooter-1
 - Top-down space shooter 2: https://pzuh.itch.io/top-down-space-shooter-2
+- Top-down sci-fi dungeon tileset (maru-98): https://maru-98.itch.io/top-down-sci-fi-dungeon-tileset-2d-pixel-art-game-assets
 
 ### Backgrounds & Planets
 
