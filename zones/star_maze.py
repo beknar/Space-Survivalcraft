@@ -186,6 +186,42 @@ class StarMazeZone(ZoneState):
             sp.uid = i + 1   # uid 0 reserved for "unlinked"
             self._spawners.append(sp)
 
+        # Pre-populate each spawner's maze with MAZE_SPAWNER_MAX_ALIVE
+        # (20) aliens spread across the maze's rooms — one alien per
+        # randomly-chosen room, with no repetition so the 20 aliens
+        # spread evenly across the 25 rooms of the maze.  Uses a
+        # dedicated RNG derived from the world seed so save/load is
+        # deterministic.
+        from constants import MAZE_SPAWNER_MAX_ALIVE
+        prep_rng = random.Random(self._world_seed + 977)
+        for sp, maze in zip(self._spawners, self._mazes):
+            bounds = (maze.bounds.x, maze.bounds.y,
+                      maze.bounds.w, maze.bounds.h)
+            # Pick 20 distinct rooms; if we somehow have fewer than
+            # 20 rooms, repeat rooms to reach the count.
+            room_sample = list(maze.rooms)
+            prep_rng.shuffle(room_sample)
+            rooms_pick = room_sample[:MAZE_SPAWNER_MAX_ALIVE]
+            while len(rooms_pick) < MAZE_SPAWNER_MAX_ALIVE:
+                rooms_pick.append(prep_rng.choice(maze.rooms))
+            for room in rooms_pick:
+                ax = room.x + room.w / 2 + prep_rng.uniform(
+                    -room.w / 4, room.w / 4)
+                ay = room.y + room.h / 2 + prep_rng.uniform(
+                    -room.h / 4, room.h / 4)
+                alien = MazeAlien(
+                    gv._alien_laser_tex, ax, ay,
+                    world_w=self.world_width,
+                    world_h=self.world_height,
+                    patrol_home=(ax, ay),
+                    patrol_radius=max(
+                        80.0, room.w / 2.0 - 40.0),
+                    maze_bounds=bounds,
+                )
+                self._maze_aliens.append(alien)
+                self._alien_parent[alien] = sp.uid
+                sp.alive_children += 1
+
     def teardown(self, gv: GameView) -> None:
         self._fog_grid = gv._fog_grid
         self._fog_revealed = gv._fog_revealed
@@ -274,9 +310,11 @@ class StarMazeZone(ZoneState):
 
     def _update_spawners(self, gv: GameView, dt: float,
                          px: float, py: float) -> None:
+        # Note: update_spawner still needs to run on killed spawners
+        # so its respawn cooldown ticks down — the spawner
+        # self-resurrects inside update_spawner when the timer hits
+        # zero.
         for sp in self._spawners:
-            if sp.killed:
-                continue
             fired, should_spawn = sp.update_spawner(
                 dt, px, py, gv._alien_laser_tex)
             for proj in fired:
@@ -287,20 +325,22 @@ class StarMazeZone(ZoneState):
     def _spawn_child(self, sp: MazeSpawner,
                      laser_tex: arcade.Texture) -> None:
         """Emit one MazeAlien near the spawner's centre room.  Patrol
-        radius is scoped to the spawner's room (not the whole maze)
-        so waypoints stay reachable without walking through walls."""
+        radius is scoped to one room (not the whole maze) so
+        waypoints stay reachable without walking through walls.
+        The maze AABB is passed through so the alien is hard-bounded
+        from leaving its home maze."""
         from constants import STAR_MAZE_ROOM_SIZE
         maze = self._maze_for_spawner(sp)
         if maze is not None:
             ax, ay = self._find_maze_interior_point(sp)
             home_xy = (ax, ay)
+            bounds = (maze.bounds.x, maze.bounds.y,
+                      maze.bounds.w, maze.bounds.h)
         else:
             home_xy = (sp.center_x, sp.center_y)
             ax = sp.center_x
             ay = sp.center_y + MAZE_ALIEN_RADIUS * 2 + 4
-        # Half the room's interior side length minus a ship-radius
-        # margin gives the alien useful motion without picking
-        # waypoints on the far side of a wall.
+            bounds = None
         patrol_r = max(80.0, STAR_MAZE_ROOM_SIZE / 2.0 - 40.0)
         alien = MazeAlien(
             laser_tex, ax, ay,
@@ -308,6 +348,7 @@ class StarMazeZone(ZoneState):
             world_h=self.world_height,
             patrol_home=home_xy,
             patrol_radius=patrol_r,
+            maze_bounds=bounds,
         )
         self._maze_aliens.append(alien)
         self._alien_parent[alien] = sp.uid

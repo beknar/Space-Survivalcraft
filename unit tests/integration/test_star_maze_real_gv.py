@@ -29,31 +29,86 @@ from zones import ZoneID, NEBULA_WARP_ZONES, MAZE_WARP_ZONES
 
 
 class TestStarMazeZoneLive:
-    def test_transition_installs_two_mazes_and_wormholes(
+    def test_transition_installs_four_mazes_and_wormholes(
         self, real_game_view,
     ):
         from constants import (
             STAR_MAZE_COUNT,
             STAR_MAZE_ROOM_COLS, STAR_MAZE_ROOM_ROWS,
+            MAZE_SPAWNER_MAX_ALIVE,
         )
         gv = real_game_view
         gv._transition_zone(ZoneID.STAR_MAZE)
         assert gv._zone.zone_id is ZoneID.STAR_MAZE
-        # Two mazes, 5x5 rooms each => 50 rooms flat, one spawner per
-        # maze (not per room) => 2 spawners.
         expected_rooms_per_maze = STAR_MAZE_ROOM_COLS * STAR_MAZE_ROOM_ROWS
-        assert len(gv._zone.mazes) == STAR_MAZE_COUNT
+        assert len(gv._zone.mazes) == STAR_MAZE_COUNT == 4
         assert len(gv._zone.rooms) == (
             expected_rooms_per_maze * STAR_MAZE_COUNT)
         assert len(gv._zone.spawners) == STAR_MAZE_COUNT
         # Each maze has at least 15 rooms per the user spec.
         for maze in gv._zone.mazes:
             assert len(maze.rooms) >= 15
+        # Pre-population — each spawner has 20 children already alive
+        # and they're spread across the maze.
+        for sp in gv._zone.spawners:
+            assert sp.alive_children == MAZE_SPAWNER_MAX_ALIVE
+        assert len(gv._zone._maze_aliens) == (
+            MAZE_SPAWNER_MAX_ALIVE * STAR_MAZE_COUNT)
         # Wormhole layout: 1 central (→ ZONE2) + 4 corners (→ MAZE_WARP_*).
         assert len(gv._wormholes) == 5
         targets = {w.zone_target for w in gv._wormholes}
         assert ZoneID.ZONE2 in targets
         assert targets - {ZoneID.ZONE2} == MAZE_WARP_ZONES
+
+    def test_pre_populated_aliens_spread_across_rooms(
+        self, real_game_view,
+    ):
+        """Pre-populated aliens must occupy distinct rooms — no
+        clustering at the spawner."""
+        gv = real_game_view
+        gv._transition_zone(ZoneID.STAR_MAZE)
+        from zones.maze_geometry import point_in_rect
+        for maze in gv._zone.mazes:
+            # Count aliens falling inside each room rect.
+            per_room: dict = {}
+            for alien in gv._zone._maze_aliens:
+                for r in maze.rooms:
+                    if point_in_rect(
+                            alien.center_x, alien.center_y, r):
+                        per_room[r] = per_room.get(r, 0) + 1
+                        break
+            # 20 aliens spread over 25 rooms should visit at least 15
+            # distinct rooms (pigeonhole + our no-repeat sampling).
+            assert len(per_room) >= 15, (
+                f"maze at {maze.spawner}: aliens clustered in "
+                f"{len(per_room)} rooms")
+
+    def test_maze_aliens_never_leave_maze_bounds(
+        self, real_game_view,
+    ):
+        """Tick 60 frames with the player far outside any maze —
+        every alien must stay inside its own maze's AABB regardless
+        of pursue-mode chasing."""
+        gv = real_game_view
+        gv._transition_zone(ZoneID.STAR_MAZE)
+        # Park the player just inside a corner wormhole position but
+        # outside all maze bounds.
+        gv.player.center_x = 500.0
+        gv.player.center_y = 500.0
+        for _ in range(60):
+            gv._zone.update(gv, 1 / 60)
+        # Every live alien must still be inside one of the maze AABBs.
+        for alien in gv._zone._maze_aliens:
+            inside_any = False
+            for maze in gv._zone.mazes:
+                b = maze.bounds
+                if (b.x <= alien.center_x <= b.x + b.w
+                        and b.y <= alien.center_y <= b.y + b.h):
+                    inside_any = True
+                    break
+            assert inside_any, (
+                f"alien at ({alien.center_x:.0f}, "
+                f"{alien.center_y:.0f}) escaped every maze AABB")
 
     def test_update_tick_survives(self, real_game_view):
         gv = real_game_view
@@ -67,51 +122,75 @@ class TestStarMazeZoneLive:
 
     def test_spawner_produces_alien_after_interval(self, real_game_view):
         """Force the first spawner's spawn cooldown to zero and tick
-        once — the spawner should emit exactly one MazeAlien."""
+        once — the spawner should emit exactly one MazeAlien.  Drop
+        the pre-populated child count to 0 first so the cap doesn't
+        block the spawn."""
         from sprites.maze_alien import MazeAlien
         gv = real_game_view
         gv._transition_zone(ZoneID.STAR_MAZE)
         sp = gv._zone.spawners[0]
-        gv.player.center_x = sp.center_x + 9000  # out of range to avoid fire
+        gv.player.center_x = sp.center_x + 9000
         gv.player.center_y = sp.center_y
+        sp.alive_children = 0            # pretend no children alive
         sp._spawn_cd = 0.0
         before = len(gv._zone._maze_aliens)
         gv._zone.update(gv, 1 / 60)
         after = len(gv._zone._maze_aliens)
         assert after == before + 1
-        # Confirm it's actually a MazeAlien, not something else.
         assert isinstance(gv._zone._maze_aliens[-1], MazeAlien)
 
     def test_spawner_respects_alive_cap(self, real_game_view):
+        """Pre-population already fills the cap — a spawn tick at
+        the cap must not queue a new child."""
         from constants import MAZE_SPAWNER_MAX_ALIVE
         gv = real_game_view
         gv._transition_zone(ZoneID.STAR_MAZE)
         sp = gv._zone.spawners[0]
-        # Park the player off the central wormhole so the tick doesn't
-        # accidentally transition out of the Star Maze.
         gv.player.center_x = sp.center_x + 9000
         gv.player.center_y = sp.center_y
-        sp.alive_children = MAZE_SPAWNER_MAX_ALIVE  # at cap
+        # Post-generation, alive_children should already be at cap.
+        assert sp.alive_children == MAZE_SPAWNER_MAX_ALIVE
         sp._spawn_cd = 0.0
         before = len(gv._zone._maze_aliens)
         gv._zone.update(gv, 1 / 60)
         assert len(gv._zone._maze_aliens) == before
 
-    def test_killed_spawner_does_not_respawn(self, real_game_view):
+    def test_killed_spawner_stays_dead_until_respawn_interval(
+        self, real_game_view,
+    ):
+        from constants import MAZE_SPAWNER_RESPAWN_INTERVAL
         gv = real_game_view
         gv._transition_zone(ZoneID.STAR_MAZE)
         sp = gv._zone.spawners[0]
-        # Park the player off the central wormhole.
         gv.player.center_x = sp.center_x + 9000
         gv.player.center_y = sp.center_y
         sp.hp = 0
         sp.killed = True
-        sp._spawn_cd = 0.0
+        sp._respawn_cd = MAZE_SPAWNER_RESPAWN_INTERVAL
         gv._zone.update(gv, 1 / 60)
-        # Spawner is dead, and even though its spawn cooldown is
-        # zero it must not emit a new child.
-        assert sp.alive_children == 0
+        # One tick — still dead.
         assert sp.killed is True
+        assert sp._respawn_cd < MAZE_SPAWNER_RESPAWN_INTERVAL
+
+    def test_killed_spawner_respawns_after_interval(self, real_game_view):
+        from constants import (
+            MAZE_SPAWNER_RESPAWN_INTERVAL, MAZE_SPAWNER_HP,
+            MAZE_SPAWNER_SHIELD,
+        )
+        gv = real_game_view
+        gv._transition_zone(ZoneID.STAR_MAZE)
+        sp = gv._zone.spawners[0]
+        gv.player.center_x = sp.center_x + 9000
+        gv.player.center_y = sp.center_y
+        sp.hp = 0
+        sp.shields = 0
+        sp.killed = True
+        sp._respawn_cd = 0.0001   # one tick away from 0
+        gv._zone.update(gv, 1 / 60)
+        # Respawned — HP + shields restored, killed flag cleared.
+        assert sp.killed is False
+        assert sp.hp == MAZE_SPAWNER_HP
+        assert sp.shields == MAZE_SPAWNER_SHIELD
 
 
 class TestStarMazeCombat:

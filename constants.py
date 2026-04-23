@@ -732,16 +732,17 @@ Z2_RAMMER_XP: int = 80
 # diameter) fits + turns around comfortably in a 300 x 300 room and
 # in the 300 x 32 doorway between rooms.
 #
-# Two maze centres sit at (3000, 6000) and (9000, 6000) — equidistant
-# left/right of the zone centre with a generous 4000+ px gap between
-# their outer walls.
+# Four maze centres sit at the four quadrant centres — (3000, 3000),
+# (9000, 3000), (3000, 9000), (9000, 9000).  Each maze is 1692x1692
+# so the gap between neighbouring outer walls is ~4300 px on both
+# axes — more than enough for ships to cruise between mazes.
 
 # Zone dimensions — 25 % above Zone 2.
 STAR_MAZE_WIDTH: int = int(ZONE2_WIDTH * 1.25)     # 12 000
 STAR_MAZE_HEIGHT: int = int(ZONE2_HEIGHT * 1.25)   # 12 000
 
 # Per-maze grid geometry.
-STAR_MAZE_COUNT: int = 2                  # number of maze structures
+STAR_MAZE_COUNT: int = 4                  # number of maze structures
 STAR_MAZE_ROOM_COLS: int = 5              # per-maze room count on X axis
 STAR_MAZE_ROOM_ROWS: int = 5              # per-maze room count on Y axis
 STAR_MAZE_ROOM_SIZE: int = 300            # interior side length (px)
@@ -755,8 +756,10 @@ STAR_MAZE_SPAN: int = (
 )
 # World-space centres of the two mazes.
 STAR_MAZE_CENTERS: tuple[tuple[int, int], ...] = (
-    (3000, 6000),
-    (9000, 6000),
+    (3000, 3000),
+    (9000, 3000),
+    (3000, 9000),
+    (9000, 9000),
 )
 
 # Dungeon wall tile sheet (16 × 16 px tiles).  Column/row choice is
@@ -790,8 +793,11 @@ MAZE_SPAWNER_DETECT_DIST: float = 300.0
 MAZE_SPAWNER_IRON_DROP: int = 1000
 MAZE_SPAWNER_XP: int = 100
 # One alien per tick, up to 20 alive at a time; cadence is 30 s.
+# Killed spawners self-resurrect after 90 s (1.5 min) and resume
+# their normal 30 s spawn cadence from full HP + shield.
 MAZE_SPAWNER_MAX_ALIVE: int = 20
 MAZE_SPAWNER_SPAWN_INTERVAL: float = 30.0
+MAZE_SPAWNER_RESPAWN_INTERVAL: float = 90.0
 MAZE_SPAWNER_RADIUS: float = 40.0              # collision radius (~sprite size)
 
 # Source sheets for maze entities.

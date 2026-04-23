@@ -179,10 +179,10 @@ class TestMazeGenerator:
 
 
 class TestGenerateAllMazes:
-    def test_produces_two_mazes(self):
+    def test_produces_four_mazes(self):
         mazes = generate_all_mazes(zone_seed=0)
         assert len(mazes) == STAR_MAZE_COUNT
-        assert len(mazes) == 2
+        assert len(mazes) == 4
 
     def test_spawners_at_configured_centres(self):
         mazes = generate_all_mazes(zone_seed=0)
@@ -192,16 +192,23 @@ class TestGenerateAllMazes:
 
     def test_mazes_do_not_overlap(self):
         mazes = generate_all_mazes(zone_seed=0)
-        a, b = mazes[0].bounds, mazes[1].bounds
-        disjoint = (a.x + a.w <= b.x or b.x + b.w <= a.x
-                    or a.y + a.h <= b.y or b.y + b.h <= a.y)
-        assert disjoint
+        for i, a in enumerate(mazes):
+            for b in mazes[i + 1:]:
+                disjoint = (
+                    a.bounds.x + a.bounds.w <= b.bounds.x
+                    or b.bounds.x + b.bounds.w <= a.bounds.x
+                    or a.bounds.y + a.bounds.h <= b.bounds.y
+                    or b.bounds.y + b.bounds.h <= a.bounds.y
+                )
+                assert disjoint
 
     def test_each_maze_has_its_own_seed(self):
         """Different mazes in the same zone_seed batch produce
         distinct layouts."""
         mazes = generate_all_mazes(zone_seed=0)
-        assert mazes[0].walls != mazes[1].walls
+        # All four should be distinct.
+        walls_by_maze = [tuple(m.walls) for m in mazes]
+        assert len(set(walls_by_maze)) == len(mazes)
 
 
 class TestCollisionHelpers:

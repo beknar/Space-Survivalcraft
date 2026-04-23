@@ -86,6 +86,7 @@ class MazeAlien(arcade.Sprite):
         world_h: float = STAR_MAZE_HEIGHT,
         patrol_home: tuple[float, float] | None = None,
         patrol_radius: float = 180.0,
+        maze_bounds: tuple[float, float, float, float] | None = None,
     ) -> None:
         frames = _load_frames()
         tex = random.choice(frames)
@@ -99,6 +100,11 @@ class MazeAlien(arcade.Sprite):
         self._speed: float = MAZE_ALIEN_SPEED
         self._world_w = world_w
         self._world_h = world_h
+        # Maze containment AABB — any move that would take the alien
+        # outside this rect is reverted.  None means "unbounded"
+        # (used by tests that exercise the alien without a maze).
+        self._maze_bounds: tuple[float, float, float, float] | None = (
+            maze_bounds)
 
         self._state: int = self._STATE_PATROL
         hx, hy = patrol_home if patrol_home is not None else (x, y)
@@ -306,3 +312,18 @@ class MazeAlien(arcade.Sprite):
                     # into the same tile.
                     self._pick_patrol_target()
                     break
+
+        # Maze-bounds containment — an alien must never leave its
+        # home maze's AABB (per spec).  Clamp + revert if the move
+        # would have taken them outside.  The existing maze-wall
+        # check already blocks most exits, but pursuit of a player
+        # who's *just outside* a doorway can still drift out — this
+        # is the hard stop.
+        if self._maze_bounds is not None:
+            bx, by, bw, bh = self._maze_bounds
+            r = MAZE_ALIEN_RADIUS
+            if (self.center_x - r < bx or self.center_x + r > bx + bw
+                    or self.center_y - r < by
+                    or self.center_y + r > by + bh):
+                self.center_x, self.center_y = prev_x, prev_y
+                self._pick_patrol_target()

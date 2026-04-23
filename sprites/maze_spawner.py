@@ -18,6 +18,7 @@ from constants import (
     MAZE_SPAWNER_LASER_SPEED, MAZE_SPAWNER_FIRE_CD,
     MAZE_SPAWNER_DETECT_DIST, MAZE_SPAWNER_MAX_ALIVE,
     MAZE_SPAWNER_SPAWN_INTERVAL, MAZE_SPAWNER_RADIUS,
+    MAZE_SPAWNER_RESPAWN_INTERVAL,
     MAZE_SPAWNER_SPRITE_PNG, MAZE_SPAWNER_SCALE,
 )
 from sprites.projectile import Projectile
@@ -39,8 +40,11 @@ class MazeSpawner(arcade.Sprite):
 
     Kill rewards (1000 iron, 100 XP) are applied by the collision
     handler that detects ``self.hp <= 0``; this class is not
-    responsible for awarding them.  ``killed`` stays True forever
-    once HP hits zero — spawner does not respawn, per spec.
+    responsible for awarding them.  After death, ``_respawn_cd``
+    ticks down; when it hits zero HP + shields refill, ``killed``
+    flips back to False, and the spawner resumes its normal 30 s
+    spawn cadence.  Alive children (if any) survive the death +
+    resurrection so the cap stays accurate.
     """
 
     def __init__(self, x: float, y: float) -> None:
@@ -66,6 +70,9 @@ class MazeSpawner(arcade.Sprite):
         # their first alien on the same tick when the zone opens.
         self._spawn_cd: float = random.uniform(0.0, MAZE_SPAWNER_SPAWN_INTERVAL)
         self.killed: bool = False
+        # Ticks down while ``killed`` is True; at zero the spawner
+        # resurrects with full HP + shields.
+        self._respawn_cd: float = 0.0
         self._hit_timer: float = 0.0
         # Track how many MazeAliens this spawner has currently alive
         # so the zone can enforce the cap without walking every alien
@@ -86,6 +93,7 @@ class MazeSpawner(arcade.Sprite):
         self._hit_timer = 0.15
         if self.hp <= 0:
             self.killed = True
+            self._respawn_cd = MAZE_SPAWNER_RESPAWN_INTERVAL
 
     def update_spawner(
         self,
@@ -104,6 +112,18 @@ class MazeSpawner(arcade.Sprite):
         fired: list[Projectile] = []
         should_spawn = False
         if self.killed:
+            # Tick the respawn timer.  When it hits zero the spawner
+            # comes back to full HP + shields and resumes the spawn
+            # cadence; alive children from before death carry over.
+            self._respawn_cd -= dt
+            if self._respawn_cd <= 0.0:
+                self.killed = False
+                self.hp = MAZE_SPAWNER_HP
+                self.shields = MAZE_SPAWNER_SHIELD
+                self._respawn_cd = 0.0
+                # Reset spawn cadence to the full interval so the
+                # post-respawn spawn doesn't fire immediately.
+                self._spawn_cd = MAZE_SPAWNER_SPAWN_INTERVAL
             return fired, should_spawn
 
         # Visual hit tint.
@@ -158,6 +178,7 @@ class MazeSpawner(arcade.Sprite):
             "killed": bool(self.killed),
             "fire_cd": float(self._fire_cd),
             "spawn_cd": float(self._spawn_cd),
+            "respawn_cd": float(self._respawn_cd),
             "alive_children": int(self.alive_children),
             "uid": int(self.uid),
         }
@@ -170,5 +191,6 @@ class MazeSpawner(arcade.Sprite):
         self.killed = bool(data.get("killed", False))
         self._fire_cd = float(data.get("fire_cd", self._fire_cd))
         self._spawn_cd = float(data.get("spawn_cd", self._spawn_cd))
+        self._respawn_cd = float(data.get("respawn_cd", 0.0))
         self.alive_children = int(data.get("alive_children", 0))
         self.uid = int(data.get("uid", 0))
