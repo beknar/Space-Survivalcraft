@@ -325,8 +325,12 @@ class Zone2(ZoneState):
                 gv._use_glow = (100, 180, 255, 200)
                 gv._use_glow_timer = 0.5
                 arcade.play_sound(gv._victory_snd, volume=0.6)
-                gv._flash_game_msg("Returning through wormhole...", 1.5)
                 target = wh.zone_target if wh.zone_target is not None else ZoneID.MAIN
+                from zones import welcome_message_for
+                msg = welcome_message_for(target)
+                if msg is None:
+                    msg = "Returning through wormhole..."
+                gv._flash_game_msg(msg, 1.5)
                 gv._transition_zone(target, entry_side="wormhole_return")
                 return
 

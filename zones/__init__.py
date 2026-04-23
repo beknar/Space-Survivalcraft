@@ -56,6 +56,36 @@ ALL_WARP_ZONES = frozenset({
 }) | NEBULA_WARP_ZONES | MAZE_WARP_ZONES
 
 
+# Human-readable theme names, used by the welcome-message helper.
+_WARP_ZONE_THEMES = {
+    "METEOR": "Meteor Warp Zone",
+    "LIGHTNING": "Lightning Warp Zone",
+    "GAS": "Gas Warp Zone",
+    "ENEMY": "Enemy Warp Zone",
+}
+
+
+def welcome_message_for(zone_id: "ZoneID") -> str | None:
+    """Return the on-arrival flash text for ``zone_id`` — ``None``
+    means no welcome (fall back to whatever message the caller
+    wants, or silence).
+
+    Star Maze + any warp-zone variant get a "Welcome to ..." line;
+    MAIN and ZONE2 return ``None`` so the caller can decide between
+    "Returning through wormhole..." and silence based on context.
+    """
+    if zone_id is ZoneID.STAR_MAZE:
+        return "Welcome to the Star Maze"
+    if zone_id in ALL_WARP_ZONES:
+        # Theme suffix is the last underscore-separated chunk of the
+        # enum name (WARP_METEOR, NEBULA_WARP_METEOR, MAZE_WARP_METEOR
+        # all resolve to "METEOR").
+        theme = zone_id.name.rsplit("_", 1)[-1]
+        friendly = _WARP_ZONE_THEMES.get(theme, theme.title() + " Warp Zone")
+        return f"Welcome to the {friendly}"
+    return None
+
+
 class ZoneState:
     """Base class for zone-specific logic.
 

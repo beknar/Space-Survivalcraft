@@ -65,16 +65,26 @@ _WALL_TILE_TEX: arcade.Texture | None = None
 
 
 def _load_wall_tile() -> arcade.Texture:
+    """Return the dungeon wall tile used to texture every wall segment.
+
+    The 336×184 sheet's first row is fully transparent (verified); the
+    first fully-opaque 16×16 tile lives at column 7, row 1 — that's
+    what we use.  Every wall rect in the maze is tiled with this
+    single texture repeated at ``STAR_MAZE_WALL_SCALE`` (32 px on
+    screen).  If you want per-edge-type tiles (corners, doorways,
+    etc.) later, this is where to plug that in.
+    """
     global _WALL_TILE_TEX
     if _WALL_TILE_TEX is None:
         from PIL import Image as _PILImage
         sheet = _PILImage.open(DUNGEON_WALL_SHEET_PNG).convert("RGBA")
-        tile = sheet.crop((
-            STAR_MAZE_WALL_TILE * 1,
-            0,
-            STAR_MAZE_WALL_TILE * 2,
-            STAR_MAZE_WALL_TILE,
-        ))
+        tile_col = 7
+        tile_row = 1
+        left = tile_col * STAR_MAZE_WALL_TILE
+        top = tile_row * STAR_MAZE_WALL_TILE
+        tile = sheet.crop(
+            (left, top, left + STAR_MAZE_WALL_TILE,
+             top + STAR_MAZE_WALL_TILE))
         _WALL_TILE_TEX = arcade.Texture(tile)
     return _WALL_TILE_TEX
 
@@ -204,6 +214,16 @@ class StarMazeZone(ZoneState):
         # Share fog grid with GameView for the minimap.
         gv._fog_grid = self._fog_grid
         gv._fog_revealed = self._fog_revealed
+
+        # Flash a welcome on arrival — covers both the direct entry
+        # via a corner wormhole from Zone 2 (the wormhole handler in
+        # zone2.py already flashes a Nebula-warp-zone welcome but
+        # that's a different biome) and the warp-zone exits which
+        # transition silently via WarpZoneBase._check_exits.
+        from zones import welcome_message_for
+        msg = welcome_message_for(self.zone_id)
+        if msg is not None:
+            gv._flash_game_msg(msg, 1.8)
 
     def _load_textures(self, gv: GameView) -> None:
         """Load the same texture set Zone 2 uses so the shared
@@ -365,9 +385,13 @@ class StarMazeZone(ZoneState):
                 gv._use_glow = (100, 180, 255, 200)
                 gv._use_glow_timer = 0.5
                 arcade.play_sound(gv._victory_snd, volume=0.6)
-                gv._flash_game_msg("Returning through wormhole...", 1.5)
                 target = (wh.zone_target if wh.zone_target is not None
                           else ZoneID.ZONE2)
+                from zones import welcome_message_for
+                msg = welcome_message_for(target)
+                if msg is None:
+                    msg = "Returning through wormhole..."
+                gv._flash_game_msg(msg, 1.5)
                 gv._transition_zone(target, entry_side="wormhole_return")
                 return
 

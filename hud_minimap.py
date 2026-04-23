@@ -283,17 +283,34 @@ def draw_minimap(
         _oct_angles = [math.pi / 8 + i * math.pi / 4 for i in range(8)]
         _oct_cos = [math.cos(a) for a in _oct_angles]
         _oct_sin = [math.sin(a) for a in _oct_angles]
+        # Sample offsets for the "cloud revealed?" check: the centre
+        # plus 8 points at half-radius, N/E/S/W + the four diagonals.
+        # Using only the centre missed huge warp-zone clouds whose
+        # centre sat in an unrevealed fog cell while their edges were
+        # already explored.
+        _fog_sample_offsets = [(0.0, 0.0)] + [
+            (0.5 * math.cos(a), 0.5 * math.sin(a))
+            for a in (i * math.pi / 4 for i in range(8))
+        ]
         gas_lines: list[tuple[float, float]] = []
         for entry in gas_positions:
             gpx, gpy = entry[0], entry[1]
+            grad = entry[2] if len(entry) > 2 else 50.0
             if _has_fog and not gas_always_visible:
-                gx = int(gpx * _inv_cell)
-                gy = int(gpy * _inv_cell)
-                if not (0 <= gx < _fw and 0 <= gy < _fh and _fg[gy][gx]):
+                any_revealed = False
+                for (ox, oy) in _fog_sample_offsets:
+                    sx = gpx + ox * grad
+                    sy = gpy + oy * grad
+                    gx = int(sx * _inv_cell)
+                    gy = int(sy * _inv_cell)
+                    if (0 <= gx < _fw and 0 <= gy < _fh
+                            and _fg[gy][gx]):
+                        any_revealed = True
+                        break
+                if not any_revealed:
                     continue
             gmx = mx + gpx * sx_w
             gmy = my + gpy * sy_h
-            grad = entry[2] if len(entry) > 2 else 50.0
             dot_rx = max(2.0, grad * sx_w)
             dot_ry = max(2.0, grad * sy_h)
             for i in range(8):
