@@ -161,6 +161,81 @@ class TestNebulaBossDeathUnlocksCornerWormholes:
         assert targets - {ZoneID.MAIN} == NEBULA_WARP_ZONES
 
 
+class TestNebulaWarpExitToStarMaze:
+    """Reproduce the user-reported bug: leaving the gas warp zone
+    that spawned from the Nebula should deposit the player in the
+    Star Maze, not back in the Nebula."""
+
+    @pytest.mark.parametrize("zid", list(NEBULA_WARP_ZONES))
+    def test_bottom_exit_transitions_to_star_maze(
+        self, real_game_view, zid,
+    ):
+        gv = real_game_view
+        gv._transition_zone(zid)
+        assert gv._zone.zone_id is zid
+        # Force the player past the bottom exit threshold and tick
+        # the zone once; the warp zone's _check_exits should route
+        # us into the Star Maze, NOT back to Zone 2.
+        gv.player.center_y = 10.0
+        gv._zone.update(gv, 1 / 60)
+        assert gv._zone.zone_id is ZoneID.STAR_MAZE, (
+            f"{zid.name} bottom exit deposited player in "
+            f"{gv._zone.zone_id.name}, expected STAR_MAZE")
+
+    @pytest.mark.parametrize("zid", list(NEBULA_WARP_ZONES))
+    def test_top_exit_transitions_to_star_maze(
+        self, real_game_view, zid,
+    ):
+        gv = real_game_view
+        gv._transition_zone(zid)
+        assert gv._zone.zone_id is zid
+        gv.player.center_y = gv._zone.world_height - 5.0
+        gv._zone.update(gv, 1 / 60)
+        assert gv._zone.zone_id is ZoneID.STAR_MAZE
+
+    def test_full_flow_zone2_wormhole_to_warp_to_star_maze(
+        self, real_game_view,
+    ):
+        """Reproduce the user's exact path: sit in Zone 2, defeat the
+        Nebula boss (flip the flag), touch a corner wormhole, play a
+        bit in the warp zone, walk out of the bottom — must land in
+        Star Maze, not back in Zone 2."""
+        gv = real_game_view
+        gv._transition_zone(ZoneID.ZONE2)
+        gv._zone.mark_nebula_boss_defeated(gv)
+
+        # Find the corner wormhole targeting NEBULA_WARP_GAS.
+        gas_wh = None
+        for wh in gv._wormholes:
+            if wh.zone_target is ZoneID.NEBULA_WARP_GAS:
+                gas_wh = wh
+                break
+        assert gas_wh is not None, "corner wormhole not installed"
+
+        # Walk the player onto the wormhole and tick — should transition.
+        gv.player.center_x = gas_wh.center_x
+        gv.player.center_y = gas_wh.center_y
+        gv._zone.update(gv, 1 / 60)
+        assert gv._zone.zone_id is ZoneID.NEBULA_WARP_GAS, (
+            f"wormhole touch landed player in "
+            f"{gv._zone.zone_id.name}")
+
+        # Now walk the player out the bottom — must land in Star Maze.
+        gv.player.center_y = 10.0
+        gv._zone.update(gv, 1 / 60)
+        assert gv._zone.zone_id is ZoneID.STAR_MAZE, (
+            f"NEBULA_WARP_GAS bottom exit landed player in "
+            f"{gv._zone.zone_id.name}, expected STAR_MAZE")
+        # Critical: one more tick at the Star Maze spawn point must
+        # NOT transition back to Zone 2 (reproduces the bug where the
+        # spawn position coincided with the central wormhole).
+        gv._zone.update(gv, 1 / 60)
+        assert gv._zone.zone_id is ZoneID.STAR_MAZE, (
+            f"second tick in Star Maze transitioned to "
+            f"{gv._zone.zone_id.name} — player spawned on top of "
+            f"the central wormhole")
+
+
 class TestNebulaWarpRoutingAndDanger:
     @pytest.mark.parametrize("zid", list(NEBULA_WARP_ZONES))
     def test_entering_nebula_warp_sets_2x_danger_and_maze_exits(

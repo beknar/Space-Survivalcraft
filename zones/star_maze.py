@@ -140,8 +140,7 @@ class StarMazeZone(ZoneState):
         self._wall_sprite_list = _build_wall_sprites(self._walls)
 
         # Central wormhole back to Zone 2 (safety exit).
-        cx, cy = self._find_open_point(
-            self.world_width / 2, self.world_height / 2)
+        cx, cy = self._find_open_point(*self._central_wormhole_pos())
         wh = Wormhole(cx, cy)
         wh.zone_target = ZoneID.ZONE2
         gv._wormholes = [wh]
@@ -195,8 +194,21 @@ class StarMazeZone(ZoneState):
         gv._wormhole_list.clear()
 
     def get_player_spawn(self, entry_side: str) -> tuple[float, float]:
-        return self._find_open_point(
-            self.world_width / 2, self.world_height / 2)
+        """Spawn the player OFFSET from the central wormhole so the
+        very next update tick doesn't immediately transition them
+        back to Zone 2.  Wormhole touch radius is 100 px; a 400 px
+        offset keeps a safe margin even if the player was moving when
+        they entered the zone."""
+        cwx, cwy = self._central_wormhole_pos()
+        # Offset south of the wormhole.  Ship spawn heading is up, so
+        # the player faces the wormhole and can freely choose to
+        # approach it or fly off to explore.
+        return self._find_open_point(cwx, cwy - 400.0)
+
+    def _central_wormhole_pos(self) -> tuple[float, float]:
+        """World-space position of the central return wormhole.  Kept
+        as a method so ``setup`` + ``get_player_spawn`` stay in sync."""
+        return (self.world_width / 2, self.world_height / 2)
 
     def _find_open_point(self, cx: float, cy: float,
                          radius: float = 80.0) -> tuple[float, float]:

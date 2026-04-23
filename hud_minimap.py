@@ -144,20 +144,6 @@ def draw_minimap(
     sx_w = mw / zone_width
     sy_h = mh / zone_height
 
-    # Star Maze rooms — draw as filled dark rects before any entity
-    # markers so spawner + alien dots render on top.  Pure filled
-    # rects (no outline) keeps the minimap readable when 81 rooms
-    # all tile the field.
-    if maze_rooms:
-        for (rx, ry, rw, rh) in maze_rooms:
-            arcade.draw_rect_filled(
-                arcade.LBWH(
-                    mx + rx * sx_w, my + ry * sy_h,
-                    rw * sx_w, rh * sy_h,
-                ),
-                (60, 40, 60, 180),
-            )
-
     # Pre-compute fog grid dimensions once to inline visibility checks
     # (avoids per-entity function call overhead on 200+ sprites)
     _has_fog = fog_grid is not None
@@ -166,6 +152,41 @@ def draw_minimap(
         _inv_cell = 1.0 / FOG_CELL_SIZE
         _fw = len(_fg[0]) if len(_fg) > 0 else 0
         _fh = len(_fg)
+
+    # Star Maze rooms — draw as filled dark rects before any entity
+    # markers so spawner + alien dots render on top.  Each room is
+    # only shown when any fog cell inside its AABB has been revealed;
+    # unexplored rooms stay hidden behind the fog overlay.
+    if maze_rooms:
+        for (rx, ry, rw, rh) in maze_rooms:
+            if _has_fog:
+                # Sample the four corners + the centre — cheaper than
+                # walking every cell in the room, still catches any
+                # room the player has glimpsed a corner of.
+                samples = (
+                    (rx + 1, ry + 1),
+                    (rx + rw - 1, ry + 1),
+                    (rx + 1, ry + rh - 1),
+                    (rx + rw - 1, ry + rh - 1),
+                    (rx + rw / 2, ry + rh / 2),
+                )
+                revealed = False
+                for (sxp, syp) in samples:
+                    gx = int(sxp * _inv_cell)
+                    gy = int(syp * _inv_cell)
+                    if (0 <= gx < _fw and 0 <= gy < _fh
+                            and _fg[gy][gx]):
+                        revealed = True
+                        break
+                if not revealed:
+                    continue
+            arcade.draw_rect_filled(
+                arcade.LBWH(
+                    mx + rx * sx_w, my + ry * sy_h,
+                    rw * sx_w, rh * sy_h,
+                ),
+                (60, 40, 60, 180),
+            )
 
     asteroid_pts: list[tuple[float, float]] = []
     for asteroid in asteroid_list:
@@ -203,14 +224,19 @@ def draw_minimap(
     if alien_pts:
         arcade.draw_points(alien_pts, (220, 50, 50), 4)
 
-    # Maze spawners — live orange, killed ones grey.  Always visible
-    # (no fog check) so the player sees the objective even in
-    # unrevealed areas; matches the always-visible rendering of the
-    # maze rooms above.
+    # Maze spawners — live orange, killed ones grey.  Fog-gated so
+    # the player has to explore the maze before the spawner reveals
+    # itself on the minimap.
     if maze_spawner_positions:
         live_pts: list[tuple[float, float]] = []
         dead_pts: list[tuple[float, float]] = []
         for (sx, sy, killed) in maze_spawner_positions:
+            if _has_fog:
+                gx = int(sx * _inv_cell)
+                gy = int(sy * _inv_cell)
+                if not (0 <= gx < _fw and 0 <= gy < _fh
+                        and _fg[gy][gx]):
+                    continue
             screen = (mx + sx * sx_w, my + sy * sy_h)
             (dead_pts if killed else live_pts).append(screen)
         if live_pts:
