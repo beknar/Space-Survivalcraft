@@ -333,10 +333,25 @@ class StarMazeZone(ZoneState):
             nearest edge and teleport the entity to just outside it,
             so "push-out" doesn't collapse to the ambiguous
             dist == 0 case.
+
+        Iterates up to 5 times per entity so corner cases where
+        pushing out of one wall lands the entity inside a
+        neighbouring wall (T-intersections) eventually resolve.
         """
         for e in entities:
-            cx, cy = e.center_x, e.center_y
-            for w in self._walls_near(cx, cy, radius):
+            for _iter in range(5):
+                moved = self._resolve_one_wall_collision(e, radius)
+                if not moved:
+                    break
+
+    def _resolve_one_wall_collision(
+        self, e, radius: float,
+    ) -> bool:
+        """Push ``e`` out of the first overlapping wall and return
+        True if it moved.  Separated so ``_push_out_of_walls`` can
+        iterate until the entity clears every neighbouring wall."""
+        cx, cy = e.center_x, e.center_y
+        for w in self._walls_near(cx, cy, radius):
                 inside_x = w.x < cx < w.x + w.w
                 inside_y = w.y < cy < w.y + w.h
                 if inside_x and inside_y:
@@ -380,7 +395,8 @@ class StarMazeZone(ZoneState):
                     if v_dot_n < 0.0:
                         e.vel_x = vx - 2.0 * v_dot_n * nx
                         e.vel_y = vy - 2.0 * v_dot_n * ny
-                break
+                return True
+        return False
 
     def _generate(self, gv: GameView) -> None:
         self._mazes = generate_all_mazes(zone_seed=self._world_seed)
