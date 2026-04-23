@@ -29,19 +29,26 @@ from zones import ZoneID, NEBULA_WARP_ZONES, MAZE_WARP_ZONES
 
 
 class TestStarMazeZoneLive:
-    def test_transition_installs_rooms_walls_spawners_wormholes(
+    def test_transition_installs_two_mazes_and_wormholes(
         self, real_game_view,
     ):
-        from constants import STAR_MAZE_ROOM_COLS, STAR_MAZE_ROOM_ROWS
+        from constants import (
+            STAR_MAZE_COUNT,
+            STAR_MAZE_ROOM_COLS, STAR_MAZE_ROOM_ROWS,
+        )
         gv = real_game_view
         gv._transition_zone(ZoneID.STAR_MAZE)
         assert gv._zone.zone_id is ZoneID.STAR_MAZE
-        expected_rooms = STAR_MAZE_ROOM_COLS * STAR_MAZE_ROOM_ROWS
-        # One spawner per room.
-        assert len(gv._zone.rooms) == expected_rooms
-        assert len(gv._zone.spawners) == expected_rooms
-        # Each room contributes 6-8 wall segments after door cuts.
-        assert len(gv._zone.walls) >= expected_rooms * 6
+        # Two mazes, 5x5 rooms each => 50 rooms flat, one spawner per
+        # maze (not per room) => 2 spawners.
+        expected_rooms_per_maze = STAR_MAZE_ROOM_COLS * STAR_MAZE_ROOM_ROWS
+        assert len(gv._zone.mazes) == STAR_MAZE_COUNT
+        assert len(gv._zone.rooms) == (
+            expected_rooms_per_maze * STAR_MAZE_COUNT)
+        assert len(gv._zone.spawners) == STAR_MAZE_COUNT
+        # Each maze has at least 15 rooms per the user spec.
+        for maze in gv._zone.mazes:
+            assert len(maze.rooms) >= 15
         # Wormhole layout: 1 central (→ ZONE2) + 4 corners (→ MAZE_WARP_*).
         assert len(gv._wormholes) == 5
         targets = {w.zone_target for w in gv._wormholes}
@@ -51,10 +58,10 @@ class TestStarMazeZoneLive:
     def test_update_tick_survives(self, real_game_view):
         gv = real_game_view
         gv._transition_zone(ZoneID.STAR_MAZE)
-        # Move the player to a known safe central location so the
-        # wall-collision path has content to run against.
-        gv.player.center_x = gv._zone.world_width / 2
-        gv.player.center_y = gv._zone.world_height / 2
+        # Park the player well away from the central wormhole so the
+        # tick doesn't immediately transition back to Zone 2.
+        gv.player.center_x = 500.0
+        gv.player.center_y = 500.0
         for _ in range(5):
             gv._zone.update(gv, 1 / 60)
 
@@ -80,18 +87,23 @@ class TestStarMazeZoneLive:
         gv = real_game_view
         gv._transition_zone(ZoneID.STAR_MAZE)
         sp = gv._zone.spawners[0]
+        # Park the player off the central wormhole so the tick doesn't
+        # accidentally transition out of the Star Maze.
+        gv.player.center_x = sp.center_x + 9000
+        gv.player.center_y = sp.center_y
         sp.alive_children = MAZE_SPAWNER_MAX_ALIVE  # at cap
         sp._spawn_cd = 0.0
         before = len(gv._zone._maze_aliens)
         gv._zone.update(gv, 1 / 60)
-        # With the spawner already at cap, the update must not queue
-        # a new child — should_spawn comes back False.
         assert len(gv._zone._maze_aliens) == before
 
     def test_killed_spawner_does_not_respawn(self, real_game_view):
         gv = real_game_view
         gv._transition_zone(ZoneID.STAR_MAZE)
         sp = gv._zone.spawners[0]
+        # Park the player off the central wormhole.
+        gv.player.center_x = sp.center_x + 9000
+        gv.player.center_y = sp.center_y
         sp.hp = 0
         sp.killed = True
         sp._spawn_cd = 0.0
@@ -102,62 +114,22 @@ class TestStarMazeZoneLive:
         assert sp.killed is True
 
 
-class TestStarMazeNebulaPopulation:
-    """The Star Maze should carry the same Nebula-style population as
-    Zone 2 but everything must stay outside the maze-room AABBs."""
+class TestStarMazeNoNebulaPopulation:
+    """Spec: "for now, remove the nebula zone objects."  The Star
+    Maze zone must not expose any Zone-2 population attributes."""
 
-    def test_counts_match_zone2_spec(self, real_game_view):
-        from constants import (
-            ASTEROID_COUNT, DOUBLE_IRON_COUNT, COPPER_ASTEROID_COUNT,
-            GAS_AREA_COUNT, WANDERING_COUNT,
-            Z2_SHIELDED_COUNT, Z2_FAST_COUNT,
-            Z2_GUNNER_COUNT, Z2_RAMMER_COUNT,
-            NULL_FIELD_COUNT, SLIPSPACE_COUNT,
-        )
+    def test_no_nebula_population_attributes(self, real_game_view):
         gv = real_game_view
         gv._transition_zone(ZoneID.STAR_MAZE)
         z = gv._zone
-        assert len(z._iron_asteroids) == ASTEROID_COUNT
-        assert len(z._double_iron) == DOUBLE_IRON_COUNT
-        assert len(z._copper_asteroids) == COPPER_ASTEROID_COUNT
-        assert len(z._gas_areas) == GAS_AREA_COUNT
-        assert len(z._wanderers) == WANDERING_COUNT
-        expected_aliens = (Z2_SHIELDED_COUNT + Z2_FAST_COUNT
-                           + Z2_GUNNER_COUNT + Z2_RAMMER_COUNT)
-        assert len(z._aliens) == expected_aliens
-        assert len(z._null_fields) == NULL_FIELD_COUNT
-        assert len(z._slipspaces) == SLIPSPACE_COUNT
-
-    def test_no_population_inside_maze_rooms(self, real_game_view):
-        """Every Nebula entity must spawn outside the 5×5 grid of
-        maze rooms (plus the 40 px margin applied in the filter)."""
-        from zones.maze_geometry import point_inside_any_room_interior
-        gv = real_game_view
-        gv._transition_zone(ZoneID.STAR_MAZE)
-        z = gv._zone
-        rooms = z.rooms
-
-        def _assert_outside(iter_, label):
-            violations = [
-                (e.center_x, e.center_y)
-                for e in iter_
-                if point_inside_any_room_interior(
-                    e.center_x, e.center_y, rooms)
-            ]
-            assert not violations, (
-                f"{label}: {len(violations)} entity/entities landed "
-                f"inside a maze room (first: {violations[:3]})"
-            )
-
-        _assert_outside(z._iron_asteroids, "iron_asteroids")
-        _assert_outside(z._double_iron, "double_iron")
-        _assert_outside(z._copper_asteroids, "copper_asteroids")
-        _assert_outside(z._wanderers, "wanderers")
-        _assert_outside(z._aliens, "zone2_aliens")
-        _assert_outside(z._gas_areas, "gas_areas")
-        _assert_outside(z._slipspaces, "slipspaces")
-        # null_fields are plain objects with center_x/center_y too.
-        _assert_outside(z._null_fields, "null_fields")
+        for attr in (
+            "_iron_asteroids", "_double_iron", "_copper_asteroids",
+            "_gas_areas", "_wanderers", "_null_fields", "_slipspaces",
+            "_aliens", "_shielded_aliens", "_alien_textures",
+            "_alien_projectiles",
+        ):
+            assert not hasattr(z, attr), (
+                f"Star Maze unexpectedly exposes Nebula attr {attr}")
 
 
 class TestNebulaBossDeathUnlocksCornerWormholes:

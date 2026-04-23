@@ -1,13 +1,16 @@
-"""Pure-function geometry helpers for the Star Maze.
+"""Pure-function geometry + generator for the Star Maze.
 
-All math here is deterministic given the same RNG seed so save/load
-round-trips and tests stay stable.  Room layout is a uniform 9×9
-grid equally spaced across a ``STAR_MAZE_WIDTH`` × ``STAR_MAZE_HEIGHT``
-zone (per user spec: "mazes should be their own units, separate from
-each other, and should be equally spaced from each other").  Each
-room has four thick walls with two door gaps carved into opposite
-sides — minimum guarantee of one way in and one way out, wide enough
-for a ship to U-turn inside.
+Each maze is a ``STAR_MAZE_ROOM_COLS × STAR_MAZE_ROOM_ROWS`` grid of
+rooms carved by a deterministic recursive backtracker (DFS).  The
+result is a proper maze: some cells read as corridors (two opposite
+openings), some as junctions (3-4 openings), some as dead ends (one
+opening).  Rooms are ``STAR_MAZE_ROOM_SIZE`` on a side and doorways
+between connected rooms span the full room width so the ship (56 px
+diameter) can U-turn inside any room or through any doorway.
+
+The generator is seeded so save/load round-trips produce identical
+layouts, and the collision helpers stay pure so they're trivially
+testable.
 """
 from __future__ import annotations
 
@@ -15,9 +18,9 @@ import random
 from typing import NamedTuple
 
 from constants import (
-    STAR_MAZE_WIDTH, STAR_MAZE_HEIGHT,
-    STAR_MAZE_ROOM_SIZE, STAR_MAZE_ROOM_COLS, STAR_MAZE_ROOM_ROWS,
-    STAR_MAZE_WALL_THICK, STAR_MAZE_DOOR_WIDTH,
+    STAR_MAZE_ROOM_COLS, STAR_MAZE_ROOM_ROWS, STAR_MAZE_ROOM_SIZE,
+    STAR_MAZE_WALL_THICK, STAR_MAZE_SPAN,
+    STAR_MAZE_CENTERS,
 )
 
 
@@ -30,126 +33,142 @@ class Rect(NamedTuple):
     h: float
 
 
-def room_rects(
-    world_w: int = STAR_MAZE_WIDTH,
-    world_h: int = STAR_MAZE_HEIGHT,
+class MazeLayout(NamedTuple):
+    """One generated maze's artefacts.
+
+    ``rooms`` — AABBs of every room interior (``cols × rows`` of them).
+    ``walls`` — AABBs of every wall segment.
+    ``spawner`` — world-space ``(x, y)`` of the centre room's centre,
+    where the MazeSpawner sits.
+    ``bounds`` — outer AABB of the whole maze (rooms + walls).
+    """
+    rooms: list[Rect]
+    walls: list[Rect]
+    spawner: tuple[float, float]
+    bounds: Rect
+
+
+def generate_maze(
+    center_x: float, center_y: float,
+    *,
     cols: int = STAR_MAZE_ROOM_COLS,
     rows: int = STAR_MAZE_ROOM_ROWS,
-    size: int = STAR_MAZE_ROOM_SIZE,
-) -> list[Rect]:
-    """Return 81 room AABBs laid out on a ``cols × rows`` grid.
-
-    Spacing: total row width is ``cols × size + (cols + 1) × gap``
-    where ``gap`` is chosen so rooms + gaps fill the world exactly.
-    With the default 9×9 grid this gives a gap of ~420 px — plenty
-    of room for a ship plus a wandering asteroid between rooms.
-    """
-    gap_x = (world_w - cols * size) / (cols + 1)
-    gap_y = (world_h - rows * size) / (rows + 1)
-    out: list[Rect] = []
-    for row in range(rows):
-        for col in range(cols):
-            x = gap_x + col * (size + gap_x)
-            y = gap_y + row * (size + gap_y)
-            out.append(Rect(x, y, size, size))
-    return out
-
-
-def _split_wall_around_door(
-    wall_start: float,
-    wall_end: float,
-    door_centre: float,
-    door_width: float,
-) -> list[tuple[float, float]]:
-    """Return the ``[start, end)`` segments of the wall remaining after
-    a door gap is cut at ``door_centre``.  Clamped to the wall extents
-    so a door near a corner leaves only the un-cut segment."""
-    door_lo = door_centre - door_width / 2
-    door_hi = door_centre + door_width / 2
-    segments: list[tuple[float, float]] = []
-    if door_lo > wall_start:
-        segments.append((wall_start, min(wall_end, door_lo)))
-    if door_hi < wall_end:
-        segments.append((max(wall_start, door_hi), wall_end))
-    # Filter zero-length segments (e.g. door exactly at the corner).
-    return [(s, e) for (s, e) in segments if e - s > 0.5]
-
-
-def wall_rects_for_room(
-    room: Rect,
-    *,
-    seed: int,
+    room_size: int = STAR_MAZE_ROOM_SIZE,
     wall_thick: int = STAR_MAZE_WALL_THICK,
-    door_width: int = STAR_MAZE_DOOR_WIDTH,
-) -> list[Rect]:
-    """Return the AABB wall rects around ``room`` with two door gaps.
+    seed: int = 0,
+) -> MazeLayout:
+    """Carve one maze centred on ``(center_x, center_y)``.
 
-    Two openings are placed on opposite sides (top/bottom or left/
-    right) with ``seed``-determined lateral offsets.  Corner tiles
-    stay wall so the door is inset from the corners, keeping the
-    dungeon outline recognisable.
+    Uses recursive backtracking — pick a random unvisited neighbour
+    of the current cell, knock down the wall between them, recurse.
+    When the current cell has no unvisited neighbours, backtrack.
     """
     rng = random.Random(seed)
-    # Door axis — horizontal (top+bottom) or vertical (left+right).
-    axis = rng.choice(("horizontal", "vertical"))
-    # Random door centre within the room interior, inset so the gap
-    # doesn't land against a corner.
-    inset = wall_thick + door_width / 2 + 8
-    door_min_x = room.x + inset
-    door_max_x = room.x + room.w - inset
-    door_min_y = room.y + inset
-    door_max_y = room.y + room.h - inset
 
-    door_top_x = rng.uniform(door_min_x, door_max_x)
-    door_bot_x = rng.uniform(door_min_x, door_max_x)
-    door_lef_y = rng.uniform(door_min_y, door_max_y)
-    door_rig_y = rng.uniform(door_min_y, door_max_y)
+    # ── DFS ─────────────────────────────────────────────────────────
+    # carved_h_edges[(c, r)]: horizontal edge between cell (c, r)
+    # below and (c, r+1) above is open.
+    # carved_v_edges[(c, r)]: vertical edge between cell (c, r) left
+    # and (c+1, r) right is open.
+    carved_h_edges: set[tuple[int, int]] = set()
+    carved_v_edges: set[tuple[int, int]] = set()
+    visited: set[tuple[int, int]] = {(0, 0)}
+    stack: list[tuple[int, int]] = [(0, 0)]
+    while stack:
+        c, r = stack[-1]
+        options: list[tuple[tuple[int, int], tuple[str, int, int]]] = []
+        if r + 1 < rows and (c, r + 1) not in visited:
+            options.append(((c, r + 1), ("h", c, r)))
+        if c + 1 < cols and (c + 1, r) not in visited:
+            options.append(((c + 1, r), ("v", c, r)))
+        if r > 0 and (c, r - 1) not in visited:
+            options.append(((c, r - 1), ("h", c, r - 1)))
+        if c > 0 and (c - 1, r) not in visited:
+            options.append(((c - 1, r), ("v", c - 1, r)))
+        if options:
+            nxt, edge = rng.choice(options)
+            if edge[0] == "h":
+                carved_h_edges.add((edge[1], edge[2]))
+            else:
+                carved_v_edges.add((edge[1], edge[2]))
+            visited.add(nxt)
+            stack.append(nxt)
+        else:
+            stack.pop()
 
-    # Horizontal walls (top + bottom) run along x; vertical walls
-    # (left + right) run along y.
-    top_cuts: list[tuple[float, float]]
-    bot_cuts: list[tuple[float, float]]
-    lef_cuts: list[tuple[float, float]]
-    rig_cuts: list[tuple[float, float]]
-    if axis == "horizontal":
-        top_cuts = _split_wall_around_door(
-            room.x, room.x + room.w, door_top_x, door_width)
-        bot_cuts = _split_wall_around_door(
-            room.x, room.x + room.w, door_bot_x, door_width)
-        lef_cuts = [(room.y, room.y + room.h)]
-        rig_cuts = [(room.y, room.y + room.h)]
-    else:
-        top_cuts = [(room.x, room.x + room.w)]
-        bot_cuts = [(room.x, room.x + room.w)]
-        lef_cuts = _split_wall_around_door(
-            room.y, room.y + room.h, door_lef_y, door_width)
-        rig_cuts = _split_wall_around_door(
-            room.y, room.y + room.h, door_rig_y, door_width)
+    # ── Build rects ────────────────────────────────────────────────
+    step = room_size + wall_thick
+    total_w = cols * step + wall_thick
+    total_h = rows * step + wall_thick
+    origin_x = center_x - total_w / 2
+    origin_y = center_y - total_h / 2
+
+    rooms: list[Rect] = []
+    for c in range(cols):
+        for r in range(rows):
+            rx = origin_x + wall_thick + c * step
+            ry = origin_y + wall_thick + r * step
+            rooms.append(Rect(rx, ry, room_size, room_size))
 
     walls: list[Rect] = []
-    top_y = room.y + room.h - wall_thick
-    bot_y = room.y
-    lef_x = room.x
-    rig_x = room.x + room.w - wall_thick
-    for (sx, ex) in top_cuts:
-        walls.append(Rect(sx, top_y, ex - sx, wall_thick))
-    for (sx, ex) in bot_cuts:
-        walls.append(Rect(sx, bot_y, ex - sx, wall_thick))
-    for (sy, ey) in lef_cuts:
-        walls.append(Rect(lef_x, sy, wall_thick, ey - sy))
-    for (sy, ey) in rig_cuts:
-        walls.append(Rect(rig_x, sy, wall_thick, ey - sy))
-    return walls
+    # Outer boundary — 4 rectangles.
+    walls.append(Rect(origin_x, origin_y, total_w, wall_thick))            # bot
+    walls.append(Rect(origin_x, origin_y + total_h - wall_thick,
+                      total_w, wall_thick))                                 # top
+    walls.append(Rect(origin_x, origin_y, wall_thick, total_h))            # left
+    walls.append(Rect(origin_x + total_w - wall_thick, origin_y,
+                      wall_thick, total_h))                                 # right
+
+    # Internal horizontal walls — between row r and row r+1, spanning
+    # the room width.  Only placed where the edge wasn't carved.
+    for c in range(cols):
+        for r in range(rows - 1):
+            if (c, r) in carved_h_edges:
+                continue
+            wx = origin_x + wall_thick + c * step
+            wy = origin_y + wall_thick + r * step + room_size
+            walls.append(Rect(wx, wy, room_size, wall_thick))
+
+    # Internal vertical walls.
+    for c in range(cols - 1):
+        for r in range(rows):
+            if (c, r) in carved_v_edges:
+                continue
+            wx = origin_x + wall_thick + c * step + room_size
+            wy = origin_y + wall_thick + r * step
+            walls.append(Rect(wx, wy, wall_thick, room_size))
+
+    # Internal corner fillers — the wall-thickness×wall-thickness
+    # squares where four cells meet.  Always solid so the maze has a
+    # clean grid aesthetic regardless of which edges got carved.
+    for c in range(cols - 1):
+        for r in range(rows - 1):
+            wx = origin_x + wall_thick + c * step + room_size
+            wy = origin_y + wall_thick + r * step + room_size
+            walls.append(Rect(wx, wy, wall_thick, wall_thick))
+
+    spawner_xy = (center_x, center_y)
+    bounds = Rect(origin_x, origin_y, total_w, total_h)
+    return MazeLayout(
+        rooms=rooms, walls=walls,
+        spawner=spawner_xy, bounds=bounds,
+    )
 
 
-def all_wall_rects(rooms: list[Rect], *, zone_seed: int = 0) -> list[Rect]:
-    """Every wall in the maze, flat list.  Each room's walls are
-    generated with a seed derived from the room index + ``zone_seed``
-    so the layout is reproducible across save/load."""
-    out: list[Rect] = []
-    for i, room in enumerate(rooms):
-        out.extend(wall_rects_for_room(room, seed=zone_seed * 131 + i * 17))
-    return out
+def generate_all_mazes(
+    centers: tuple[tuple[int, int], ...] = STAR_MAZE_CENTERS,
+    *,
+    zone_seed: int = 0,
+) -> list[MazeLayout]:
+    """Generate every maze in the Star Maze zone.
+
+    Each maze gets a distinct seed derived from ``zone_seed`` and its
+    index so save/load round-trips reproduce the same two layouts.
+    """
+    return [
+        generate_maze(cx, cy, seed=zone_seed * 131 + i * 17)
+        for i, (cx, cy) in enumerate(centers)
+    ]
 
 
 # ── Point/rect tests ────────────────────────────────────────────────
@@ -169,8 +188,8 @@ def circle_overlaps_rect(
     cx: float, cy: float, radius: float, r: Rect,
 ) -> bool:
     """Classic circle-vs-AABB overlap: clamp the circle centre to the
-    rect and check distance to the clamped point.  Used for the player
-    ship + maze-aliens' wall collision."""
+    rect and check distance to the clamped point.  Used for the
+    player ship + maze-aliens' wall collision."""
     qx = max(r.x, min(cx, r.x + r.w))
     qy = max(r.y, min(cy, r.y + r.h))
     dx = cx - qx
@@ -203,18 +222,16 @@ def segment_hits_any_wall(
     return False
 
 
-# ── Population exclusion ────────────────────────────────────────────
-
 def point_inside_any_room_interior(
     x: float, y: float,
     rooms: list[Rect],
     margin: float = 0.0,
 ) -> bool:
-    """Used when populating the zone's open area with asteroids / gas
-    / null fields.  Any candidate position inside a room (plus a
-    margin) is rejected so the maze interiors stay empty for spawner
-    combat.  ``margin`` can push the exclusion slightly past the room
-    walls so asteroids don't spawn flush against a wall from outside.
+    """Reject predicate for zone-population helpers: returns True if
+    ``(x, y)`` falls inside any room rect (plus a margin).  Still
+    exported even though the current design has no Nebula content in
+    the Star Maze — the hook lets callers filter on maze geometry
+    without coupling to StarMazeZone internals.
     """
     for r in rooms:
         if (r.x - margin <= x <= r.x + r.w + margin

@@ -203,17 +203,14 @@ def draw_minimap(
     if alien_pts:
         arcade.draw_points(alien_pts, (220, 50, 50), 4)
 
-    # Maze spawners — live red squares, killed ones grey.  Drawn
-    # slightly larger than aliens so they stand out as objectives.
+    # Maze spawners — live orange, killed ones grey.  Always visible
+    # (no fog check) so the player sees the objective even in
+    # unrevealed areas; matches the always-visible rendering of the
+    # maze rooms above.
     if maze_spawner_positions:
         live_pts: list[tuple[float, float]] = []
         dead_pts: list[tuple[float, float]] = []
         for (sx, sy, killed) in maze_spawner_positions:
-            if _has_fog:
-                gx = int(sx * _inv_cell)
-                gy = int(sy * _inv_cell)
-                if not (0 <= gx < _fw and 0 <= gy < _fh and _fg[gy][gx]):
-                    continue
             screen = (mx + sx * sx_w, my + sy * sy_h)
             (dead_pts if killed else live_pts).append(screen)
         if live_pts:

@@ -723,28 +723,41 @@ Z2_RAMMER_XP: int = 80
 # 14b. Star Maze (post-Nebula-boss content)
 # ═══════════════════════════════════════════════════════════════════════════════
 #
-# Zone is 25% larger than Zone 2 (per spec) so the maze + its open
-# area have more breathing room.  Rooms cover a combined 2880 × 2880
-# of area — a uniform 5×5 grid of 576 × 576 rooms hits that exactly
-# (5 × 576 = 2880).  576 px stays within 4 % of the original
-# "around 600 px" target so ship clearance inside a room is unchanged.
-# Gaps between rooms come out to ~1520 px — plenty of open space for
-# ships, asteroids, and the rest of the Nebula-style population.
+# Star Maze: two proper mazes carved out of a 12000 x 12000 field.
+# Each maze is a 5x5 grid of rooms connected by doorways carved via
+# recursive backtracking — rooms + corridors emerge from the same
+# cell structure so "corridor" vs "room" is an emergent property of
+# connectivity (a cell with two opposite openings reads as a
+# corridor; three+ openings reads as a junction).  Ship (56 px
+# diameter) fits + turns around comfortably in a 300 x 300 room and
+# in the 300 x 32 doorway between rooms.
+#
+# Two maze centres sit at (3000, 6000) and (9000, 6000) — equidistant
+# left/right of the zone centre with a generous 4000+ px gap between
+# their outer walls.
 
 # Zone dimensions — 25 % above Zone 2.
 STAR_MAZE_WIDTH: int = int(ZONE2_WIDTH * 1.25)     # 12 000
 STAR_MAZE_HEIGHT: int = int(ZONE2_HEIGHT * 1.25)   # 12 000
 
-# Maze room geometry.
-STAR_MAZE_ROOM_SIZE: int = 576                 # outer side length (px)
-STAR_MAZE_ROOM_COLS: int = 5
-STAR_MAZE_ROOM_ROWS: int = 5
-STAR_MAZE_WALL_TILE: int = 16                  # dungeon-sheet tile pixel size
-STAR_MAZE_WALL_SCALE: float = 2.0              # each 16 px tile renders at 32 px
+# Per-maze grid geometry.
+STAR_MAZE_COUNT: int = 2                  # number of maze structures
+STAR_MAZE_ROOM_COLS: int = 5              # per-maze room count on X axis
+STAR_MAZE_ROOM_ROWS: int = 5              # per-maze room count on Y axis
+STAR_MAZE_ROOM_SIZE: int = 300            # interior side length (px)
+STAR_MAZE_WALL_TILE: int = 16             # dungeon-sheet tile pixel size
+STAR_MAZE_WALL_SCALE: float = 2.0         # each 16 px tile renders at 32 px
 STAR_MAZE_WALL_THICK: int = int(STAR_MAZE_WALL_TILE * STAR_MAZE_WALL_SCALE)  # 32
-# Door opening width — ship diameter is ~56 px, so 128 px gives plenty
-# of clearance for U-turns inside a corridor.
-STAR_MAZE_DOOR_WIDTH: int = 128
+# Full span of one maze (pixels): 5 rooms + 6 walls = 1692 px.
+STAR_MAZE_SPAN: int = (
+    STAR_MAZE_ROOM_COLS * STAR_MAZE_ROOM_SIZE
+    + (STAR_MAZE_ROOM_COLS + 1) * STAR_MAZE_WALL_THICK
+)
+# World-space centres of the two mazes.
+STAR_MAZE_CENTERS: tuple[tuple[int, int], ...] = (
+    (3000, 6000),
+    (9000, 6000),
+)
 
 # Dungeon wall tile sheet (16 × 16 px tiles).  Column/row choice is
 # resolved inside the maze generator.

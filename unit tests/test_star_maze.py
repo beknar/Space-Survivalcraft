@@ -6,12 +6,14 @@ a real GameView) lives in ``unit tests/integration/``.
 """
 from __future__ import annotations
 
+import arcade
 import pytest
 
 from constants import (
     STAR_MAZE_WIDTH, STAR_MAZE_HEIGHT,
     STAR_MAZE_ROOM_COLS, STAR_MAZE_ROOM_ROWS, STAR_MAZE_ROOM_SIZE,
-    STAR_MAZE_WALL_THICK, STAR_MAZE_DOOR_WIDTH,
+    STAR_MAZE_WALL_THICK, STAR_MAZE_SPAN,
+    STAR_MAZE_COUNT, STAR_MAZE_CENTERS,
     MAZE_ALIEN_HP, MAZE_ALIEN_SPEED, MAZE_ALIEN_RADIUS,
     MAZE_ALIEN_LASER_DAMAGE, MAZE_ALIEN_LASER_RANGE,
     MAZE_ALIEN_LASER_SPEED, MAZE_ALIEN_FIRE_CD,
@@ -27,10 +29,17 @@ from zones import (
     ZoneID, NEBULA_WARP_ZONES, MAZE_WARP_ZONES, ALL_WARP_ZONES,
 )
 from zones.maze_geometry import (
-    Rect, room_rects, wall_rects_for_room, all_wall_rects,
+    Rect, MazeLayout, generate_maze, generate_all_mazes,
     circle_hits_any_wall, segment_hits_any_wall,
     point_inside_any_room_interior, point_in_rect,
 )
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _arcade_window():
+    w = arcade.Window(800, 600, visible=False)
+    yield w
+    w.close()
 
 
 # ── Spec-pinning: stat values must match user spec exactly ───────
@@ -95,109 +104,104 @@ class TestZoneIdAdditions:
     def test_all_warp_zones_superset(self):
         assert NEBULA_WARP_ZONES <= ALL_WARP_ZONES
         assert MAZE_WARP_ZONES <= ALL_WARP_ZONES
-        # Classic warp variants still included.
         for name in ("WARP_METEOR", "WARP_LIGHTNING",
                      "WARP_GAS", "WARP_ENEMY"):
             assert getattr(ZoneID, name) in ALL_WARP_ZONES
 
 
-# ── Room grid ────────────────────────────────────────────────────
+# ── Maze generator ──────────────────────────────────────────────
 
-class TestRoomGrid:
-    def test_count_is_81(self):
-        assert len(room_rects()) == STAR_MAZE_ROOM_COLS * STAR_MAZE_ROOM_ROWS
+class TestMazeGenerator:
+    def test_returns_rooms_and_walls_and_spawner(self):
+        m = generate_maze(1000, 1000, seed=7)
+        assert isinstance(m, MazeLayout)
+        # 5x5 grid => 25 rooms.
+        assert len(m.rooms) == STAR_MAZE_ROOM_COLS * STAR_MAZE_ROOM_ROWS
+        # Spawner sits at the caller-specified centre.
+        assert m.spawner == (1000, 1000)
 
-    def test_every_room_matches_room_size_constant(self):
-        for r in room_rects():
+    def test_at_least_15_rooms_per_maze(self):
+        m = generate_maze(0, 0, seed=1)
+        assert len(m.rooms) >= 15
+
+    def test_rooms_are_spec_size(self):
+        m = generate_maze(0, 0, seed=1)
+        for r in m.rooms:
             assert r.w == STAR_MAZE_ROOM_SIZE
             assert r.h == STAR_MAZE_ROOM_SIZE
 
-    def test_total_room_area_is_2880_by_2880(self):
-        """Per spec: combined room coverage equals 2880 × 2880 px².
-        5 × 5 grid of 576 × 576 rooms hits this exactly."""
-        total = sum(r.w * r.h for r in room_rects())
-        assert total == 2880 * 2880
-
-    def test_rooms_equally_spaced_on_x_axis(self):
-        rooms = room_rects()
-        first_row = rooms[:STAR_MAZE_ROOM_COLS]
-        gaps_x = [
-            first_row[i + 1].x - (first_row[i].x + first_row[i].w)
-            for i in range(len(first_row) - 1)
-        ]
-        # Every inner gap identical.
-        for g in gaps_x[1:]:
-            assert abs(g - gaps_x[0]) < 1e-6
-
-    def test_rooms_fit_inside_world(self):
-        for r in room_rects():
-            assert r.x >= 0 and r.x + r.w <= STAR_MAZE_WIDTH
-            assert r.y >= 0 and r.y + r.h <= STAR_MAZE_HEIGHT
-
-    def test_rooms_dont_overlap(self):
-        rooms = room_rects()
+    def test_rooms_do_not_overlap(self):
+        m = generate_maze(0, 0, seed=1)
+        rooms = m.rooms
         for i, a in enumerate(rooms):
             for b in rooms[i + 1:]:
-                # Strict separation on at least one axis.
                 disjoint = (a.x + a.w <= b.x or b.x + b.w <= a.x
                             or a.y + a.h <= b.y or b.y + b.h <= a.y)
                 assert disjoint
 
+    def test_bounds_span_matches_constants(self):
+        m = generate_maze(0, 0, seed=1)
+        assert m.bounds.w == STAR_MAZE_SPAN
+        assert m.bounds.h == STAR_MAZE_SPAN
 
-# ── Walls + doors ────────────────────────────────────────────────
+    def test_ship_fits_inside_every_room(self):
+        """Every room must be wide enough for a 56 px-diameter ship to
+        U-turn inside — 300 px interior is 5.3x ship diameter."""
+        from constants import SHIP_RADIUS
+        m = generate_maze(0, 0, seed=1)
+        for r in m.rooms:
+            assert r.w >= SHIP_RADIUS * 4
+            assert r.h >= SHIP_RADIUS * 4
 
-class TestWallsAndDoors:
-    def test_room_has_wall_rects(self):
-        room = Rect(0, 0, 600, 600)
-        walls = wall_rects_for_room(room, seed=123)
-        # 4 sides minus 2 carved for doors = at least 6 segments
-        # (each carved side splits into 2), possibly up to 8 if a door
-        # lands near a corner (one-segment case).
-        assert 5 <= len(walls) <= 8
+    def test_deterministic_per_seed(self):
+        a = generate_maze(0, 0, seed=42)
+        b = generate_maze(0, 0, seed=42)
+        assert a.rooms == b.rooms
+        assert a.walls == b.walls
 
-    def test_door_width_is_spec_value(self):
-        """Perimeter of all wall segments must equal the full room
-        perimeter minus the two door openings.  Works for both the
-        horizontal (top+bottom) and vertical (left+right) door-axis
-        branches."""
-        room = Rect(0, 0, 600, 600)
-        # Try several seeds so both axis branches are exercised.
-        for seed in range(10):
-            walls = wall_rects_for_room(room, seed=seed)
-            perimeter = 0.0
-            for w in walls:
-                # Each wall segment is a strip — its long edge is the
-                # segment length.
-                perimeter += max(w.w, w.h)
-            expected = 4 * 600 - 2 * STAR_MAZE_DOOR_WIDTH
-            assert abs(perimeter - expected) < 2.0, (
-                f"seed={seed}: got {perimeter}, want ~{expected}"
-            )
+    def test_different_seeds_different_mazes(self):
+        a = generate_maze(0, 0, seed=1)
+        b = generate_maze(0, 0, seed=2)
+        # Same rooms (grid layout) but different walls (carved edges).
+        assert a.rooms == b.rooms
+        assert a.walls != b.walls
 
-    def test_wall_thickness_is_spec(self):
-        room = Rect(100, 100, 600, 600)
-        walls = wall_rects_for_room(room, seed=5)
-        for w in walls:
-            # Each wall segment is either thick on one axis OR the
-            # other — it's always a strip, never a block.
-            thin = min(w.w, w.h)
-            assert abs(thin - STAR_MAZE_WALL_THICK) < 1e-6
+    def test_centre_room_contains_spawner(self):
+        m = generate_maze(500, 500, seed=1)
+        rx, ry = m.spawner
+        center_room = None
+        for r in m.rooms:
+            if r.x <= rx <= r.x + r.w and r.y <= ry <= r.y + r.h:
+                center_room = r
+                break
+        assert center_room is not None, (
+            "spawner must sit inside one of the rooms")
 
-    def test_all_wall_rects_count(self):
-        rooms = room_rects()
-        walls = all_wall_rects(rooms, zone_seed=42)
-        # 5×5 = 25 rooms × 6-8 wall segments each → 150–200.
-        expected_low = len(rooms) * 6
-        expected_high = len(rooms) * 8
-        assert expected_low <= len(walls) <= expected_high
 
-    def test_deterministic_given_seed(self):
-        r = Rect(0, 0, 600, 600)
-        a = wall_rects_for_room(r, seed=99)
-        b = wall_rects_for_room(r, seed=99)
-        assert a == b
-        c = wall_rects_for_room(r, seed=100)
-        assert a != c
+class TestGenerateAllMazes:
+    def test_produces_two_mazes(self):
+        mazes = generate_all_mazes(zone_seed=0)
+        assert len(mazes) == STAR_MAZE_COUNT
+        assert len(mazes) == 2
+
+    def test_spawners_at_configured_centres(self):
+        mazes = generate_all_mazes(zone_seed=0)
+        spawner_positions = [m.spawner for m in mazes]
+        expected = [tuple(c) for c in STAR_MAZE_CENTERS]
+        assert sorted(spawner_positions) == sorted(expected)
+
+    def test_mazes_do_not_overlap(self):
+        mazes = generate_all_mazes(zone_seed=0)
+        a, b = mazes[0].bounds, mazes[1].bounds
+        disjoint = (a.x + a.w <= b.x or b.x + b.w <= a.x
+                    or a.y + a.h <= b.y or b.y + b.h <= a.y)
+        assert disjoint
+
+    def test_each_maze_has_its_own_seed(self):
+        """Different mazes in the same zone_seed batch produce
+        distinct layouts."""
+        mazes = generate_all_mazes(zone_seed=0)
+        assert mazes[0].walls != mazes[1].walls
 
 
 class TestCollisionHelpers:
@@ -209,28 +213,23 @@ class TestCollisionHelpers:
 
     def test_circle_hits_wall(self):
         walls = [Rect(0, 0, 10, 100)]
-        assert circle_hits_any_wall(15, 50, 6, walls)   # overlap
+        assert circle_hits_any_wall(15, 50, 6, walls)
         assert not circle_hits_any_wall(30, 50, 6, walls)
 
     def test_segment_hits_wall(self):
         walls = [Rect(50, 50, 20, 20)]
-        # Segment passing straight through.
         assert segment_hits_any_wall(0, 60, 100, 60, walls)
-        # Segment well above.
         assert not segment_hits_any_wall(0, 500, 100, 500, walls)
 
     def test_point_inside_room_interior(self):
-        rooms = room_rects()
-        # The zone centre sits in the gap between rooms — not inside
-        # any room.
-        cx = STAR_MAZE_WIDTH / 2
-        cy = STAR_MAZE_HEIGHT / 2
-        # With a 9x9 grid the centre is a gap, not a room cell.
-        in_room = point_inside_any_room_interior(cx, cy, rooms)
-        # Either way, the first room's centre must report True.
-        first = rooms[0]
+        m = generate_maze(500, 500, seed=1)
+        # Centre of the first room must register as inside.
+        first = m.rooms[0]
         assert point_inside_any_room_interior(
-            first.x + first.w / 2, first.y + first.h / 2, rooms)
+            first.x + first.w / 2, first.y + first.h / 2, m.rooms)
+        # Point far away must not.
+        assert not point_inside_any_room_interior(
+            -1000, -1000, m.rooms)
 
 
 # ── StarMazeZone construction ────────────────────────────────────
@@ -252,8 +251,6 @@ class TestStarMazeZoneConstruction:
         from zones import create_zone
         for zid in NEBULA_WARP_ZONES:
             z = create_zone(zid)
-            # Every instance gets tagged with the specific id, even
-            # though the underlying class is a reused warp class.
             assert z.zone_id is zid
 
     def test_factory_maps_maze_warp_variants(self):
@@ -272,7 +269,6 @@ class _StubPlayer:
 
 
 class _StubGameView:
-    """Minimum a warp-zone setup() touches."""
     def __init__(self):
         self.player = _StubPlayer()
         self._fog_grid = None
@@ -281,50 +277,37 @@ class _StubGameView:
 
 
 def _resolve_warp(zone_id):
-    """Create a warp-zone instance via the factory and run the
-    zone-id-based routing so ``_danger`` + exit targets are set."""
     from zones import create_zone
     z = create_zone(zone_id)
     gv = _StubGameView()
     try:
         z.setup(gv)
     except Exception:
-        # The subclass setup() may load textures we can't in a
-        # headless test — the routing we care about is set inside
-        # WarpZoneBase.setup() BEFORE any subclass asset work.  If
-        # the subclass raised, we've already run what we need.
+        # Subclass setup() may touch textures we can't load here —
+        # the routing we care about is set in WarpZoneBase.setup()
+        # BEFORE any subclass asset work.
         pass
     return z
 
 
 class TestWarpDangerByZoneId:
     def test_zone1_launched_stays_1x(self):
-        from zones import ZoneID
         z = _resolve_warp(ZoneID.WARP_METEOR)
         assert z._danger == 1.0
         assert z._exit_bottom_zone is ZoneID.MAIN
         assert z._exit_top_zone is ZoneID.ZONE2
 
     def test_nebula_launched_is_2x(self):
-        from zones import ZoneID
         z = _resolve_warp(ZoneID.NEBULA_WARP_METEOR)
         assert z._danger == 2.0
         assert z._exit_bottom_zone is ZoneID.STAR_MAZE
         assert z._exit_top_zone is ZoneID.STAR_MAZE
 
     def test_maze_launched_is_2x(self):
-        from zones import ZoneID
         z = _resolve_warp(ZoneID.MAZE_WARP_LIGHTNING)
         assert z._danger == 2.0
         assert z._exit_bottom_zone is ZoneID.STAR_MAZE
         assert z._exit_top_zone is ZoneID.STAR_MAZE
-
-    def test_all_four_nebula_variants_route_to_star_maze(self):
-        from zones import NEBULA_WARP_ZONES, ZoneID
-        for zid in NEBULA_WARP_ZONES:
-            z = _resolve_warp(zid)
-            assert z._exit_bottom_zone is ZoneID.STAR_MAZE
-            assert z._exit_top_zone is ZoneID.STAR_MAZE
 
 
 # ── Zone 2 corner-wormhole unlock ────────────────────────────────
@@ -338,7 +321,6 @@ class TestZone2CornerWormholes:
 
     def test_corner_wormhole_targets_map_to_nebula_variants(self):
         from zones.zone2 import Zone2
-        from zones import NEBULA_WARP_ZONES
         z2 = Zone2()
         whs = z2._build_corner_wormholes()
         targets = {w.zone_target for w in whs}
@@ -349,51 +331,26 @@ class TestZone2CornerWormholes:
         assert Zone2()._nebula_boss_defeated is False
 
 
-# ── Star-Maze wormhole layout ────────────────────────────────────
+# ── Welcome-message helper ───────────────────────────────────────
 
-class TestStarMazeCornerWormholes:
-    def test_setup_installs_five_wormholes(self):
-        """One central (to Zone 2) plus four corners (to MAZE_WARP_*).
-        Invoked against the stub GameView so we can assert on the
-        attached wormhole list without arcade assets."""
-        from zones.star_maze import StarMazeZone
-        from zones import MAZE_WARP_ZONES, ZoneID
-        import arcade
-        gv = _StubGameView()
-        gv._wormholes = []
-        gv._wormhole_list = arcade.SpriteList()
-        z = StarMazeZone()
-        # Skip generate() so we don't need PIL texture loading — hand-
-        # roll the minimum setup() path.
-        z._populated = True
-        z._rooms = []
-        z._walls = []
-        from zones.star_maze import _build_wall_sprites
-        z._wall_sprite_list = _build_wall_sprites([])
-        # Use the real setup but short-circuit the room regen.
-        # Copy the central + corner wormhole block inline.
-        from sprites.wormhole import Wormhole
-        cx, cy = z._find_open_point(
-            z.world_width / 2, z.world_height / 2)
-        wh = Wormhole(cx, cy)
-        wh.zone_target = ZoneID.ZONE2
-        gv._wormholes = [wh]
-        margin = 220
-        ww = z.world_width
-        whh = z.world_height
-        targets = [
-            ZoneID.MAZE_WARP_METEOR, ZoneID.MAZE_WARP_LIGHTNING,
-            ZoneID.MAZE_WARP_GAS, ZoneID.MAZE_WARP_ENEMY,
-        ]
-        for t in targets:
-            cwh = Wormhole(margin, margin)
-            cwh.zone_target = t
-            gv._wormholes.append(cwh)
-        # Sanity: five total, one central to Zone 2 + four to each
-        # MAZE_WARP_* variant.
-        assert len(gv._wormholes) == 5
-        corner_targets = {w.zone_target for w in gv._wormholes[1:]}
-        assert corner_targets == MAZE_WARP_ZONES
+class TestWelcomeMessages:
+    def test_star_maze(self):
+        from zones import welcome_message_for
+        assert welcome_message_for(ZoneID.STAR_MAZE) == (
+            "Welcome to the Star Maze")
+
+    def test_gas_warp(self):
+        from zones import welcome_message_for
+        assert welcome_message_for(ZoneID.NEBULA_WARP_GAS) == (
+            "Welcome to the Gas Warp Zone")
+
+    def test_main_returns_none(self):
+        from zones import welcome_message_for
+        assert welcome_message_for(ZoneID.MAIN) is None
+
+    def test_zone2_returns_none(self):
+        from zones import welcome_message_for
+        assert welcome_message_for(ZoneID.ZONE2) is None
 
 
 # ── Save / load round-trip helpers ───────────────────────────────
@@ -439,8 +396,6 @@ class TestMazeSpawnerSaveRoundTrip:
         assert sp.uid == 9
 
     def test_killed_survives_round_trip(self):
-        """A killed spawner must stay dead across save + load — the
-        spec calls this out explicitly."""
         from sprites.maze_spawner import MazeSpawner
         sp1 = MazeSpawner(0.0, 0.0)
         sp1.hp = 0
@@ -467,9 +422,6 @@ class TestZone2NebulaFlagPersistence:
         assert Zone2()._nebula_boss_defeated is False
 
     def test_mark_sets_flag(self):
-        """Direct mark (without needing a real GameView) should flip
-        the flag.  The wormhole-append side-effect needs a live gv so
-        is covered by integration tests."""
         from zones.zone2 import Zone2
         z = Zone2()
         z._nebula_boss_defeated = True
