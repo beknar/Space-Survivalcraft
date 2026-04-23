@@ -566,15 +566,20 @@ def _restore_star_maze_full(view: GameView, state: dict) -> None:
     if populated:
         # Regenerate rooms + walls + spawners deterministically from
         # the saved seed, then overwrite per-spawner HP / killed /
-        # timer from the save.
+        # timer from the save.  _generate calls populate_aliens which
+        # reads zone._alien_textures, so textures must be loaded first.
+        zone._load_textures(view)
         zone._generate(view)
         zone._populated = True
         spawner_data = state.get("spawners", [])
         for sp, sd in zip(zone._spawners, spawner_data):
             sp.from_save_data(sd)
-    # Fog state.
+    # Fog state.  Guard against old saves whose grid was sized for a
+    # different STAR_MAZE_WIDTH/HEIGHT or FOG_CELL_SIZE — if the
+    # dimensions don't match, drop the saved grid and start fresh.
     fog = state.get("fog_grid")
-    if fog is not None:
+    if (fog is not None and len(fog) == zone._fog_h
+            and all(len(row) == zone._fog_w for row in fog)):
         zone._fog_grid = fog
         zone._fog_revealed = state.get("fog_revealed", 0)
     view._star_maze = zone
