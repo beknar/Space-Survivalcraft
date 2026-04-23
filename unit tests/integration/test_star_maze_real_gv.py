@@ -276,6 +276,53 @@ class TestStarMazeCombat:
         assert (sp.shields < shield_before) or (sp.hp < hp_before)
 
 
+class TestStarMazeContainmentAndDespawn:
+    """Nebula objects must not pass through maze walls, and alien
+    laser shots must despawn (advance + range-check every tick)."""
+
+    def test_wanderers_pushed_out_of_walls(self, real_game_view):
+        """Plant a wanderer inside a maze wall, tick once — it
+        should be pushed out of the wall."""
+        from zones.maze_geometry import point_in_any
+        gv = real_game_view
+        gv._transition_zone(ZoneID.STAR_MAZE)
+        z = gv._zone
+        # Park the player far from the central wormhole so the tick
+        # doesn't transition us out.
+        gv.player.center_x = 500.0
+        gv.player.center_y = 500.0
+        # Drop one wanderer inside a wall.
+        wall = z.walls[0]
+        stranded = z._wanderers[0]
+        stranded.center_x = wall.x + wall.w / 2
+        stranded.center_y = wall.y + wall.h / 2
+        z.update(gv, 1 / 60)
+        assert not point_in_any(
+            stranded.center_x, stranded.center_y, z.walls)
+
+    def test_alien_projectiles_despawn(self, real_game_view):
+        """Fire a fake projectile at a Zone 2 alien's spawn range and
+        verify it doesn't linger forever."""
+        from sprites.projectile import Projectile
+        gv = real_game_view
+        gv._transition_zone(ZoneID.STAR_MAZE)
+        z = gv._zone
+        gv.player.center_x = 500.0
+        gv.player.center_y = 500.0
+        # Inject one alien projectile with minimal range so it
+        # expires quickly.
+        proj = Projectile(
+            gv._alien_laser_tex, 300, 300, 0.0,
+            speed=500.0, max_dist=50.0, scale=0.5, damage=10,
+        )
+        z._alien_projectiles.append(proj)
+        # Tick enough frames to exhaust the 50 px range at
+        # 500 px/s (i.e. 0.1 s == 6 frames).
+        for _ in range(15):
+            z.update(gv, 1 / 60)
+        assert proj not in z._alien_projectiles
+
+
 class TestStarMazeMazeStructure:
     """Verify geometry + spawn-safety invariants the user called out
     explicitly."""

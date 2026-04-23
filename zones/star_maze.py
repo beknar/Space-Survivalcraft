@@ -164,6 +164,14 @@ class StarMazeZone(ZoneState):
         self._fog_revealed: int = 0
         # alien -> parent spawner uid.
         self._alien_parent: dict[MazeAlien, int] = {}
+        # Spatial hash of wall rects: grid[gx, gy] -> list of wall
+        # AABBs that overlap that cell.  Built in _generate and
+        # consulted by every per-frame wall query so we don't walk
+        # the full ~150-wall list on every circle/segment check.
+        # Cell size is 1.5x the wall thickness so even a moving ship
+        # only ever straddles 2-3 cells at a time.
+        self._wall_grid: dict[tuple[int, int], list[Rect]] = {}
+        self._wall_grid_cell: int = 48
 
     # ── Setup / teardown ────────────────────────────────────────────
 
@@ -240,6 +248,140 @@ class StarMazeZone(ZoneState):
             return point_inside_any_room_interior(x, y, rooms, margin=40)
         return _reject
 
+    def _build_wall_grid(self) -> None:
+        """Build the spatial-hash index over ``self._walls``.  Every
+        wall rect is bucketed into every grid cell it overlaps, so
+        a point or circle query only has to look at a handful of
+        nearby cells.  Called once per ``_generate``."""
+        grid: dict[tuple[int, int], list[Rect]] = {}
+        cell = self._wall_grid_cell
+        for w in self._walls:
+            gx0 = int(w.x // cell)
+            gy0 = int(w.y // cell)
+            gx1 = int((w.x + w.w) // cell)
+            gy1 = int((w.y + w.h) // cell)
+            for gy in range(gy0, gy1 + 1):
+                for gx in range(gx0, gx1 + 1):
+                    grid.setdefault((gx, gy), []).append(w)
+        self._wall_grid = grid
+
+    def _walls_near(
+        self, cx: float, cy: float, radius: float,
+    ) -> list[Rect]:
+        """Return the wall rects whose grid cells overlap the disk at
+        ``(cx, cy, radius)``.  Walls may appear multiple times if
+        they span more than one cell — callers that care about
+        uniqueness should dedupe, but the tight inner loops here are
+        already O(1) per check so it's fine."""
+        if not self._wall_grid:
+            return self._walls
+        cell = self._wall_grid_cell
+        gx0 = int((cx - radius) // cell)
+        gy0 = int((cy - radius) // cell)
+        gx1 = int((cx + radius) // cell)
+        gy1 = int((cy + radius) // cell)
+        out: list[Rect] = []
+        seen: set[int] = set()
+        for gy in range(gy0, gy1 + 1):
+            for gx in range(gx0, gx1 + 1):
+                bucket = self._wall_grid.get((gx, gy))
+                if not bucket:
+                    continue
+                for w in bucket:
+                    wid = id(w)
+                    if wid not in seen:
+                        seen.add(wid)
+                        out.append(w)
+        return out
+
+    def _segment_hits_wall_fast(
+        self, ax: float, ay: float, bx: float, by: float,
+    ) -> bool:
+        """Grid-accelerated version of
+        ``segment_hits_any_wall`` — samples 4 points along the
+        segment and only checks walls whose cell the sample sits
+        in."""
+        for t in (0.0, 0.33, 0.66, 1.0):
+            x = ax + (bx - ax) * t
+            y = ay + (by - ay) * t
+            for w in self._walls_near(x, y, 2.0):
+                if (w.x <= x <= w.x + w.w
+                        and w.y <= y <= w.y + w.h):
+                    return True
+        return False
+
+    def _point_in_any_wall_fast(
+        self, x: float, y: float,
+    ) -> bool:
+        for w in self._walls_near(x, y, 2.0):
+            if (w.x <= x <= w.x + w.w
+                    and w.y <= y <= w.y + w.h):
+                return True
+        return False
+
+    def _push_out_of_walls(
+        self, entities, radius: float,
+    ) -> None:
+        """Push every entity in ``entities`` (SpriteList-like) out of
+        any maze wall it overlaps.  Handles two cases:
+
+          * Circle-vs-AABB overlap where the centre is outside the
+            rect — clamp to the nearest point on the rect and push
+            out along that normal (standard circle-vs-rect resolve).
+          * Centre is INSIDE the rect (can happen when a wanderer
+            drifts deep into a wall between ticks) — find the
+            nearest edge and teleport the entity to just outside it,
+            so "push-out" doesn't collapse to the ambiguous
+            dist == 0 case.
+        """
+        for e in entities:
+            cx, cy = e.center_x, e.center_y
+            for w in self._walls_near(cx, cy, radius):
+                inside_x = w.x < cx < w.x + w.w
+                inside_y = w.y < cy < w.y + w.h
+                if inside_x and inside_y:
+                    # Teleport out the nearest edge.
+                    d_left = cx - w.x
+                    d_right = w.x + w.w - cx
+                    d_bot = cy - w.y
+                    d_top = w.y + w.h - cy
+                    dmin = min(d_left, d_right, d_bot, d_top)
+                    if dmin == d_left:
+                        e.center_x = w.x - radius - 0.5
+                        nx, ny = -1.0, 0.0
+                    elif dmin == d_right:
+                        e.center_x = w.x + w.w + radius + 0.5
+                        nx, ny = 1.0, 0.0
+                    elif dmin == d_bot:
+                        e.center_y = w.y - radius - 0.5
+                        nx, ny = 0.0, -1.0
+                    else:
+                        e.center_y = w.y + w.h + radius + 0.5
+                        nx, ny = 0.0, 1.0
+                else:
+                    qx = max(w.x, min(cx, w.x + w.w))
+                    qy = max(w.y, min(cy, w.y + w.h))
+                    dx = cx - qx
+                    dy = cy - qy
+                    dist2 = dx * dx + dy * dy
+                    if dist2 >= radius * radius:
+                        continue
+                    dist = math.sqrt(dist2) if dist2 > 0 else 0.001
+                    nx = dx / dist if dist > 0.001 else 1.0
+                    ny = dy / dist if dist > 0.001 else 0.0
+                    pen = radius - dist + 0.5
+                    e.center_x += nx * pen
+                    e.center_y += ny * pen
+                # Bounce velocity if the entity has one.
+                vx = getattr(e, "vel_x", None)
+                vy = getattr(e, "vel_y", None)
+                if vx is not None and vy is not None:
+                    v_dot_n = vx * nx + vy * ny
+                    if v_dot_n < 0.0:
+                        e.vel_x = vx - 2.0 * v_dot_n * nx
+                        e.vel_y = vy - 2.0 * v_dot_n * ny
+                break
+
     def _generate(self, gv: GameView) -> None:
         self._mazes = generate_all_mazes(zone_seed=self._world_seed)
         self._rooms = []
@@ -247,6 +389,7 @@ class StarMazeZone(ZoneState):
         for m in self._mazes:
             self._rooms.extend(m.rooms)
             self._walls.extend(m.walls)
+        self._build_wall_grid()
         # One spawner per maze, anchored at the maze centre.
         self._spawners = arcade.SpriteList()
         for i, m in enumerate(self._mazes):
@@ -430,13 +573,30 @@ class StarMazeZone(ZoneState):
         gv.alien_list = self._aliens
         gv.alien_projectile_list = self._alien_projectiles
 
-        # Asteroid rotation tick.
+        # Asteroid rotation tick — cull to a box around the player
+        # so 165 asteroids at a 12000x12000 zone don't all rotate
+        # every frame when the player's looking at one corner.
+        # Matches Zone 2's _CULL_MARGIN pattern.
+        try:
+            _win = arcade.get_window()
+            _hw = _win.width / 2
+            _hh = _win.height / 2
+        except Exception:
+            _hw, _hh = 640.0, 400.0
+        _margin = 350.0
+        _vx0 = px - _hw - _margin
+        _vx1 = px + _hw + _margin
+        _vy0 = py - _hh - _margin
+        _vy1 = py + _hh + _margin
         for a in self._iron_asteroids:
-            a.update_asteroid(dt)
+            if _vx0 < a.center_x < _vx1 and _vy0 < a.center_y < _vy1:
+                a.update_asteroid(dt)
         for a in self._double_iron:
-            a.update_asteroid(dt)
+            if _vx0 < a.center_x < _vx1 and _vy0 < a.center_y < _vy1:
+                a.update_asteroid(dt)
         for a in self._copper_asteroids:
-            a.update_asteroid(dt)
+            if _vx0 < a.center_x < _vx1 and _vy0 < a.center_y < _vy1:
+                a.update_asteroid(dt)
 
         # Gas damage + wanderer collision.
         self._update_gas_damage(gv, dt)
@@ -459,6 +619,12 @@ class StarMazeZone(ZoneState):
                 force_walls=gv._force_walls)
             for proj in fired:
                 self._alien_projectiles.append(proj)
+
+        # Advance Nebula-alien projectiles, block them at maze
+        # walls, and damage the player on contact.  Without the
+        # advance call these projectiles stayed on screen forever
+        # (no range-exhaust check ever ran).
+        self._advance_alien_projectiles(gv, dt)
 
         # Player-projectile-vs-Nebula-entity collisions.
         handle_projectile_hits(self, gv)
@@ -515,6 +681,13 @@ class StarMazeZone(ZoneState):
                     break
                 if not alien.sprite_lists:
                     break
+
+        # Nebula population containment — push any wanderer or Z2
+        # alien that drifted into a maze wall back out along the
+        # contact normal.  Runs every frame since wanderers are the
+        # worst offender (they move randomly).
+        self._push_out_of_walls(self._wanderers, WANDERING_RADIUS)
+        self._push_out_of_walls(self._aliens, 20.0)
 
         # Maze-specific entities.
         self._update_spawners(gv, dt, px, py)
@@ -623,8 +796,29 @@ class StarMazeZone(ZoneState):
 
     def _update_maze_aliens(self, gv: GameView, dt: float,
                             px: float, py: float) -> None:
+        """Tick every MazeAlien.  Culls AI work for aliens far from
+        the player — they don't fire, avoid, or reroute while
+        offscreen, which saves ~80 maze-wall AABB checks per frame
+        in the typical far-corner case."""
         empty_asteroids = arcade.SpriteList()
+        try:
+            _win = arcade.get_window()
+            _hw = _win.width / 2
+            _hh = _win.height / 2
+        except Exception:
+            _hw, _hh = 640.0, 400.0
+        _margin = 400.0
+        _vx0 = px - _hw - _margin
+        _vx1 = px + _hw + _margin
+        _vy0 = py - _hh - _margin
+        _vy1 = py + _hh + _margin
+        # The maze-walls argument still hands the MazeAlien its own
+        # local maze walls so the per-alien wall-push-out runs on
+        # the same list the alien's bounds are carved out of.
         for alien in list(self._maze_aliens):
+            if not (_vx0 < alien.center_x < _vx1
+                    and _vy0 < alien.center_y < _vy1):
+                continue
             fired = alien.update_alien(
                 dt, px, py, empty_asteroids, self._maze_aliens,
                 force_walls=gv._force_walls,
@@ -646,9 +840,8 @@ class StarMazeZone(ZoneState):
         for (proj, pprev_x, pprev_y) in prevs:
             if not proj.sprite_lists:
                 continue   # already auto-removed by range cap
-            if segment_hits_any_wall(
-                    pprev_x, pprev_y, proj.center_x, proj.center_y,
-                    self._walls):
+            if self._segment_hits_wall_fast(
+                    pprev_x, pprev_y, proj.center_x, proj.center_y):
                 proj.remove_from_sprite_lists()
 
     def _handle_maze_projectiles_vs_player(self, gv: GameView) -> None:
@@ -674,10 +867,36 @@ class StarMazeZone(ZoneState):
             dt_back = 1.0 / 60.0
             prev_x = proj.center_x - getattr(proj, "_vx", 0.0) * dt_back
             prev_y = proj.center_y - getattr(proj, "_vy", 0.0) * dt_back
-            if segment_hits_any_wall(
-                    prev_x, prev_y, proj.center_x, proj.center_y,
-                    self._walls):
+            if self._segment_hits_wall_fast(
+                    prev_x, prev_y, proj.center_x, proj.center_y):
                 proj.remove_from_sprite_lists()
+
+    def _advance_alien_projectiles(self, gv: GameView, dt: float) -> None:
+        """Advance Nebula-alien laser shots, apply damage to the
+        player on contact, and remove any that crossed a maze wall.
+        Zone 2's update handles this inline; the Star Maze has to
+        mirror it because the generic handle_alien_laser_hits isn't
+        invoked in non-MAIN zones.
+        """
+        # Snapshot pre-advance positions for segment-vs-wall check.
+        prevs: list[tuple] = []
+        for proj in list(self._alien_projectiles):
+            prevs.append((proj, proj.center_x, proj.center_y))
+        for proj in list(self._alien_projectiles):
+            proj.update_projectile(dt)
+        # Wall block + player hit.
+        for (proj, pprev_x, pprev_y) in prevs:
+            if not proj.sprite_lists:
+                continue   # already auto-removed by range cap
+            if self._segment_hits_wall_fast(
+                    pprev_x, pprev_y, proj.center_x, proj.center_y):
+                proj.remove_from_sprite_lists()
+        # Player collision — same inline pattern Zone 2 uses.
+        for proj in arcade.check_for_collision_with_list(
+                gv.player, self._alien_projectiles):
+            gv._apply_damage_to_player(int(proj.damage))
+            gv._trigger_shake()
+            proj.remove_from_sprite_lists()
 
     def _block_missiles_at_walls(self, gv: GameView) -> None:
         """Remove any homing missile that's currently inside a maze
@@ -687,9 +906,8 @@ class StarMazeZone(ZoneState):
         missiles = getattr(gv, "_missile_list", None)
         if not missiles:
             return
-        from zones.maze_geometry import point_in_any
         for m in list(missiles):
-            if point_in_any(m.center_x, m.center_y, self._walls):
+            if self._point_in_any_wall_fast(m.center_x, m.center_y):
                 m.remove_from_sprite_lists()
 
     def _update_spawner_physical_collision(self, gv: GameView) -> None:
@@ -729,7 +947,7 @@ class StarMazeZone(ZoneState):
         reflect velocity with dampening whenever they overlap a wall."""
         player = gv.player
         r = SHIP_RADIUS
-        for w in self._walls:
+        for w in self._walls_near(player.center_x, player.center_y, r):
             qx = max(w.x, min(player.center_x, w.x + w.w))
             qy = max(w.y, min(player.center_y, w.y + w.h))
             dx = player.center_x - qx
@@ -826,8 +1044,20 @@ class StarMazeZone(ZoneState):
         self._copper_asteroids.draw()
         self._wanderers.draw()
         self._slipspaces.draw()
+        # Null fields: each one issues 28 immediate-mode circle draws
+        # via its own .draw() method — at 30 fields that's 840 GL
+        # calls per frame.  Cull to the visible rect so only the
+        # handful in view actually draw.  Radius ~100 px so the
+        # margin is tiny.
+        m = 150.0
+        vx0 = cx - hw - m
+        vx1 = cx + hw + m
+        vy0 = cy - hh - m
+        vy1 = cy + hh + m
         for nf in self._null_fields:
-            nf.draw()
+            if (vx0 < nf.center_x < vx1
+                    and vy0 < nf.center_y < vy1):
+                nf.draw()
         # Maze walls on top of the terrain so they clearly occlude.
         if self._wall_sprite_list is not None:
             self._wall_sprite_list.draw()
