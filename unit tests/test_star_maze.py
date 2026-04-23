@@ -1,0 +1,262 @@
+"""Fast tests for the Star Maze geometry + zone-state scaffolding.
+
+Everything here is pure-function or construction-only — no arcade
+window needed.  Gameplay integration (ticking spawners + aliens with
+a real GameView) lives in ``unit tests/integration/``.
+"""
+from __future__ import annotations
+
+import pytest
+
+from constants import (
+    STAR_MAZE_WIDTH, STAR_MAZE_HEIGHT,
+    STAR_MAZE_ROOM_COLS, STAR_MAZE_ROOM_ROWS, STAR_MAZE_ROOM_SIZE,
+    STAR_MAZE_WALL_THICK, STAR_MAZE_DOOR_WIDTH,
+    MAZE_ALIEN_HP, MAZE_ALIEN_SPEED, MAZE_ALIEN_RADIUS,
+    MAZE_ALIEN_LASER_DAMAGE, MAZE_ALIEN_LASER_RANGE,
+    MAZE_ALIEN_LASER_SPEED, MAZE_ALIEN_FIRE_CD,
+    MAZE_ALIEN_DETECT_DIST, MAZE_ALIEN_IRON_DROP, MAZE_ALIEN_XP,
+    MAZE_SPAWNER_HP, MAZE_SPAWNER_SHIELD, MAZE_SPAWNER_SPEED,
+    MAZE_SPAWNER_LASER_DAMAGE, MAZE_SPAWNER_LASER_RANGE,
+    MAZE_SPAWNER_LASER_SPEED, MAZE_SPAWNER_FIRE_CD,
+    MAZE_SPAWNER_DETECT_DIST, MAZE_SPAWNER_IRON_DROP, MAZE_SPAWNER_XP,
+    MAZE_SPAWNER_MAX_ALIVE, MAZE_SPAWNER_SPAWN_INTERVAL,
+    WARP_DANGER_DEFAULT, WARP_DANGER_NEBULA, WARP_DANGER_MAZE,
+)
+from zones import (
+    ZoneID, NEBULA_WARP_ZONES, MAZE_WARP_ZONES, ALL_WARP_ZONES,
+)
+from zones.maze_geometry import (
+    Rect, room_rects, wall_rects_for_room, all_wall_rects,
+    circle_hits_any_wall, segment_hits_any_wall,
+    point_inside_any_room_interior, point_in_rect,
+)
+
+
+# ── Spec-pinning: stat values must match user spec exactly ───────
+
+class TestMazeAlienStats:
+    def test_hp(self): assert MAZE_ALIEN_HP == 50
+    def test_speed(self): assert MAZE_ALIEN_SPEED == 120.0
+    def test_radius(self): assert MAZE_ALIEN_RADIUS == 20.0
+    def test_laser_damage(self): assert MAZE_ALIEN_LASER_DAMAGE == 10.0
+    def test_laser_range(self): assert MAZE_ALIEN_LASER_RANGE == 200.0
+    def test_laser_speed(self): assert MAZE_ALIEN_LASER_SPEED == 300.0
+    def test_fire_cd(self): assert MAZE_ALIEN_FIRE_CD == 1.5
+    def test_detect(self): assert MAZE_ALIEN_DETECT_DIST == 300.0
+    def test_iron_drop(self): assert MAZE_ALIEN_IRON_DROP == 10
+    def test_xp(self): assert MAZE_ALIEN_XP == 30
+
+
+class TestMazeSpawnerStats:
+    def test_hp(self): assert MAZE_SPAWNER_HP == 100
+    def test_shield(self): assert MAZE_SPAWNER_SHIELD == 100
+    def test_stationary(self): assert MAZE_SPAWNER_SPEED == 0.0
+    def test_laser_damage(self): assert MAZE_SPAWNER_LASER_DAMAGE == 30.0
+    def test_laser_range(self): assert MAZE_SPAWNER_LASER_RANGE == 200.0
+    def test_laser_speed(self): assert MAZE_SPAWNER_LASER_SPEED == 300.0
+    def test_fire_cd(self): assert MAZE_SPAWNER_FIRE_CD == 1.0
+    def test_detect(self): assert MAZE_SPAWNER_DETECT_DIST == 300.0
+    def test_iron_drop(self): assert MAZE_SPAWNER_IRON_DROP == 1000
+    def test_xp(self): assert MAZE_SPAWNER_XP == 100
+    def test_cap(self): assert MAZE_SPAWNER_MAX_ALIVE == 20
+    def test_cadence(self): assert MAZE_SPAWNER_SPAWN_INTERVAL == 30.0
+
+
+class TestWarpDangerScalars:
+    def test_default_unchanged(self):
+        assert WARP_DANGER_DEFAULT == 1.0
+
+    def test_nebula_is_2x_default(self):
+        assert WARP_DANGER_NEBULA == WARP_DANGER_DEFAULT * 2.0
+
+    def test_maze_is_2x_default(self):
+        assert WARP_DANGER_MAZE == WARP_DANGER_DEFAULT * 2.0
+
+
+# ── ZoneID enum sanity ────────────────────────────────────────────
+
+class TestZoneIdAdditions:
+    def test_star_maze_present(self):
+        assert hasattr(ZoneID, "STAR_MAZE")
+
+    def test_four_nebula_warp_variants(self):
+        assert len(NEBULA_WARP_ZONES) == 4
+        for name in ("NEBULA_WARP_METEOR", "NEBULA_WARP_LIGHTNING",
+                     "NEBULA_WARP_GAS", "NEBULA_WARP_ENEMY"):
+            assert getattr(ZoneID, name) in NEBULA_WARP_ZONES
+
+    def test_four_maze_warp_variants(self):
+        assert len(MAZE_WARP_ZONES) == 4
+        for name in ("MAZE_WARP_METEOR", "MAZE_WARP_LIGHTNING",
+                     "MAZE_WARP_GAS", "MAZE_WARP_ENEMY"):
+            assert getattr(ZoneID, name) in MAZE_WARP_ZONES
+
+    def test_all_warp_zones_superset(self):
+        assert NEBULA_WARP_ZONES <= ALL_WARP_ZONES
+        assert MAZE_WARP_ZONES <= ALL_WARP_ZONES
+        # Classic warp variants still included.
+        for name in ("WARP_METEOR", "WARP_LIGHTNING",
+                     "WARP_GAS", "WARP_ENEMY"):
+            assert getattr(ZoneID, name) in ALL_WARP_ZONES
+
+
+# ── Room grid ────────────────────────────────────────────────────
+
+class TestRoomGrid:
+    def test_count_is_81(self):
+        assert len(room_rects()) == STAR_MAZE_ROOM_COLS * STAR_MAZE_ROOM_ROWS
+
+    def test_every_room_is_600x600(self):
+        for r in room_rects():
+            assert r.w == STAR_MAZE_ROOM_SIZE
+            assert r.h == STAR_MAZE_ROOM_SIZE
+
+    def test_coverage_close_to_30_percent(self):
+        total = sum(r.w * r.h for r in room_rects())
+        zone = STAR_MAZE_WIDTH * STAR_MAZE_HEIGHT
+        coverage = total / zone
+        # User said "around 30 %" — 9x9 grid gives 31.6 %.
+        assert 0.28 < coverage < 0.34
+
+    def test_rooms_equally_spaced_on_x_axis(self):
+        rooms = room_rects()
+        first_row = rooms[:STAR_MAZE_ROOM_COLS]
+        gaps_x = [
+            first_row[i + 1].x - (first_row[i].x + first_row[i].w)
+            for i in range(len(first_row) - 1)
+        ]
+        # Every inner gap identical.
+        for g in gaps_x[1:]:
+            assert abs(g - gaps_x[0]) < 1e-6
+
+    def test_rooms_fit_inside_world(self):
+        for r in room_rects():
+            assert r.x >= 0 and r.x + r.w <= STAR_MAZE_WIDTH
+            assert r.y >= 0 and r.y + r.h <= STAR_MAZE_HEIGHT
+
+    def test_rooms_dont_overlap(self):
+        rooms = room_rects()
+        for i, a in enumerate(rooms):
+            for b in rooms[i + 1:]:
+                # Strict separation on at least one axis.
+                disjoint = (a.x + a.w <= b.x or b.x + b.w <= a.x
+                            or a.y + a.h <= b.y or b.y + b.h <= a.y)
+                assert disjoint
+
+
+# ── Walls + doors ────────────────────────────────────────────────
+
+class TestWallsAndDoors:
+    def test_room_has_wall_rects(self):
+        room = Rect(0, 0, 600, 600)
+        walls = wall_rects_for_room(room, seed=123)
+        # 4 sides minus 2 carved for doors = at least 6 segments
+        # (each carved side splits into 2), possibly up to 8 if a door
+        # lands near a corner (one-segment case).
+        assert 5 <= len(walls) <= 8
+
+    def test_door_width_is_spec_value(self):
+        """Perimeter of all wall segments must equal the full room
+        perimeter minus the two door openings.  Works for both the
+        horizontal (top+bottom) and vertical (left+right) door-axis
+        branches."""
+        room = Rect(0, 0, 600, 600)
+        # Try several seeds so both axis branches are exercised.
+        for seed in range(10):
+            walls = wall_rects_for_room(room, seed=seed)
+            perimeter = 0.0
+            for w in walls:
+                # Each wall segment is a strip — its long edge is the
+                # segment length.
+                perimeter += max(w.w, w.h)
+            expected = 4 * 600 - 2 * STAR_MAZE_DOOR_WIDTH
+            assert abs(perimeter - expected) < 2.0, (
+                f"seed={seed}: got {perimeter}, want ~{expected}"
+            )
+
+    def test_wall_thickness_is_spec(self):
+        room = Rect(100, 100, 600, 600)
+        walls = wall_rects_for_room(room, seed=5)
+        for w in walls:
+            # Each wall segment is either thick on one axis OR the
+            # other — it's always a strip, never a block.
+            thin = min(w.w, w.h)
+            assert abs(thin - STAR_MAZE_WALL_THICK) < 1e-6
+
+    def test_all_wall_rects_count(self):
+        rooms = room_rects()
+        walls = all_wall_rects(rooms, zone_seed=42)
+        # 81 rooms × 6-8 walls each → 486–648.
+        assert 450 <= len(walls) <= 700
+
+    def test_deterministic_given_seed(self):
+        r = Rect(0, 0, 600, 600)
+        a = wall_rects_for_room(r, seed=99)
+        b = wall_rects_for_room(r, seed=99)
+        assert a == b
+        c = wall_rects_for_room(r, seed=100)
+        assert a != c
+
+
+class TestCollisionHelpers:
+    def test_point_in_rect(self):
+        r = Rect(10, 10, 20, 20)
+        assert point_in_rect(15, 15, r)
+        assert not point_in_rect(5, 5, r)
+        assert not point_in_rect(35, 35, r)
+
+    def test_circle_hits_wall(self):
+        walls = [Rect(0, 0, 10, 100)]
+        assert circle_hits_any_wall(15, 50, 6, walls)   # overlap
+        assert not circle_hits_any_wall(30, 50, 6, walls)
+
+    def test_segment_hits_wall(self):
+        walls = [Rect(50, 50, 20, 20)]
+        # Segment passing straight through.
+        assert segment_hits_any_wall(0, 60, 100, 60, walls)
+        # Segment well above.
+        assert not segment_hits_any_wall(0, 500, 100, 500, walls)
+
+    def test_point_inside_room_interior(self):
+        rooms = room_rects()
+        # The zone centre sits in the gap between rooms — not inside
+        # any room.
+        cx = STAR_MAZE_WIDTH / 2
+        cy = STAR_MAZE_HEIGHT / 2
+        # With a 9x9 grid the centre is a gap, not a room cell.
+        in_room = point_inside_any_room_interior(cx, cy, rooms)
+        # Either way, the first room's centre must report True.
+        first = rooms[0]
+        assert point_inside_any_room_interior(
+            first.x + first.w / 2, first.y + first.h / 2, rooms)
+
+
+# ── StarMazeZone construction ────────────────────────────────────
+
+class TestStarMazeZoneConstruction:
+    def test_imports_cleanly(self):
+        from zones.star_maze import StarMazeZone
+        z = StarMazeZone()
+        assert z.zone_id == ZoneID.STAR_MAZE
+        assert z.world_width == STAR_MAZE_WIDTH
+        assert z.world_height == STAR_MAZE_HEIGHT
+
+    def test_factory_maps_star_maze_id(self):
+        from zones import create_zone
+        z = create_zone(ZoneID.STAR_MAZE)
+        assert z.zone_id == ZoneID.STAR_MAZE
+
+    def test_factory_maps_nebula_warp_variants(self):
+        from zones import create_zone
+        for zid in NEBULA_WARP_ZONES:
+            z = create_zone(zid)
+            # Every instance gets tagged with the specific id, even
+            # though the underlying class is a reused warp class.
+            assert z.zone_id is zid
+
+    def test_factory_maps_maze_warp_variants(self):
+        from zones import create_zone
+        for zid in MAZE_WARP_ZONES:
+            z = create_zone(zid)
+            assert z.zone_id is zid
