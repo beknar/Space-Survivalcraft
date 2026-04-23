@@ -859,8 +859,11 @@ def restore_state(view: GameView, data: dict) -> None:
         # Restore Zone 2 buildings and trade station
         if zid == ZoneID.ZONE2 and z2_state:
             _restore_z2_buildings(view, z2_state)
-        # Restore Zone 2 fog
-        if z2_state and hasattr(view._zone, '_fog_grid'):
+        # Restore Zone 2 fog — only when we landed in Zone 2.  Writing
+        # Zone 2's 192×192 grid into Star Maze's 240×240 slot caused
+        # IndexError in _update_fog on the next tick.
+        if (zid == ZoneID.ZONE2 and z2_state
+                and hasattr(view._zone, '_fog_grid')):
             z2_fog = z2_state.get("fog_grid")
             if z2_fog is not None:
                 view._zone._fog_grid = z2_fog
@@ -868,6 +871,10 @@ def restore_state(view: GameView, data: dict) -> None:
                     cell for row in z2_fog for cell in row)
                 view._fog_grid = view._zone._fog_grid
                 view._fog_revealed = view._zone._fog_revealed
+        elif zid == ZoneID.STAR_MAZE and hasattr(view._zone, '_fog_grid'):
+            # Hand the restored Star Maze fog through to the view.
+            view._fog_grid = view._zone._fog_grid
+            view._fog_revealed = view._zone._fog_revealed
         elif not z2_state:
             # Legacy save format
             z2_aliens = data.get("zone2_aliens", [])
