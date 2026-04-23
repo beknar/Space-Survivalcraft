@@ -68,6 +68,7 @@ class MapOverlay:
         from draw_logic import (
             _gas_positions, _gas_always_visible,
             _null_field_positions, _slipspace_positions,
+            _maze_rooms, _maze_spawner_positions,
             _minimap_obstacles, _minimap_enemies,
         )
         from hud_minimap import draw_minimap
@@ -112,6 +113,8 @@ class MapOverlay:
                 (ps.center_x, ps.center_y) for ps in gv._parked_ships],
             null_field_positions=_null_field_positions(gv),
             slipspace_positions=_slipspace_positions(gv),
+            maze_rooms=_maze_rooms(gv),
+            maze_spawner_positions=_maze_spawner_positions(gv),
             rect=(mx, my, mw, mh),
         )
 

@@ -92,6 +92,8 @@ def draw_minimap(
     parked_ship_positions: list[tuple[float, float]] | None = None,
     null_field_positions: list[tuple[float, float, float, bool]] | None = None,
     slipspace_positions: list[tuple[float, float]] | None = None,
+    maze_rooms: list[tuple[float, float, float, float]] | None = None,
+    maze_spawner_positions: list[tuple[float, float, bool]] | None = None,
     rect: tuple[int, int, int, int] | None = None,
 ) -> None:
     """Draw a scaled overview of the world inside the status panel.
@@ -142,6 +144,20 @@ def draw_minimap(
     sx_w = mw / zone_width
     sy_h = mh / zone_height
 
+    # Star Maze rooms — draw as filled dark rects before any entity
+    # markers so spawner + alien dots render on top.  Pure filled
+    # rects (no outline) keeps the minimap readable when 81 rooms
+    # all tile the field.
+    if maze_rooms:
+        for (rx, ry, rw, rh) in maze_rooms:
+            arcade.draw_rect_filled(
+                arcade.LBWH(
+                    mx + rx * sx_w, my + ry * sy_h,
+                    rw * sx_w, rh * sy_h,
+                ),
+                (60, 40, 60, 180),
+            )
+
     # Pre-compute fog grid dimensions once to inline visibility checks
     # (avoids per-entity function call overhead on 200+ sprites)
     _has_fog = fog_grid is not None
@@ -186,6 +202,24 @@ def draw_minimap(
         alien_pts.append((mx + ax_w * sx_w, my + ay_w * sy_h))
     if alien_pts:
         arcade.draw_points(alien_pts, (220, 50, 50), 4)
+
+    # Maze spawners — live red squares, killed ones grey.  Drawn
+    # slightly larger than aliens so they stand out as objectives.
+    if maze_spawner_positions:
+        live_pts: list[tuple[float, float]] = []
+        dead_pts: list[tuple[float, float]] = []
+        for (sx, sy, killed) in maze_spawner_positions:
+            if _has_fog:
+                gx = int(sx * _inv_cell)
+                gy = int(sy * _inv_cell)
+                if not (0 <= gx < _fw and 0 <= gy < _fh and _fg[gy][gx]):
+                    continue
+            screen = (mx + sx * sx_w, my + sy * sy_h)
+            (dead_pts if killed else live_pts).append(screen)
+        if live_pts:
+            arcade.draw_points(live_pts, (255, 80, 40), 6)
+        if dead_pts:
+            arcade.draw_points(dead_pts, (90, 90, 90), 5)
 
     if building_list is not None:
         building_pts: list[tuple[float, float]] = []

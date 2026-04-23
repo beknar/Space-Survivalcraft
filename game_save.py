@@ -255,6 +255,8 @@ def _restore_zone2_full(view: GameView, z2_state: dict) -> None:
     zone = Zone2()
     zone._world_seed = z2_state.get("world_seed", zone._world_seed)
     zone._populated = True
+    zone._nebula_boss_defeated = bool(
+        z2_state.get("nebula_boss_defeated", False))
 
     # Restore fog
     fog = z2_state.get("fog_grid")
@@ -521,7 +523,61 @@ def _save_zone2_state(gv: GameView) -> dict | None:
         ],
         "buildings": z2_buildings,
         "trade_station": z2_trade,
+        # Post-boss progression — governs whether the four corner
+        # wormholes to the Star Maze are visible on re-entry.
+        "nebula_boss_defeated": zone2._nebula_boss_defeated,
     }
+
+
+def _save_star_maze_state(gv: GameView) -> dict | None:
+    """Serialize Star Maze state if the player has visited it.
+
+    Persists the world seed (so the room layout + wall doors
+    regenerate identically), the populated flag (so re-entering
+    after a warp-zone round trip doesn't wipe spawner progress),
+    and each spawner's full state.  Maze aliens are not persisted
+    — they respawn naturally from the spawners when the player
+    returns, and the spawner's spawn-cooldown timer is saved so
+    the cadence doesn't reset.
+    """
+    from zones import ZoneID
+    zone = None
+    if gv._zone.zone_id == ZoneID.STAR_MAZE:
+        zone = gv._zone
+    elif getattr(gv, "_star_maze", None) is not None:
+        zone = gv._star_maze
+    if zone is None or not zone._populated:
+        return None
+    return {
+        "world_seed": zone._world_seed,
+        "populated": zone._populated,
+        "spawners": [sp.to_save_data() for sp in zone._spawners],
+        "fog_grid": zone._fog_grid,
+        "fog_revealed": zone._fog_revealed,
+    }
+
+
+def _restore_star_maze_full(view: GameView, state: dict) -> None:
+    """Reconstruct the persistent Star Maze instance from save data."""
+    from zones import ZoneID, create_zone
+    zone = create_zone(ZoneID.STAR_MAZE)
+    zone._world_seed = state.get("world_seed", zone._world_seed)
+    populated = bool(state.get("populated", False))
+    if populated:
+        # Regenerate rooms + walls + spawners deterministically from
+        # the saved seed, then overwrite per-spawner HP / killed /
+        # timer from the save.
+        zone._generate(view)
+        zone._populated = True
+        spawner_data = state.get("spawners", [])
+        for sp, sd in zip(zone._spawners, spawner_data):
+            sp.from_save_data(sd)
+    # Fog state.
+    fog = state.get("fog_grid")
+    if fog is not None:
+        zone._fog_grid = fog
+        zone._fog_revealed = state.get("fog_revealed", 0)
+    view._star_maze = zone
 
 
 # ── Parked ship serialization ─────────────────────────────────────────────
@@ -606,6 +662,7 @@ def save_to_dict(gv: GameView, name: str = "") -> dict:
         "credits": gv._trade_menu.credits,
         "zone_id": gv._zone.zone_id.name,
         "zone2_state": _save_zone2_state(gv),
+        "star_maze_state": _save_star_maze_state(gv),
         "parked_ships": _serialize_parked_ships(gv),
         # Refugee NPC + Debra quest flags
         "station_shield_hp": gv._station_shield_hp,
@@ -762,6 +819,14 @@ def restore_state(view: GameView, data: dict) -> None:
     if z2_state and isinstance(z2_state, dict):
         _restore_zone2_full(view, z2_state)
 
+    # Star Maze state — independent of Zone 2.  Restored before the
+    # zone transition below so that landing back in STAR_MAZE reuses
+    # the persistent instance with every spawner's killed flag
+    # + timers intact.
+    sm_state = data.get("star_maze_state")
+    if sm_state and isinstance(sm_state, dict):
+        _restore_star_maze_full(view, sm_state)
+
     # Transition to saved zone if not MAIN
     saved_zone = data.get("zone_id", "MAIN")
     if saved_zone != "MAIN":
@@ -776,6 +841,11 @@ def restore_state(view: GameView, data: dict) -> None:
             if saved_seed is not None:
                 view._zone2._world_seed = saved_seed
             view._zone = view._zone2
+        elif zid == ZoneID.STAR_MAZE and view._star_maze is not None:
+            view._zone = view._star_maze
+        elif zid == ZoneID.STAR_MAZE:
+            view._star_maze = create_zone(ZoneID.STAR_MAZE)
+            view._zone = view._star_maze
         else:
             view._zone = create_zone(zid)
         view._zone.setup(view)

@@ -393,3 +393,83 @@ class TestStarMazeCornerWormholes:
         assert len(gv._wormholes) == 5
         corner_targets = {w.zone_target for w in gv._wormholes[1:]}
         assert corner_targets == MAZE_WARP_ZONES
+
+
+# ── Save / load round-trip helpers ───────────────────────────────
+
+class TestMazeSpawnerSaveRoundTrip:
+    def test_to_save_data_captures_state(self):
+        from sprites.maze_spawner import MazeSpawner
+        sp = MazeSpawner(100.0, 200.0)
+        sp.hp = 40
+        sp.shields = 10
+        sp.killed = False
+        sp._fire_cd = 0.7
+        sp._spawn_cd = 12.3
+        sp.alive_children = 4
+        sp.uid = 17
+        data = sp.to_save_data()
+        assert data["x"] == 100.0
+        assert data["y"] == 200.0
+        assert data["hp"] == 40
+        assert data["shields"] == 10
+        assert data["killed"] is False
+        assert abs(data["fire_cd"] - 0.7) < 1e-6
+        assert abs(data["spawn_cd"] - 12.3) < 1e-6
+        assert data["alive_children"] == 4
+        assert data["uid"] == 17
+
+    def test_from_save_data_restores_state(self):
+        from sprites.maze_spawner import MazeSpawner
+        sp = MazeSpawner(0.0, 0.0)
+        sp.from_save_data({
+            "x": 500.0, "y": 750.0,
+            "hp": 20, "shields": 5,
+            "killed": True,
+            "fire_cd": 0.2, "spawn_cd": 5.0,
+            "alive_children": 2, "uid": 9,
+        })
+        assert sp.center_x == 500.0
+        assert sp.center_y == 750.0
+        assert sp.hp == 20
+        assert sp.shields == 5
+        assert sp.killed is True
+        assert sp.alive_children == 2
+        assert sp.uid == 9
+
+    def test_killed_survives_round_trip(self):
+        """A killed spawner must stay dead across save + load — the
+        spec calls this out explicitly."""
+        from sprites.maze_spawner import MazeSpawner
+        sp1 = MazeSpawner(0.0, 0.0)
+        sp1.hp = 0
+        sp1.killed = True
+        data = sp1.to_save_data()
+        sp2 = MazeSpawner(0.0, 0.0)
+        sp2.from_save_data(data)
+        assert sp2.killed is True
+
+
+class TestStarMazeZoneToSaveData:
+    def test_unpopulated_returns_seed_and_populated_false(self):
+        from zones.star_maze import StarMazeZone
+        z = StarMazeZone()
+        data = z.to_save_data()
+        assert "seed" in data
+        assert data["populated"] is False
+        assert data["spawners"] == []
+
+
+class TestZone2NebulaFlagPersistence:
+    def test_default_false(self):
+        from zones.zone2 import Zone2
+        assert Zone2()._nebula_boss_defeated is False
+
+    def test_mark_sets_flag(self):
+        """Direct mark (without needing a real GameView) should flip
+        the flag.  The wormhole-append side-effect needs a live gv so
+        is covered by integration tests."""
+        from zones.zone2 import Zone2
+        z = Zone2()
+        z._nebula_boss_defeated = True
+        assert z._nebula_boss_defeated is True

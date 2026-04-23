@@ -591,6 +591,26 @@ def _gas_positions(gv: GameView) -> list[tuple[float, float, float]]:
     return []
 
 
+def _maze_rooms(gv: GameView) -> list[tuple[float, float, float, float]] | None:
+    """Room AABBs for the Star Maze minimap overlay.  ``None`` in every
+    other zone so ``hud_minimap`` can cheaply skip the draw."""
+    rooms = getattr(gv._zone, "rooms", None)
+    if rooms is None:
+        return None
+    return [(r.x, r.y, r.w, r.h) for r in rooms]
+
+
+def _maze_spawner_positions(
+    gv: GameView,
+) -> list[tuple[float, float, bool]] | None:
+    """``(x, y, killed)`` for each Star-Maze spawner.  Killed spawners
+    render dim so the player can still see which rooms are clear."""
+    spawners = getattr(gv._zone, "spawners", None)
+    if spawners is None:
+        return None
+    return [(sp.center_x, sp.center_y, sp.killed) for sp in spawners]
+
+
 def draw_ui(gv: GameView) -> None:
     """Draw all UI-space elements (called inside ui_cam.activate)."""
     from sprites.building import compute_modules_used, compute_module_capacity
@@ -651,6 +671,8 @@ def draw_ui(gv: GameView) -> None:
         parked_ship_positions=[(ps.center_x, ps.center_y) for ps in gv._parked_ships],
         null_field_positions=_null_field_positions(gv),
         slipspace_positions=_slipspace_positions(gv),
+        maze_rooms=_maze_rooms(gv),
+        maze_spawner_positions=_maze_spawner_positions(gv),
     )
     # Video frame draws (skip when menu open)
     if not menu_open:

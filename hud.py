@@ -567,6 +567,8 @@ class HUD:
         parked_ship_positions: list[tuple[float, float]] | None = None,
         null_field_positions: list[tuple[float, float, float, bool]] | None = None,
         slipspace_positions: list[tuple[float, float]] | None = None,
+        maze_rooms: list[tuple[float, float, float, float]] | None = None,
+        maze_spawner_positions: list[tuple[float, float, bool]] | None = None,
     ) -> None:
         """Draw the full HUD status panel."""
         # Panel background
@@ -658,4 +660,6 @@ class HUD:
             parked_ship_positions=parked_ship_positions,
             null_field_positions=null_field_positions,
             slipspace_positions=slipspace_positions,
+            maze_rooms=maze_rooms,
+            maze_spawner_positions=maze_spawner_positions,
         )

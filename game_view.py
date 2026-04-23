@@ -560,10 +560,14 @@ class GameView(arcade.View):
             self._play_next_track()
 
     def _init_zones(self) -> None:
-        """Zone state machine — main zone created up front, Zone 2 lazily."""
+        """Zone state machine — main zone created up front, Zone 2 and
+        Star Maze lazily on first visit so their state (maze seed,
+        spawner killed flags, Nebula-boss-defeated flag) survives
+        round-trips through warp zones."""
         from zones.zone1_main import MainZone
         self._main_zone = MainZone()  # kept for reuse on return
         self._zone2: None = None      # created on first visit, reused after
+        self._star_maze: None = None  # created on first Nebula-side wormhole
         self._zone = self._main_zone
         self._zone.setup(self)
 
@@ -583,6 +587,10 @@ class GameView(arcade.View):
             if self._zone2 is None:
                 self._zone2 = create_zone(ZoneID.ZONE2)
             self._zone = self._zone2
+        elif target_zone_id == ZoneID.STAR_MAZE:
+            if self._star_maze is None:
+                self._star_maze = create_zone(ZoneID.STAR_MAZE)
+            self._zone = self._star_maze
         else:
             self._zone = create_zone(target_zone_id)
         self._zone.setup(self)
