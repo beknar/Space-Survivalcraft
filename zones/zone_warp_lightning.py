@@ -106,11 +106,15 @@ class LightningWarpZone(WarpZoneBase):
                 self._pending_bolts.clear()
                 self._warning_lines.clear()
 
-        # Spawn volleys
+        # Spawn volleys — ``_danger`` compresses both the interval
+        # and the volley size for Nebula / Star-Maze variants.
         self._volley_timer -= dt
         if self._volley_timer <= 0 and self._warning_timer <= 0:
-            self._volley_timer = random.uniform(_BOLT_INTERVAL_MIN, _BOLT_INTERVAL_MAX)
-            count = random.randint(_BOLTS_PER_VOLLEY_MIN, _BOLTS_PER_VOLLEY_MAX)
+            d = max(1e-6, self._danger)
+            self._volley_timer = random.uniform(
+                _BOLT_INTERVAL_MIN / d, _BOLT_INTERVAL_MAX / d)
+            count = int(round(random.randint(
+                _BOLTS_PER_VOLLEY_MIN, _BOLTS_PER_VOLLEY_MAX) * d))
             px, py = gv.player.center_x, gv.player.center_y
             self._pending_bolts.clear()
             self._warning_lines.clear()

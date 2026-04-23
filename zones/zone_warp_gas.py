@@ -63,15 +63,18 @@ class GasCloudWarpZone(WarpZoneBase):
         self._clouds = arcade.SpriteList()
         self._damage_cd = 0.0
         self._in_gas: bool = False  # for screen darkening
-        # Generate maze-like cloud layout (grid with gaps)
+        # Generate maze-like cloud layout (grid with gaps).  At higher
+        # ``_danger`` we keep more cells filled and spawn extra large
+        # clouds so the 2x variants feel markedly denser.
         margin = 150
         cols = 5
         rows = 12
         spacing_x = (WARP_ZONE_WIDTH - margin * 2) / cols
         spacing_y = (WARP_ZONE_HEIGHT - margin * 2) / rows
+        skip_chance = 0.4 / max(1.0, self._danger)  # 0.4 ⇒ 0.2 at 2x
         for row in range(rows):
             for col in range(cols):
-                if random.random() < 0.4:
+                if random.random() < skip_chance:
                     continue
                 x = margin + col * spacing_x + random.uniform(-30, 30)
                 y = margin + row * spacing_y + random.uniform(-30, 30)
@@ -80,9 +83,11 @@ class GasCloudWarpZone(WarpZoneBase):
                 self._clouds.append(GasCloud(self._cloud_tex, x, y,
                                             world_w=WARP_ZONE_WIDTH, world_h=WARP_ZONE_HEIGHT,
                                             mobile=True))
-        # Extra-large clouds that are hard to avoid
+        # Extra-large clouds that are hard to avoid — count scales
+        # with ``_danger``.
         _large_tex = _generate_cloud_texture()
-        for _ in range(_EXTRA_LARGE_COUNT):
+        large_count = int(round(_EXTRA_LARGE_COUNT * max(1.0, self._danger)))
+        for _ in range(large_count):
             lx = random.uniform(400, WARP_ZONE_WIDTH - 400)
             ly = random.uniform(1000, WARP_ZONE_HEIGHT - 1000)
             self._clouds.append(GasCloud(_large_tex, lx, ly, size=1500,

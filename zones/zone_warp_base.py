@@ -6,8 +6,13 @@ from typing import TYPE_CHECKING
 
 import arcade
 
-from constants import FOG_CELL_SIZE, FOG_REVEAL_RADIUS
-from zones import ZoneID, ZoneState
+from constants import (
+    FOG_CELL_SIZE, FOG_REVEAL_RADIUS,
+    WARP_DANGER_DEFAULT, WARP_DANGER_NEBULA, WARP_DANGER_MAZE,
+)
+from zones import (
+    ZoneID, ZoneState, NEBULA_WARP_ZONES, MAZE_WARP_ZONES,
+)
 
 if TYPE_CHECKING:
     from game_view import GameView
@@ -39,13 +44,54 @@ class WarpZoneBase(ZoneState):
             [False] * _FOG_W for _ in range(_FOG_H)
         ]
         self._fog_revealed: int = 0
+        # Danger multiplier applied to hazard spawn rates / enemy counts
+        # by subclasses.  1.0 = Zone 1-launched, 2.0 = Nebula-launched
+        # or Star-Maze-launched (per spec).  Resolved from ``zone_id``
+        # in ``_apply_zone_id_routing`` so a single class can back
+        # multiple ZoneIDs.
+        self._danger: float = WARP_DANGER_DEFAULT
+        # Exit routing.  Bottom = return (came in this way), top =
+        # advance to the next biome.  Both default to Zone 1's
+        # semantics and are rewritten for the Nebula / Star-Maze
+        # variants in ``_apply_zone_id_routing``.
+        self._exit_bottom_zone: ZoneID = ZoneID.MAIN
+        self._exit_top_zone: ZoneID = ZoneID.ZONE2
 
     def setup(self, gv: GameView) -> None:
-        """Store return position, set fog grid on GameView."""
+        """Store return position, resolve routing from zone_id, set fog
+        grid on GameView."""
         self._return_pos = (gv.player.center_x, gv.player.center_y)
+        self._apply_zone_id_routing()
         # Apply our fog grid to GameView for minimap rendering
         gv._fog_grid = self._fog_grid
         gv._fog_revealed = self._fog_revealed
+
+    def _apply_zone_id_routing(self) -> None:
+        """Resolve ``_danger`` + exit zone targets from ``self.zone_id``.
+
+        The factory in ``zones/__init__.py`` stamps ``zone_id`` onto
+        every warp-zone instance, so the same class (e.g. MeteorWarpZone)
+        behaves as the 1x Zone-1 variant, the 2x Nebula variant, or the
+        2x Star-Maze variant depending on which id it was summoned as.
+        """
+        zid = self.zone_id
+        if zid in NEBULA_WARP_ZONES:
+            self._danger = WARP_DANGER_NEBULA
+            # Either exit — "return" or "advance" — lands in the Star
+            # Maze.  Per user spec: "when the player emerges from the
+            # new warp zone, they appear in the star maze."
+            self._exit_bottom_zone = ZoneID.STAR_MAZE
+            self._exit_top_zone = ZoneID.STAR_MAZE
+        elif zid in MAZE_WARP_ZONES:
+            self._danger = WARP_DANGER_MAZE
+            # Star-Maze-launched variants form a closed loop back to
+            # the Star Maze at both exits.
+            self._exit_bottom_zone = ZoneID.STAR_MAZE
+            self._exit_top_zone = ZoneID.STAR_MAZE
+        else:
+            self._danger = WARP_DANGER_DEFAULT
+            self._exit_bottom_zone = ZoneID.MAIN
+            self._exit_top_zone = ZoneID.ZONE2
 
     def teardown(self, gv: GameView) -> None:
         # Save fog state back from GameView
@@ -94,17 +140,20 @@ class WarpZoneBase(ZoneState):
         if px < wall or px > self.world_width - wall:
             gv.player.shields = 0
             gv._flash_game_msg("Energy wall! Shields drained!", 2.0)
-            self._return_to_main(gv)
+            self._return_to_source(gv)
 
     def _check_exits(self, gv: GameView) -> None:
-        """Bottom = safe return to zone 1. Top = zone 2."""
+        """Bottom exit = return to source biome, top exit = advance.
+        Both targets come from ``_apply_zone_id_routing`` so the same
+        class routes differently for each ZoneID it backs."""
         if gv.player.center_y < EXIT_THRESHOLD:
-            self._return_to_main(gv)
+            self._return_to_source(gv)
         elif gv.player.center_y > self.world_height - EXIT_THRESHOLD:
-            gv._transition_zone(ZoneID.ZONE2, entry_side="bottom")
+            gv._transition_zone(self._exit_top_zone, entry_side="bottom")
 
-    def _return_to_main(self, gv: GameView) -> None:
-        gv._transition_zone(ZoneID.MAIN, entry_side="wormhole_return")
+    def _return_to_source(self, gv: GameView) -> None:
+        gv._transition_zone(
+            self._exit_bottom_zone, entry_side="wormhole_return")
 
     def _update_hazards(self, gv: GameView, dt: float) -> None:
         """Override in subclasses for zone-specific hazard logic."""

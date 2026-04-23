@@ -530,14 +530,12 @@ _NEBULA_BOSS_COPPER_DROP: int = 1000
 
 
 def _nebula_boss_death(gv: GameView) -> None:
-    """Handle Nebula boss death: loot + announce.  Mirrors
-    ``_boss_death`` but:
-      * drops **3000 iron + 1000 copper** (per user spec) instead of
-        the standard ``BOSS_IRON_DROP``;
-      * awards **no XP** — the Nebula boss is a resource-summonable
-        encore boss, not an XP milestone;
-      * doesn't spawn wormholes (those already exist after the
-        Double Star defeat).
+    """Handle Nebula boss death: loot, announce, and spawn four corner
+    wormholes in Zone 2 that route to the 2x-danger Nebula warp
+    zones, which in turn deposit the player in the Star Maze.
+
+    Drops 3000 iron + 1000 copper per user spec (no XP — the Nebula
+    boss is a resource-summonable encore boss, not an XP milestone).
     """
     nb = gv._nebula_boss
     if nb is None:
@@ -560,10 +558,16 @@ def _nebula_boss_death(gv: GameView) -> None:
         gv._nebula_boss_list.clear()
     if hasattr(gv, "_nebula_gas_clouds"):
         gv._nebula_gas_clouds.clear()
+    # Unlock the four corner wormholes to the Star Maze.  The current
+    # zone is Zone 2 (we just killed its boss); defer to it for the
+    # actual placement so the Zone 2 state owns the persistence flag.
+    from zones.zone2 import Zone2 as _Zone2
+    if isinstance(gv._zone, _Zone2):
+        gv._zone.mark_nebula_boss_defeated(gv)
     gv._boss_announce_timer = 5.0
     gv._t_boss_announce.text = "Nebula Boss KILLED"
     gv._t_boss_subtitle.text = (
-        "Gas clouds dissipate as the Nebula boss falls.")
+        "Corner wormholes open. The Star Maze awaits.")
 
 
 def handle_nebula_boss_projectile_hits(gv: GameView) -> None:

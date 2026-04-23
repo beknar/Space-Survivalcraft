@@ -84,10 +84,51 @@ class Zone2(ZoneState):
         self._alien_counts: dict[str, int] = {}
         # Building stash — Zone 2 has its own buildings separate from Zone 1
         self._building_stash: dict | None = None
+        # Post-Nebula-boss progression: once the Nebula boss is
+        # defeated, four corner wormholes appear in this zone that
+        # route to the NEBULA_WARP_* variants, which in turn deposit
+        # the player in the Star Maze.  The central Zone-2 wormhole
+        # (to ZoneID.MAIN) keeps working alongside them per spec.
+        self._nebula_boss_defeated: bool = False
 
     def _rebuild_shielded_list(self) -> None:
         self._shielded_aliens = [
             a for a in self._aliens if isinstance(a, ShieldedAlien)]
+
+    # ── Post-Nebula-boss wormholes ──────────────────────────────────
+
+    def _build_corner_wormholes(self) -> list[Wormhole]:
+        """Return four corner ``Wormhole`` instances tagged with the
+        NEBULA_WARP_* zone ids.  Corner-to-type mapping mirrors Zone
+        1's pattern so the visual cue is consistent across biomes.
+        """
+        margin = 220
+        ww = self.world_width
+        wh = self.world_height
+        corners = [
+            (margin, margin, ZoneID.NEBULA_WARP_METEOR),      # bottom-left
+            (ww - margin, margin, ZoneID.NEBULA_WARP_LIGHTNING),   # bottom-right
+            (margin, wh - margin, ZoneID.NEBULA_WARP_GAS),         # top-left
+            (ww - margin, wh - margin, ZoneID.NEBULA_WARP_ENEMY),  # top-right
+        ]
+        out: list[Wormhole] = []
+        for x, y, target in corners:
+            w = Wormhole(x, y)
+            w.zone_target = target
+            out.append(w)
+        return out
+
+    def mark_nebula_boss_defeated(self, gv: GameView) -> None:
+        """Called from the collision layer when the Nebula boss dies.
+        Flips the persistence flag and adds the four corner wormholes
+        to the live wormhole lists so the player can enter them
+        without having to leave and re-enter the zone."""
+        if self._nebula_boss_defeated:
+            return
+        self._nebula_boss_defeated = True
+        for cwh in self._build_corner_wormholes():
+            gv._wormholes.append(cwh)
+            gv._wormhole_list.append(cwh)
 
     def setup(self, gv: GameView) -> None:
         global _alien_texture_cache, _copper_tex_cache
@@ -144,6 +185,13 @@ class Zone2(ZoneState):
         gv._wormholes = [wh]
         gv._wormhole_list.clear()
         gv._wormhole_list.append(wh)
+        # Post-Nebula-boss: four corner wormholes to the 2x-danger
+        # warp zones that route the player to the Star Maze.  Coexist
+        # with the central wormhole back to Zone 1.
+        if self._nebula_boss_defeated:
+            for cwh in self._build_corner_wormholes():
+                gv._wormholes.append(cwh)
+                gv._wormhole_list.append(cwh)
 
         gv._fog_grid = self._fog_grid
         gv._fog_revealed = self._fog_revealed

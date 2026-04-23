@@ -135,10 +135,7 @@ class StarMazeZone(ZoneState):
             self._populated = True
         self._wall_sprite_list = _build_wall_sprites(self._walls)
 
-        # Central wormhole back to Zone 2 as a safety valve for
-        # exploration.  The four corner Nebula → Star-Maze and
-        # Star-Maze → warp wormholes get added by the boss-death hook
-        # and the setup below in follow-up commits.
+        # Central wormhole back to Zone 2 as the safety exit.
         cx, cy = self._find_open_point(
             self.world_width / 2, self.world_height / 2)
         wh = Wormhole(cx, cy)
@@ -146,6 +143,23 @@ class StarMazeZone(ZoneState):
         gv._wormholes = [wh]
         gv._wormhole_list.clear()
         gv._wormhole_list.append(wh)
+        # Four corner wormholes chaining to the Star-Maze-launched
+        # 2x-danger warp variants.  Exits from those variants loop
+        # back to the Star Maze (see WarpZoneBase routing).
+        margin = 220
+        ww = self.world_width
+        whh = self.world_height
+        corners = [
+            (margin, margin, ZoneID.MAZE_WARP_METEOR),
+            (ww - margin, margin, ZoneID.MAZE_WARP_LIGHTNING),
+            (margin, whh - margin, ZoneID.MAZE_WARP_GAS),
+            (ww - margin, whh - margin, ZoneID.MAZE_WARP_ENEMY),
+        ]
+        for (wx, wy, target) in corners:
+            cwh = Wormhole(wx, wy)
+            cwh.zone_target = target
+            gv._wormholes.append(cwh)
+            gv._wormhole_list.append(cwh)
 
         # Share fog grid with GameView for the minimap.
         gv._fog_grid = self._fog_grid

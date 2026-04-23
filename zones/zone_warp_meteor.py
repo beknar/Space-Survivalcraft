@@ -70,10 +70,13 @@ class MeteorWarpZone(WarpZoneBase):
         from sprites.explosion import HitSpark
         from constants import SHIP_RADIUS, SHIP_COLLISION_COOLDOWN
 
-        # Spawn meteors from multiple directions
+        # Spawn meteors from multiple directions.  ``_danger`` scales
+        # the rate up (smaller interval ⇒ more meteors per second) so
+        # Nebula + Star-Maze variants see 2x the incoming rock.
+        spawn_interval = _METEOR_SPAWN_RATE / max(1e-6, self._danger)
         self._spawn_timer += dt
-        if self._spawn_timer >= _METEOR_SPAWN_RATE:
-            self._spawn_timer -= _METEOR_SPAWN_RATE
+        if self._spawn_timer >= spawn_interval:
+            self._spawn_timer -= spawn_interval
             edge = random.choices(["top", "left", "right", "bottom"],
                                   weights=[60, 15, 15, 10])[0]
             if edge == "top":

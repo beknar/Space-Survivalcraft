@@ -85,14 +85,17 @@ class EnemySpawnerWarpZone(WarpZoneBase):
     def _update_hazards(self, gv: GameView, dt: float) -> None:
         from sprites.explosion import HitSpark
 
-        # Spawn waves from alive spawners
+        # Spawn waves from alive spawners.  ``_danger`` compresses the
+        # interval and scales up the wave size for Nebula / Star-Maze.
+        d = max(1e-6, self._danger)
         self._spawn_timer -= dt
         if self._spawn_timer <= 0:
-            self._spawn_timer = _SPAWN_INTERVAL
+            self._spawn_timer = _SPAWN_INTERVAL / d
+            ships = int(round(_SHIPS_PER_WAVE * d))
             for i, spawner in enumerate(self._spawners):
                 if self._spawner_hps[i] <= 0:
                     continue
-                for _ in range(_SHIPS_PER_WAVE):
+                for _ in range(ships):
                     ax = spawner.center_x + random.uniform(-40, 40)
                     ay = spawner.center_y + random.uniform(-40, 40)
                     alien = _MiniAlien(self._alien_tex, self._alien_laser_tex, ax, ay)
