@@ -125,6 +125,13 @@ class StarMazeZone(ZoneState):
         self._spawners: arcade.SpriteList = arcade.SpriteList()
         self._maze_aliens: arcade.SpriteList = arcade.SpriteList()
         self._maze_projectiles: arcade.SpriteList = arcade.SpriteList()
+        # Placeholder list handed to MazeAlien.update_alien as the
+        # "asteroid avoidance" input.  Allocating this as a fresh
+        # SpriteList on every tick leaked ~2 MB / frame of GL-buffer
+        # handles (pos/size/colour/tex/index) — see
+        # TEST_RESULTS_2026-04-23 soak findings.  Create it once and
+        # reuse it.
+        self._empty_asteroid_list: arcade.SpriteList = arcade.SpriteList()
         # Nebula-style population — same counts + types as Zone 2,
         # spawned outside every maze AABB via the reject_fn filter.
         # Attribute names match Zone 2 exactly so the shared
@@ -816,7 +823,7 @@ class StarMazeZone(ZoneState):
         the player — they don't fire, avoid, or reroute while
         offscreen, which saves ~80 maze-wall AABB checks per frame
         in the typical far-corner case."""
-        empty_asteroids = arcade.SpriteList()
+        empty_asteroids = self._empty_asteroid_list
         try:
             _win = arcade.get_window()
             _hw = _win.width / 2
