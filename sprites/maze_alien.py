@@ -300,18 +300,30 @@ class MazeAlien(arcade.Sprite):
                     self.center_x, self.center_y = prev_x, prev_y
                     break
 
-        # Maze-wall block (static AABBs).
+        # Maze-wall block (static AABBs) — circle-vs-AABB push-out.
+        # Reverting the whole move keeps the alien flush against the
+        # wall and picks a new waypoint; if that waypoint sits on the
+        # other side the alien just bangs against the wall again.
+        # Pushing out along the contact normal + picking a fresh
+        # waypoint gets them free on the next tick.
         if maze_walls:
-            cx, cy = self.center_x, self.center_y
-            r = MAZE_ALIEN_RADIUS
             for (wx, wy, ww, wh) in maze_walls:
-                if (cx + r > wx and cx - r < wx + ww
-                        and cy + r > wy and cy - r < wy + wh):
-                    self.center_x, self.center_y = prev_x, prev_y
-                    # Rethink the waypoint so we don't keep crashing
-                    # into the same tile.
-                    self._pick_patrol_target()
-                    break
+                qx = max(wx, min(self.center_x, wx + ww))
+                qy = max(wy, min(self.center_y, wy + wh))
+                dx = self.center_x - qx
+                dy = self.center_y - qy
+                dist2 = dx * dx + dy * dy
+                r = MAZE_ALIEN_RADIUS
+                if dist2 >= r * r:
+                    continue
+                dist = math.sqrt(dist2) if dist2 > 0 else 0.001
+                nx = dx / dist if dist > 0.001 else 1.0
+                ny = dy / dist if dist > 0.001 else 0.0
+                pen = r - dist + 1.0
+                self.center_x += nx * pen
+                self.center_y += ny * pen
+                self._pick_patrol_target()
+                break
 
         # Maze-bounds containment — an alien must never leave its
         # home maze's AABB (per spec).  Clamp + revert if the move

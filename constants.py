@@ -367,6 +367,13 @@ MODULE_TYPES: dict[str, dict] = {
                         "blueprint_only": True},
 }
 
+# Blueprint stack cap — one registry-wide override so every
+# ``bp_<module>`` key stacks up to 50 per inventory cell.  Modules
+# (``mod_<key>``) still use the default stack limit.
+for _bp_key in MODULE_TYPES:
+    MAX_STACK[f"bp_{_bp_key}"] = 50
+del _bp_key
+
 # Modules whose world-drop blueprints + craft-menu recipes are gated to
 # Nebula (ZONE2) and the post-Nebula warp zones.  In Zone 1 these
 # blueprints never drop and, even if the player already holds one from

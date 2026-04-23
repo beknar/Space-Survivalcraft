@@ -1196,24 +1196,19 @@ def update_missiles(gv: GameView, dt: float) -> None:
                         a.remove_from_sprite_lists()
                     m.remove_from_sprite_lists()
                     break
-        elif hasattr(gv._zone, '_aliens'):
-            from zones.zone2_world import drop_zone2_alien_loot
-            for a in list(gv._zone._aliens):
-                if math.hypot(m.center_x - a.center_x, m.center_y - a.center_y) < 25:
-                    gv.hit_sparks.append(HitSpark(m.center_x, m.center_y))
-                    gv._spawn_explosion(m.center_x, m.center_y)
-                    a.take_damage(int(m.damage))
-                    if a.hp <= 0:
-                        drop_zone2_alien_loot(gv._zone, gv, a)
-                    m.remove_from_sprite_lists()
-                    break
         elif gv._zone.zone_id == ZoneID.STAR_MAZE:
+            # Checked BEFORE the generic hasattr(_aliens) branch below
+            # because the Star Maze now also has ``_aliens`` (its Zone
+            # 2-style Nebula population); without this order the
+            # Zone-2-style branch would eat every hit and the maze
+            # spawner / maze aliens would never take damage.
+            from zones.zone2_world import drop_zone2_alien_loot
             from constants import (
                 MAZE_ALIEN_IRON_DROP, MAZE_ALIEN_XP,
                 MAZE_SPAWNER_IRON_DROP, MAZE_SPAWNER_XP,
             )
-            # Maze aliens first (cheaper reward, more of them).
-            hit_alien = False
+            hit = False
+            # Maze aliens first.
             for a in list(gv._zone._maze_aliens):
                 if math.hypot(m.center_x - a.center_x,
                               m.center_y - a.center_y) < 25:
@@ -1230,26 +1225,52 @@ def update_missiles(gv: GameView, dt: float) -> None:
                         gv._zone._on_maze_alien_killed(a)
                         a.remove_from_sprite_lists()
                     m.remove_from_sprite_lists()
-                    hit_alien = True
+                    hit = True
                     break
-            if hit_alien:
-                continue
-            # Then spawners — flat radius check using the spawner's
-            # collision radius plus the missile's proximity fuse.
-            for sp in gv._zone.spawners:
-                if sp.killed:
-                    continue
-                if math.hypot(m.center_x - sp.center_x,
-                              m.center_y - sp.center_y) <= sp.radius + 10:
+            # Spawners.
+            if not hit:
+                for sp in gv._zone.spawners:
+                    if sp.killed:
+                        continue
+                    if math.hypot(m.center_x - sp.center_x,
+                                  m.center_y - sp.center_y) <= (
+                            sp.radius + 10):
+                        gv.hit_sparks.append(HitSpark(
+                            m.center_x, m.center_y))
+                        gv._spawn_explosion(m.center_x, m.center_y)
+                        sp.take_damage(int(m.damage))
+                        if sp.killed:
+                            _apply_kill_rewards(
+                                gv, sp.center_x, sp.center_y,
+                                MAZE_SPAWNER_IRON_DROP, bonus_iron_enemy,
+                                0.0, xp=MAZE_SPAWNER_XP,
+                            )
+                        m.remove_from_sprite_lists()
+                        hit = True
+                        break
+            # Finally the Nebula-population aliens (same-bucket as
+            # Zone 2 so reuse the zone-2 loot drop).
+            if not hit:
+                for a in list(gv._zone._aliens):
+                    if math.hypot(m.center_x - a.center_x,
+                                  m.center_y - a.center_y) < 25:
+                        gv.hit_sparks.append(HitSpark(
+                            m.center_x, m.center_y))
+                        gv._spawn_explosion(m.center_x, m.center_y)
+                        a.take_damage(int(m.damage))
+                        if a.hp <= 0:
+                            drop_zone2_alien_loot(gv._zone, gv, a)
+                        m.remove_from_sprite_lists()
+                        break
+        elif hasattr(gv._zone, '_aliens'):
+            from zones.zone2_world import drop_zone2_alien_loot
+            for a in list(gv._zone._aliens):
+                if math.hypot(m.center_x - a.center_x, m.center_y - a.center_y) < 25:
                     gv.hit_sparks.append(HitSpark(m.center_x, m.center_y))
                     gv._spawn_explosion(m.center_x, m.center_y)
-                    sp.take_damage(int(m.damage))
-                    if sp.killed:
-                        _apply_kill_rewards(
-                            gv, sp.center_x, sp.center_y,
-                            MAZE_SPAWNER_IRON_DROP, bonus_iron_enemy,
-                            0.0, xp=MAZE_SPAWNER_XP,
-                        )
+                    a.take_damage(int(m.damage))
+                    if a.hp <= 0:
+                        drop_zone2_alien_loot(gv._zone, gv, a)
                     m.remove_from_sprite_lists()
                     break
 

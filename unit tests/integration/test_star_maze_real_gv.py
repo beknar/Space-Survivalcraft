@@ -248,11 +248,20 @@ class TestStarMazeCombat:
     def test_missile_damages_spawner(self, real_game_view):
         """Plant a live missile on top of the first spawner and run
         the global missile update — the spawner must take damage
-        (shield first, then HP)."""
+        (shield first, then HP).  Clear pre-populated maze aliens
+        so the missile doesn't pick one up before reaching the
+        spawner."""
         from sprites.missile import HomingMissile
         from update_logic import update_missiles
         gv = real_game_view
         gv._transition_zone(ZoneID.STAR_MAZE)
+        # Clear all pre-populated children so the missile can't
+        # accidentally hit one near the spawner.
+        for a in list(gv._zone._maze_aliens):
+            a.remove_from_sprite_lists()
+        gv._zone._alien_parent.clear()
+        for sp_ in gv._zone.spawners:
+            sp_.alive_children = 0
         sp = gv._zone.spawners[0]
         gv.player.center_x = sp.center_x + 9000
         gv.player.center_y = sp.center_y
@@ -264,7 +273,6 @@ class TestStarMazeCombat:
         )
         gv._missile_list.append(m)
         update_missiles(gv, 1 / 60)
-        # Either shield or HP must have dropped.
         assert (sp.shields < shield_before) or (sp.hp < hp_before)
 
 
@@ -305,22 +313,61 @@ class TestStarMazeMazeStructure:
                 f"opening — player cannot get in")
 
 
-class TestStarMazeNoNebulaPopulation:
-    """Spec: "for now, remove the nebula zone objects."  The Star
-    Maze zone must not expose any Zone-2 population attributes."""
+class TestStarMazeNebulaPopulation:
+    """Spec: "populate rest of the star maze with nebula zone objects
+    with the same type and number of objects.  nebulaze zone objects
+    should not be in the same area or spawn in the maze structures."
+    """
 
-    def test_no_nebula_population_attributes(self, real_game_view):
+    def test_counts_match_zone2_spec(self, real_game_view):
+        from constants import (
+            ASTEROID_COUNT, DOUBLE_IRON_COUNT, COPPER_ASTEROID_COUNT,
+            GAS_AREA_COUNT, WANDERING_COUNT,
+            Z2_SHIELDED_COUNT, Z2_FAST_COUNT,
+            Z2_GUNNER_COUNT, Z2_RAMMER_COUNT,
+            NULL_FIELD_COUNT, SLIPSPACE_COUNT,
+        )
         gv = real_game_view
         gv._transition_zone(ZoneID.STAR_MAZE)
         z = gv._zone
-        for attr in (
-            "_iron_asteroids", "_double_iron", "_copper_asteroids",
-            "_gas_areas", "_wanderers", "_null_fields", "_slipspaces",
-            "_aliens", "_shielded_aliens", "_alien_textures",
-            "_alien_projectiles",
-        ):
-            assert not hasattr(z, attr), (
-                f"Star Maze unexpectedly exposes Nebula attr {attr}")
+        assert len(z._iron_asteroids) == ASTEROID_COUNT
+        assert len(z._double_iron) == DOUBLE_IRON_COUNT
+        assert len(z._copper_asteroids) == COPPER_ASTEROID_COUNT
+        assert len(z._gas_areas) == GAS_AREA_COUNT
+        assert len(z._wanderers) == WANDERING_COUNT
+        expected_aliens = (Z2_SHIELDED_COUNT + Z2_FAST_COUNT
+                           + Z2_GUNNER_COUNT + Z2_RAMMER_COUNT)
+        assert len(z._aliens) == expected_aliens
+        assert len(z._null_fields) == NULL_FIELD_COUNT
+        assert len(z._slipspaces) == SLIPSPACE_COUNT
+
+    def test_no_population_inside_maze_structures(self, real_game_view):
+        from zones.maze_geometry import point_inside_any_room_interior
+        gv = real_game_view
+        gv._transition_zone(ZoneID.STAR_MAZE)
+        z = gv._zone
+        rooms = z.rooms
+
+        def _assert_outside(iter_, label):
+            violations = [
+                (e.center_x, e.center_y)
+                for e in iter_
+                if point_inside_any_room_interior(
+                    e.center_x, e.center_y, rooms)
+            ]
+            assert not violations, (
+                f"{label}: {len(violations)} entity/entities "
+                f"landed inside a maze room "
+                f"(first: {violations[:3]})")
+
+        _assert_outside(z._iron_asteroids, "iron_asteroids")
+        _assert_outside(z._double_iron, "double_iron")
+        _assert_outside(z._copper_asteroids, "copper_asteroids")
+        _assert_outside(z._wanderers, "wanderers")
+        _assert_outside(z._aliens, "zone2_aliens")
+        _assert_outside(z._gas_areas, "gas_areas")
+        _assert_outside(z._slipspaces, "slipspaces")
+        _assert_outside(z._null_fields, "null_fields")
 
 
 class TestNebulaBossDeathUnlocksCornerWormholes:

@@ -240,15 +240,19 @@ class TestStationInventoryConsolidate:
         assert total == 600
 
     def test_blueprint_max_stack(self, station_inv):
-        # Add 15 of a blueprint (max stack = 10)
+        # Blueprints stack to 50 per the latest spec — add 15 to
+        # confirm they consolidate into a single stack (nowhere near
+        # the new cap).
         station_inv._items[(0, 0)] = ("bp_armor_plate", 8)
         station_inv._items[(0, 1)] = ("bp_armor_plate", 7)
         station_inv.consolidate()
         total = sum(ct for it, ct in station_inv._items.values()
                     if it == "bp_armor_plate")
         assert total == 15
+        bp_cap = MAX_STACK.get("bp_armor_plate", MAX_STACK_DEFAULT)
+        assert bp_cap == 50
         for _, ct in station_inv._items.values():
-            assert ct <= MAX_STACK_DEFAULT
+            assert ct <= bp_cap
 
 
 # ── Stack limit constants ────────────────────────────────────────────────
