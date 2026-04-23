@@ -116,8 +116,12 @@ class StarMazeZone(ZoneState):
         self._walls: list[Rect] = []
         # Draw lists.
         self._wall_sprite_list: arcade.SpriteList | None = None
-        # Maze-specific entities.
-        self._spawners: list[MazeSpawner] = []
+        # Maze-specific entities.  ``_spawners`` is a SpriteList so
+        # draw_world() can render all 25 in one GL call.  Killed
+        # spawners stay in the list (their husk sprite makes a nice
+        # "this room is clear" cue); their ``killed`` flag gates
+        # production + projectile fire.
+        self._spawners: arcade.SpriteList = arcade.SpriteList()
         self._maze_aliens: arcade.SpriteList = arcade.SpriteList()
         self._maze_projectiles: arcade.SpriteList = arcade.SpriteList()
         # Nebula-style population — identical counts + types to Zone 2,
@@ -237,7 +241,7 @@ class StarMazeZone(ZoneState):
         self._rooms = room_rects()
         self._walls = all_wall_rects(self._rooms, zone_seed=self._world_seed)
         # One spawner per room.
-        self._spawners = []
+        self._spawners = arcade.SpriteList()
         for i, room in enumerate(self._rooms):
             sp = MazeSpawner(
                 room.x + room.w / 2,
@@ -703,10 +707,10 @@ class StarMazeZone(ZoneState):
         # Maze walls on top of terrain so they clearly occlude things.
         if self._wall_sprite_list is not None:
             self._wall_sprite_list.draw()
-        # Spawners drawn manually so killed ones can be omitted.
-        for sp in self._spawners:
-            if not sp.killed:
-                sp.draw()
+        # All spawners drawn via SpriteList — killed ones stay visible
+        # as damaged husks so the player can see at a glance which
+        # rooms are clear; the minimap shows them in grey.
+        self._spawners.draw()
         # Zone 2 aliens + their projectiles.
         self._aliens.draw()
         # Shielded-alien shield overlays (cull to visible rect).
