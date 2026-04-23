@@ -32,13 +32,16 @@ class TestStarMazeZoneLive:
     def test_transition_installs_rooms_walls_spawners_wormholes(
         self, real_game_view,
     ):
+        from constants import STAR_MAZE_ROOM_COLS, STAR_MAZE_ROOM_ROWS
         gv = real_game_view
         gv._transition_zone(ZoneID.STAR_MAZE)
         assert gv._zone.zone_id is ZoneID.STAR_MAZE
-        # 9x9 grid ⇒ 81 rooms, one spawner per room.
-        assert len(gv._zone.rooms) == 81
-        assert len(gv._zone.spawners) == 81
-        assert len(gv._zone.walls) >= 450   # 6+ walls per room × 81 rooms
+        expected_rooms = STAR_MAZE_ROOM_COLS * STAR_MAZE_ROOM_ROWS
+        # One spawner per room.
+        assert len(gv._zone.rooms) == expected_rooms
+        assert len(gv._zone.spawners) == expected_rooms
+        # Each room contributes 6-8 wall segments after door cuts.
+        assert len(gv._zone.walls) >= expected_rooms * 6
         # Wormhole layout: 1 central (→ ZONE2) + 4 corners (→ MAZE_WARP_*).
         assert len(gv._wormholes) == 5
         targets = {w.zone_target for w in gv._wormholes}

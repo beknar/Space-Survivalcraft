@@ -723,20 +723,22 @@ Z2_RAMMER_XP: int = 80
 # 14b. Star Maze (post-Nebula-boss content)
 # ═══════════════════════════════════════════════════════════════════════════════
 #
-# Carved out of a Zone 2-sized field.  81 rooms on a 9×9 grid, each
-# 600×600 px, cover ~31 % of the zone (spec: "around 30 %"); user
-# asked for rooms equally spaced, so a uniform grid is the right fit.
-# Gaps between rooms are ~467 px — wide enough for a ship + a wandering
-# asteroid to pass comfortably.
+# Zone is 25% larger than Zone 2 (per spec) so the maze + its open
+# area have more breathing room.  Rooms cover a combined 2880 × 2880
+# of area — a uniform 5×5 grid of 576 × 576 rooms hits that exactly
+# (5 × 576 = 2880).  576 px stays within 4 % of the original
+# "around 600 px" target so ship clearance inside a room is unchanged.
+# Gaps between rooms come out to ~1520 px — plenty of open space for
+# ships, asteroids, and the rest of the Nebula-style population.
 
-# Zone dimensions — same as Zone 2, per spec.
-STAR_MAZE_WIDTH: int = ZONE2_WIDTH
-STAR_MAZE_HEIGHT: int = ZONE2_HEIGHT
+# Zone dimensions — 25 % above Zone 2.
+STAR_MAZE_WIDTH: int = int(ZONE2_WIDTH * 1.25)     # 12 000
+STAR_MAZE_HEIGHT: int = int(ZONE2_HEIGHT * 1.25)   # 12 000
 
 # Maze room geometry.
-STAR_MAZE_ROOM_SIZE: int = 600                 # outer side length (px)
-STAR_MAZE_ROOM_COLS: int = 9
-STAR_MAZE_ROOM_ROWS: int = 9
+STAR_MAZE_ROOM_SIZE: int = 576                 # outer side length (px)
+STAR_MAZE_ROOM_COLS: int = 5
+STAR_MAZE_ROOM_ROWS: int = 5
 STAR_MAZE_WALL_TILE: int = 16                  # dungeon-sheet tile pixel size
 STAR_MAZE_WALL_SCALE: float = 2.0              # each 16 px tile renders at 32 px
 STAR_MAZE_WALL_THICK: int = int(STAR_MAZE_WALL_TILE * STAR_MAZE_WALL_SCALE)  # 32

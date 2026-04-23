@@ -107,17 +107,16 @@ class TestRoomGrid:
     def test_count_is_81(self):
         assert len(room_rects()) == STAR_MAZE_ROOM_COLS * STAR_MAZE_ROOM_ROWS
 
-    def test_every_room_is_600x600(self):
+    def test_every_room_matches_room_size_constant(self):
         for r in room_rects():
             assert r.w == STAR_MAZE_ROOM_SIZE
             assert r.h == STAR_MAZE_ROOM_SIZE
 
-    def test_coverage_close_to_30_percent(self):
+    def test_total_room_area_is_2880_by_2880(self):
+        """Per spec: combined room coverage equals 2880 × 2880 px².
+        5 × 5 grid of 576 × 576 rooms hits this exactly."""
         total = sum(r.w * r.h for r in room_rects())
-        zone = STAR_MAZE_WIDTH * STAR_MAZE_HEIGHT
-        coverage = total / zone
-        # User said "around 30 %" — 9x9 grid gives 31.6 %.
-        assert 0.28 < coverage < 0.34
+        assert total == 2880 * 2880
 
     def test_rooms_equally_spaced_on_x_axis(self):
         rooms = room_rects()
@@ -187,8 +186,10 @@ class TestWallsAndDoors:
     def test_all_wall_rects_count(self):
         rooms = room_rects()
         walls = all_wall_rects(rooms, zone_seed=42)
-        # 81 rooms × 6-8 walls each → 486–648.
-        assert 450 <= len(walls) <= 700
+        # 5×5 = 25 rooms × 6-8 wall segments each → 150–200.
+        expected_low = len(rooms) * 6
+        expected_high = len(rooms) * 8
+        assert expected_low <= len(walls) <= expected_high
 
     def test_deterministic_given_seed(self):
         r = Rect(0, 0, 600, 600)
