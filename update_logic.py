@@ -1160,6 +1160,13 @@ def update_missiles(gv: GameView, dt: float) -> None:
     elif hasattr(gv._zone, '_aliens'):
         for a in gv._zone._aliens:
             targets.append((a.center_x, a.center_y))
+    # Star Maze: maze aliens + live spawners are both homing targets.
+    if gv._zone.zone_id == ZoneID.STAR_MAZE:
+        for a in getattr(gv._zone, "_maze_aliens", ()):
+            targets.append((a.center_x, a.center_y))
+        for sp in getattr(gv._zone, "spawners", ()):
+            if not sp.killed:
+                targets.append((sp.center_x, sp.center_y))
     # Bosses are zone-agnostic targets — the Double Star lives in the
     # zone it was summoned in, the Nebula boss in Zone 2 via the QWI.
     if gv._boss is not None and gv._boss.hp > 0:
@@ -1198,6 +1205,51 @@ def update_missiles(gv: GameView, dt: float) -> None:
                     a.take_damage(int(m.damage))
                     if a.hp <= 0:
                         drop_zone2_alien_loot(gv._zone, gv, a)
+                    m.remove_from_sprite_lists()
+                    break
+        elif gv._zone.zone_id == ZoneID.STAR_MAZE:
+            from constants import (
+                MAZE_ALIEN_IRON_DROP, MAZE_ALIEN_XP,
+                MAZE_SPAWNER_IRON_DROP, MAZE_SPAWNER_XP,
+            )
+            # Maze aliens first (cheaper reward, more of them).
+            hit_alien = False
+            for a in list(gv._zone._maze_aliens):
+                if math.hypot(m.center_x - a.center_x,
+                              m.center_y - a.center_y) < 25:
+                    gv.hit_sparks.append(HitSpark(m.center_x, m.center_y))
+                    gv._spawn_explosion(m.center_x, m.center_y)
+                    a.take_damage(int(m.damage))
+                    if a.hp <= 0:
+                        _apply_kill_rewards(
+                            gv, a.center_x, a.center_y,
+                            MAZE_ALIEN_IRON_DROP, bonus_iron_enemy,
+                            BLUEPRINT_DROP_CHANCE_ALIEN,
+                            xp=MAZE_ALIEN_XP,
+                        )
+                        gv._zone._on_maze_alien_killed(a)
+                        a.remove_from_sprite_lists()
+                    m.remove_from_sprite_lists()
+                    hit_alien = True
+                    break
+            if hit_alien:
+                continue
+            # Then spawners — flat radius check using the spawner's
+            # collision radius plus the missile's proximity fuse.
+            for sp in gv._zone.spawners:
+                if sp.killed:
+                    continue
+                if math.hypot(m.center_x - sp.center_x,
+                              m.center_y - sp.center_y) <= sp.radius + 10:
+                    gv.hit_sparks.append(HitSpark(m.center_x, m.center_y))
+                    gv._spawn_explosion(m.center_x, m.center_y)
+                    sp.take_damage(int(m.damage))
+                    if sp.killed:
+                        _apply_kill_rewards(
+                            gv, sp.center_x, sp.center_y,
+                            MAZE_SPAWNER_IRON_DROP, bonus_iron_enemy,
+                            0.0, xp=MAZE_SPAWNER_XP,
+                        )
                     m.remove_from_sprite_lists()
                     break
 

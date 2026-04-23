@@ -216,7 +216,14 @@ def _draw_station_shield(gv: GameView) -> None:
     perceptible; the real visual is the outline ring drawn on top at
     full tint colour with moderate alpha so the border looks solid
     while the interior stays clean."""
-    if (getattr(gv, "_station_shield_list", None) is not None
+    # Gate on the live building list so the shield doesn't draw in
+    # zones that don't contain the Home Station (warp zones, Star
+    # Maze).  Zone 2 stashes gv.building_list on teardown, so when
+    # the player is elsewhere the list is empty and we short-circuit.
+    from sprites.building import HomeStation as _HomeStation
+    _home_here = any(isinstance(b, _HomeStation) for b in gv.building_list)
+    if (_home_here
+            and getattr(gv, "_station_shield_list", None) is not None
             and getattr(gv, "_station_shield_hp", 0) > 0):
         gv._station_shield_list.draw()
         # Solid-looking border ring.

@@ -48,6 +48,64 @@ class MazeLayout(NamedTuple):
     bounds: Rect
 
 
+def _add_outer_wall_with_gap(
+    walls: list[Rect],
+    origin_x: float, origin_y: float,
+    total_w: int, total_h: int,
+    wall_thick: int, room_size: int, step: int,
+    side: str, cell: int,
+) -> None:
+    """Emit the four outer-boundary wall rects for one maze, with the
+    wall segment in front of ``(side, cell)`` omitted so the player
+    can fly in.  Corner filler tiles on either side of the gap remain
+    so the outline stays visually complete.
+    """
+    # The three full walls — emit all four, then replace the chosen
+    # side with two pre/post segments around the entrance gap.
+    bot = Rect(origin_x, origin_y, total_w, wall_thick)
+    top = Rect(origin_x, origin_y + total_h - wall_thick,
+               total_w, wall_thick)
+    left = Rect(origin_x, origin_y, wall_thick, total_h)
+    right = Rect(origin_x + total_w - wall_thick, origin_y,
+                 wall_thick, total_h)
+
+    if side in ("N", "S"):
+        # Horizontal wall.  Room at column ``cell`` sits from
+        # ``wall_thick + cell*step`` to ``wall_thick + cell*step +
+        # room_size`` along x.  Gap aligns to that room width.
+        gap_start = origin_x + wall_thick + cell * step
+        gap_end = gap_start + room_size
+        base = bot if side == "S" else top
+        pre_w = gap_start - base.x
+        post_x = gap_end
+        post_w = (base.x + base.w) - gap_end
+        if pre_w > 0:
+            walls.append(Rect(base.x, base.y, pre_w, base.h))
+        if post_w > 0:
+            walls.append(Rect(post_x, base.y, post_w, base.h))
+        # The other three sides render normally.
+        walls.append(top if side == "S" else bot)
+        walls.append(left)
+        walls.append(right)
+    else:
+        # Vertical wall.  Room at row ``cell`` sits from
+        # ``wall_thick + cell*step`` to ``wall_thick + cell*step +
+        # room_size`` along y.
+        gap_start = origin_y + wall_thick + cell * step
+        gap_end = gap_start + room_size
+        base = left if side == "W" else right
+        pre_h = gap_start - base.y
+        post_y = gap_end
+        post_h = (base.y + base.h) - gap_end
+        if pre_h > 0:
+            walls.append(Rect(base.x, base.y, base.w, pre_h))
+        if post_h > 0:
+            walls.append(Rect(base.x, post_y, base.w, post_h))
+        walls.append(right if side == "W" else left)
+        walls.append(bot)
+        walls.append(top)
+
+
 def generate_maze(
     center_x: float, center_y: float,
     *,
@@ -111,13 +169,19 @@ def generate_maze(
             rooms.append(Rect(rx, ry, room_size, room_size))
 
     walls: list[Rect] = []
-    # Outer boundary — 4 rectangles.
-    walls.append(Rect(origin_x, origin_y, total_w, wall_thick))            # bot
-    walls.append(Rect(origin_x, origin_y + total_h - wall_thick,
-                      total_w, wall_thick))                                 # top
-    walls.append(Rect(origin_x, origin_y, wall_thick, total_h))            # left
-    walls.append(Rect(origin_x + total_w - wall_thick, origin_y,
-                      wall_thick, total_h))                                 # right
+    # Outer boundary with an entrance cut.  One random outer-edge
+    # cell is chosen and the wall segment in front of it is omitted
+    # so the player can fly in.  Per spec "at least one entrance."
+    entrance_side = rng.choice(("N", "S", "E", "W"))
+    if entrance_side in ("N", "S"):
+        entrance_cell = rng.randint(0, cols - 1)
+    else:
+        entrance_cell = rng.randint(0, rows - 1)
+    _add_outer_wall_with_gap(
+        walls, origin_x, origin_y, total_w, total_h,
+        wall_thick, room_size, step,
+        entrance_side, entrance_cell,
+    )
 
     # Internal horizontal walls — between row r and row r+1, spanning
     # the room width.  Only placed where the edge wasn't carved.

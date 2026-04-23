@@ -114,6 +114,118 @@ class TestStarMazeZoneLive:
         assert sp.killed is True
 
 
+class TestStarMazeCombat:
+    """Round-trip for the combat fixes the user reported: maze
+    projectiles must damage the player, player lasers must be blocked
+    by walls, and homing missiles must damage the spawner."""
+
+    def test_maze_projectile_damages_player(self, real_game_view):
+        from sprites.projectile import Projectile
+        gv = real_game_view
+        gv._transition_zone(ZoneID.STAR_MAZE)
+        z = gv._zone
+        # Park the player far from any wormhole and install a faux
+        # projectile sitting right on top of them.
+        gv.player.center_x = 500
+        gv.player.center_y = 500
+        gv.player.hp = 100
+        gv.player.shields = 0
+        # Recall the player's _collision_cd so damage fires.
+        gv.player._collision_cd = 0.0
+        proj = Projectile(
+            gv._alien_laser_tex, 500, 500,
+            0.0, 0.0, 1000.0, scale=0.5, damage=10,
+        )
+        z._maze_projectiles.append(proj)
+        hp_before = gv.player.hp
+        z.update(gv, 1 / 60)
+        assert gv.player.hp < hp_before
+
+    def test_player_projectile_blocked_by_wall(self, real_game_view):
+        """Drop a player projectile straddling a maze wall and tick
+        once — the projectile should be consumed by the wall, not
+        passed through to collide with the spawner."""
+        from sprites.projectile import Projectile
+        gv = real_game_view
+        gv._transition_zone(ZoneID.STAR_MAZE)
+        z = gv._zone
+        wall = z.walls[0]   # any wall
+        # Spawn a projectile right inside the wall AABB — the
+        # segment-vs-wall check will delete it on the next tick.
+        proj = Projectile(
+            gv._alien_laser_tex,
+            wall.x + wall.w / 2, wall.y + wall.h / 2,
+            0.0, 0.0, 1000.0, scale=0.5, damage=10,
+        )
+        proj._vx = 1.0
+        proj._vy = 0.0
+        gv.projectile_list.append(proj)
+        # Park player far away so wormhole logic doesn't interfere.
+        gv.player.center_x = 500
+        gv.player.center_y = 500
+        z.update(gv, 1 / 60)
+        assert proj not in gv.projectile_list
+
+    def test_missile_damages_spawner(self, real_game_view):
+        """Plant a live missile on top of the first spawner and run
+        the global missile update — the spawner must take damage
+        (shield first, then HP)."""
+        from sprites.missile import HomingMissile
+        from update_logic import update_missiles
+        gv = real_game_view
+        gv._transition_zone(ZoneID.STAR_MAZE)
+        sp = gv._zone.spawners[0]
+        gv.player.center_x = sp.center_x + 9000
+        gv.player.center_y = sp.center_y
+        shield_before = sp.shields
+        hp_before = sp.hp
+        m = HomingMissile(
+            gv._missile_tex,
+            sp.center_x, sp.center_y, heading=0.0,
+        )
+        gv._missile_list.append(m)
+        update_missiles(gv, 1 / 60)
+        # Either shield or HP must have dropped.
+        assert (sp.shields < shield_before) or (sp.hp < hp_before)
+
+
+class TestStarMazeMazeStructure:
+    """Verify geometry + spawn-safety invariants the user called out
+    explicitly."""
+
+    def test_every_maze_has_at_least_one_entrance(self, real_game_view):
+        """For each maze, at least one point along the outer boundary
+        must NOT be a wall — otherwise the player can't get in."""
+        gv = real_game_view
+        gv._transition_zone(ZoneID.STAR_MAZE)
+        for maze in gv._zone.mazes:
+            bounds = maze.bounds
+            # Walk the four outer edges and count where walls fail to
+            # cover the sample point.
+            from zones.maze_geometry import circle_hits_any_wall
+            sample_offsets = [x / 50.0 for x in range(51)]
+            found_gap = False
+            for t in sample_offsets:
+                edges = [
+                    (bounds.x + bounds.w * t, bounds.y + 8),   # bottom
+                    (bounds.x + bounds.w * t,
+                     bounds.y + bounds.h - 8),                # top
+                    (bounds.x + 8, bounds.y + bounds.h * t),  # left
+                    (bounds.x + bounds.w - 8,
+                     bounds.y + bounds.h * t),                # right
+                ]
+                for (ex, ey) in edges:
+                    if not circle_hits_any_wall(
+                            ex, ey, 4, maze.walls):
+                        found_gap = True
+                        break
+                if found_gap:
+                    break
+            assert found_gap, (
+                f"maze centred at {maze.spawner} has no outer-wall "
+                f"opening — player cannot get in")
+
+
 class TestStarMazeNoNebulaPopulation:
     """Spec: "for now, remove the nebula zone objects."  The Star
     Maze zone must not expose any Zone-2 population attributes."""
@@ -161,26 +273,23 @@ class TestNebulaBossDeathUnlocksCornerWormholes:
         assert targets - {ZoneID.MAIN} == NEBULA_WARP_ZONES
 
 
-class TestNebulaWarpExitToStarMaze:
-    """Reproduce the user-reported bug: leaving the gas warp zone
-    that spawned from the Nebula should deposit the player in the
-    Star Maze, not back in the Nebula."""
+class TestNebulaWarpExitRouting:
+    """Bottom exit of a NEBULA_WARP_* variant returns to Zone 2;
+    top exit advances to the Star Maze.  Mirrors Zone 1's warp
+    pattern (bottom=MAIN, top=ZONE2)."""
 
     @pytest.mark.parametrize("zid", list(NEBULA_WARP_ZONES))
-    def test_bottom_exit_transitions_to_star_maze(
+    def test_bottom_exit_transitions_to_zone2(
         self, real_game_view, zid,
     ):
         gv = real_game_view
         gv._transition_zone(zid)
         assert gv._zone.zone_id is zid
-        # Force the player past the bottom exit threshold and tick
-        # the zone once; the warp zone's _check_exits should route
-        # us into the Star Maze, NOT back to Zone 2.
         gv.player.center_y = 10.0
         gv._zone.update(gv, 1 / 60)
-        assert gv._zone.zone_id is ZoneID.STAR_MAZE, (
+        assert gv._zone.zone_id is ZoneID.ZONE2, (
             f"{zid.name} bottom exit deposited player in "
-            f"{gv._zone.zone_id.name}, expected STAR_MAZE")
+            f"{gv._zone.zone_id.name}, expected ZONE2")
 
     @pytest.mark.parametrize("zid", list(NEBULA_WARP_ZONES))
     def test_top_exit_transitions_to_star_maze(
@@ -220,11 +329,11 @@ class TestNebulaWarpExitToStarMaze:
             f"wormhole touch landed player in "
             f"{gv._zone.zone_id.name}")
 
-        # Now walk the player out the bottom — must land in Star Maze.
-        gv.player.center_y = 10.0
+        # Walk the player out the TOP — must land in Star Maze.
+        gv.player.center_y = gv._zone.world_height - 5.0
         gv._zone.update(gv, 1 / 60)
         assert gv._zone.zone_id is ZoneID.STAR_MAZE, (
-            f"NEBULA_WARP_GAS bottom exit landed player in "
+            f"NEBULA_WARP_GAS top exit landed player in "
             f"{gv._zone.zone_id.name}, expected STAR_MAZE")
         # Critical: one more tick at the Star Maze spawn point must
         # NOT transition back to Zone 2 (reproduces the bug where the
@@ -238,14 +347,14 @@ class TestNebulaWarpExitToStarMaze:
 
 class TestNebulaWarpRoutingAndDanger:
     @pytest.mark.parametrize("zid", list(NEBULA_WARP_ZONES))
-    def test_entering_nebula_warp_sets_2x_danger_and_maze_exits(
+    def test_entering_nebula_warp_sets_2x_danger_and_split_exits(
         self, real_game_view, zid,
     ):
         gv = real_game_view
         gv._transition_zone(zid)
         assert gv._zone.zone_id is zid
         assert gv._zone._danger == 2.0
-        assert gv._zone._exit_bottom_zone is ZoneID.STAR_MAZE
+        assert gv._zone._exit_bottom_zone is ZoneID.ZONE2
         assert gv._zone._exit_top_zone is ZoneID.STAR_MAZE
 
 

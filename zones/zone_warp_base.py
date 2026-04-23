@@ -77,15 +77,16 @@ class WarpZoneBase(ZoneState):
         zid = self.zone_id
         if zid in NEBULA_WARP_ZONES:
             self._danger = WARP_DANGER_NEBULA
-            # Either exit — "return" or "advance" — lands in the Star
-            # Maze.  Per user spec: "when the player emerges from the
-            # new warp zone, they appear in the star maze."
-            self._exit_bottom_zone = ZoneID.STAR_MAZE
+            # Bottom exit = return to source (Nebula), top exit =
+            # advance to the next biome (Star Maze).  Mirrors the
+            # Zone 1 pattern where bottom=MAIN, top=ZONE2.
+            self._exit_bottom_zone = ZoneID.ZONE2
             self._exit_top_zone = ZoneID.STAR_MAZE
         elif zid in MAZE_WARP_ZONES:
             self._danger = WARP_DANGER_MAZE
-            # Star-Maze-launched variants form a closed loop back to
-            # the Star Maze at both exits.
+            # Star-Maze-launched variants form a closed loop — bottom
+            # returns to the Star Maze, top has nowhere further to
+            # advance so it also wraps back.
             self._exit_bottom_zone = ZoneID.STAR_MAZE
             self._exit_top_zone = ZoneID.STAR_MAZE
         else:

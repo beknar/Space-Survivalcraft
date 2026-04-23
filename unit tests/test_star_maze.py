@@ -300,7 +300,9 @@ class TestWarpDangerByZoneId:
     def test_nebula_launched_is_2x(self):
         z = _resolve_warp(ZoneID.NEBULA_WARP_METEOR)
         assert z._danger == 2.0
-        assert z._exit_bottom_zone is ZoneID.STAR_MAZE
+        # Spec clarification: bottom exit returns to the source biome
+        # (Zone 2), top exit advances forward into the Star Maze.
+        assert z._exit_bottom_zone is ZoneID.ZONE2
         assert z._exit_top_zone is ZoneID.STAR_MAZE
 
     def test_maze_launched_is_2x(self):

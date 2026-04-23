@@ -248,6 +248,8 @@ class StarMazeZone(ZoneState):
         self._update_spawners(gv, dt, px, py)
         self._update_maze_aliens(gv, dt, px, py)
         self._update_maze_projectiles(gv, dt)
+        self._handle_maze_projectiles_vs_player(gv)
+        self._block_player_projectiles_at_walls(gv)
         self._handle_player_projectile_hits(gv)
         self._update_player_wall_collision(gv)
         self._reconcile_dead_aliens()
@@ -284,17 +286,22 @@ class StarMazeZone(ZoneState):
 
     def _spawn_child(self, sp: MazeSpawner,
                      laser_tex: arcade.Texture) -> None:
-        """Emit one MazeAlien near the spawner's centre room."""
+        """Emit one MazeAlien near the spawner's centre room.  Patrol
+        radius is scoped to the spawner's room (not the whole maze)
+        so waypoints stay reachable without walking through walls."""
+        from constants import STAR_MAZE_ROOM_SIZE
         maze = self._maze_for_spawner(sp)
         if maze is not None:
-            home_xy = maze.spawner
-            patrol_r = maze.bounds.w / 2 - 100.0
             ax, ay = self._find_maze_interior_point(sp)
+            home_xy = (ax, ay)
         else:
             home_xy = (sp.center_x, sp.center_y)
-            patrol_r = 400.0
             ax = sp.center_x
             ay = sp.center_y + MAZE_ALIEN_RADIUS * 2 + 4
+        # Half the room's interior side length minus a ship-radius
+        # margin gives the alien useful motion without picking
+        # waypoints on the far side of a wall.
+        patrol_r = max(80.0, STAR_MAZE_ROOM_SIZE / 2.0 - 40.0)
         alien = MazeAlien(
             laser_tex, ax, ay,
             world_w=self.world_width,
@@ -354,6 +361,34 @@ class StarMazeZone(ZoneState):
                 continue   # already auto-removed by range cap
             if segment_hits_any_wall(
                     pprev_x, pprev_y, proj.center_x, proj.center_y,
+                    self._walls):
+                proj.remove_from_sprite_lists()
+
+    def _handle_maze_projectiles_vs_player(self, gv: GameView) -> None:
+        """Apply damage when a maze alien / spawner projectile hits
+        the player.  Zone 2 handles this inline in its update loop;
+        the Star Maze mirrors that pattern so the generic
+        ``handle_alien_laser_hits`` isn't needed."""
+        for proj in arcade.check_for_collision_with_list(
+                gv.player, self._maze_projectiles):
+            gv._apply_damage_to_player(int(proj.damage))
+            gv._trigger_shake()
+            proj.remove_from_sprite_lists()
+
+    def _block_player_projectiles_at_walls(self, gv: GameView) -> None:
+        """Remove any player projectile (laser / mining beam / boss
+        cannon echo) that has crossed a maze wall this tick.  Uses
+        the segment-vs-AABB helper like the maze-projectile check so
+        fast projectiles don't tunnel."""
+        for proj in list(gv.projectile_list):
+            # The projectile's current position — ``update_projectile``
+            # has already advanced it this frame.  We approximate the
+            # pre-advance position with one tick's worth of velocity.
+            dt_back = 1.0 / 60.0
+            prev_x = proj.center_x - getattr(proj, "_vx", 0.0) * dt_back
+            prev_y = proj.center_y - getattr(proj, "_vy", 0.0) * dt_back
+            if segment_hits_any_wall(
+                    prev_x, prev_y, proj.center_x, proj.center_y,
                     self._walls):
                 proj.remove_from_sprite_lists()
 

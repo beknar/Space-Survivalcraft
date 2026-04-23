@@ -215,11 +215,40 @@ def _try_misty_step(gv: GameView, key: int) -> None:
         # out of a null field counts as "using an ability from inside".
         from update_logic import disable_null_field_around_player
         disable_null_field_around_player(gv)
-        gv.player.center_x += dx * MISTY_STEP_DISTANCE
-        gv.player.center_y += dy * MISTY_STEP_DISTANCE
+        target_x = gv.player.center_x + dx * MISTY_STEP_DISTANCE
+        target_y = gv.player.center_y + dy * MISTY_STEP_DISTANCE
+        # Star Maze: refuse to teleport into a maze structure (walls
+        # or room interiors).  Refund the ability cost + cooldown so
+        # the tap doesn't silently burn a charge.
+        rooms = getattr(gv._zone, "rooms", None)
+        walls = getattr(gv._zone, "walls", None)
+        from zones.maze_geometry import (
+            point_inside_any_room_interior as _in_room,
+            circle_hits_any_wall as _hits_wall,
+        )
+        from constants import SHIP_RADIUS
+        if ((rooms and _in_room(target_x, target_y, rooms))
+                or (walls
+                    and _hits_wall(target_x, target_y,
+                                   SHIP_RADIUS, walls))):
+            gv._ability_meter += MISTY_STEP_COST
+            gv._misty_step_cd = 0.0
+            gv._flash_game_msg("Blocked by maze wall!", 0.8)
+            gv._misty_last_tap[key] = 0
+            return
+        gv.player.center_x = target_x
+        gv.player.center_y = target_y
         gv._use_glow = (160, 80, 255, 160)
         gv._use_glow_timer = 0.3
-        arcade.play_sound(gv._misty_step_snd, volume=0.4)
+        _player = arcade.play_sound(gv._misty_step_snd, volume=0.4)
+        # Cap the misty-step sfx at 5 s — the source clip is longer
+        # and the extended tail was bleeding into the next ability.
+        if _player is not None:
+            import pyglet
+            pyglet.clock.schedule_once(
+                lambda _dt, p=_player: (
+                    p.pause() if hasattr(p, "pause") else None),
+                5.0)
         gv._misty_last_tap[key] = 0
     else:
         gv._misty_last_tap[key] = now
