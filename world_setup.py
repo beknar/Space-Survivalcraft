@@ -240,12 +240,15 @@ def populate_slipspaces(
     texture: arcade.Texture,
     count: int | None = None,
     rng: random.Random | None = None,
+    reject_fn=None,
 ) -> arcade.SpriteList:
     """Spawn ``Slipspace`` teleporters randomly across a zone.
 
     A dedicated ``rng`` lets save/load reproduce the layout
-    deterministically from the zone seed.  Returns a ``SpriteList`` so
-    the existing ``check_for_collision_with_list`` helpers work without
+    deterministically from the zone seed.  ``reject_fn(x, y) -> bool``
+    re-rolls candidate positions (up to 40 tries) — used by the Star
+    Maze to skip room interiors.  Returns a ``SpriteList`` so the
+    existing ``check_for_collision_with_list`` helpers work without
     extra glue.
     """
     from constants import SLIPSPACE_COUNT, SLIPSPACE_MARGIN
@@ -254,8 +257,12 @@ def populate_slipspaces(
     n = SLIPSPACE_COUNT if count is None else count
     slist = arcade.SpriteList()
     for _ in range(n):
-        x = r.uniform(SLIPSPACE_MARGIN, world_w - SLIPSPACE_MARGIN)
-        y = r.uniform(SLIPSPACE_MARGIN, world_h - SLIPSPACE_MARGIN)
+        x = y = 0.0
+        for _try in range(40):
+            x = r.uniform(SLIPSPACE_MARGIN, world_w - SLIPSPACE_MARGIN)
+            y = r.uniform(SLIPSPACE_MARGIN, world_h - SLIPSPACE_MARGIN)
+            if reject_fn is None or not reject_fn(x, y):
+                break
         slist.append(Slipspace(texture, x, y))
     return slist
 
@@ -281,12 +288,15 @@ def populate_null_fields(
     world_w: float, world_h: float,
     count: int | None = None,
     rng: random.Random | None = None,
+    reject_fn=None,
 ) -> list:
     """Spawn ``NullField`` stealth patches randomly across a zone.
 
     Used by both Zone 1 (during ``GameView._init_world_entities``) and
     Zone 2 (``zones/zone2_world.populate_null_fields``).  A dedicated
-    ``rng`` lets the caller seed placement for save/load determinism.
+    ``rng`` lets the caller seed placement for save/load determinism;
+    ``reject_fn(x, y) -> bool`` re-rolls candidates the caller wants
+    to exclude (e.g. Star-Maze room interiors).
     """
     from constants import NULL_FIELD_COUNT
     from sprites.null_field import NullField
@@ -295,8 +305,12 @@ def populate_null_fields(
     fields: list = []
     margin = 180.0
     for _ in range(n):
-        x = r.uniform(margin, world_w - margin)
-        y = r.uniform(margin, world_h - margin)
+        x = y = 0.0
+        for _try in range(40):
+            x = r.uniform(margin, world_w - margin)
+            y = r.uniform(margin, world_h - margin)
+            if reject_fn is None or not reject_fn(x, y):
+                break
         fields.append(NullField(x, y, rng=r))
     return fields
 

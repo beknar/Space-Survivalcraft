@@ -68,12 +68,12 @@ class TestStarMazeZoneLive:
         gv.player.center_x = sp.center_x + 9000  # out of range to avoid fire
         gv.player.center_y = sp.center_y
         sp._spawn_cd = 0.0
-        before = len(gv._zone._aliens)
+        before = len(gv._zone._maze_aliens)
         gv._zone.update(gv, 1 / 60)
-        after = len(gv._zone._aliens)
+        after = len(gv._zone._maze_aliens)
         assert after == before + 1
         # Confirm it's actually a MazeAlien, not something else.
-        assert isinstance(gv._zone._aliens[-1], MazeAlien)
+        assert isinstance(gv._zone._maze_aliens[-1], MazeAlien)
 
     def test_spawner_respects_alive_cap(self, real_game_view):
         from constants import MAZE_SPAWNER_MAX_ALIVE
@@ -82,11 +82,11 @@ class TestStarMazeZoneLive:
         sp = gv._zone.spawners[0]
         sp.alive_children = MAZE_SPAWNER_MAX_ALIVE  # at cap
         sp._spawn_cd = 0.0
-        before = len(gv._zone._aliens)
+        before = len(gv._zone._maze_aliens)
         gv._zone.update(gv, 1 / 60)
         # With the spawner already at cap, the update must not queue
         # a new child — should_spawn comes back False.
-        assert len(gv._zone._aliens) == before
+        assert len(gv._zone._maze_aliens) == before
 
     def test_killed_spawner_does_not_respawn(self, real_game_view):
         gv = real_game_view
@@ -100,6 +100,64 @@ class TestStarMazeZoneLive:
         # zero it must not emit a new child.
         assert sp.alive_children == 0
         assert sp.killed is True
+
+
+class TestStarMazeNebulaPopulation:
+    """The Star Maze should carry the same Nebula-style population as
+    Zone 2 but everything must stay outside the maze-room AABBs."""
+
+    def test_counts_match_zone2_spec(self, real_game_view):
+        from constants import (
+            ASTEROID_COUNT, DOUBLE_IRON_COUNT, COPPER_ASTEROID_COUNT,
+            GAS_AREA_COUNT, WANDERING_COUNT,
+            Z2_SHIELDED_COUNT, Z2_FAST_COUNT,
+            Z2_GUNNER_COUNT, Z2_RAMMER_COUNT,
+            NULL_FIELD_COUNT, SLIPSPACE_COUNT,
+        )
+        gv = real_game_view
+        gv._transition_zone(ZoneID.STAR_MAZE)
+        z = gv._zone
+        assert len(z._iron_asteroids) == ASTEROID_COUNT
+        assert len(z._double_iron) == DOUBLE_IRON_COUNT
+        assert len(z._copper_asteroids) == COPPER_ASTEROID_COUNT
+        assert len(z._gas_areas) == GAS_AREA_COUNT
+        assert len(z._wanderers) == WANDERING_COUNT
+        expected_aliens = (Z2_SHIELDED_COUNT + Z2_FAST_COUNT
+                           + Z2_GUNNER_COUNT + Z2_RAMMER_COUNT)
+        assert len(z._aliens) == expected_aliens
+        assert len(z._null_fields) == NULL_FIELD_COUNT
+        assert len(z._slipspaces) == SLIPSPACE_COUNT
+
+    def test_no_population_inside_maze_rooms(self, real_game_view):
+        """Every Nebula entity must spawn outside the 5×5 grid of
+        maze rooms (plus the 40 px margin applied in the filter)."""
+        from zones.maze_geometry import point_inside_any_room_interior
+        gv = real_game_view
+        gv._transition_zone(ZoneID.STAR_MAZE)
+        z = gv._zone
+        rooms = z.rooms
+
+        def _assert_outside(iter_, label):
+            violations = [
+                (e.center_x, e.center_y)
+                for e in iter_
+                if point_inside_any_room_interior(
+                    e.center_x, e.center_y, rooms)
+            ]
+            assert not violations, (
+                f"{label}: {len(violations)} entity/entities landed "
+                f"inside a maze room (first: {violations[:3]})"
+            )
+
+        _assert_outside(z._iron_asteroids, "iron_asteroids")
+        _assert_outside(z._double_iron, "double_iron")
+        _assert_outside(z._copper_asteroids, "copper_asteroids")
+        _assert_outside(z._wanderers, "wanderers")
+        _assert_outside(z._aliens, "zone2_aliens")
+        _assert_outside(z._gas_areas, "gas_areas")
+        _assert_outside(z._slipspaces, "slipspaces")
+        # null_fields are plain objects with center_x/center_y too.
+        _assert_outside(z._null_fields, "null_fields")
 
 
 class TestNebulaBossDeathUnlocksCornerWormholes:

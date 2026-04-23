@@ -50,29 +50,29 @@ def _get_alien_xp() -> dict[type, int]:
 
 # ── Population ─────────────────────────────────────────────────────────────
 
-def populate_iron_asteroids(z: Zone2) -> None:
+def populate_iron_asteroids(z: Zone2, reject_fn=None) -> None:
     for _ in range(ASTEROID_COUNT):
-        x, y = _rand_pos(z)
+        x, y = _rand_pos(z, reject_fn=reject_fn)
         z._iron_asteroids.append(IronAsteroid(z._iron_tex, x, y))
 
 
-def populate_double_iron(z: Zone2) -> None:
+def populate_double_iron(z: Zone2, reject_fn=None) -> None:
     for _ in range(DOUBLE_IRON_COUNT):
-        x, y = _rand_pos(z)
+        x, y = _rand_pos(z, reject_fn=reject_fn)
         a = IronAsteroid(z._iron_tex, x, y)
         a.hp = DOUBLE_IRON_HP
         a.scale = DOUBLE_IRON_SCALE
         z._double_iron.append(a)
 
 
-def populate_copper_asteroids(z: Zone2) -> None:
+def populate_copper_asteroids(z: Zone2, reject_fn=None) -> None:
     from sprites.copper_asteroid import CopperAsteroid
     for _ in range(COPPER_ASTEROID_COUNT):
-        x, y = _rand_pos(z)
+        x, y = _rand_pos(z, reject_fn=reject_fn)
         z._copper_asteroids.append(CopperAsteroid(z._copper_tex, x, y))
 
 
-def populate_gas_areas(z: Zone2) -> None:
+def populate_gas_areas(z: Zone2, reject_fn=None) -> None:
     from sprites.gas_area import GasArea, generate_gas_texture
     from zones.zone2 import _gas_texture_cache
     sizes = [64, 128, 192, 256, 384]
@@ -80,20 +80,20 @@ def populate_gas_areas(z: Zone2) -> None:
         size = random.choice(sizes)
         if size not in _gas_texture_cache:
             _gas_texture_cache[size] = generate_gas_texture(size)
-        x, y = _rand_pos(z, 200)
+        x, y = _rand_pos(z, 200, reject_fn=reject_fn)
         z._gas_areas.append(GasArea(_gas_texture_cache[size], x, y, size,
                                     world_w=z.world_width, world_h=z.world_height))
 
 
-def populate_wanderers(z: Zone2) -> None:
+def populate_wanderers(z: Zone2, reject_fn=None) -> None:
     from sprites.wandering_asteroid import WanderingAsteroid
     for _ in range(WANDERING_COUNT):
-        x, y = _rand_pos(z)
+        x, y = _rand_pos(z, reject_fn=reject_fn)
         z._wanderers.append(WanderingAsteroid(
             z._wanderer_tex, x, y, z.world_width, z.world_height))
 
 
-def populate_aliens(z: Zone2) -> None:
+def populate_aliens(z: Zone2, reject_fn=None) -> None:
     kw = dict(world_w=z.world_width, world_h=z.world_height)
     specs = [
         (Z2_SHIELDED_COUNT, "shielded", ShieldedAlien),
@@ -104,7 +104,7 @@ def populate_aliens(z: Zone2) -> None:
     for count, tex_name, cls in specs:
         tex = z._alien_textures[tex_name]
         for _ in range(count):
-            x, y = _rand_pos(z, 200)
+            x, y = _rand_pos(z, 200, reject_fn=reject_fn)
             z._aliens.append(cls(tex, z._alien_laser_tex, x, y, **kw))
     z._alien_counts = {
         "shielded": Z2_SHIELDED_COUNT, "fast": Z2_FAST_COUNT,
@@ -112,9 +112,25 @@ def populate_aliens(z: Zone2) -> None:
     }
 
 
-def _rand_pos(z: Zone2, margin: float = 100.0) -> tuple[float, float]:
-    return (random.uniform(margin, z.world_width - margin),
-            random.uniform(margin, z.world_height - margin))
+def _rand_pos(z: Zone2, margin: float = 100.0,
+              reject_fn=None, max_tries: int = 40
+              ) -> tuple[float, float]:
+    """Pick a random world-space position inside ``z``'s bounds.
+
+    ``reject_fn(x, y) -> bool`` is an optional filter; when provided,
+    we re-roll up to ``max_tries`` times to find a position it doesn't
+    reject.  If every attempt is rejected (unlikely — even tight
+    filters clear on a handful of rolls), the last candidate is
+    returned.  Used by the Star Maze to keep population out of
+    maze-room interiors without duplicating the placement code.
+    """
+    x = y = 0.0
+    for _ in range(max_tries):
+        x = random.uniform(margin, z.world_width - margin)
+        y = random.uniform(margin, z.world_height - margin)
+        if reject_fn is None or not reject_fn(x, y):
+            return x, y
+    return x, y
 
 
 # ── Collision handling ─────────────────────────────────────────────────────

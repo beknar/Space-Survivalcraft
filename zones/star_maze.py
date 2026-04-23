@@ -34,6 +34,11 @@ from constants import (
     SHIP_RADIUS, SHIP_COLLISION_COOLDOWN, SHIP_COLLISION_DAMAGE,
     SHIP_BOUNCE,
     FOG_CELL_SIZE, FOG_REVEAL_RADIUS,
+    COPPER_ASTEROID_PNG, COPPER_PICKUP_PNG, Z2_ALIEN_SHIP_PNG,
+    GAS_AREA_DAMAGE, GAS_AREA_SLOW,
+    WANDERING_DAMAGE, WANDERING_RADIUS,
+    ASTEROID_RADIUS, ALIEN_BOUNCE,
+    RESPAWN_INTERVAL,
 )
 from zones import ZoneID, ZoneState
 from zones.maze_geometry import (
@@ -111,10 +116,39 @@ class StarMazeZone(ZoneState):
         self._walls: list[Rect] = []
         # Draw lists.
         self._wall_sprite_list: arcade.SpriteList | None = None
-        # Entities.
+        # Maze-specific entities.
         self._spawners: list[MazeSpawner] = []
+        self._maze_aliens: arcade.SpriteList = arcade.SpriteList()
+        self._maze_projectiles: arcade.SpriteList = arcade.SpriteList()
+        # Nebula-style population — identical counts + types to Zone 2,
+        # but all placed with a maze-room reject filter so nothing
+        # spawns inside a maze AABB.  Attribute names match Zone 2 so
+        # the shared ``zone2_world`` helpers (populate_*, handle_
+        # projectile_hits, try_respawn) can be reused.
+        self._iron_asteroids: arcade.SpriteList = arcade.SpriteList(
+            use_spatial_hash=True)
+        self._double_iron: arcade.SpriteList = arcade.SpriteList(
+            use_spatial_hash=True)
+        self._copper_asteroids: arcade.SpriteList = arcade.SpriteList(
+            use_spatial_hash=True)
         self._aliens: arcade.SpriteList = arcade.SpriteList()
+        self._shielded_aliens: list = []
         self._alien_projectiles: arcade.SpriteList = arcade.SpriteList()
+        self._gas_areas: arcade.SpriteList = arcade.SpriteList()
+        self._wanderers: arcade.SpriteList = arcade.SpriteList()
+        self._null_fields: list = []
+        self._slipspaces: arcade.SpriteList = arcade.SpriteList()
+        self._iron_tex: arcade.Texture | None = None
+        self._copper_tex: arcade.Texture | None = None
+        self._copper_pickup_tex: arcade.Texture | None = None
+        self._alien_textures: dict[str, arcade.Texture] = {}
+        self._alien_laser_tex: arcade.Texture | None = None
+        self._wanderer_tex: arcade.Texture | None = None
+        self._gas_damage_cd: float = 0.0
+        self._respawn_timer: float = 0.0
+        self._alien_counts: dict[str, int] = {}
+        self._gas_pos_cache: list[tuple[float, float, float]] | None = None
+        self._minimap_cache = None
         # Fog of war.
         self._fog_cell = FOG_CELL_SIZE
         self._fog_reveal_r = FOG_REVEAL_RADIUS
@@ -130,10 +164,12 @@ class StarMazeZone(ZoneState):
     # ── Setup / teardown ────────────────────────────────────────────
 
     def setup(self, gv: GameView) -> None:
+        self._load_textures(gv)
         if not self._populated:
             self._generate(gv)
             self._populated = True
         self._wall_sprite_list = _build_wall_sprites(self._walls)
+        self._rebuild_shielded_list()
 
         # Central wormhole back to Zone 2 as the safety exit.
         cx, cy = self._find_open_point(
@@ -165,8 +201,39 @@ class StarMazeZone(ZoneState):
         gv._fog_grid = self._fog_grid
         gv._fog_revealed = self._fog_revealed
 
+    def _load_textures(self, gv: GameView) -> None:
+        """Load the same texture set Zone 2 uses so the shared
+        population + handler helpers work unmodified."""
+        from PIL import Image as _PILImage
+        self._iron_tex = gv._asteroid_tex
+        if self._copper_tex is None:
+            self._copper_tex = arcade.load_texture(COPPER_ASTEROID_PNG)
+        if self._copper_pickup_tex is None:
+            self._copper_pickup_tex = arcade.load_texture(COPPER_PICKUP_PNG)
+        self._alien_laser_tex = gv._alien_laser_tex
+        if not self._alien_textures:
+            from sprites.zone2_aliens import ALIEN_CROPS
+            pil = _PILImage.open(Z2_ALIEN_SHIP_PNG).convert("RGBA")
+            for name, crop in ALIEN_CROPS.items():
+                self._alien_textures[name] = arcade.Texture(pil.crop(crop))
+            pil.close()
+        self._wanderer_tex = self._iron_tex
+
+    def _rebuild_shielded_list(self) -> None:
+        from sprites.zone2_aliens import ShieldedAlien
+        self._shielded_aliens = [
+            a for a in self._aliens if isinstance(a, ShieldedAlien)]
+
+    def _maze_reject_fn(self):
+        """Factory for the Nebula-population reject filter: reject any
+        candidate position inside a maze-room AABB plus a 40 px margin
+        so hazards don't spawn flush against a wall from outside."""
+        rooms = self._rooms
+        def _reject(x: float, y: float) -> bool:
+            return point_inside_any_room_interior(x, y, rooms, margin=40)
+        return _reject
+
     def _generate(self, gv: GameView) -> None:
-        rng = random.Random(self._world_seed)
         self._rooms = room_rects()
         self._walls = all_wall_rects(self._rooms, zone_seed=self._world_seed)
         # One spawner per room.
@@ -178,14 +245,80 @@ class StarMazeZone(ZoneState):
             )
             sp.uid = i + 1   # uid 0 reserved for "unlinked"
             self._spawners.append(sp)
+        # Nebula-style population — same counts as Zone 2, reject
+        # filter keeps everything out of maze rooms.
+        from zones.zone2_world import (
+            populate_iron_asteroids, populate_double_iron,
+            populate_copper_asteroids, populate_gas_areas,
+            populate_wanderers, populate_aliens,
+        )
+        from world_setup import populate_null_fields, populate_slipspaces
+        reject = self._maze_reject_fn()
+        random.seed(self._world_seed)
+        populate_iron_asteroids(self, reject_fn=reject)
+        populate_double_iron(self, reject_fn=reject)
+        populate_copper_asteroids(self, reject_fn=reject)
+        populate_gas_areas(self, reject_fn=reject)
+        self._gas_pos_cache = [(g.center_x, g.center_y, g.radius)
+                               for g in self._gas_areas]
+        populate_wanderers(self, reject_fn=reject)
+        populate_aliens(self, reject_fn=reject)
+        self._null_fields = populate_null_fields(
+            self.world_width, self.world_height,
+            reject_fn=reject)
+        ss_rng = random.Random(self._world_seed + 197)
+        self._slipspaces = populate_slipspaces(
+            self.world_width, self.world_height,
+            gv._slipspace_tex, rng=ss_rng, reject_fn=reject)
+        random.seed()
 
     def teardown(self, gv: GameView) -> None:
         # Save fog state back from GameView.
         self._fog_grid = gv._fog_grid
         self._fog_revealed = gv._fog_revealed
         self._alien_projectiles.clear()
+        self._maze_projectiles.clear()
         gv._wormholes.clear()
         gv._wormhole_list.clear()
+
+    def _update_gas_damage(self, gv: GameView, dt: float) -> None:
+        self._gas_damage_cd = max(0.0, self._gas_damage_cd - dt)
+        px, py = gv.player.center_x, gv.player.center_y
+        in_gas = False
+        for g in self._gas_areas:
+            if g.contains_point(px, py):
+                in_gas = True
+                if self._gas_damage_cd <= 0.0:
+                    gv._apply_damage_to_player(int(GAS_AREA_DAMAGE))
+                    gv._trigger_shake()
+                    gv._flash_game_msg("Toxic gas!", 0.5)
+                    self._gas_damage_cd = 1.0
+                break
+        if in_gas:
+            gv.player.vel_x *= GAS_AREA_SLOW ** (dt * 60)
+            gv.player.vel_y *= GAS_AREA_SLOW ** (dt * 60)
+
+    def _update_wanderer_collision(self, gv: GameView, dt: float) -> None:
+        from collisions import resolve_overlap, reflect_velocity
+        if gv.player._collision_cd > 0.0:
+            return
+        for w in arcade.check_for_collision_with_list(
+                gv.player, self._wanderers):
+            contact = resolve_overlap(
+                gv.player, w, SHIP_RADIUS, WANDERING_RADIUS,
+                push_a=0.6, push_b=0.4)
+            if contact is None:
+                continue
+            nx, ny = contact
+            reflect_velocity(gv.player, nx, ny, SHIP_BOUNCE)
+            w._wander_angle = math.atan2(-ny, -nx)
+            w._wander_timer = 1.5
+            w._repel_timer = 2.0
+            gv._apply_damage_to_player(WANDERING_DAMAGE)
+            gv.player._collision_cd = SHIP_COLLISION_COOLDOWN
+            gv._trigger_shake()
+            arcade.play_sound(gv._bump_snd, volume=0.4)
+            break
 
     def get_player_spawn(self, entry_side: str) -> tuple[float, float]:
         # Default entry from a corner wormhole — drop the player at
@@ -209,11 +342,19 @@ class StarMazeZone(ZoneState):
     # ── Update ──────────────────────────────────────────────────────
 
     def update(self, gv: GameView, dt: float) -> None:
+        from zones.zone2_world import handle_projectile_hits, try_respawn
+        from collisions import resolve_overlap, reflect_velocity
+        from constants import (
+            ALIEN_ASTEROID_DAMAGE, ALIEN_COL_COOLDOWN,
+        )
+        from sprites.zone2_aliens import ShieldedAlien
+
         px = gv.player.center_x
         py = gv.player.center_y
         self._update_fog(gv)
 
-        # Wormhole return.
+        # Wormhole return — covers both the central and the four
+        # corner wormholes installed in setup().
         for wh in gv._wormholes:
             wh.update_wormhole(dt)
             if math.hypot(px - wh.center_x, py - wh.center_y) < 100:
@@ -226,12 +367,116 @@ class StarMazeZone(ZoneState):
                 gv._transition_zone(target, entry_side="wormhole_return")
                 return
 
+        # Route the shared GameView alien + alien-projectile lists at
+        # the Nebula-style population so reused helpers (handle_
+        # projectile_hits, turret targeting, collision handlers) work
+        # the same way as in Zone 2.
+        gv.alien_list = self._aliens
+        gv.alien_projectile_list = self._alien_projectiles
+
+        # Asteroid tick (rotation).
+        for a in self._iron_asteroids:
+            a.update_asteroid(dt)
+        for a in self._double_iron:
+            a.update_asteroid(dt)
+        for a in self._copper_asteroids:
+            a.update_asteroid(dt)
+
+        # Gas damage to the player.
+        self._update_gas_damage(gv, dt)
+
+        # Zone 2 aliens AI + projectile fire.
+        for alien in list(self._aliens):
+            fired = alien.update_alien(
+                dt, px, py, self._iron_asteroids, self._aliens,
+                force_walls=gv._force_walls)
+            for proj in fired:
+                self._alien_projectiles.append(proj)
+
+        # Wanderer drift + player collision.
+        for w in self._wanderers:
+            w.update_wandering(dt, px, py)
+        self._update_wanderer_collision(gv, dt)
+
+        # Null fields — update tick for flash / disable timers.
+        for nf in self._null_fields:
+            nf.update_null_field(dt)
+
+        # Slipspace rotation + teleport collision.
+        from update_logic import update_slipspaces
+        update_slipspaces(gv, dt)
+
+        # Player projectile hits on Nebula asteroids / aliens.
+        handle_projectile_hits(self, gv)
+
+        # Alien-vs-player collisions (same helper Zone 2 uses inline).
+        from constants import SHIP_RADIUS, SHIP_COLLISION_COOLDOWN
+        for alien in arcade.check_for_collision_with_list(
+                gv.player, self._aliens):
+            contact = resolve_overlap(
+                alien, gv.player, 20.0, SHIP_RADIUS,
+                push_a=0.5, push_b=0.5)
+            if contact is None:
+                continue
+            nx, ny = contact
+            alien.vel_x += nx * 150
+            alien.vel_y += ny * 150
+            dot = gv.player.vel_x * (-nx) + gv.player.vel_y * (-ny)
+            if dot < 0:
+                gv.player.vel_x -= (1 + ALIEN_BOUNCE) * dot * (-nx) * 0.4
+                gv.player.vel_y -= (1 + ALIEN_BOUNCE) * dot * (-ny) * 0.4
+            if gv.player._collision_cd <= 0.0:
+                gv._apply_damage_to_player(5)
+                gv.player._collision_cd = SHIP_COLLISION_COOLDOWN
+                gv._trigger_shake()
+                arcade.play_sound(gv._bump_snd, volume=0.3)
+
+        # Alien-vs-asteroid collisions.
+        for alien in list(self._aliens):
+            for alist in (self._iron_asteroids, self._double_iron,
+                          self._copper_asteroids):
+                for a in arcade.check_for_collision_with_list(alien, alist):
+                    a_radius = max(ASTEROID_RADIUS, a.width / 2 * 0.8)
+                    contact = resolve_overlap(
+                        alien, a, 20.0, a_radius,
+                        push_a=1.0, push_b=0.0)
+                    if contact is None:
+                        continue
+                    nx, ny = contact
+                    reflect_velocity(alien, nx, ny, ALIEN_BOUNCE)
+                    if alien._col_cd <= 0.0:
+                        alien._col_cd = ALIEN_COL_COOLDOWN
+                        alien.collision_bump()
+                        alien.take_damage(ALIEN_ASTEROID_DAMAGE)
+                        if alien.hp <= 0:
+                            from collisions import _apply_kill_rewards
+                            from constants import (
+                                ALIEN_IRON_DROP, BLUEPRINT_DROP_CHANCE_ALIEN,
+                            )
+                            from character_data import bonus_iron_enemy
+                            _apply_kill_rewards(
+                                gv, alien.center_x, alien.center_y,
+                                ALIEN_IRON_DROP, bonus_iron_enemy,
+                                BLUEPRINT_DROP_CHANCE_ALIEN)
+                            alien.remove_from_sprite_lists()
+                    break
+                if not alien.sprite_lists:
+                    break
+
+        # Maze-specific entities.
         self._update_spawners(gv, dt, px, py)
-        self._update_aliens(gv, dt, px, py)
-        self._update_projectiles(gv, dt)
+        self._update_maze_aliens(gv, dt, px, py)
+        self._update_maze_projectiles(gv, dt)
         self._handle_player_projectile_hits(gv)
         self._update_player_wall_collision(gv)
         self._reconcile_dead_aliens()
+
+        # Respawn Nebula content (not maze spawners — those stay dead).
+        self._respawn_timer += dt
+        if self._respawn_timer >= RESPAWN_INTERVAL:
+            self._respawn_timer = 0.0
+            try_respawn(self, gv)
+            self._rebuild_shielded_list()
 
     def _update_fog(self, gv: GameView) -> None:
         px, py = gv.player.center_x, gv.player.center_y
@@ -257,7 +502,7 @@ class StarMazeZone(ZoneState):
             fired, should_spawn = sp.update_spawner(
                 dt, px, py, gv._alien_laser_tex)
             for proj in fired:
-                self._alien_projectiles.append(proj)
+                self._maze_projectiles.append(proj)
             if should_spawn:
                 self._spawn_child(sp, gv._alien_laser_tex)
 
@@ -281,7 +526,7 @@ class StarMazeZone(ZoneState):
             patrol_home=home_xy,
             patrol_radius=patrol_r,
         )
-        self._aliens.append(alien)
+        self._maze_aliens.append(alien)
         self._alien_parent[alien] = sp.uid
         sp.alive_children += 1
 
@@ -306,34 +551,28 @@ class StarMazeZone(ZoneState):
                 return ax, ay
         return sp.center_x, sp.center_y
 
-    def _update_aliens(self, gv: GameView, dt: float,
-                       px: float, py: float) -> None:
-        # Empty sprite list acts as placeholder asteroid list — the
-        # full Zone 2-style population comes in a follow-up.
-        empty = arcade.SpriteList()
-        for alien in list(self._aliens):
+    def _update_maze_aliens(self, gv: GameView, dt: float,
+                            px: float, py: float) -> None:
+        """Tick every MazeAlien — same avoidance inputs as Zone 2
+        aliens but with the Star Maze's shared asteroid list."""
+        for alien in list(self._maze_aliens):
             fired = alien.update_alien(
-                dt, px, py, empty, self._aliens,
+                dt, px, py, self._iron_asteroids, self._maze_aliens,
                 force_walls=gv._force_walls,
                 maze_walls=self._walls,
             )
             for proj in fired:
-                self._alien_projectiles.append(proj)
-        # Expose Star-Maze aliens + their projectiles on the
-        # GameView-shared lists so the existing player-hit + weapon
-        # pipelines process them uniformly.
-        gv.alien_list = self._aliens
-        gv.alien_projectile_list = self._alien_projectiles
+                self._maze_projectiles.append(proj)
 
-    def _update_projectiles(self, gv: GameView, dt: float) -> None:
-        # Projectile.update_projectile already removes itself when its
-        # range is exhausted — we only need the extra wall-block check.
-        # Snapshot prev positions first so the wall check uses the
-        # pre-advance segment.
+    def _update_maze_projectiles(self, gv: GameView, dt: float) -> None:
+        """Advance maze-alien / maze-spawner projectiles, removing any
+        that cross a maze wall this tick.  ``Projectile.update_
+        projectile`` auto-removes when the weapon's range is exhausted
+        so we only need the wall-block check."""
         prevs: list[tuple] = []
-        for proj in list(self._alien_projectiles):
+        for proj in list(self._maze_projectiles):
             prevs.append((proj, proj.center_x, proj.center_y))
-        for proj in list(self._alien_projectiles):
+        for proj in list(self._maze_projectiles):
             proj.update_projectile(dt)
         for (proj, pprev_x, pprev_y) in prevs:
             if not proj.sprite_lists:
@@ -412,7 +651,7 @@ class StarMazeZone(ZoneState):
             if hit_something:
                 continue
             # Maze aliens.
-            for alien in list(self._aliens):
+            for alien in list(self._maze_aliens):
                 if math.hypot(alien.center_x - proj.center_x,
                               alien.center_y - proj.center_y) <= (
                         MAZE_ALIEN_RADIUS + 4):
@@ -433,7 +672,7 @@ class StarMazeZone(ZoneState):
     def _reconcile_dead_aliens(self) -> None:
         """Catch aliens that died through some other path (asteroid
         collision, future AOE, etc.) and decrement the spawner count."""
-        live = set(self._aliens)
+        live = set(self._maze_aliens)
         stale = [a for a in self._alien_parent if a not in live]
         for a in stale:
             self._on_maze_alien_killed(a)
@@ -450,14 +689,39 @@ class StarMazeZone(ZoneState):
 
     def draw_world(self, gv: GameView, cx: float, cy: float,
                    hw: float, hh: float) -> None:
+        # Gas first so asteroids draw on top (consistent with Zone 2).
+        self._gas_areas.draw()
+        self._iron_asteroids.draw()
+        self._double_iron.draw()
+        self._copper_asteroids.draw()
+        self._wanderers.draw()
+        # Slipspaces — rotation already advanced by update_slipspaces.
+        self._slipspaces.draw()
+        # Null fields.
+        for nf in self._null_fields:
+            nf.draw()
+        # Maze walls on top of terrain so they clearly occlude things.
         if self._wall_sprite_list is not None:
             self._wall_sprite_list.draw()
         # Spawners drawn manually so killed ones can be omitted.
         for sp in self._spawners:
             if not sp.killed:
                 sp.draw()
+        # Zone 2 aliens + their projectiles.
         self._aliens.draw()
+        # Shielded-alien shield overlays (cull to visible rect).
+        m = 250.0
+        vx0 = cx - hw - m
+        vx1 = cx + hw + m
+        vy0 = cy - hh - m
+        vy1 = cy + hh + m
+        for alien in self._shielded_aliens:
+            if vx0 < alien.center_x < vx1 and vy0 < alien.center_y < vy1:
+                alien.draw_shield()
         self._alien_projectiles.draw()
+        # Maze aliens + maze projectiles.
+        self._maze_aliens.draw()
+        self._maze_projectiles.draw()
         if gv._wormholes:
             gv._wormhole_list.draw()
         if len(gv.building_list) > 0:
