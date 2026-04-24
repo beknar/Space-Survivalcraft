@@ -301,29 +301,51 @@ class MazeAlien(arcade.Sprite):
                     break
 
         # Maze-wall block (static AABBs) — circle-vs-AABB push-out.
-        # Reverting the whole move keeps the alien flush against the
-        # wall and picks a new waypoint; if that waypoint sits on the
-        # other side the alien just bangs against the wall again.
-        # Pushing out along the contact normal + picking a fresh
-        # waypoint gets them free on the next tick.
+        # Iterate up to 5 times so T-intersections + corners resolve
+        # (the first push-out may land us inside a neighbour wall).
         if maze_walls:
-            for (wx, wy, ww, wh) in maze_walls:
-                qx = max(wx, min(self.center_x, wx + ww))
-                qy = max(wy, min(self.center_y, wy + wh))
-                dx = self.center_x - qx
-                dy = self.center_y - qy
-                dist2 = dx * dx + dy * dy
+            picked_new_target = False
+            for _ in range(5):
+                moved = False
                 r = MAZE_ALIEN_RADIUS
-                if dist2 >= r * r:
-                    continue
-                dist = math.sqrt(dist2) if dist2 > 0 else 0.001
-                nx = dx / dist if dist > 0.001 else 1.0
-                ny = dy / dist if dist > 0.001 else 0.0
-                pen = r - dist + 1.0
-                self.center_x += nx * pen
-                self.center_y += ny * pen
-                self._pick_patrol_target()
-                break
+                for (wx, wy, ww, wh) in maze_walls:
+                    qx = max(wx, min(self.center_x, wx + ww))
+                    qy = max(wy, min(self.center_y, wy + wh))
+                    ddx = self.center_x - qx
+                    ddy = self.center_y - qy
+                    dist2 = ddx * ddx + ddy * ddy
+                    if dist2 >= r * r:
+                        continue
+                    inside_x = wx < self.center_x < wx + ww
+                    inside_y = wy < self.center_y < wy + wh
+                    if inside_x and inside_y:
+                        d_left = self.center_x - wx
+                        d_right = wx + ww - self.center_x
+                        d_bot = self.center_y - wy
+                        d_top = wy + wh - self.center_y
+                        dmin = min(d_left, d_right, d_bot, d_top)
+                        if dmin == d_left:
+                            self.center_x = wx - r - 0.5
+                        elif dmin == d_right:
+                            self.center_x = wx + ww + r + 0.5
+                        elif dmin == d_bot:
+                            self.center_y = wy - r - 0.5
+                        else:
+                            self.center_y = wy + wh + r + 0.5
+                    else:
+                        dist = math.sqrt(dist2) if dist2 > 0 else 0.001
+                        nx = ddx / dist if dist > 0.001 else 1.0
+                        ny = ddy / dist if dist > 0.001 else 0.0
+                        pen = r - dist + 0.5
+                        self.center_x += nx * pen
+                        self.center_y += ny * pen
+                    moved = True
+                    if not picked_new_target:
+                        self._pick_patrol_target()
+                        picked_new_target = True
+                    break
+                if not moved:
+                    break
 
         # Maze-bounds containment — an alien must never leave its
         # home maze's AABB (per spec).  Clamp + revert if the move

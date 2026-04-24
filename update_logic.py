@@ -75,7 +75,7 @@ _full_gc_timer: float = 0.0
 # still runs, and modal overlays (ESC, CRAFT, …) still trigger an
 # opportunistic full gc below since those frames are already
 # pause-natural.
-_FULL_GC_INTERVAL = 120.0
+_FULL_GC_INTERVAL = 60.0
 
 _real_play_sound = arcade.play_sound
 
@@ -143,15 +143,18 @@ def update_preamble(gv: GameView, dt: float) -> None:
         _sound_cleanup_timer = 0.0
         _cleanup_finished_sounds()
         gc.collect(0)
-    # Full cross-generational GC (gen-2) on a 120-s cadence — it
-    # reclaims arcade.Sprite cycles from inventory render caches.
-    # Flight-recorder RSS is stable at ~270 MB within 30 s of spawn,
-    # so each run frees only ~3 MB but costs 60–100 ms; 120 s gives
-    # the same reclaim amortised at 1/4 the spike frequency.
+    # Periodic generation-1 sweep — replaces the 120-s gen-2
+    # gc.collect() that was costing 49–51 ms spikes (visible in
+    # logs/star_maze_perf.jsonl as gv_preamble outliers).  gen-1
+    # collects gen-0 + gen-1 (skip gen-2's deep cycle walk), so the
+    # spike drops from ~50 ms to ~5 ms.  Cadence shortened to 60 s
+    # since each pass is cheaper.  gen-2 still runs automatically via
+    # Python's threshold-based scheduler when allocations actually
+    # warrant it.
     _full_gc_timer += dt
     if _full_gc_timer >= _FULL_GC_INTERVAL:
         _full_gc_timer = 0.0
-        gc.collect()
+        gc.collect(1)
     # FPS
     gv._hud.update_fps(dt)
     gv._hud._show_fps = audio.show_fps

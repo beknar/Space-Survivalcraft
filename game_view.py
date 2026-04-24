@@ -530,7 +530,12 @@ class GameView(arcade.View):
     def _init_video_and_menus(self) -> None:
         """Video players, escape menu, death screen, and background music."""
         self._video_player = VideoPlayer(convert_fps=12.0)
-        self._char_video_player = VideoPlayer(convert_fps=10.0)
+        # Character video — slow ambient loop, fine at 4 FPS.  The
+        # readback + atlas-update cycle was the #1 source of slow-frame
+        # spikes in logs/star_maze_perf.jsonl (5/21 records hit
+        # 26–59 ms in gv_char_video_blit).  Going from 10 → 4 FPS cuts
+        # the per-second spike budget by 60%.
+        self._char_video_player = VideoPlayer(convert_fps=4.0)
         self._char_video_player._small_w = 160
         self._char_video_player._small_h = 160
         self._char_video_player._convert_cooldown = 0.06

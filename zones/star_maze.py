@@ -246,13 +246,27 @@ class StarMazeZone(ZoneState):
         self._shielded_aliens = [
             a for a in self._aliens if isinstance(a, ShieldedAlien)]
 
-    def _maze_reject_fn(self):
-        """Factory for the population reject filter: reject any
-        candidate position inside any maze room AABB plus a 40 px
-        margin so hazards don't spawn flush against a wall."""
-        rooms = self._rooms
+    def _maze_reject_fn(self, radius: float = 0.0, margin: float = 40.0):
+        """Factory for the population reject filter.
+
+        Rejects any candidate whose disk ``(x, y, radius + margin)``
+        intersects the outer AABB of any maze structure — that keeps
+        asteroid + gas bodies (not just centres) out of the maze, so
+        their edges don't clip through walls and they don't spawn
+        inside a wall rect.  The room-interior check is a strict
+        subset of the maze-bounds check, so moving to bounds still
+        satisfies the "never spawn in a room" contract.
+        """
+        bounds = [(m.bounds.x, m.bounds.y, m.bounds.w, m.bounds.h)
+                  for m in self._mazes]
+        pad = radius + margin
+
         def _reject(x: float, y: float) -> bool:
-            return point_inside_any_room_interior(x, y, rooms, margin=40)
+            for (bx, by, bw, bh) in bounds:
+                if (bx - pad <= x <= bx + bw + pad
+                        and by - pad <= y <= by + bh + pad):
+                    return True
+            return False
         return _reject
 
     def _build_wall_grid(self) -> None:
@@ -466,23 +480,32 @@ class StarMazeZone(ZoneState):
             populate_wanderers, populate_aliens,
         )
         from world_setup import populate_null_fields, populate_slipspaces
-        reject = self._maze_reject_fn()
+        from constants import ASTEROID_RADIUS
+        # Radii picked to keep each entity's full body outside the
+        # maze AABB.  Gas sizes top out at 384 px (radius 192).
+        reject_ast = self._maze_reject_fn(radius=ASTEROID_RADIUS)
+        reject_big_ast = self._maze_reject_fn(radius=ASTEROID_RADIUS * 2.0)
+        reject_gas = self._maze_reject_fn(radius=192.0)
+        reject_wan = self._maze_reject_fn(radius=30.0)
+        reject_alien = self._maze_reject_fn(radius=24.0)
+        reject_nf = self._maze_reject_fn(radius=100.0)
+        reject_slip = self._maze_reject_fn(radius=60.0)
         random.seed(self._world_seed)
-        populate_iron_asteroids(self, reject_fn=reject)
-        populate_double_iron(self, reject_fn=reject)
-        populate_copper_asteroids(self, reject_fn=reject)
-        populate_gas_areas(self, reject_fn=reject)
+        populate_iron_asteroids(self, reject_fn=reject_ast)
+        populate_double_iron(self, reject_fn=reject_big_ast)
+        populate_copper_asteroids(self, reject_fn=reject_ast)
+        populate_gas_areas(self, reject_fn=reject_gas)
         self._gas_pos_cache = [(g.center_x, g.center_y, g.radius)
                                for g in self._gas_areas]
-        populate_wanderers(self, reject_fn=reject)
-        populate_aliens(self, reject_fn=reject)
+        populate_wanderers(self, reject_fn=reject_wan)
+        populate_aliens(self, reject_fn=reject_alien)
         self._null_fields = populate_null_fields(
             self.world_width, self.world_height,
-            reject_fn=reject)
+            reject_fn=reject_nf)
         ss_rng = random.Random(self._world_seed + 197)
         self._slipspaces = populate_slipspaces(
             self.world_width, self.world_height,
-            gv._slipspace_tex, rng=ss_rng, reject_fn=reject)
+            gv._slipspace_tex, rng=ss_rng, reject_fn=reject_slip)
         random.seed()
 
     def teardown(self, gv: GameView) -> None:
@@ -835,17 +858,21 @@ class StarMazeZone(ZoneState):
         _vx1 = px + _hw + _margin
         _vy0 = py - _hh - _margin
         _vy1 = py + _hh + _margin
-        # The maze-walls argument still hands the MazeAlien its own
-        # local maze walls so the per-alien wall-push-out runs on
-        # the same list the alien's bounds are carved out of.
+        # Spatial-hash the maze walls to the alien's neighbourhood.
+        # Full-list scan was 20 aliens × 120 walls × 5 iters = 12k
+        # AABB tests per frame and was the biggest near-maze hit.
+        from constants import MAZE_ALIEN_RADIUS as _MAR
+        query_r = _MAR + 40.0
         for alien in list(self._maze_aliens):
             if not (_vx0 < alien.center_x < _vx1
                     and _vy0 < alien.center_y < _vy1):
                 continue
+            near_walls = self._walls_near(
+                alien.center_x, alien.center_y, query_r)
             fired = alien.update_alien(
                 dt, px, py, empty_asteroids, self._maze_aliens,
                 force_walls=gv._force_walls,
-                maze_walls=self._walls,
+                maze_walls=near_walls,
             )
             for proj in fired:
                 self._maze_projectiles.append(proj)

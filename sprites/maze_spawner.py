@@ -94,6 +94,7 @@ class MazeSpawner(arcade.Sprite):
         if self.hp <= 0:
             self.killed = True
             self._respawn_cd = MAZE_SPAWNER_RESPAWN_INTERVAL
+            self.visible = False
 
     def update_spawner(
         self,
@@ -124,6 +125,7 @@ class MazeSpawner(arcade.Sprite):
                 # Reset spawn cadence to the full interval so the
                 # post-respawn spawn doesn't fire immediately.
                 self._spawn_cd = MAZE_SPAWNER_SPAWN_INTERVAL
+                self.visible = True
             return fired, should_spawn
 
         # Visual hit tint.
@@ -189,6 +191,7 @@ class MazeSpawner(arcade.Sprite):
         self.hp = int(data.get("hp", self.hp))
         self.shields = int(data.get("shields", self.shields))
         self.killed = bool(data.get("killed", False))
+        self.visible = not self.killed
         self._fire_cd = float(data.get("fire_cd", self._fire_cd))
         self._spawn_cd = float(data.get("spawn_cd", self._spawn_cd))
         self._respawn_cd = float(data.get("respawn_cd", 0.0))
