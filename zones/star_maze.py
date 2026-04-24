@@ -252,6 +252,21 @@ class StarMazeZone(ZoneState):
             return False
         return _reject
 
+    def _respawn_reject(self, x: float, y: float, radius: float) -> bool:
+        """Hook for ``zone2_world.try_respawn`` / ``_find_respawn_pos``.
+        Returns True for any candidate whose disk ``(x, y, radius)``
+        would land inside a maze AABB (plus 40 px margin).  Without
+        this, every minute one Z2 alien of each type was spawning
+        anywhere on the map — including inside a maze.
+        """
+        pad = radius + 40.0
+        for m in self._mazes:
+            b = m.bounds
+            if (b.x - pad <= x <= b.x + b.w + pad
+                    and b.y - pad <= y <= b.y + b.h + pad):
+                return True
+        return False
+
     def _build_wall_grid(self) -> None:
         """Build the spatial-hash index over ``self._walls``.  Every
         wall rect is bucketed into every grid cell it overlaps, so
@@ -322,6 +337,47 @@ class StarMazeZone(ZoneState):
                     and w.y <= y <= w.y + w.h):
                 return True
         return False
+
+    def _push_out_of_maze_bounds(
+        self, entities, radius: float,
+    ) -> None:
+        """Eject any entity whose centre has drifted inside a maze's
+        outer AABB.  Push it out along the shortest of the four edge
+        distances and reflect velocity (if any).  Called every frame
+        so non-maze aliens / wanderers can never linger inside the
+        maze even if they slip through the entrance gap."""
+        for e in entities:
+            cx, cy = e.center_x, e.center_y
+            for m in self._mazes:
+                b = m.bounds
+                if not (b.x < cx < b.x + b.w
+                        and b.y < cy < b.y + b.h):
+                    continue
+                d_left = cx - b.x
+                d_right = b.x + b.w - cx
+                d_bot = cy - b.y
+                d_top = b.y + b.h - cy
+                dmin = min(d_left, d_right, d_bot, d_top)
+                if dmin == d_left:
+                    e.center_x = b.x - radius - 1.0
+                    nx, ny = -1.0, 0.0
+                elif dmin == d_right:
+                    e.center_x = b.x + b.w + radius + 1.0
+                    nx, ny = 1.0, 0.0
+                elif dmin == d_bot:
+                    e.center_y = b.y - radius - 1.0
+                    nx, ny = 0.0, -1.0
+                else:
+                    e.center_y = b.y + b.h + radius + 1.0
+                    nx, ny = 0.0, 1.0
+                vx = getattr(e, "vel_x", None)
+                vy = getattr(e, "vel_y", None)
+                if vx is not None and vy is not None:
+                    v_dot_n = vx * nx + vy * ny
+                    if v_dot_n < 0.0:
+                        e.vel_x = vx - 2.0 * v_dot_n * nx
+                        e.vel_y = vy - 2.0 * v_dot_n * ny
+                break
 
     def _push_out_of_walls(
         self, entities, radius: float,
@@ -448,6 +504,8 @@ class StarMazeZone(ZoneState):
                     patrol_radius=max(
                         80.0, room.w / 2.0 - 40.0),
                     maze_bounds=bounds,
+                    rooms=maze.rooms,
+                    room_graph=maze.room_graph,
                 )
                 self._maze_aliens.append(alien)
                 self._alien_parent[alien] = sp.uid
@@ -626,6 +684,12 @@ class StarMazeZone(ZoneState):
         # worst offender (they move randomly).
         self._push_out_of_walls(self._wanderers, WANDERING_RADIUS)
         self._push_out_of_walls(self._aliens, 20.0)
+        # Maze-AABB containment for Z2 aliens + wanderers — wall
+        # push-out alone lets a determined alien slip through the
+        # entrance gap (which is room-width wide).  Push them back
+        # out toward the nearest maze edge along the shortest axis.
+        self._push_out_of_maze_bounds(self._aliens, 20.0)
+        self._push_out_of_maze_bounds(self._wanderers, WANDERING_RADIUS)
 
         # Maze-specific entities.
         self._update_spawners(gv, dt, px, py)
@@ -671,10 +735,18 @@ class StarMazeZone(ZoneState):
         # Note: update_spawner still needs to run on killed spawners
         # so its respawn cooldown ticks down — the spawner
         # self-resurrects inside update_spawner when the timer hits
-        # zero.
+        # zero.  When the player is cloaked by a null field, pass the
+        # synthetic far-away position so spawners stop detecting +
+        # firing; their spawn cadence still ticks so the maze stays
+        # populated when the player uncloaks.
+        from update_logic import player_is_cloaked
+        if player_is_cloaked(gv):
+            ai_px, ai_py = px + 1e9, py + 1e9
+        else:
+            ai_px, ai_py = px, py
         for sp in self._spawners:
             fired, should_spawn = sp.update_spawner(
-                dt, px, py, gv._alien_laser_tex)
+                dt, ai_px, ai_py, gv._alien_laser_tex)
             for proj in fired:
                 self._maze_projectiles.append(proj)
             if should_spawn:
@@ -707,6 +779,8 @@ class StarMazeZone(ZoneState):
             patrol_home=home_xy,
             patrol_radius=patrol_r,
             maze_bounds=bounds,
+            rooms=maze.rooms if maze is not None else None,
+            room_graph=maze.room_graph if maze is not None else None,
         )
         self._maze_aliens.append(alien)
         self._alien_parent[alien] = sp.uid
@@ -755,7 +829,16 @@ class StarMazeZone(ZoneState):
         # Full-list scan was 20 aliens × 120 walls × 5 iters = 12k
         # AABB tests per frame and was the biggest near-maze hit.
         from constants import MAZE_ALIEN_RADIUS as _MAR
+        from update_logic import player_is_cloaked
         query_r = _MAR + 40.0
+        # Null-field cloak — when the player is inside an active null
+        # field, feed the maze aliens a synthetic player position far
+        # outside detect range so they stay in PATROL and stop firing.
+        # Same pattern Zone 2 uses for its Nebula aliens.
+        if player_is_cloaked(gv):
+            ai_px, ai_py = px + 1e9, py + 1e9
+        else:
+            ai_px, ai_py = px, py
         for alien in list(self._maze_aliens):
             if not (_vx0 < alien.center_x < _vx1
                     and _vy0 < alien.center_y < _vy1):
@@ -763,7 +846,7 @@ class StarMazeZone(ZoneState):
             near_walls = self._walls_near(
                 alien.center_x, alien.center_y, query_r)
             fired = alien.update_alien(
-                dt, px, py, empty_asteroids, self._maze_aliens,
+                dt, ai_px, ai_py, empty_asteroids, self._maze_aliens,
                 force_walls=gv._force_walls,
                 maze_walls=near_walls,
             )

@@ -186,8 +186,13 @@ class MazeSpawner(arcade.Sprite):
         }
 
     def from_save_data(self, data: dict) -> None:
-        self.center_x = float(data.get("x", self.center_x))
-        self.center_y = float(data.get("y", self.center_y))
+        # Position is intentionally NOT restored from the save: it's
+        # derived deterministically from the world seed by
+        # ``zones.maze_geometry.generate_maze`` (always the centre of
+        # the centre room).  Saves predating layout/scale tweaks
+        # carried stale x/y that placed the spawner in a wall after
+        # restore — see issue noted 2026-04-23.  Keep saving + reading
+        # the keys for save-format stability but drop the assignment.
         self.hp = int(data.get("hp", self.hp))
         self.shields = int(data.get("shields", self.shields))
         self.killed = bool(data.get("killed", False))

@@ -87,6 +87,8 @@ class MazeAlien(arcade.Sprite):
         patrol_home: tuple[float, float] | None = None,
         patrol_radius: float = 180.0,
         maze_bounds: tuple[float, float, float, float] | None = None,
+        rooms: list | None = None,
+        room_graph: dict | None = None,
     ) -> None:
         frames = _load_frames()
         tex = random.choice(frames)
@@ -129,6 +131,18 @@ class MazeAlien(arcade.Sprite):
         self._stuck_timer: float = 0.0
         self._orbit_dir: int = random.choice((-1, 1))
 
+        # A* pathing — when both ``rooms`` and ``room_graph`` are
+        # supplied, the alien plans a sequence of room indices toward
+        # the player and steers waypoint-to-waypoint instead of
+        # straight at the player (which would grind on walls between
+        # rooms).  Path is recomputed on a 0.5 s cadence and whenever
+        # the player moves to a different room.
+        self._rooms: list | None = rooms
+        self._room_graph: dict | None = room_graph
+        self._path: list[int] = []
+        self._path_player_room: int | None = None
+        self._path_recompute_timer: float = 0.0
+
     # ── AI helpers ───────────────────────────────────────────────────
 
     def _pick_patrol_target(self) -> None:
@@ -136,6 +150,53 @@ class MazeAlien(arcade.Sprite):
         self._tgt_x, self._tgt_y = pick_patrol_target(
             self._home_x, self._home_y, self._patrol_r,
             self._world_w, self._world_h)
+
+    def _next_waypoint(
+        self, dt: float, player_x: float, player_y: float,
+    ) -> tuple[float, float] | None:
+        """Return the world position the alien should steer toward
+        right now, given A* over the room graph.  Returns ``None``
+        when the alien is in the player's room (or no path exists)
+        so the caller falls back to direct chase.
+        """
+        from zones.maze_geometry import find_room_index, astar_room_path
+        rooms = self._rooms
+        graph = self._room_graph
+        if rooms is None or graph is None:
+            return None
+        my_room = find_room_index(self.center_x, self.center_y, rooms)
+        player_room = find_room_index(player_x, player_y, rooms)
+        if my_room is None or player_room is None:
+            return None
+        # Same room — direct line of sight, fall through to existing
+        # orbit/chase behavior.
+        if my_room == player_room:
+            self._path = []
+            return None
+        # Re-plan if the player has moved rooms or the recompute timer
+        # elapsed.  Cheap (≤ 25 rooms in the open set) so we don't
+        # need a per-frame budget.
+        self._path_recompute_timer -= dt
+        if (self._path_player_room != player_room
+                or not self._path
+                or my_room not in self._path
+                or self._path_recompute_timer <= 0.0):
+            self._path = astar_room_path(my_room, player_room, graph, rooms)
+            self._path_player_room = player_room
+            self._path_recompute_timer = 0.5
+        if not self._path:
+            return None
+        # Drop any path entries we've already advanced past.
+        while self._path and self._path[0] != my_room:
+            self._path.pop(0)
+        if len(self._path) < 2:
+            return None
+        # Steer toward the centre of the next room in the path.  The
+        # carved doorway is full room-width wide, so straight-line
+        # navigation between adjacent room centres always passes
+        # through the gap.
+        nxt = rooms[self._path[1]]
+        return (nxt.x + nxt.w * 0.5, nxt.y + nxt.h * 0.5)
 
     def alert(self) -> None:
         if self._state == self._STATE_PATROL:
@@ -192,6 +253,21 @@ class MazeAlien(arcade.Sprite):
             if dist > MAZE_ALIEN_DETECT_DIST * 3.0:
                 self._state = self._STATE_PATROL
                 self._pick_patrol_target()
+
+        # When pursuing through walls, recompute the room-graph path
+        # to the player and steer toward the next waypoint instead of
+        # the player directly.  Replaces (dx, dy) and ``dist`` so the
+        # existing pursue math chases the doorway rather than the
+        # player's actual position.
+        if (self._state == self._STATE_PURSUE
+                and self._rooms is not None
+                and self._room_graph is not None):
+            wp = self._next_waypoint(dt, player_x, player_y)
+            if wp is not None:
+                wx, wy = wp
+                dx = wx - self.center_x
+                dy = wy - self.center_y
+                dist = math.hypot(dx, dy)
 
         self._move(dt, player_x, player_y, dist, dx, dy,
                    asteroid_list, alien_list, force_walls, maze_walls)

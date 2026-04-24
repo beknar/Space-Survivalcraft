@@ -492,6 +492,18 @@ def compute_world_stats(gv: GameView) -> list[tuple[str, int, tuple]]:
         stats.append(("GAS AREAS", len(z._gas_areas),       green))
         stats.append(("ALIENS",    len(z._aliens),          red))
         stats.append(("NULL FIELDS", len(active_null_fields(gv)), purple))
+    elif gv._zone.zone_id == ZoneID.STAR_MAZE and hasattr(gv._zone, '_maze_aliens'):
+        z = gv._zone
+        stats.append(("IRON ROCK", len(z._iron_asteroids), grey))
+        stats.append(("BIG IRON",  len(z._double_iron),    orange))
+        stats.append(("COPPER",    len(z._copper_asteroids), (200, 130, 60, 255)))
+        stats.append(("WANDERERS", len(z._wanderers),       (200, 200, 130, 255)))
+        stats.append(("GAS AREAS", len(z._gas_areas),       green))
+        stats.append(("Z2 ALIENS", len(z._aliens),          red))
+        stats.append(("MAZE ALIENS", len(z._maze_aliens),   red))
+        alive_sp = sum(1 for s in z._spawners if not s.killed)
+        stats.append(("SPAWNERS",  alive_sp,                red))
+        stats.append(("NULL FIELDS", len(active_null_fields(gv)), purple))
     elif gv._zone.zone_id == ZoneID.MAIN:
         stats.append(("ASTEROIDS", len(gv.asteroid_list), grey))
         stats.append(("ALIENS",    len(gv.alien_list),    red))
@@ -560,6 +572,26 @@ def compute_inactive_zone_stats(gv: GameView) -> list[tuple[str, list[tuple[str,
                 if bld is not None and len(bld) > 0:
                     lines.append(("BUILDINGS", len(bld), orange))
             result.append(("NEBULA", lines))
+
+    # Star Maze stats from live zone instance.
+    if (gv._zone.zone_id != ZoneID.STAR_MAZE
+            and getattr(gv, "_star_maze", None) is not None):
+        sm = gv._star_maze
+        if getattr(sm, "_populated", False):
+            lines = []
+            lines.append(("IRON ROCK", len(sm._iron_asteroids), grey))
+            lines.append(("BIG IRON", len(sm._double_iron), orange))
+            lines.append(("COPPER", len(sm._copper_asteroids), (200, 130, 60, 255)))
+            lines.append(("WANDERERS", len(sm._wanderers), (200, 200, 130, 255)))
+            lines.append(("GAS AREAS", len(sm._gas_areas), green))
+            lines.append(("Z2 ALIENS", len(sm._aliens), red))
+            lines.append(("MAZE ALIENS", len(sm._maze_aliens), red))
+            alive_sp = sum(1 for s in sm._spawners if not s.killed)
+            lines.append(("SPAWNERS", alive_sp, red))
+            sm_nulls = getattr(sm, "_null_fields", None) or []
+            if sm_nulls:
+                lines.append(("NULL FIELDS", len(sm_nulls), purple))
+            result.append(("STAR MAZE", lines))
 
     return result
 

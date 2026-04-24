@@ -396,8 +396,12 @@ class TestMazeSpawnerSaveRoundTrip:
             "fire_cd": 0.2, "spawn_cd": 5.0,
             "alive_children": 2, "uid": 9,
         })
-        assert sp.center_x == 500.0
-        assert sp.center_y == 750.0
+        # Position is intentionally NOT restored from save data — the
+        # zone re-derives it deterministically from the world seed via
+        # ``generate_maze`` so saves predating layout/scale tweaks
+        # don't drop the spawner inside a wall.
+        assert sp.center_x == 0.0
+        assert sp.center_y == 0.0
         assert sp.hp == 20
         assert sp.shields == 5
         assert sp.killed is True

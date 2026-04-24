@@ -364,13 +364,18 @@ def _check_laser_vs_aliens(z: Zone2, gv: GameView, proj) -> None:
 
 
 def _find_respawn_pos(z: Zone2, gv: GameView, margin: float = 100.0,
-                      attempts: int = 200) -> tuple[float, float] | None:
+                      attempts: int = 200,
+                      reject_radius: float = 26.0) -> tuple[float, float] | None:
     """Pick a random Nebula position that isn't inside
-    RESPAWN_EXCLUSION_RADIUS of any Zone 2 building.  Returns None if
-    no clear spot is found after ``attempts`` tries so the caller can
-    skip this tick rather than spawning on top of the station."""
+    RESPAWN_EXCLUSION_RADIUS of any Zone 2 building, AND that passes
+    the optional ``z._respawn_reject(x, y, radius)`` hook (Star Maze
+    uses this to keep respawned content out of the maze AABBs).
+    Returns None if no clear spot is found after ``attempts`` tries
+    so the caller can skip this tick rather than spawning on top of
+    the station."""
     import math as _math
     buildings = list(getattr(gv, "building_list", []) or [])
+    reject = getattr(z, "_respawn_reject", None)
     for _ in range(attempts):
         x, y = _rand_pos(z, margin)
         too_close = any(
@@ -378,8 +383,11 @@ def _find_respawn_pos(z: Zone2, gv: GameView, margin: float = 100.0,
             < RESPAWN_EXCLUSION_RADIUS
             for b in buildings
         )
-        if not too_close:
-            return x, y
+        if too_close:
+            continue
+        if reject is not None and reject(x, y, reject_radius):
+            continue
+        return x, y
     return None
 
 
@@ -388,7 +396,23 @@ def try_respawn(z: Zone2, gv: GameView) -> None:
 
     Runs on the same ``RESPAWN_INTERVAL`` cadence as Zone 1 so every
     Nebula resource (iron, double-iron, copper, wandering) regenerates
-    at the same rate as Zone 1 iron: one sprite per type per minute."""
+    at the same rate as Zone 1 iron: one sprite per type per minute.
+
+    Honours an optional ``z._respawn_reject(x, y, radius)`` hook —
+    Star Maze uses it to keep respawned Nebula entities outside the
+    maze AABBs.  Without the hook, every minute one Z2 alien of each
+    type was bypassing the original populate-time reject filter and
+    dropping anywhere on the map (including inside a maze).
+    """
+    reject = getattr(z, "_respawn_reject", None)
+
+    def _pick(margin: float, radius: float) -> tuple[float, float] | None:
+        for _ in range(30):
+            x, y = _rand_pos(z, margin)
+            if reject is None or not reject(x, y, radius):
+                return x, y
+        return None
+
     # Aliens — one per subclass up to cap.
     _CLASS_MAP = {ShieldedAlien: "shielded", FastAlien: "fast",
                   GunnerAlien: "gunner", RammerAlien: "rammer"}
@@ -404,7 +428,10 @@ def try_respawn(z: Zone2, gv: GameView) -> None:
     kw = dict(world_w=z.world_width, world_h=z.world_height)
     for name, max_count in maxes.items():
         if counts[name] < max_count:
-            x, y = _rand_pos(z, 200)
+            pos = _pick(200, 24.0)
+            if pos is None:
+                continue
+            x, y = pos
             cls = classes[name]
             tex = z._alien_textures[name]
             z._aliens.append(cls(tex, z._alien_laser_tex, x, y, **kw))

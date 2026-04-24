@@ -36,16 +36,25 @@ class Rect(NamedTuple):
 class MazeLayout(NamedTuple):
     """One generated maze's artefacts.
 
-    ``rooms`` — AABBs of every room interior (``cols × rows`` of them).
+    ``rooms`` — AABBs of every room interior (``cols × rows`` of them,
+    flattened in column-major order: index = ``c * rows + r``).
     ``walls`` — AABBs of every wall segment.
     ``spawner`` — world-space ``(x, y)`` of the centre room's centre,
     where the MazeSpawner sits.
     ``bounds`` — outer AABB of the whole maze (rooms + walls).
+    ``room_graph`` — adjacency map ``room_idx -> list[room_idx]``
+    listing every room reachable through a carved doorway.  Used by
+    :func:`astar_room_path` so MazeAliens can plan around walls
+    instead of grinding on them.
+    ``rows``, ``cols`` — grid dimensions (room count along y, x).
     """
     rooms: list[Rect]
     walls: list[Rect]
     spawner: tuple[float, float]
     bounds: Rect
+    room_graph: dict[int, list[int]]
+    rows: int
+    cols: int
 
 
 def _add_outer_wall_with_gap(
@@ -213,9 +222,26 @@ def generate_maze(
 
     spawner_xy = (center_x, center_y)
     bounds = Rect(origin_x, origin_y, total_w, total_h)
+    # Build the room adjacency graph from the carved-edge sets.  The
+    # rooms list above is laid out as ``rooms[c * rows + r]`` so that
+    # index can be derived from a (col, row) pair.
+    room_graph: dict[int, list[int]] = {i: [] for i in range(len(rooms))}
+
+    def _idx(c: int, r: int) -> int:
+        return c * rows + r
+    for (c, r) in carved_h_edges:           # connects (c, r) ↔ (c, r+1)
+        a, b = _idx(c, r), _idx(c, r + 1)
+        room_graph[a].append(b)
+        room_graph[b].append(a)
+    for (c, r) in carved_v_edges:           # connects (c, r) ↔ (c+1, r)
+        a, b = _idx(c, r), _idx(c + 1, r)
+        room_graph[a].append(b)
+        room_graph[b].append(a)
+
     return MazeLayout(
         rooms=rooms, walls=walls,
         spawner=spawner_xy, bounds=bounds,
+        room_graph=room_graph, rows=rows, cols=cols,
     )
 
 
@@ -284,6 +310,77 @@ def segment_hits_any_wall(
             if point_in_rect(x, y, w):
                 return True
     return False
+
+
+def find_room_index(
+    x: float, y: float, rooms: list[Rect],
+) -> int | None:
+    """Return the index of the room AABB containing ``(x, y)``, or
+    ``None`` if the point sits in a wall / outside the maze.  Used by
+    MazeAlien path-planning to locate the alien + the player on the
+    room graph."""
+    for i, r in enumerate(rooms):
+        if r.x <= x <= r.x + r.w and r.y <= y <= r.y + r.h:
+            return i
+    return None
+
+
+def astar_room_path(
+    start: int, goal: int,
+    room_graph: dict[int, list[int]],
+    rooms: list[Rect],
+) -> list[int]:
+    """Return the shortest path of room indices from ``start`` to
+    ``goal`` (inclusive of both ends), or ``[]`` if no path exists.
+
+    Heuristic is straight-line distance between room centres — admissible
+    on a uniform grid, so A* returns the optimal path.  With at most
+    25 rooms per maze and ~4 neighbours each, the open set never
+    exceeds ~30 entries; a plain ``list`` + linear-scan tie-break is
+    cheaper than ``heapq`` for this size.
+    """
+    if start == goal:
+        return [start]
+    if start not in room_graph or goal not in room_graph:
+        return []
+
+    def _h(i: int) -> float:
+        a, b = rooms[i], rooms[goal]
+        ax = a.x + a.w * 0.5
+        ay = a.y + a.h * 0.5
+        bx = b.x + b.w * 0.5
+        by = b.y + b.h * 0.5
+        return ((ax - bx) ** 2 + (ay - by) ** 2) ** 0.5
+
+    came_from: dict[int, int] = {}
+    g_score: dict[int, float] = {start: 0.0}
+    open_set: list[int] = [start]
+    while open_set:
+        # Pick the open-set node with lowest f = g + h.
+        best_i = 0
+        best_f = g_score[open_set[0]] + _h(open_set[0])
+        for k in range(1, len(open_set)):
+            f = g_score[open_set[k]] + _h(open_set[k])
+            if f < best_f:
+                best_f = f
+                best_i = k
+        current = open_set.pop(best_i)
+        if current == goal:
+            path = [current]
+            while current in came_from:
+                current = came_from[current]
+                path.append(current)
+            path.reverse()
+            return path
+        g_cur = g_score[current]
+        for nbr in room_graph[current]:
+            tentative = g_cur + 1.0   # uniform edge cost — adjacent rooms
+            if tentative < g_score.get(nbr, float("inf")):
+                came_from[nbr] = current
+                g_score[nbr] = tentative
+                if nbr not in open_set:
+                    open_set.append(nbr)
+    return []
 
 
 def point_inside_any_room_interior(

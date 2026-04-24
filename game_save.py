@@ -327,6 +327,42 @@ def _restore_zone2_full(view: GameView, z2_state: dict) -> None:
     # seed so the layout is stable across save/load.
     _regenerate_slipspaces(zone, view)
 
+    # Buildings + trade station — when the save was made while the
+    # player was outside Zone 2, the player's Nebula base is on
+    # ``z2_state["buildings"]`` / ``["trade_station"]``.  Reconstruct
+    # them and pre-fill ``_building_stash`` so ``Zone2.setup`` picks
+    # them up on the player's next visit.  Without this the base
+    # silently vanished on slot reload.
+    z2_buildings_data = z2_state.get("buildings", []) or []
+    z2_trade_data = z2_state.get("trade_station")
+    if z2_buildings_data or z2_trade_data:
+        from sprites.building import create_building
+        building_list = arcade.SpriteList()
+        for bd in z2_buildings_data:
+            bt = bd["type"]
+            tex = view._building_textures[bt]
+            laser_tex = view._turret_laser_tex if "Turret" in bt else None
+            b = create_building(bt, tex, bd["x"], bd["y"],
+                                laser_tex=laser_tex, scale=0.5)
+            b.hp = bd.get("hp", b.max_hp)
+            b.angle = bd.get("angle", 0.0)
+            b.disabled = bd.get("disabled", False)
+            if b.disabled:
+                b.color = (128, 128, 128, 255)
+            building_list.append(b)
+        trade_station = None
+        if z2_trade_data and isinstance(z2_trade_data, dict):
+            trade_station = arcade.Sprite(
+                path_or_texture=view._trade_station_tex, scale=0.15)
+            trade_station.center_x = z2_trade_data["x"]
+            trade_station.center_y = z2_trade_data["y"]
+        zone._building_stash = {
+            "building_list": building_list,
+            "turret_projectile_list": arcade.SpriteList(),
+            "_trade_station": trade_station,
+            "_parked_ships": arcade.SpriteList(),
+        }
+
     view._zone2 = zone
 
 
@@ -500,13 +536,26 @@ def _save_zone2_state(gv: GameView) -> dict | None:
         zone2 = gv._zone2
     if zone2 is None:
         return None
-    # Zone 2 buildings: from live gv.building_list when in Z2, or empty
-    from zones import ZoneID
+    # Zone 2 buildings: when the player is currently in Zone 2 the
+    # buildings live on ``gv.building_list``; when the player is
+    # elsewhere (MAIN, a warp zone, the Star Maze) Zone 2 stashes its
+    # buildings into ``_building_stash`` on teardown so they survive
+    # across visits.  The save needs to read whichever copy is live
+    # for this snapshot — otherwise the player's Nebula base
+    # disappears on the next reload.
     z2_buildings = []
     z2_trade = None
     if gv._zone.zone_id == ZoneID.ZONE2:
         z2_buildings = [_serialize_building(b) for b in gv.building_list]
         z2_trade = _serialize_trade_station(gv._trade_station)
+    else:
+        stash = getattr(zone2, "_building_stash", None)
+        if stash is not None:
+            z2_buildings = [
+                _serialize_building(b)
+                for b in stash.get("building_list", []) or []
+            ]
+            z2_trade = _serialize_trade_station(stash.get("_trade_station"))
     return {
         "world_seed": zone2._world_seed,
         "fog_grid": zone2._fog_grid,
@@ -856,9 +905,10 @@ def restore_state(view: GameView, data: dict) -> None:
         view._zone.setup(view)
         view.player.world_width = view._zone.world_width
         view.player.world_height = view._zone.world_height
-        # Restore Zone 2 buildings and trade station
-        if zid == ZoneID.ZONE2 and z2_state:
-            _restore_z2_buildings(view, z2_state)
+        # Zone 2 buildings + trade station: handled in
+        # ``_restore_zone2_full`` via the ``_building_stash`` field
+        # which ``Zone2.setup`` consumed above.  Calling
+        # ``_restore_z2_buildings`` here too would have double-counted.
         # Restore Zone 2 fog — only when we landed in Zone 2.  Writing
         # Zone 2's 192×192 grid into Star Maze's 240×240 slot caused
         # IndexError in _update_fog on the next tick.
