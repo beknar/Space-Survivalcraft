@@ -6,23 +6,13 @@ import random
 from typing import TYPE_CHECKING
 
 import arcade
-from PIL import Image as PILImage
 
 from constants import (
     ZONE2_WIDTH, ZONE2_HEIGHT,
-    SHIP_RADIUS, SHIP_COLLISION_COOLDOWN,
-    ASTEROID_RADIUS, SHIP_COLLISION_DAMAGE, SHIP_BOUNCE,
-    ALIEN_BOUNCE,
-    GAS_AREA_DAMAGE, GAS_AREA_SLOW,
-    WANDERING_DAMAGE, WANDERING_RADIUS,
-    COPPER_ASTEROID_PNG, COPPER_PICKUP_PNG,
-    Z2_ALIEN_SHIP_PNG,
     RESPAWN_INTERVAL,
 )
 from zones import ZoneID, ZoneState
 from sprites.wormhole import Wormhole
-from sprites.zone2_aliens import ShieldedAlien
-from collisions import resolve_overlap, reflect_velocity
 
 if TYPE_CHECKING:
     from game_view import GameView
@@ -92,8 +82,8 @@ class Zone2(ZoneState):
         self._nebula_boss_defeated: bool = False
 
     def _rebuild_shielded_list(self) -> None:
-        self._shielded_aliens = [
-            a for a in self._aliens if isinstance(a, ShieldedAlien)]
+        from zones.nebula_shared import rebuild_shielded_list
+        rebuild_shielded_list(self)
 
     # ── Post-Nebula-boss wormholes ──────────────────────────────────
 
@@ -131,49 +121,12 @@ class Zone2(ZoneState):
             gv._wormhole_list.append(cwh)
 
     def setup(self, gv: GameView) -> None:
-        global _alien_texture_cache, _copper_tex_cache
-        self._iron_tex = gv._asteroid_tex
-        if _copper_tex_cache is None:
-            _copper_tex_cache = arcade.load_texture(COPPER_ASTEROID_PNG)
-        self._copper_tex = _copper_tex_cache
-        self._copper_pickup_tex = arcade.load_texture(COPPER_PICKUP_PNG)
-        self._alien_laser_tex = gv._alien_laser_tex
-
-        if _alien_texture_cache is None:
-            from sprites.zone2_aliens import ALIEN_CROPS
-            pil_ship = PILImage.open(Z2_ALIEN_SHIP_PNG).convert("RGBA")
-            _alien_texture_cache = {}
-            for name, crop in ALIEN_CROPS.items():
-                _alien_texture_cache[name] = arcade.Texture(pil_ship.crop(crop))
-            pil_ship.close()
-        self._alien_textures = _alien_texture_cache
-        self._wanderer_tex = self._iron_tex
-
+        from zones.nebula_shared import (
+            load_nebula_textures, populate_nebula_content,
+        )
+        load_nebula_textures(self, gv)
         if not self._populated:
-            from zones.zone2_world import (
-                populate_iron_asteroids, populate_double_iron,
-                populate_copper_asteroids, populate_gas_areas,
-                populate_wanderers, populate_aliens,
-            )
-            from world_setup import populate_null_fields, populate_slipspaces
-            random.seed(self._world_seed)
-            populate_iron_asteroids(self)
-            populate_double_iron(self)
-            populate_copper_asteroids(self)
-            populate_gas_areas(self)
-            self._gas_pos_cache = [(g.center_x, g.center_y, g.radius)
-                                   for g in self._gas_areas]
-            populate_wanderers(self)
-            populate_aliens(self)
-            self._null_fields = populate_null_fields(
-                self.world_width, self.world_height)
-            # Slipspaces — use a dedicated seeded RNG so the layout is
-            # deterministic per world seed and stable across save/load.
-            ss_rng = random.Random(self._world_seed + 197)
-            self._slipspaces = populate_slipspaces(
-                self.world_width, self.world_height,
-                gv._slipspace_tex, rng=ss_rng)
-            random.seed()
+            populate_nebula_content(self, gv)
             self._populated = True
 
         self._rebuild_shielded_list()
@@ -298,19 +251,8 @@ class Zone2(ZoneState):
     # ── Update ─────────────────────────────────────────────────────────────
 
     def _update_fog(self, gv: GameView) -> None:
-        px, py = gv.player.center_x, gv.player.center_y
-        cx = int(px / self._fog_cell)
-        cy = int(py / self._fog_cell)
-        r = int(self._fog_reveal_r / self._fog_cell) + 1
-        for gy in range(max(0, cy - r), min(self._fog_h, cy + r + 1)):
-            for gx in range(max(0, cx - r), min(self._fog_w, cx + r + 1)):
-                if not self._fog_grid[gy][gx]:
-                    cell_cx = (gx + 0.5) * self._fog_cell
-                    cell_cy = (gy + 0.5) * self._fog_cell
-                    if math.hypot(px - cell_cx, py - cell_cy) <= self._fog_reveal_r:
-                        self._fog_grid[gy][gx] = True
-                        self._fog_revealed += 1
-                        gv._fog_revealed = self._fog_revealed
+        from zones.nebula_shared import update_fog
+        update_fog(self, gv)
 
     def update(self, gv: GameView, dt: float) -> None:
         from zones.zone2_world import handle_projectile_hits, try_respawn
@@ -414,14 +356,16 @@ class Zone2(ZoneState):
                 alien.vel_x *= 0.95
                 alien.vel_y *= 0.95
 
-        # Alien projectiles
+        # Alien projectiles + laser hits
+        from zones.nebula_shared import (
+            update_alien_laser_hits,
+            update_player_asteroid_collision,
+            update_player_z2_alien_collision,
+            update_alien_asteroid_collisions,
+        )
         for proj in self._alien_projectiles:
             proj.update_projectile(dt)
-        for proj in arcade.check_for_collision_with_list(
-                gv.player, self._alien_projectiles):
-            gv._apply_damage_to_player(int(proj.damage))
-            gv._trigger_shake()
-            proj.remove_from_sprite_lists()
+        update_alien_laser_hits(self, gv)
 
         # Player projectile hits (delegated)
         handle_projectile_hits(self, gv)
@@ -430,81 +374,9 @@ class Zone2(ZoneState):
         if len(self._aliens) != _alien_pre_count:
             self._rebuild_shielded_list()
 
-        # Player-asteroid collision
-        if gv.player._collision_cd <= 0.0:
-            for alist in (self._iron_asteroids, self._double_iron, self._copper_asteroids):
-                hit = False
-                for a in arcade.check_for_collision_with_list(gv.player, alist):
-                    a_radius = max(ASTEROID_RADIUS, a.width / 2 * 0.8)
-                    contact = resolve_overlap(
-                        gv.player, a, SHIP_RADIUS, a_radius,
-                        push_a=1.0, push_b=0.0)
-                    if contact is None:
-                        continue
-                    nx, ny = contact
-                    reflect_velocity(gv.player, nx, ny, SHIP_BOUNCE)
-                    gv._apply_damage_to_player(SHIP_COLLISION_DAMAGE)
-                    gv.player._collision_cd = SHIP_COLLISION_COOLDOWN
-                    gv._trigger_shake()
-                    arcade.play_sound(gv._bump_snd, volume=0.4)
-                    hit = True
-                    break
-                if hit:
-                    break
-
-        # Alien-player collision
-        for alien in arcade.check_for_collision_with_list(gv.player, self._aliens):
-            contact = resolve_overlap(
-                alien, gv.player, 20.0, SHIP_RADIUS,
-                push_a=0.5, push_b=0.5)
-            if contact is None:
-                continue
-            nx, ny = contact
-            # Push aliens forward away from player and dampen player slightly
-            alien.vel_x += nx * 150
-            alien.vel_y += ny * 150
-            # Player gets a 0.4-weighted bounce against the same normal
-            dot = gv.player.vel_x * (-nx) + gv.player.vel_y * (-ny)
-            if dot < 0:
-                gv.player.vel_x -= (1 + ALIEN_BOUNCE) * dot * (-nx) * 0.4
-                gv.player.vel_y -= (1 + ALIEN_BOUNCE) * dot * (-ny) * 0.4
-            if gv.player._collision_cd <= 0.0:
-                gv._apply_damage_to_player(5)
-                gv.player._collision_cd = SHIP_COLLISION_COOLDOWN
-                gv._trigger_shake()
-                arcade.play_sound(gv._bump_snd, volume=0.3)
-
-        # Alien-asteroid collisions (damage + bounce)
-        from constants import ALIEN_ASTEROID_DAMAGE, ALIEN_COL_COOLDOWN
-        for alien in list(self._aliens):
-            for alist in (self._iron_asteroids, self._double_iron,
-                          self._copper_asteroids):
-                for a in arcade.check_for_collision_with_list(alien, alist):
-                    a_radius = max(ASTEROID_RADIUS, a.width / 2 * 0.8)
-                    contact = resolve_overlap(
-                        alien, a, 20.0, a_radius, push_a=1.0, push_b=0.0)
-                    if contact is None:
-                        continue
-                    nx, ny = contact
-                    reflect_velocity(alien, nx, ny, ALIEN_BOUNCE)
-                    if alien._col_cd <= 0.0:
-                        alien._col_cd = ALIEN_COL_COOLDOWN
-                        alien.collision_bump()
-                        alien.take_damage(ALIEN_ASTEROID_DAMAGE)
-                        if alien.hp <= 0:
-                            from collisions import _apply_kill_rewards
-                            from constants import (
-                                ALIEN_IRON_DROP, BLUEPRINT_DROP_CHANCE_ALIEN,
-                            )
-                            from character_data import bonus_iron_enemy
-                            _apply_kill_rewards(
-                                gv, alien.center_x, alien.center_y,
-                                ALIEN_IRON_DROP, bonus_iron_enemy,
-                                BLUEPRINT_DROP_CHANCE_ALIEN)
-                            alien.remove_from_sprite_lists()
-                    break  # one collision per alien per frame
-                if not alien.sprite_lists:
-                    break  # alien was killed
+        update_player_asteroid_collision(self, gv)
+        update_player_z2_alien_collision(self, gv)
+        update_alien_asteroid_collisions(self, gv)
 
         # Buildings (turrets, repair, collisions)
         if len(gv.building_list) > 0:
@@ -535,42 +407,12 @@ class Zone2(ZoneState):
             self._rebuild_shielded_list()
 
     def _update_gas_damage(self, gv: GameView, dt: float) -> None:
-        self._gas_damage_cd = max(0.0, self._gas_damage_cd - dt)
-        px, py = gv.player.center_x, gv.player.center_y
-        in_gas = False
-        for g in self._gas_areas:
-            if g.contains_point(px, py):
-                in_gas = True
-                if self._gas_damage_cd <= 0.0:
-                    gv._apply_damage_to_player(int(GAS_AREA_DAMAGE))
-                    gv._trigger_shake()
-                    gv._flash_game_msg("Toxic gas!", 0.5)
-                    self._gas_damage_cd = 1.0
-                break
-        if in_gas:
-            gv.player.vel_x *= GAS_AREA_SLOW ** (dt * 60)
-            gv.player.vel_y *= GAS_AREA_SLOW ** (dt * 60)
+        from zones.nebula_shared import update_gas_damage
+        update_gas_damage(self, gv, dt)
 
     def _update_wanderer_collision(self, gv: GameView, dt: float) -> None:
-        if gv.player._collision_cd > 0.0:
-            return
-        for w in arcade.check_for_collision_with_list(gv.player, self._wanderers):
-            contact = resolve_overlap(
-                gv.player, w, SHIP_RADIUS, WANDERING_RADIUS,
-                push_a=0.6, push_b=0.4)
-            if contact is None:
-                continue
-            nx, ny = contact
-            reflect_velocity(gv.player, nx, ny, SHIP_BOUNCE)
-            # Kick wanderer away from player, suppress magnet
-            w._wander_angle = math.atan2(-ny, -nx)
-            w._wander_timer = 1.5
-            w._repel_timer = 2.0
-            gv._apply_damage_to_player(WANDERING_DAMAGE)
-            gv.player._collision_cd = SHIP_COLLISION_COOLDOWN
-            gv._trigger_shake()
-            arcade.play_sound(gv._bump_snd, volume=0.4)
-            break
+        from zones.nebula_shared import update_wanderer_collision
+        update_wanderer_collision(self, gv)
 
     # ── Drawing ────────────────────────────────────────────────────────────
 

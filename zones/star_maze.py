@@ -34,9 +34,7 @@ from constants import (
     SHIP_BOUNCE,
     FOG_CELL_SIZE, FOG_REVEAL_RADIUS,
     STAR_MAZE_CENTERS,
-    COPPER_ASTEROID_PNG, COPPER_PICKUP_PNG, Z2_ALIEN_SHIP_PNG,
-    GAS_AREA_DAMAGE, GAS_AREA_SLOW,
-    WANDERING_DAMAGE, WANDERING_RADIUS,
+    WANDERING_RADIUS,
     ASTEROID_RADIUS, ALIEN_BOUNCE,
     RESPAWN_INTERVAL,
 )
@@ -224,27 +222,12 @@ class StarMazeZone(ZoneState):
             gv._flash_game_msg(msg, 1.8)
 
     def _load_textures(self, gv: GameView) -> None:
-        """Load the same texture set Zone 2 uses so the shared
-        population + handler helpers work unmodified."""
-        from PIL import Image as _PILImage
-        self._iron_tex = gv._asteroid_tex
-        if self._copper_tex is None:
-            self._copper_tex = arcade.load_texture(COPPER_ASTEROID_PNG)
-        if self._copper_pickup_tex is None:
-            self._copper_pickup_tex = arcade.load_texture(COPPER_PICKUP_PNG)
-        self._alien_laser_tex = gv._alien_laser_tex
-        if not self._alien_textures:
-            from sprites.zone2_aliens import ALIEN_CROPS
-            pil = _PILImage.open(Z2_ALIEN_SHIP_PNG).convert("RGBA")
-            for name, crop in ALIEN_CROPS.items():
-                self._alien_textures[name] = arcade.Texture(pil.crop(crop))
-            pil.close()
-        self._wanderer_tex = self._iron_tex
+        from zones.nebula_shared import load_nebula_textures
+        load_nebula_textures(self, gv)
 
     def _rebuild_shielded_list(self) -> None:
-        from sprites.zone2_aliens import ShieldedAlien
-        self._shielded_aliens = [
-            a for a in self._aliens if isinstance(a, ShieldedAlien)]
+        from zones.nebula_shared import rebuild_shielded_list
+        rebuild_shielded_list(self)
 
     def _maze_reject_fn(self, radius: float = 0.0, margin: float = 40.0):
         """Factory for the population reject filter.
@@ -474,39 +457,22 @@ class StarMazeZone(ZoneState):
         # fields, slipspaces, four Z2 alien types) — same counts as
         # Zone 2, reject_fn keeps every candidate out of the four
         # maze AABBs (plus 40 px margin).
-        from zones.zone2_world import (
-            populate_iron_asteroids, populate_double_iron,
-            populate_copper_asteroids, populate_gas_areas,
-            populate_wanderers, populate_aliens,
-        )
-        from world_setup import populate_null_fields, populate_slipspaces
+        from zones.nebula_shared import populate_nebula_content
         from constants import ASTEROID_RADIUS
         # Radii picked to keep each entity's full body outside the
         # maze AABB.  Gas sizes top out at 384 px (radius 192).
-        reject_ast = self._maze_reject_fn(radius=ASTEROID_RADIUS)
-        reject_big_ast = self._maze_reject_fn(radius=ASTEROID_RADIUS * 2.0)
-        reject_gas = self._maze_reject_fn(radius=192.0)
-        reject_wan = self._maze_reject_fn(radius=30.0)
-        reject_alien = self._maze_reject_fn(radius=24.0)
-        reject_nf = self._maze_reject_fn(radius=100.0)
-        reject_slip = self._maze_reject_fn(radius=60.0)
-        random.seed(self._world_seed)
-        populate_iron_asteroids(self, reject_fn=reject_ast)
-        populate_double_iron(self, reject_fn=reject_big_ast)
-        populate_copper_asteroids(self, reject_fn=reject_ast)
-        populate_gas_areas(self, reject_fn=reject_gas)
-        self._gas_pos_cache = [(g.center_x, g.center_y, g.radius)
-                               for g in self._gas_areas]
-        populate_wanderers(self, reject_fn=reject_wan)
-        populate_aliens(self, reject_fn=reject_alien)
-        self._null_fields = populate_null_fields(
-            self.world_width, self.world_height,
-            reject_fn=reject_nf)
-        ss_rng = random.Random(self._world_seed + 197)
-        self._slipspaces = populate_slipspaces(
-            self.world_width, self.world_height,
-            gv._slipspace_tex, rng=ss_rng, reject_fn=reject_slip)
-        random.seed()
+        populate_nebula_content(
+            self, gv,
+            reject_iron=self._maze_reject_fn(radius=ASTEROID_RADIUS),
+            reject_big_iron=self._maze_reject_fn(
+                radius=ASTEROID_RADIUS * 2.0),
+            reject_copper=self._maze_reject_fn(radius=ASTEROID_RADIUS),
+            reject_gas=self._maze_reject_fn(radius=192.0),
+            reject_wanderers=self._maze_reject_fn(radius=30.0),
+            reject_aliens=self._maze_reject_fn(radius=24.0),
+            reject_null=self._maze_reject_fn(radius=100.0),
+            reject_slip=self._maze_reject_fn(radius=60.0),
+        )
 
     def teardown(self, gv: GameView) -> None:
         self._fog_grid = gv._fog_grid
@@ -517,72 +483,16 @@ class StarMazeZone(ZoneState):
         gv._wormhole_list.clear()
 
     def _update_gas_damage(self, gv: GameView, dt: float) -> None:
-        self._gas_damage_cd = max(0.0, self._gas_damage_cd - dt)
-        px, py = gv.player.center_x, gv.player.center_y
-        in_gas = False
-        for g in self._gas_areas:
-            if g.contains_point(px, py):
-                in_gas = True
-                if self._gas_damage_cd <= 0.0:
-                    gv._apply_damage_to_player(int(GAS_AREA_DAMAGE))
-                    gv._trigger_shake()
-                    gv._flash_game_msg("Toxic gas!", 0.5)
-                    self._gas_damage_cd = 1.0
-                break
-        if in_gas:
-            gv.player.vel_x *= GAS_AREA_SLOW ** (dt * 60)
-            gv.player.vel_y *= GAS_AREA_SLOW ** (dt * 60)
+        from zones.nebula_shared import update_gas_damage
+        update_gas_damage(self, gv, dt)
 
     def _update_player_asteroid_collision(self, gv: GameView) -> None:
-        """Bounce + damage the player on contact with iron / double-iron
-        / copper asteroids.  Mirrors the Zone 2 ship-vs-asteroid block
-        (zone2.py:434–453); was missing from the Star Maze update so
-        the ship phased through every static asteroid."""
-        from collisions import resolve_overlap, reflect_velocity
-        if gv.player._collision_cd > 0.0:
-            return
-        for alist in (self._iron_asteroids, self._double_iron,
-                      self._copper_asteroids):
-            hit = False
-            for a in arcade.check_for_collision_with_list(gv.player, alist):
-                a_radius = max(ASTEROID_RADIUS, a.width / 2 * 0.8)
-                contact = resolve_overlap(
-                    gv.player, a, SHIP_RADIUS, a_radius,
-                    push_a=1.0, push_b=0.0)
-                if contact is None:
-                    continue
-                nx, ny = contact
-                reflect_velocity(gv.player, nx, ny, SHIP_BOUNCE)
-                gv._apply_damage_to_player(SHIP_COLLISION_DAMAGE)
-                gv.player._collision_cd = SHIP_COLLISION_COOLDOWN
-                gv._trigger_shake()
-                arcade.play_sound(gv._bump_snd, volume=0.4)
-                hit = True
-                break
-            if hit:
-                break
+        from zones.nebula_shared import update_player_asteroid_collision
+        update_player_asteroid_collision(self, gv)
 
     def _update_wanderer_collision(self, gv: GameView, dt: float) -> None:
-        from collisions import resolve_overlap, reflect_velocity
-        if gv.player._collision_cd > 0.0:
-            return
-        for w in arcade.check_for_collision_with_list(
-                gv.player, self._wanderers):
-            contact = resolve_overlap(
-                gv.player, w, SHIP_RADIUS, WANDERING_RADIUS,
-                push_a=0.6, push_b=0.4)
-            if contact is None:
-                continue
-            nx, ny = contact
-            reflect_velocity(gv.player, nx, ny, SHIP_BOUNCE)
-            w._wander_angle = math.atan2(-ny, -nx)
-            w._wander_timer = 1.5
-            w._repel_timer = 2.0
-            gv._apply_damage_to_player(WANDERING_DAMAGE)
-            gv.player._collision_cd = SHIP_COLLISION_COOLDOWN
-            gv._trigger_shake()
-            arcade.play_sound(gv._bump_snd, volume=0.4)
-            break
+        from zones.nebula_shared import update_wanderer_collision
+        update_wanderer_collision(self, gv)
 
     def get_player_spawn(self, entry_side: str) -> tuple[float, float]:
         """Spawn the player OFFSET from the central wormhole so the
@@ -702,58 +612,13 @@ class StarMazeZone(ZoneState):
         # Player-projectile-vs-Nebula-entity collisions.
         handle_projectile_hits(self, gv)
 
-        # Z2 alien-vs-player collision.
-        for alien in arcade.check_for_collision_with_list(
-                gv.player, self._aliens):
-            contact = resolve_overlap(
-                alien, gv.player, 20.0, SHIP_RADIUS,
-                push_a=0.5, push_b=0.5)
-            if contact is None:
-                continue
-            nx, ny = contact
-            alien.vel_x += nx * 150
-            alien.vel_y += ny * 150
-            dot = gv.player.vel_x * (-nx) + gv.player.vel_y * (-ny)
-            if dot < 0:
-                gv.player.vel_x -= (1 + ALIEN_BOUNCE) * dot * (-nx) * 0.4
-                gv.player.vel_y -= (1 + ALIEN_BOUNCE) * dot * (-ny) * 0.4
-            if gv.player._collision_cd <= 0.0:
-                gv._apply_damage_to_player(5)
-                gv.player._collision_cd = SHIP_COLLISION_COOLDOWN
-                gv._trigger_shake()
-                arcade.play_sound(gv._bump_snd, volume=0.3)
-
-        # Z2 alien-vs-asteroid collisions.
-        for alien in list(self._aliens):
-            for alist in (self._iron_asteroids, self._double_iron,
-                          self._copper_asteroids):
-                for a in arcade.check_for_collision_with_list(alien, alist):
-                    a_radius = max(ASTEROID_RADIUS, a.width / 2 * 0.8)
-                    contact = resolve_overlap(
-                        alien, a, 20.0, a_radius,
-                        push_a=1.0, push_b=0.0)
-                    if contact is None:
-                        continue
-                    nx, ny = contact
-                    reflect_velocity(alien, nx, ny, ALIEN_BOUNCE)
-                    if alien._col_cd <= 0.0:
-                        alien._col_cd = ALIEN_COL_COOLDOWN
-                        alien.collision_bump()
-                        alien.take_damage(ALIEN_ASTEROID_DAMAGE)
-                        if alien.hp <= 0:
-                            from collisions import _apply_kill_rewards
-                            from constants import (
-                                ALIEN_IRON_DROP, BLUEPRINT_DROP_CHANCE_ALIEN,
-                            )
-                            from character_data import bonus_iron_enemy
-                            _apply_kill_rewards(
-                                gv, alien.center_x, alien.center_y,
-                                ALIEN_IRON_DROP, bonus_iron_enemy,
-                                BLUEPRINT_DROP_CHANCE_ALIEN)
-                            alien.remove_from_sprite_lists()
-                    break
-                if not alien.sprite_lists:
-                    break
+        # Z2 alien ↔ player + alien ↔ asteroid collisions (shared).
+        from zones.nebula_shared import (
+            update_player_z2_alien_collision,
+            update_alien_asteroid_collisions,
+        )
+        update_player_z2_alien_collision(self, gv)
+        update_alien_asteroid_collisions(self, gv)
 
         # Nebula population containment — push any wanderer or Z2
         # alien that drifted into a maze wall back out along the
