@@ -215,22 +215,44 @@ def _try_misty_step(gv: GameView, key: int) -> None:
         # out of a null field counts as "using an ability from inside".
         from update_logic import disable_null_field_around_player
         disable_null_field_around_player(gv)
-        target_x = gv.player.center_x + dx * MISTY_STEP_DISTANCE
-        target_y = gv.player.center_y + dy * MISTY_STEP_DISTANCE
-        # Star Maze: refuse to teleport into a maze structure (walls
-        # or room interiors).  Refund the ability cost + cooldown so
-        # the tap doesn't silently burn a charge.
+        start_x = gv.player.center_x
+        start_y = gv.player.center_y
+        target_x = start_x + dx * MISTY_STEP_DISTANCE
+        target_y = start_y + dy * MISTY_STEP_DISTANCE
+        # Star Maze: refuse to teleport if the target lands inside a
+        # maze structure OR if the line from the current position to
+        # the target crosses any wall.  The segment check has to be
+        # densely sampled — a 4-point sample (the helper default)
+        # would skip a 32-px wall on a long jump.  Walk the segment
+        # in 16-px steps and reject if any sample lands in a wall.
         rooms = getattr(gv._zone, "rooms", None)
         walls = getattr(gv._zone, "walls", None)
         from zones.maze_geometry import (
             point_inside_any_room_interior as _in_room,
             circle_hits_any_wall as _hits_wall,
+            point_in_rect,
         )
         from constants import SHIP_RADIUS
+
+        def _segment_crosses_wall() -> bool:
+            if not walls:
+                return False
+            seg_len = math.hypot(target_x - start_x, target_y - start_y)
+            n = max(2, int(seg_len / 16.0) + 1)
+            for i in range(n + 1):
+                t = i / n
+                sx = start_x + (target_x - start_x) * t
+                sy = start_y + (target_y - start_y) * t
+                for w in walls:
+                    if point_in_rect(sx, sy, w):
+                        return True
+            return False
+
         if ((rooms and _in_room(target_x, target_y, rooms))
                 or (walls
                     and _hits_wall(target_x, target_y,
-                                   SHIP_RADIUS, walls))):
+                                   SHIP_RADIUS, walls))
+                or _segment_crosses_wall()):
             gv._ability_meter += MISTY_STEP_COST
             gv._misty_step_cd = 0.0
             gv._flash_game_msg("Blocked by maze wall!", 0.8)

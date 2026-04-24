@@ -535,7 +535,7 @@ class GameView(arcade.View):
         # spikes in logs/star_maze_perf.jsonl (5/21 records hit
         # 26–59 ms in gv_char_video_blit).  Going from 10 → 4 FPS cuts
         # the per-second spike budget by 60%.
-        self._char_video_player = VideoPlayer(convert_fps=4.0)
+        self._char_video_player = VideoPlayer(convert_fps=8.0)
         self._char_video_player._small_w = 160
         self._char_video_player._small_h = 160
         self._char_video_player._convert_cooldown = 0.06

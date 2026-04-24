@@ -533,6 +533,35 @@ class StarMazeZone(ZoneState):
             gv.player.vel_x *= GAS_AREA_SLOW ** (dt * 60)
             gv.player.vel_y *= GAS_AREA_SLOW ** (dt * 60)
 
+    def _update_player_asteroid_collision(self, gv: GameView) -> None:
+        """Bounce + damage the player on contact with iron / double-iron
+        / copper asteroids.  Mirrors the Zone 2 ship-vs-asteroid block
+        (zone2.py:434–453); was missing from the Star Maze update so
+        the ship phased through every static asteroid."""
+        from collisions import resolve_overlap, reflect_velocity
+        if gv.player._collision_cd > 0.0:
+            return
+        for alist in (self._iron_asteroids, self._double_iron,
+                      self._copper_asteroids):
+            hit = False
+            for a in arcade.check_for_collision_with_list(gv.player, alist):
+                a_radius = max(ASTEROID_RADIUS, a.width / 2 * 0.8)
+                contact = resolve_overlap(
+                    gv.player, a, SHIP_RADIUS, a_radius,
+                    push_a=1.0, push_b=0.0)
+                if contact is None:
+                    continue
+                nx, ny = contact
+                reflect_velocity(gv.player, nx, ny, SHIP_BOUNCE)
+                gv._apply_damage_to_player(SHIP_COLLISION_DAMAGE)
+                gv.player._collision_cd = SHIP_COLLISION_COOLDOWN
+                gv._trigger_shake()
+                arcade.play_sound(gv._bump_snd, volume=0.4)
+                hit = True
+                break
+            if hit:
+                break
+
     def _update_wanderer_collision(self, gv: GameView, dt: float) -> None:
         from collisions import resolve_overlap, reflect_velocity
         if gv.player._collision_cd > 0.0:
@@ -649,14 +678,12 @@ class StarMazeZone(ZoneState):
         for w in self._wanderers:
             w.update_wandering(dt, px, py)
         self._update_wanderer_collision(gv, dt)
+        self._update_player_asteroid_collision(gv)
 
-        # Null field timers.
-        for nf in self._null_fields:
-            nf.update_null_field(dt)
-
-        # Slipspace rotation + teleport.
-        from update_logic import update_slipspaces
-        update_slipspaces(gv, dt)
+        # Null field timers + slipspace rotation are advanced globally
+        # in game_view.on_update via _ul.update_null_fields /
+        # update_slipspaces (which already walk the active zone's
+        # _null_fields / _slipspaces lists).  Don't double-tick here.
 
         # Z2 alien AI + projectile fire.
         for alien in list(self._aliens):
@@ -738,6 +765,7 @@ class StarMazeZone(ZoneState):
         # Maze-specific entities.
         self._update_spawners(gv, dt, px, py)
         self._update_maze_aliens(gv, dt, px, py)
+        self._update_player_maze_alien_collision(gv)
         self._update_maze_projectiles(gv, dt)
         self._handle_maze_projectiles_vs_player(gv)
         self._block_player_projectiles_at_walls(gv)
@@ -960,6 +988,31 @@ class StarMazeZone(ZoneState):
             if self._point_in_any_wall_fast(m.center_x, m.center_y):
                 m.remove_from_sprite_lists()
 
+    def _update_player_maze_alien_collision(self, gv: GameView) -> None:
+        """Bounce + damage the player on contact with maze aliens.
+        Mirrors the Z2 alien-vs-player block already in update() so
+        maze aliens don't phase through the ship."""
+        from collisions import resolve_overlap
+        for alien in arcade.check_for_collision_with_list(
+                gv.player, self._maze_aliens):
+            contact = resolve_overlap(
+                alien, gv.player, MAZE_ALIEN_RADIUS, SHIP_RADIUS,
+                push_a=0.5, push_b=0.5)
+            if contact is None:
+                continue
+            nx, ny = contact
+            alien.vel_x += nx * 150
+            alien.vel_y += ny * 150
+            dot = gv.player.vel_x * (-nx) + gv.player.vel_y * (-ny)
+            if dot < 0:
+                gv.player.vel_x -= (1 + ALIEN_BOUNCE) * dot * (-nx) * 0.4
+                gv.player.vel_y -= (1 + ALIEN_BOUNCE) * dot * (-ny) * 0.4
+            if gv.player._collision_cd <= 0.0:
+                gv._apply_damage_to_player(5)
+                gv.player._collision_cd = SHIP_COLLISION_COOLDOWN
+                gv._trigger_shake()
+                arcade.play_sound(gv._bump_snd, volume=0.3)
+
     def _update_spawner_physical_collision(self, gv: GameView) -> None:
         """Physically block the player ship from passing through a
         live spawner (its own collision layer — alien collision
@@ -1094,20 +1147,11 @@ class StarMazeZone(ZoneState):
         self._copper_asteroids.draw()
         self._wanderers.draw()
         self._slipspaces.draw()
-        # Null fields: each one issues 28 immediate-mode circle draws
-        # via its own .draw() method — at 30 fields that's 840 GL
-        # calls per frame.  Cull to the visible rect so only the
-        # handful in view actually draw.  Radius ~100 px so the
-        # margin is tiny.
-        m = 150.0
-        vx0 = cx - hw - m
-        vx1 = cx + hw + m
-        vy0 = cy - hh - m
-        vy1 = cy + hh + m
-        for nf in self._null_fields:
-            if (vx0 < nf.center_x < vx1
-                    and vy0 < nf.center_y < vy1):
-                nf.draw()
+        # Null fields are drawn globally via draw_logic._draw_null_fields
+        # (batched into 2 draw_points calls).  We do NOT redraw them
+        # here — the per-field nf.draw() path issued 28 immediate-mode
+        # circles per visible field, which spiked frames hard whenever
+        # the player parked inside one.
         # Maze walls on top of the terrain so they clearly occlude.
         if self._wall_sprite_list is not None:
             self._wall_sprite_list.draw()

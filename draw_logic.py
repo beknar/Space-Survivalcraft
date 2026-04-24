@@ -427,27 +427,34 @@ def draw_world(gv: GameView, cx: float, cy: float, hw: float, hh: float) -> None
         arcade.draw_circle_outline(dcx, dcy, 12, (255, 60, 60, 180), 2)
 
 
-def _minimap_obstacles(gv: GameView) -> arcade.SpriteList:
-    """Return obstacle sprite list for minimap (zone-aware)."""
+def _minimap_obstacles(gv: GameView):
+    """Return an iterable of obstacle sprites for the minimap
+    (zone-aware).
+
+    Zone 2 / Star Maze previously rebuilt a fresh ``arcade.SpriteList``
+    whenever the cache invalidated.  Each rebuild allocated five GL
+    buffers (~2 MB) whose handles linger forever in the GL context's
+    ``objects`` dict — exactly the leak/spike pattern we hit in
+    ``_update_maze_aliens``.  Mining-beam kills invalidate the cache
+    every shot, which produced sub-40-FPS spikes on each asteroid
+    explosion.
+
+    The minimap only reads ``center_x`` / ``center_y`` per sprite, so
+    a lazy ``itertools.chain`` over the source lists is functionally
+    identical and costs zero allocations per frame.
+    """
     from zones import ZoneID
     from zones.zone_warp_base import WarpZoneBase
+    import itertools
     if gv._zone.zone_id == ZoneID.MAIN:
         return gv.asteroid_list
     if isinstance(gv._zone, WarpZoneBase):
         obstacles, _ = gv._zone.get_minimap_objects()
         return obstacles
-    if hasattr(gv._zone, '_minimap_cache'):
-        # Zone 2: use cached combined list (rebuilt only when stale)
-        cache = gv._zone._minimap_cache
-        if cache is not None:
-            return cache
-        combined = arcade.SpriteList()
-        for a in gv._zone._iron_asteroids:
-            combined.append(a)
-        for a in gv._zone._copper_asteroids:
-            combined.append(a)
-        gv._zone._minimap_cache = combined
-        return combined
+    if (hasattr(gv._zone, '_iron_asteroids')
+            and hasattr(gv._zone, '_copper_asteroids')):
+        return itertools.chain(
+            gv._zone._iron_asteroids, gv._zone._copper_asteroids)
     return gv.asteroid_list
 
 

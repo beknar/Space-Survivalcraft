@@ -25,8 +25,8 @@ if TYPE_CHECKING:
 
 
 def trigger_shake(gv: GameView) -> None:
-    """Start a brief camera shake."""
-    gv._shake_timer = SHAKE_DURATION
+    """No-op — screen shake on contact with game objects is disabled."""
+    return
 
 
 def apply_damage_to_player(gv: GameView, amount: int) -> None:

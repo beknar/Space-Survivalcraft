@@ -136,20 +136,21 @@ def _rand_pos(z: Zone2, margin: float = 100.0,
 # ── Collision handling ─────────────────────────────────────────────────────
 
 def handle_projectile_hits(z: Zone2, gv: GameView) -> None:
-    """Player projectile hits on asteroids and aliens using spatial hash."""
-    _pre_count = (len(z._iron_asteroids) + len(z._copper_asteroids)
-                  + len(z._double_iron) + len(z._wanderers))
+    """Player projectile hits on asteroids and aliens using spatial hash.
 
+    Previously invalidated ``z._minimap_cache`` here on every kill,
+    forcing a fresh arcade.SpriteList allocation + 150-sprite refill
+    on the next minimap draw — that GL-buffer churn was the source
+    of the sub-40-FPS spike on each mining-beam asteroid kill.  The
+    minimap obstacles iterator now lazily chains the source lists
+    (see ``draw_logic._minimap_obstacles``) so no cache + no
+    invalidation is needed.
+    """
     for proj in gv.projectile_list:
         if proj.mines_rock:
             _check_mining_hits(z, gv, proj)
         else:
             _check_laser_vs_aliens(z, gv, proj)
-
-    _post_count = (len(z._iron_asteroids) + len(z._copper_asteroids)
-                   + len(z._double_iron) + len(z._wanderers))
-    if _post_count != _pre_count:
-        z._minimap_cache = None
 
 
 def _check_mining_hits(z: Zone2, gv: GameView, proj) -> None:
