@@ -2,9 +2,11 @@
 
 **Call of Orion** is a top-down Newtonian space survival game built on
 Python 3.12 + Arcade 3.3.3. Fly a faction/ship/character combo through
-Zone 1 (6400×6400) and the Nebula / Zone 2 (9600×9600), mine
-asteroids, fight aliens, build a modular station, upgrade ships, talk
-to story NPCs.
+Zone 1 (6400×6400), the Nebula / Zone 2 (9600×9600), and the Star
+Maze / Zone 3 (12000×12000), mine asteroids, fight aliens + two bosses
+(Double Star + Nebula), build a modular station, upgrade ships, talk
+to story NPCs. Stealth via null fields, fast travel via slipspaces,
+hard-block via force walls.
 
 ## Running
 
@@ -35,6 +37,8 @@ Space Survivalcraft/
 ├── update_logic.py          # per-frame update phases
 ├── input_handlers.py        # keyboard + mouse routing
 ├── game_save.py             # save/load + _restore_sprite_list helper
+├── qwi_menu.py              # Quantum Wave Integrator boss-summon menu
+├── map_overlay.py           # full-screen map ('M' key)
 ├── game_music.py            # music/video playback
 ├── collisions.py            # every collision handler + resolve_overlap/reflect_velocity
 ├── world_setup.py           # asset loading + asteroid/alien population
@@ -52,25 +56,33 @@ Space Survivalcraft/
 ├── sprites/
 │   ├── player.py, boss.py, nebula_boss.py
 │   ├── alien.py, zone2_aliens.py, alien_ai.py (shared helpers)
+│   ├── maze_alien.py, maze_spawner.py
 │   ├── asteroid.py, copper_asteroid.py, wandering_asteroid.py
 │   ├── pickup.py, shield.py, explosion.py, contrail.py
 │   ├── projectile.py, missile.py, building.py
-│   ├── force_wall.py, wormhole.py, gas_area.py, null_field.py
+│   ├── force_wall.py, wormhole.py, gas_area.py
+│   ├── null_field.py, slipspace.py
 │   ├── parked_ship.py       # multi-ship + AI pilot
 │   └── npc_ship.py          # RefugeeNPCShip (story encounter)
-└── zones/                   # ZoneID, MainZone, Zone2, warp zones
+└── zones/                   # ZoneID, MainZone, Zone2, StarMazeZone,
+                             # warp zones (Zone-1 / Nebula / Maze
+                             # variants), maze_geometry, nebula_shared
 ```
 
 ## Tests
 
-- **Fast** (`unit tests/`, 701 tests, ~3 s) — physics, AI, inventory,
-  modules, AI Pilot, refugee/dialogue trees, station shield, shared
-  helpers, save restore, CPU microbenchmarks.
-- **Integration** (`unit tests/integration/`, 309 tests) — real
-  GameView flows, full-frame FPS (with / without videos, menu scroll,
-  station combat, AI pilot fleets, dialogue), GPU render, resolution
-  scaling, soak (5 min each). Shared soak scaffold in
-  `unit tests/integration/_soak_base.py`.
+- **Fast** (`unit tests/`, 906 tests, ~5.5 s) — physics, AI, inventory,
+  modules, AI Pilot, refugee/dialogue trees, station shield, Star Maze
+  (geometry, A* pathing, MazeAlien/MazeSpawner stats + save round-trip),
+  Nebula boss + QWI, null fields, slipspaces, force wall, gas area,
+  nebula_shared helpers, ship_manager, dialogue overlay lifecycle,
+  shared helpers, save restore, CPU microbenchmarks.
+- **Integration** (`unit tests/integration/`, ~309 tests) — real
+  GameView flows incl. Star Maze + Nebula boss, full-frame FPS (with /
+  without videos, menu scroll, station combat, AI pilot fleets,
+  dialogue), GPU render, resolution scaling, soak (5 min each, incl.
+  Star Maze idle / combat churn / Nebula pressure). Shared soak
+  scaffold in `unit tests/integration/_soak_base.py`.
 - `pytest.ini` excludes `integration/` from default runs. Real
   music-video tests look in `./yvideos/*.mp4` (gitignored).
 
@@ -93,13 +105,28 @@ def work(gv: GameView, ...): ...
 
 ### Zone state machine
 
-`zones/` owns Zone 1 / Zone 2 / four warp zones. Each `ZoneState` has
-`setup / teardown / update / draw / background_update`. `MainZone`
-stashes Zone 1 lists during excursions. `Zone2` stashes buildings +
-trade station + parked ships in `_building_stash` so warp-zone round
-trips don't wipe them. Shared sprite lists (`gv.alien_list`,
-`gv.alien_projectile_list`) swap to Zone 2 versions during its update
-so reused collision helpers operate on the right entities.
+`zones/` owns Zone 1 (`MainZone`), Zone 2 (`Zone2`, the Nebula),
+Zone 3 (`StarMazeZone`), and three flavours of four-themed warp zones
+(meteor / lightning / gas / enemy spawner): the Zone-1 originals,
+`NEBULA_WARP_*` variants reached after the Nebula boss with a 2× danger
+scalar, and `MAZE_WARP_*` variants reached from the Star Maze with the
+same theme rotation. The single `MeteorWarpZone` / `LightningWarpZone`
+/ `GasCloudWarpZone` / `EnemySpawnerWarpZone` classes are reused for
+all three; `instance.zone_id` distinguishes the variant inside `setup`.
+
+Each `ZoneState` has `setup / teardown / update / draw /
+background_update`. `MainZone` stashes Zone 1 lists during excursions.
+`Zone2` stashes buildings + trade station + parked ships in
+`_building_stash` so warp-zone round trips don't wipe them. `StarMazeZone`
+delegates its Nebula-style content (asteroids, gas, wanderers, Z2
+aliens, null fields, slipspaces) to `zones/nebula_shared.py`, which
+both Zone 2 and Star Maze call into; the shared module keeps drift
+between the two zones from re-introducing collision regressions. Star
+Maze geometry (room layout, carved corridors, room-adjacency graph,
+A* helper, point-in-rect / segment-vs-walls helpers) lives in
+`zones/maze_geometry.py`. Shared sprite lists (`gv.alien_list`,
+`gv.alien_projectile_list`) swap to the active zone's versions during
+its update so reused collision helpers operate on the right entities.
 
 ### HUD / overlay draw pattern (shared rect + Text pools)
 
@@ -158,9 +185,9 @@ but the blit + pixel-readback are the expensive parts and they pause.
 
 - `handle_mouse_press` short-circuits through overlays: death screen,
   dialogue, escape, destroy mode, placement, build, station inv,
-  craft, trade, then world clicks.
+  craft, trade, qwi, then world clicks.
 - `_handle_world_click` order: refugee NPC → parked ship → trade
-  station → Home Station → Basic/Advanced Crafter.
+  station → Home Station → Basic/Advanced Crafter → QWI.
 - `ESC` cascade: trade → craft → qwi → station inv → station info →
   ship stats → **map** → moving/destroy/placement/build/inv → escape
   menu toggle.
@@ -190,7 +217,55 @@ colliding with any active wall. Every alien class takes a
 `force_walls` kwarg and delegates avoidance to
 `sprites/alien_ai.compute_avoidance`, which adds a 2× repulsion term
 within `ALIEN_RADIUS + ALIEN_AVOIDANCE_RADIUS + 30 px`; any move that
-would cross a wall reverts to the pre-move position.
+would cross a wall reverts to the pre-move position. The Nebula boss
+also routes around walls via the same primitives.
+
+### Star Maze (Zone 3)
+
+`zones/star_maze.py` runs a 12000×12000 zone with `STAR_MAZE_COUNT`
+(4) maze structures laid out at the corners + centre via
+`STAR_MAZE_CENTERS`. Each maze is a 5×5 room grid (300 px interior,
+32 px walls) carved with recursive-backtracking DFS in
+`zones/maze_geometry.generate_maze`; the resulting `MazeLayout` carries
+`rooms`, `walls`, `room_graph` (adjacency from the carved edges),
+`rows`, `cols`, plus the helpers `find_room_index`,
+`astar_room_path`, `point_in_rect`, `segment_crosses_walls`. Each room
+spawns one `MazeSpawner` (kill = 1000 iron + 100 XP, respawn 90 s)
+which periodically (`MAZE_SPAWNER_SPAWN_INTERVAL = 30 s`, cap 20 alive)
+emits a `MazeAlien`. Maze aliens take `rooms` + `room_graph` and
+A*-plan through the room graph instead of bee-lining; each frame's
+move is checked against the wall spatial-hash and reverted if it would
+cross. Outside the maze rectangles the zone hosts the same Nebula
+content as Zone 2, populated via `nebula_shared.populate_nebula_content`
+with radius-aware reject filters that keep entities out of maze AABBs.
+Non-maze aliens that drift into a maze get pushed back via
+`_push_out_of_maze_bounds`. Misty Step rejects teleports whose path
+crosses a wall.
+
+### Nebula Boss + QWI
+
+`sprites/nebula_boss.py` is a separate boss for Zone 2/Star Maze with
+gas-cloud + cone attacks. The Quantum Wave Integrator
+(`BUILDING_TYPES["Quantum Wave Integrator"]`) is the trigger: building
+one in Zone 2 spawns the boss; clicking the QWI within `QWI_PLACE_RADIUS`
+opens `qwi_menu.QWIMenu`, which charges `QWI_SPAWN_NEBULA_BOSS_IRON_COST`
+(100 iron) per resummon. Boss reward: 3000 iron + 1000 copper. Station
+turrets, missile arrays, and AI-piloted parked ships all target +
+damage the Nebula boss.
+
+### Null fields + slipspaces
+
+`sprites/null_field.py` are `NULL_FIELD_COUNT` (30/zone) stealth
+patches that hide the player from enemies — while inside, AI targeting
+treats the player as invisible and `update_logic` toggles
+`gv._player_cloaked`. Firing a weapon from inside a field disables the
+field for `NULL_FIELD_DISABLE_S` (10 s) and flashes it red. Star Maze
++ Zone 2 maze enemies both honour the cloak (checked in
+`_update_maze_aliens` and `_update_spawners`).
+
+`sprites/slipspace.py` portals (15 per non-warp zone) teleport the
+player to a paired slipspace and conserve velocity. They render at
+160 px display / 60 px collision radius. Persisted in save/load.
 
 ### Multi-ship + AI Pilot
 

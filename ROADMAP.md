@@ -283,6 +283,127 @@ feature's merging commit.
       AI fleet + refactor-pass helpers + updated test counts
       (493 fast / 144 integration / 637 total).
 
+### 2026-04-17 to 2026-04-18 — Stealth + teleport + map + Ellie/Tara trees
+- [x] **Null fields** — 30 stealth patches per non-warp zone hide the
+      player from enemies; firing inside disables the field for 10 s
+      (`a05ab55`, `7188764`, `1e9c490`, `3690e16`)
+- [x] Asteroid kills use new 10-frame Explo__001..010 animation
+      (`86e6b17`)
+- [x] **Slipspace teleporters** — 15 paired portals per non-warp zone,
+      conserve velocity (`f7e596e`)
+- [x] **T-menu surfaces null fields + slipspaces**, including overflow
+      fix for Nebula counts (`37ef58e`, `3690e16`)
+- [x] Pyglet FFmpeg heap-corruption + media-worker race fixes
+      (`550752f`, `a081d7a`, `0e61bfd`, `c60bd69`)
+- [x] **Ellie + Tara dialogue trees** fleshed out — 6-scene Kratos
+      conspiracy thriller for Ellie; 5-scene Killers archaeology
+      thriller for Tara (`85a95bc`)
+
+### 2026-04-19 — Major perf + Nebula expansion + map overlay + 8 icons
+- [x] **Zone 2 expanded by 50 %** — 6,400 → 9,600 px each axis;
+      slot-8 save migration (`23187fb`)
+- [x] **Zone 2 perf** 30 → 44 FPS (+47 %) via spatial-hash on alien
+      avoidance, HUD fill pool, GC + Player.delete tuning, idle-asteroid
+      no-op, beam weapon out-of-Zone-1-bounds despawn fix
+      (`815df0b`, `707e65c`, `ab1f3ee`, `0b4857e`, `632b571`,
+      `b14dc5f`, `64c5d37`)
+- [x] **Full-screen map overlay (`M` key)** — zoomed-out world view
+      with player + entity overlays for the active zone (`ded51fd`)
+- [x] Swap 8 clashing module/blueprint icons (`ded51fd`)
+- [x] Blueprint drops use the crafter icon, not the tinted PNG
+      (`17ea732`)
+- [x] Build-menu scroll perf 51 → 61 FPS via Text pool + Batch + rect
+      pool (`23af98e`)
+- [x] Telemetry + crash logging removed once the bugs were fixed
+      (`ea6fe9e`)
+- [x] Faction/ship/character/module/enemy/building/trade picture pass
+      across docs (`e791749`)
+
+### 2026-04-20 — Nebula boss + bigger sprites
+- [x] **Nebula boss** — separate boss for Zone 2 with gas-cloud + cone
+      attacks; targets player within 1000 px; cannon, cone, and gas
+      ranges + damages tuned (`3988192`, `8e64374`, `12f11c6`,
+      `682e6a6`, `bbbc7cc`)
+- [x] Nebula boss reward: **3000 iron + 1000 copper, no XP** (`6d11727`)
+- [x] **3× larger boss sprites** for both bosses — `BOSS_SCALE` 0.60
+      → 1.80, `BOSS_RADIUS` 38 → 114; minimap markers pulse yellow
+      (`5822e63`, `3988192`)
+- [x] **Quantum Wave Integrator (QWI)** — building that auto-spawns
+      the Nebula boss on construction; click within 300 px to open
+      the resummon menu (100 iron) (`3af9cec`, `3988192`)
+- [x] Station turrets + missile arrays + AI ships target + damage
+      Nebula boss (`3af9cec`)
+- [x] Nebula boss routes around force walls + rams through asteroids
+      with normal alien drops (`e59c61b`, `1a42aa1`)
+- [x] Force wall blocks boss movement + Nebula gas clouds (`bbbc7cc`)
+- [x] Random sprite across all 8 rows of column 2 for the Nebula boss
+      (`3ef586e`)
+
+### 2026-04-21 — Star Maze foundation
+- [x] Zone-gate late-game blueprints, buildings, and the QWI behind
+      progression milestones (`b107697`)
+- [x] Inventory: **right-click cell to split stack in half** + red dot
+      overlay on locked blueprint cells; trade sell scroll preserved
+      after each sale; Ascended Striker/Thunderbolt red X marker
+      (`4b4ba10`, `f25eb62`, `f952599`, `f5d8781`, `b34a037`)
+- [x] **Star Maze foundations** — constants, `ZoneID.STAR_MAZE`,
+      `zones/maze_geometry.py` (recursive-backtracking gen, room
+      graph, A* helper, point-in-rect + segment-vs-walls helpers),
+      MazeAlien + MazeSpawner sprites (`919c389`)
+- [x] **`StarMazeZone` class** + 48 fast tests (`88da771`)
+- [x] **Wire Star Maze into the warp flow** — post-Nebula-boss warp
+      variants (`NEBULA_WARP_*`) route to the Star Maze; Star-Maze
+      corner wormholes chain on to `MAZE_WARP_*` variants. 2× danger
+      scalar applied (`f92a584`)
+- [x] **Star Maze save/load + minimap wiring** (`ed062e8`)
+- [x] **Star Maze integration tests** — 13 real-GameView tests
+      (`6be7e66`)
+- [x] Enlarge Star Maze 25 % + retarget maze coverage to 2880×2880
+      (`c066db4`)
+
+### 2026-04-22 to 2026-04-23 — Star Maze polish + perf
+- [x] Star Maze full Nebula population outside the rooms; AttributeError
+      drawing MazeSpawner; 4 UX papercuts; 2 redesigns; 10 combat /
+      routing fixes; 3 soak tests (idle / combat churn / Nebula
+      pressure) (`fdfa565`, `9e78327`, `f50f352`, `883cffb`,
+      `d879e73`, `3c8cddd`, `2301dcd`, `7b5936a`, `b55c1a4`,
+      `1e8f027`)
+- [x] **Star Maze containment + 3× draw perf** (`b55c1a4`)
+- [x] Wall push-out iterates for T-intersection corners (`9407ebc`)
+- [x] Memory leak fix — reuse empty-asteroid SpriteList (`346d840`)
+- [x] Save-restore: load textures + validate fog grid; fog IndexError
+      fix when loading a Star Maze save (`e4fec3c`, `d351638`)
+
+### 2026-04-24 — Refactor + A* + spawner determinism
+- [x] **Extract shared Nebula-zone behaviour into
+      `zones/nebula_shared.py`** — `Zone2` and `StarMazeZone` now
+      share collision / update / fog / gas / wanderer / asteroid
+      handlers via module-level functions, eliminating the drift that
+      caused several Star Maze regressions (`7a10d34`)
+- [x] Star Maze: containment + perf fixes (alien walls, asteroid
+      spawning, GC) (`4a5cd79`)
+- [x] Star Maze: perf + collision + misty-step fixes (ship-vs-asteroid,
+      ship-vs-maze-alien, misty-step blocked by walls, mining-beam
+      cache leak, null-field draw / update double-trigger fix)
+      (`4a4af02`)
+- [x] **Star Maze polish + Zone 2 base-save bug + A* pathfinding** —
+      MazeAliens use A* across the room-adjacency graph; non-maze
+      enemies push out of mazes; spawner positions derived from world
+      seed (not save data); Nebula base reads stash on save; Star Maze
+      surfaced in T-menu; null-field cloak honoured by maze enemies
+      (`a2b799b`)
+
+### 2026-04-25 — Coverage gap closure
+- [x] **5 new test files** — `test_force_wall.py`, `test_gas_area.py`,
+      `test_dialogue_overlay.py`, `test_nebula_shared.py`,
+      `test_ship_manager.py`. 87 new unit tests covering modules that
+      previously had zero or integration-only coverage (`4917a30`)
+- [x] Documentation refresh: README + docs/ + CLAUDE + ROADMAP for
+      every change since 2026-04-16 — Star Maze, Nebula boss + QWI,
+      null fields, slipspaces, full-screen map, inventory polish, all
+      the perf passes; updated test counts (906 fast + ~309
+      integration ≈ 1,215 total)
+
 ## Future features (from README)
 
 - [x] **Ship level advancement** — upgrade ships through experience
@@ -290,11 +411,13 @@ feature's merging commit.
 - [x] **Enemy ships** — hostile NPCs that manoeuvre like the player
       (patrol + standoff orbit + obstacle avoidance + Zone 2 variants)
 - [ ] **New space biomes** — visually distinct sectors with unique asteroid
-      types, backgrounds, and resources _(Zone 2 Nebula + 4 warp zones
-      shipped; more biomes still open)_
+      types, backgrounds, and resources _(Zone 2 Nebula + Zone 3 Star Maze
+      + 12 warp zones shipped; more biomes still open)_
 - [ ] **Hazardous zones** — radiation clouds, electrical discharge, EMP
-      areas, maze barriers _(lightning + gas + meteor warp zones shipped;
-      radiation / EMP / maze still open)_
+      areas, maze barriers _(lightning + gas + meteor warp zones +
+      dungeon-wall maze barriers shipped; radiation / EMP still open)_
+- [x] **Stealth + fast-travel mechanics** — null fields hide the player
+      from enemies; slipspace teleporter pairs conserve velocity
 - [ ] **Advanced resources** — new materials for mid/advanced crafting
       _(copper added; more tiers still open)_
 - [ ] **New space monsters** — varied creatures with unique behaviours

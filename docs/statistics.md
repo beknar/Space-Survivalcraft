@@ -6,6 +6,7 @@
 |---|---|
 | Zone 1 world size | 6,400 x 6,400 px |
 | Nebula (Zone 2) world size | 9,600 x 9,600 px (+50 % per axis vs Zone 1 — 2.25× total area) |
+| Star Maze (Zone 3) world size | 12,000 x 12,000 px (+25 % per axis vs Zone 2 — ≈ 5.6× Zone 1 area) |
 | Default window resolution | 1,280 x 800 px |
 | Resolution presets | 1280x800, 1366x768, 1600x900, 1920x1080, 2560x1440, 3840x2160 |
 | Status panel width | 213 px (left side) |
@@ -161,14 +162,119 @@ All ships start at world centre. Ships rendered at 0.75x scale (96 px in-game). 
 
 ---
 
+## Star Maze (Zone 3)
+
+| Property | Value |
+|---|---|
+| Maze count per zone | 4 (`STAR_MAZE_COUNT`) |
+| Layout positions | `STAR_MAZE_CENTERS` (corners + centre) |
+| Rooms per maze | 5 × 5 = 25 |
+| Room interior side | 300 px (`STAR_MAZE_ROOM_SIZE`) |
+| Wall thickness | 32 px (`STAR_MAZE_WALL_THICK`) |
+| Maze span (per maze) | 1,692 px on each side |
+| Carve algorithm | Recursive-backtracking DFS, seeded off `_world_seed` |
+| Pathfinding (MazeAlien) | A* over the room-adjacency graph derived from carved edges |
+
+### Maze Spawner
+
+| Property | Value |
+|---|---|
+| HP / Shields | 100 / 100 |
+| Laser damage | 30 (`MAZE_SPAWNER_LASER_DAMAGE`) |
+| Laser range / speed | 200 px / 300 px/s |
+| Fire cooldown | 1.0 s (`MAZE_SPAWNER_FIRE_CD`) |
+| Detection range | 300 px |
+| Spawn cadence | 1 child every 30 s (`MAZE_SPAWNER_SPAWN_INTERVAL`) |
+| Max alive children | 20 (`MAZE_SPAWNER_MAX_ALIVE`) |
+| Iron drop / XP | 1000 / 100 |
+| Respawn after kill | 90 s (`MAZE_SPAWNER_RESPAWN_INTERVAL`) |
+| Collision radius | 40 px |
+
+### Maze Alien
+
+| Property | Value |
+|---|---|
+| HP | 50 |
+| Speed | 120 px/s |
+| Collision radius | 20 px |
+| Laser damage | 10 |
+| Laser range / speed | 200 px / 300 px/s |
+| Fire cooldown | 1.5 s |
+| Detection range | 300 px |
+| Iron drop / XP | 10 / 30 |
+| Pathfinding | A* across the room graph; per-frame moves rejected if they cross a wall |
+
+---
+
+## Nebula Boss
+
+| Property | Value |
+|---|---|
+| Trigger | First Quantum Wave Integrator built in Zone 2 |
+| Sprite | Boss sheet column 2, randomised across 8 rows |
+| Sprite scale | 1.80x (`BOSS_SCALE`) — 3× larger than the original boss |
+| Collision radius | 114 px (`BOSS_RADIUS`) |
+| Detection range | 1000 px (prioritises the player over buildings) |
+| Iron / Copper drop | 3000 / 1000 |
+| XP reward | 0 (no XP) |
+
+### Nebula Boss Weapons
+
+| Weapon | Damage | Speed | Range | Cooldown | Notes |
+|---|---|---|---|---|---|
+| Cannon | 40 | 550 px/s | 800 px | 1.0 s | Same as Double Star |
+| Gas Cloud | 30 | 275 px/s | 500 px | 4.0 s | 60 px collision radius; on hit applies a 1.5 s ×0.5 player-speed slow |
+| Cone Attack | 20 / 0.5 s tick | --- | 400 px length × 200 px wide | 6.0 s | Cone stays active for 1.5 s; ticks while player is inside |
+
+### Quantum Wave Integrator (QWI)
+
+| Property | Value |
+|---|---|
+| Build cost | 1000 iron + 2000 copper |
+| HP | 200 |
+| Max count | 1 |
+| Placement radius from Home Station | 300 px (`QWI_PLACE_RADIUS`) |
+| Auto-spawn boss on build | Yes |
+| Click-to-summon cost | 100 iron (`QWI_SPAWN_NEBULA_BOSS_IRON_COST`) |
+
+---
+
+## Null Fields
+
+| Property | Value |
+|---|---|
+| Count per non-warp zone | 30 (`NULL_FIELD_COUNT`) |
+| Diameter range | 128 – 256 px (`NULL_FIELD_SIZE_MIN/MAX`) |
+| Disable timer after firing inside | 10 s (`NULL_FIELD_DISABLE_S`) |
+| Visual cluster | 28 dots (`NULL_FIELD_DOT_COUNT`) |
+| Effect | While inside, AI targeting treats the player as invisible (`gv._player_cloaked`) |
+| Persistence | Saved + listed in T-menu "Other Zones" |
+
+---
+
+## Slipspaces
+
+| Property | Value |
+|---|---|
+| Count per non-warp zone | 15 (`SLIPSPACE_COUNT`) |
+| Display size | 160 px (`SLIPSPACE_DISPLAY_SIZE`) |
+| Collision radius | 60 px (`SLIPSPACE_RADIUS`) — smaller than display so the player has to fly into the visual |
+| Rotation speed | 90 deg/s |
+| World-edge margin | 200 px |
+| Behaviour | Paired teleport; conserves player velocity |
+| Persistence | Saved + minimap-marked |
+
+---
+
 ## Warp Zone Dimensions
 
 | Property | Value |
 |---|---|
 | Zone size | 3,200 x 6,400 px |
-| Entry | Bottom (from Zone 1 after boss defeat) |
-| Exit to Zone 2 | Top |
-| Safe return | Bottom exit back to Zone 1 |
+| Variants | 3 each per theme (12 total): Zone-1 originals (`WARP_*`), Nebula post-boss (`NEBULA_WARP_*`, 2× danger scalar, top exit → Star Maze), Star-Maze (`MAZE_WARP_*`, return to Star Maze) |
+| Entry | Bottom (from the originating zone) |
+| Exit forward | Top (Zone 2 → Star Maze for `NEBULA_WARP_*`; back to home zone for the rest) |
+| Safe return | Bottom exit back to originating zone |
 | Red wall damage | Drains shields on contact |
 
 ---
@@ -321,7 +427,7 @@ All ships start at world centre. Ships rendered at 0.75x scale (96 px in-game). 
 | ![](images/buildings/missile_array.png)             | Missile Array            | 150 |  600 | 300  | unlimited | Auto-fires homing missiles at aliens within 600 px |
 | ![](images/buildings/basic_ship.png)                | Basic Ship (placement)   | 100 |  500 | 250  | unlimited | Places a level-1 `ParkedShip`; only while no other L1 exists |
 | ![](images/buildings/advanced_ship.png)             | Advanced Ship (upgrade)  | 100 | 1000 | 500  | unlimited | Upgrade placement — new level-2 ship at cursor; old ship persists as parked |
-| ![](images/buildings/quantum_wave_integrator.png)   | Quantum Wave Integrator  | 200 | 1000 | 2000 | 1         | Auto-spawns the Double Star boss on build; clicking opens the Nebula-boss summon menu (100 iron) |
+| ![](images/buildings/quantum_wave_integrator.png)   | Quantum Wave Integrator  | 200 | 1000 | 2000 | 1         | Auto-spawns the Nebula boss on build; clicking opens the Nebula-boss summon menu (100 iron per resummon) |
 
 ---
 

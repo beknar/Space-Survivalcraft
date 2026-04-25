@@ -21,7 +21,17 @@
 | Activate Death Blossom | X |
 | Misty Step teleport | Double-tap W/A/S/D |
 | Toggle FPS display | F |
+| Full-screen map | M |
 | Escape menu | Escape |
+
+### Mouse
+
+| Action | Input |
+|---|---|
+| Inventory cell — pick up / drop | Left-click |
+| Inventory cell — split stack in half | Right-click (extras go to the cursor) |
+| Trade sell row — sell one unit per 0.15 s | Hold left-click |
+| Move turret / missile array | Long-press LMB (≥ 0.4 s) and drag |
 
 ## Xbox 360 Gamepad
 

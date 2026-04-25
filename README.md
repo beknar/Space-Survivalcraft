@@ -8,12 +8,18 @@ A top-down space survival game built with Python and the Arcade framework. Pilot
 - **3 playable characters** (Debra, Ellie, Tara) with 10-level progression trees
 - **Newtonian flight model** with thrust, inertia, sideslip, and gamepad support
 - **Combat** with Basic Laser, Mining Beam, and ship module weapons (broadside lasers)
-- **Boss encounter** --- 3-phase AI boss with 2,000 HP, spread shots, and charge attacks
-- **4 warp zones** --- meteor, lightning, gas cloud, and enemy spawner transition zones
+- **Boss encounter** --- 3-phase Double Star boss with 2,000 HP, spread shots, and charge attacks (also routes around force walls)
+- **12 warp zones** --- meteor, lightning, gas cloud, and enemy spawner transitions in three flavours: original Zone-1 access (post-boss), `NEBULA_WARP_*` post-Nebula-boss variants (2× danger, route to the Star Maze), and `MAZE_WARP_*` Star-Maze variants (return to the maze)
 - **Zone 2 (Nebula)** --- second biome with copper, gas hazards, magnetic asteroids, and 4 new alien types
-- **Cross-zone persistence** --- all zones saved and restored independently; fog of war, asteroids, aliens, and buildings persist across zone transitions and save/load; Zone 2 buildings survive round trips through warp zones
+- **Zone 3 (Star Maze)** --- 12000×12000 third biome with 4 dungeon-wall maze structures (5×5 rooms each), MazeSpawner turrets in every room, MazeAliens that A*-pathfind through the room graph, and Nebula content (asteroids/gas/wanderers/null fields) outside the mazes
+- **Two bosses** --- the original 3-phase Double Star boss + a Nebula boss (3000 iron + 1000 copper reward) with gas-cloud and cone attacks, summoned via the Quantum Wave Integrator (100 iron per resummon)
+- **Null Fields** --- 30 stealth patches per zone hide the player from enemies; firing inside disables the field for 10 s
+- **Slipspaces** --- 15 paired teleport portals per non-warp zone that conserve velocity
+- **Cross-zone persistence** --- all zones (Zone 1 + Nebula + Star Maze) saved and restored independently; fog of war, asteroids, aliens, buildings, parked ships, null fields, slipspaces, and maze-spawner state persist across zone transitions and save/load; Zone 2 buildings survive round trips through warp zones
 - **Background zone simulation** --- optional "Simulate All Zones" setting ticks inactive zones (respawns, alien patrol, asteroid rotation) while the player is elsewhere
-- **Inactive zone info panel** --- Station Info (T key) shows live entity counts from zones the player is not in
+- **Inactive zone info panel** --- Station Info (T key) shows live entity counts from every zone the player is not currently in (Double Star, Nebula, Star Maze)
+- **Full-screen map** --- press `M` to open a zoomed-out world map for the active zone with player + entity overlays
+- **Inventory polish** --- right-click any cell to split a stack in half; blueprint cells get a red-dot overlay until the blueprint is unlocked
 - **Homing missiles** --- consumable weapon with homing AI, craftable at Advanced Crafter
 - **Advanced modules** --- Misty Step teleport, Force Wall barrier (blocks enemy lasers, boss projectiles, AND enemy movement with route-around AI), Death Blossom missile barrage
 - **Special ability meter** --- powers advanced module abilities
@@ -85,17 +91,17 @@ The [ROADMAP](ROADMAP.md) tracks shipped features in chronological order alongsi
 ## Running Tests
 
 ```bash
-# Fast suite (493 tests, ~2s)
+# Fast suite (906 tests, ~5.5s)
 python -m pytest "unit tests/" -v
 
-# Integration tests (131 tests — requires an Arcade window)
+# Integration tests (~309 tests — requires an Arcade window)
 python -m pytest "unit tests/integration/" -v
 
 # Soak/endurance tests only (~30 min, 5 min each)
 python -m pytest "unit tests/integration/test_soak.py" -v
 ```
 
-493 fast unit tests covering player physics, weapons, asteroids, aliens, pickups, blueprints, shields, explosions, contrails, inventory (incl. render-cache dirty flag and badge texture cache), damage routing, buildings, ship modules (inc. AI Pilot patrol/return behaviour), parked ships, refugee NPC + dialogue tree, station shield absorb helper, respawn, fog of war, video scanning, settings, collision physics primitives + `_hit_player_on_cooldown` helper, save-restore helpers, shared alien-AI helpers (`compute_avoidance` / `pick_patrol_target`), zone-aware Station Info world stats, Zone 2 update loop branches, and CPU microbenchmarks. 144 integration tests cover full-frame FPS thresholds (inc. trade sell/buy panel × zones × {no video, both videos}, buy↔sell churn, AI Pilot fleets, station-shield combat, shielded-fleet + station-shield pairing, refugee NPC spawn + dialogue click flow, patrol/return integration), GPU rendering microbenchmarks, resolution scaling across all 6 presets, and 5-minute soak/endurance tests measuring FPS and RSS stability (inc. AI Pilot patrol cycle, dialogue churn, station shield cycle, shared scaffolding). 637 tests total. Linted with [ruff](https://docs.astral.sh/ruff/) (`ruff.toml` — bug-focused rules).
+906 fast unit tests covering player physics, weapons, asteroids, aliens, pickups, blueprints, shields, explosions, contrails, inventory (incl. render-cache dirty flag and badge texture cache), damage routing, buildings, ship modules (inc. AI Pilot patrol/return behaviour), parked ships, refugee NPC + dialogue tree, dialogue overlay lifecycle, station shield absorb helper, respawn, fog of war, video scanning, settings, collision physics primitives + `_hit_player_on_cooldown` helper, save-restore helpers, shared alien-AI helpers (`compute_avoidance` / `pick_patrol_target`), zone-aware Station Info world stats, Zone 2 update loop branches, **Star Maze geometry + A* pathing + MazeAlien/MazeSpawner stats + save round-trip, Nebula boss + QWI menu, null fields + slipspaces + persistence, force wall geometry, gas area drift/bouncing, nebula_shared collision/update helpers, ship_manager upgrade + place + switch flow**, and CPU microbenchmarks. ~309 integration tests cover full-frame FPS thresholds across all three zones (inc. trade sell/buy panel × zones × {no video, both videos}, buy↔sell churn, AI Pilot fleets, station-shield combat, shielded-fleet + station-shield pairing, refugee NPC spawn + dialogue click flow, patrol/return integration, Star Maze real-GameView flows), GPU rendering microbenchmarks, resolution scaling across all 6 presets, and 5-minute soak/endurance tests measuring FPS and RSS stability (inc. AI Pilot patrol cycle, dialogue churn, station shield cycle, **Star Maze idle / combat churn / Nebula pressure**, shared scaffolding). Linted with [ruff](https://docs.astral.sh/ruff/) (`ruff.toml` — bug-focused rules).
 
 ## Project Structure
 
@@ -163,10 +169,15 @@ Space Survivalcraft/
 │   ├── missile.py       # HomingMissile
 │   ├── force_wall.py    # ForceWall
 │   ├── wormhole.py      # Wormhole
+│   ├── null_field.py, slipspace.py
+│   ├── nebula_boss.py   # NebulaBoss (gas + cone attacks)
+│   ├── maze_alien.py, maze_spawner.py  # Star Maze enemies
 │   ├── parked_ship.py   # ParkedShip (multi-ship + AI pilot)
 │   └── npc_ship.py      # RefugeeNPCShip (story encounter)
-├── zones/               # Zone state machine (9 zone files incl. zone2_world.py)
-├── unit tests/          # 493 fast tests + 144 integration tests (637 total)
+├── zones/               # Zone state machine — MainZone, Zone2,
+│                        # StarMazeZone, 4 warp zones × 3 variants,
+│                        # zone2_world.py, maze_geometry.py, nebula_shared.py
+├── unit tests/          # 906 fast tests + ~309 integration tests
 ├── docs/                # Full game documentation
 ├── characters/          # Character videos and portraits
 ├── docs/game-rules.md   # Comprehensive rules reference
@@ -175,8 +186,8 @@ Space Survivalcraft/
 
 ## Future Features
 
-- **New space biomes** --- visually distinct sectors with unique asteroid types, backgrounds, and resources
-- **Hazardous zones** --- radiation clouds, electrical discharge, EMP areas, maze barriers
+- **New space biomes** --- visually distinct sectors with unique asteroid types, backgrounds, and resources _(Zone 2 Nebula + Star Maze + 12 warp zones shipped; more biomes still open)_
+- **Hazardous zones** --- radiation clouds, electrical discharge, EMP areas, maze barriers _(meteor + lightning + gas + enemy-spawner warp zones + dungeon-wall maze barriers shipped; radiation + EMP still open)_
 - **Characters** --- branching storylines, character-specific abilities, ship skins
 - **Planetary landing** --- land on planets with different surface biomes
 - **Planetary vehicles** --- ground-based exploration

@@ -213,14 +213,79 @@ Triggered when player enters 500 px, or player weapon fires within 160 px (4x sh
 
 ## Warp Zone Rules
 
-- Warp zones appear after the boss is defeated
-- 4 types: Meteor, Lightning, Gas, Enemy Spawner --- each with unique hazards
+- Warp zones appear after the originating zone's boss is defeated
+- 4 themes (Meteor, Lightning, Gas, Enemy Spawner) × 3 variants:
+  - **Zone-1 originals (`WARP_*`)** — top exit → Zone 2
+  - **Nebula post-boss (`NEBULA_WARP_*`)** — 2× danger scalar, top exit → Star Maze
+  - **Star-Maze (`MAZE_WARP_*`)** — exit returns to the Star Maze
 - **Red walls** line warp zone boundaries; contact drains shields continuously
-- **Bottom exit** provides a safe return to Zone 1 (home sector)
-- **Top exit** transitions the player into Zone 2 (The Nebula)
+- **Bottom exit** provides a safe return to the originating zone
 - Player position and inventory are preserved across zone transitions
 - Buildings placed in Zone 2 are preserved when travelling through warp zones and back
 - Gas hazards in the Gas Cloud warp zone are always visible on the minimap regardless of fog of war
+
+---
+
+## Star Maze (Zone 3) Rules
+
+### Layout & Containment
+- 4 maze structures at `STAR_MAZE_CENTERS` (corners + centre) inside a 12000×12000 zone
+- Each maze: 5×5 rooms (300 px interior, 32 px walls), carved by recursive-backtracking DFS seeded off the world seed
+- Outside the maze rectangles the zone hosts the same Nebula content as Zone 2 (asteroids, gas, wanderers, Z2 aliens, null fields, slipspaces)
+- Population uses radius-aware reject filters that keep entities out of every maze AABB
+- Non-maze enemies that drift into a maze get pushed back out via `_push_out_of_maze_bounds`
+- Misty Step rejects teleports whose path crosses a wall (samples every 16 px)
+
+### Maze Spawner
+- Stationary turret in the centre of every room; 100 HP + 100 shields
+- Fires a 30-damage laser at the player within 300 px every 1.0 s
+- Spawns one MazeAlien every 30 s up to a cap of 20 alive children
+- Killed: drops 1000 iron + 100 XP; respawns to full HP/shields after 90 s (alive children carry over)
+- Sprite is hidden while killed and reappears on respawn
+- Position is **deterministically derived from the world seed**, NOT from save data — restoring a save with stale spawner positions is no longer possible
+
+### Maze Alien
+- 50 HP, 30 XP, 10 iron drop on kill
+- 120 px/s movement, 20 px collision radius
+- Fires a 10-damage laser every 1.5 s within 300 px and 200 px range
+- **A* pathfinding**: when the player is in a different room, the alien plans through the room-adjacency graph (`zones/maze_geometry.astar_room_path`) and steers toward the next waypoint instead of bee-lining
+- Per-frame moves are checked against a wall spatial-hash and reverted if they would cross a wall; T-intersection corners use a 5-iter push-out loop
+
+---
+
+## Nebula Boss Rules
+
+- Spawned by building the **Quantum Wave Integrator** in Zone 2 (1000 iron + 2000 copper)
+- Larger sprite (3× scale, 114 px collision radius); randomised across 8 sprite rows of column 2
+- Detection range 1000 px; prioritises the player over buildings
+- **Cannon**: 40 damage, 1.0 s cooldown, 800 px range
+- **Gas cloud**: 30 damage at 275 px/s; on hit applies a 1.5 s ×0.5 player-speed slow; 60 px collision radius; 4.0 s cooldown
+- **Cone attack**: 400 px-long × 200 px-wide; 1.5 s active, 6.0 s cooldown; 20 damage per 0.5 s tick while the player is inside
+- **Movement**: routes around force walls instead of grinding on them; rams through asteroids and drops normal alien-style loot along the way
+- **Targeted by**: station turrets, missile arrays, and AI-piloted parked ships
+- **Reward**: 3000 iron + 1000 copper, no XP
+- **Resummon**: clicking the QWI within 300 px after the boss is defeated charges 100 iron and respawns the boss
+
+---
+
+## Null Field Rules
+
+- 30 stealth patches per non-warp zone; sized between 128 px and 256 px diameter
+- While the player is inside any active field, AI targeting treats them as **invisible** (`gv._player_cloaked` flag is set)
+- All Zone 2 alien classes and the Star Maze MazeAlien/MazeSpawner honour the cloak (Star Maze checks the flag in both `_update_maze_aliens` and `_update_spawners`)
+- Firing **any** weapon from inside a field **disables that field** for `NULL_FIELD_DISABLE_S` (10 s) and flashes it red; the field re-enables after the timer elapses
+- Disabled fields no longer cloak; surfaced on the Station Info "Other Zones" panel
+- Persisted in save/load (per-zone state)
+
+---
+
+## Slipspace Rules
+
+- 15 paired teleport portals per non-warp zone
+- Display 160 px / collision 60 px (the player must fly visually into the swirl, not just brush its outer edge)
+- On entry: player is teleported to the paired exit and **velocity is conserved** (the player exits with the same momentum they entered with)
+- Rotation 90 deg/s; minimap-marked
+- Persisted in save/load
 
 ---
 

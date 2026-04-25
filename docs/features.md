@@ -81,6 +81,17 @@ chooses the stats. All five types are available under every faction.
 - Bottom exit provides a safe return to Zone 1
 - Top exit transitions the player into Zone 2 (The Nebula)
 
+## Boss 2 --- Nebula Boss
+
+- Triggered by building a **Quantum Wave Integrator** (QWI) in Zone 2 (cost: 1000 iron + 2000 copper)
+- Larger sprite (3× the original boss); 3 randomised sprite rows in column 2 of the boss sheet
+- Targets the player within 1000 px detection range
+- **Gas-cloud cannon** --- launches drifting gas clouds at half cannon speed (275 px/s); each hit deals 30 damage and slows the player by 50 % for 1.5 s
+- **Cone attack** --- 400 px-long, 200 px-wide cone (1.5 s active, 6 s cooldown) deals 20 damage per 0.5 s tick while the player is inside
+- Routes around force walls instead of grinding on them; rams through asteroids and drops loot identical to standard alien kills along the way
+- **Reward**: 3000 iron + 1000 copper (no XP)
+- Click the QWI within 300 px to open the **QWI summon menu** to resummon (100 iron per summon) once the boss is defeated
+
 ## Zone 2 --- The Nebula
 
 - New biome with a nebula-themed starfield background
@@ -93,6 +104,41 @@ chooses the stats. All five types are available under every faction.
   - **Fast Alien** --- moves at 160 px/s, harder to hit and outrun; flips orbit direction unpredictably
   - **Gunner Alien** --- equipped with 2 guns for double the firepower; orbits at range
   - **Rammer Alien** --- 100 HP + 50 shields, charges directly toward the player (no guns)
+
+## Zone 3 --- The Star Maze
+
+- 12000×12000 third biome reached through **post-Nebula-boss warp zones** (the same four themes as the Zone-1 warp zones, but with a 2× danger scalar)
+- Hosts `STAR_MAZE_COUNT` (4) **dungeon-wall maze structures** laid out at the corners + centre via `STAR_MAZE_CENTERS`
+- Each maze is a **5×5 room grid** (300 px room interior, 32 px wall thickness) carved with recursive-backtracking DFS for a unique, deterministic layout (seeded off the world seed)
+- **MazeSpawner** in every room (100 HP + 100 shields) acts as a stationary turret; spawns a MazeAlien every 30 s up to a cap of 20 alive children. Killed spawners drop **1000 iron + 100 XP** and respawn after 90 s
+- **MazeAlien** enemies use **A* pathfinding** through the maze's room-adjacency graph instead of bee-lining at the player; routes around walls without grinding on corners. 50 HP, 30 XP per kill
+- **Outside the mazes** the zone is populated with the same Nebula content as Zone 2 (iron + copper + double-iron asteroids, gas clouds, wandering asteroids, Z2 aliens, null fields, slipspaces) via radius-aware reject filters that keep entities out of the maze rectangles
+- Non-maze enemies that drift into a maze get pushed back out
+- Misty Step **rejects teleports** whose path crosses a maze wall (samples every 16 px along the segment)
+- Star Maze has its own corner wormholes that chain on to deeper `MAZE_WARP_*` warp variants
+
+## Null Fields
+
+- 30 stealth patches per non-warp zone (`NULL_FIELD_COUNT`) hide the player from enemies — while inside, AI targeting treats the player as invisible (`gv._player_cloaked` flag)
+- Both Zone 2 alien classes and the Star Maze MazeAlien/MazeSpawner honour the cloak
+- **Firing any weapon from inside** disables the field for 10 s (`NULL_FIELD_DISABLE_S`) and flashes it red; the field re-enables after the timer elapses
+- Each field is a cluster of soft dots (`NULL_FIELD_DOT_COUNT = 28`) sized between 128 px and 256 px diameter
+- Persisted in save/load and surfaced on the Station Info "Other Zones" panel
+
+## Slipspaces
+
+- 15 paired teleporter portals per non-warp zone (`SLIPSPACE_COUNT = 15`)
+- Flying into a slipspace teleports the player to its paired exit and **conserves velocity** (the player exits with the same momentum they entered with)
+- Display 160 px / collision 60 px (the player has to fly visually into the swirl, not just brush its outer edge)
+- Rotates at 90 deg/s; minimap-marked
+- Persisted in save/load
+
+## Full-Screen Map (`M` key)
+
+- Press `M` to open a full-screen zoomed-out map of the active zone
+- Renders the player, fog of war, and all entity overlays (asteroids, aliens, buildings, parked ships, gas areas, null fields, slipspaces, wormholes, boss)
+- Press `M` or ESC to close
+- Cannot be opened while dead or while the escape menu is open
 
 ## Advanced Modules
 
@@ -125,7 +171,9 @@ chooses the stats. All five types are available under every faction.
 
 - 5x5 cargo hold grid toggled with I key or gamepad Y button
 - Drag-and-drop with stacking, swapping, and world ejection
+- **Right-click any cell to split a stack in half** (extras go to the cursor for placement)
 - Iron and repair packs display with dedicated icons and count badges
+- **Blueprint cells display a red dot overlay** until the recipe is unlocked at a crafter
 - **Consolidate** button merges stacks (respects max stack limits)
 - Ejected items despawn after 10 minutes
 
@@ -245,9 +293,9 @@ chooses the stats. All five types are available under every faction.
 
 - Left-side status panel with HP/shield bars, character video, active weapon, faction/ship info
 - FPS counter (toggle with F), music track name with equalizer visualizer
-- Mini-map showing full world: player (white), asteroids (grey), pickups (orange), aliens (red), buildings (cyan), trading station (yellow), boss (large red), gas areas (green octagonal outlines, proportional to world size), wormholes (purple)
+- Mini-map showing full world: player (white), asteroids (grey), pickups (orange), aliens (red), buildings (cyan), parked ships (teal), trading station (yellow), boss (large pulsing yellow/red), gas areas (green octagonal outlines, proportional to world size), wormholes (purple), null fields (cyan), slipspaces (magenta), maze walls (grey rects, Star Maze only)
 - Gas hazards in warp zones always visible on minimap regardless of fog of war
-- **Station Info** (T key) --- building HP, module capacity, zone-specific entity counts, plus an "Other Zones" panel showing live stats from inactive zones (Double Star and/or Nebula)
+- **Station Info** (T key) --- building HP, module capacity, zone-specific entity counts, plus an "Other Zones" panel showing live stats from every inactive main zone (Double Star, Nebula, Star Maze)
 
 ## Fog of War
 

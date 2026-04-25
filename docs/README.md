@@ -52,7 +52,21 @@ Welcome to the full documentation for **Call of Orion**, a top-down space surviv
 
 ## Zone 2 (The Nebula)
 
-Zone 2 is the second biome, accessed through warp zones that appear when the boss is defeated. It features copper asteroids, toxic gas clouds, wandering magnetic asteroids, and 4 new alien types. Ranged aliens orbit the player at ~300 px standoff distance instead of charging, while the Rammer alien still charges directly. Wandering asteroids bounce off the player on contact with full knockback physics. Gas areas are shown on the minimap as proportionally-sized green octagonal outlines. In warp zones, gas hazards are always visible on the minimap regardless of fog of war. See [Features](features.md) and [Statistics](statistics.md) for full details.
+Zone 2 is the second biome, accessed through warp zones that appear when the Double Star boss is defeated. It features copper asteroids, toxic gas clouds, wandering magnetic asteroids, and 4 new alien types. Ranged aliens orbit the player at ~300 px standoff distance instead of charging, while the Rammer alien still charges directly. Wandering asteroids bounce off the player on contact with full knockback physics. Gas areas are shown on the minimap as proportionally-sized green octagonal outlines. In warp zones, gas hazards are always visible on the minimap regardless of fog of war. See [Features](features.md) and [Statistics](statistics.md) for full details.
+
+## Zone 3 (The Star Maze)
+
+Zone 3 is a 12000×12000 third biome reached via post-Nebula-boss warp zones. It contains `STAR_MAZE_COUNT` (4) dungeon-wall **maze structures** laid out at the corners + centre via `STAR_MAZE_CENTERS`. Each maze is a **5×5 room grid** (300 px interior, 32 px walls) carved with recursive-backtracking DFS in `zones/maze_geometry.generate_maze`. Every room hosts one **MazeSpawner** (100 HP + 100 shields, 1000 iron + 100 XP on kill, 90 s respawn) which periodically spits out a **MazeAlien** (50 HP, 30 XP, A*-pathfinds through the room graph instead of bee-lining). Outside the maze rectangles the zone hosts the same Nebula content as Zone 2 (asteroids, gas, wanderers, Z2 aliens, null fields, slipspaces) populated via `zones/nebula_shared.populate_nebula_content` with radius-aware reject filters. Misty Step rejects teleports whose path crosses a wall. Star Maze has its own corner wormholes that chain on to deeper `MAZE_WARP_*` warp variants.
+
+## Nebula Boss + Quantum Wave Integrator
+
+The **Quantum Wave Integrator** (QWI) is a Zone-2 building (1000 iron + 2000 copper) that triggers the **Nebula boss** on construction. Clicking the QWI within `QWI_PLACE_RADIUS` (300 px) opens `qwi_menu.QWIMenu`, which charges 100 iron per resummon. The Nebula boss has **gas-cloud** projectiles (30 dmg + 1.5 s slow on hit) and a 400 px **cone attack** (20 dmg per 0.5 s tick while inside). Reward: 3000 iron + 1000 copper, no XP. Station turrets, missile arrays, and AI-piloted parked ships all target + damage the Nebula boss, which routes around force walls.
+
+## Null Fields & Slipspaces
+
+**Null fields** are 30 stealth patches per non-warp zone (`NULL_FIELD_COUNT`) that hide the player from enemies — while inside, AI targeting treats the player as invisible. Firing any weapon from inside a field disables the field for `NULL_FIELD_DISABLE_S` (10 s) and flashes it red. Star Maze + Zone 2 enemies (including maze enemies) all honour the cloak.
+
+**Slipspaces** are 15 paired teleporter portals per non-warp zone that conserve velocity. Display 160 px / collision 60 px. Persisted in save/load and shown on the minimap.
 
 ## Multi-Ship System
 
@@ -60,7 +74,7 @@ Upgrading a ship via "Advanced Ship" in the build menu now places the new ship i
 
 ## Cross-Zone Save/Load
 
-All zones are saved and restored independently. When saving from any zone, both Zone 1 (Double Star) and Zone 2 (Nebula) state is fully serialized --- including asteroids, aliens, fog of war, buildings, and wanderers. Zone 1 data is pulled from the MainZone stash when the player is in another zone. Zone 2 buildings are separately stashed/restored during zone transitions to survive round trips through warp zones. Zone 2 entity population and collision handling are in `zones/zone2_world.py`.
+All three main zones are saved and restored independently. When saving from any zone, Zone 1 (Double Star), Zone 2 (Nebula), and Zone 3 (Star Maze) state is fully serialized --- including asteroids, aliens, fog of war, buildings, wanderers, parked ships, null fields, slipspaces, and maze-spawner state (HP, shields, kill flag, respawn timer, alive-children count). Zone 1 data is pulled from the MainZone stash when the player is in another zone. Zone 2 buildings (and the trade station + parked ships) are stashed in `Zone2._building_stash` so they survive round trips through warp zones. Zone 2 entity population and collision handling live in `zones/zone2_world.py`; both Zone 2 and Star Maze share `zones/nebula_shared.py` for the Nebula content + collisions. Star Maze geometry (rooms, walls, room graph, A* helper) lives in `zones/maze_geometry.py`; Star Maze persists its own world seed so the maze layout regenerates deterministically on load (the spawner positions are re-derived from the seed rather than restored from save data).
 
 ## Background Zone Simulation
 
@@ -71,7 +85,7 @@ An optional "Simulate All Zones" toggle (in Config menus) enables background tic
 - Asteroids rotate, wanderers drift
 - No sounds, visual effects, or player collision --- purely simulation
 
-The Station Info panel (T key) shows an "Other Zones" panel with live entity counts from inactive zones (Double Star and Nebula), excluding warp zones.
+The Station Info panel (T key) shows an "Other Zones" panel with live entity counts from every inactive main zone (Double Star, Nebula, Star Maze), excluding warp zones.
 
 ## Architecture Notes
 
@@ -83,6 +97,8 @@ The codebase follows an extraction pattern where GameView delegates to free-func
 - **`game_state.py`** --- state dataclasses (`BossState`, `FogState`, `CombatTimers`, `AbilityState`, `EffectState`) for future incremental adoption
 - **`game_save.py`** --- reusable serialization/deserialization helpers (`_serialize_asteroid`, `_restore_z1_aliens`, etc.) replacing repeated patterns
 - **`zones/zone2_world.py`** --- Zone 2 entity population and collision handling extracted from `zone2.py`
+- **`zones/nebula_shared.py`** --- shared Nebula content / collision / fog / gas / wanderer / asteroid handlers used by both `Zone2` and `StarMazeZone`. Extracted to stop drift between the two zones (every Zone 2 fix used to require a manual port to the Star Maze's copy).
+- **`zones/maze_geometry.py`** --- Star Maze `MazeLayout` NamedTuple, recursive-backtracking maze generation, room-adjacency graph, A* room pathing, point-in-rect / segment-vs-walls helpers
 - **`base_inventory.py`** --- shared drag state, icon resolution, grid helpers, a dirty-flag render cache (`_render_dirty` + `_build_render_cache`) that batches cell fills and item icons into two `SpriteList`s rebuilt only when items change, and a badge texture cache (`_get_badge_texture` renders each unique count via PIL `ImageDraw`, cached in `_badge_tex_cache`) that batches all count badges into `_cache_badge_list` SpriteList. Used by both cargo and station inventories.
 - **`collisions.resolve_overlap` / `collisions.reflect_velocity`** --- two pure-math primitives extracted from six near-duplicate collision handlers. `resolve_overlap` returns the contact normal (or `None`) after pushing two bodies apart; `reflect_velocity` reflects one body's velocity along that normal with restitution. Eliminates ~150 lines of bounce/push duplication across `collisions.py` and `zones/zone2.py`.
 - **`game_save._restore_sprite_list`** --- generic clear-then-append helper used by Zone 1 asteroid restore and all four Zone 2 entity lists (iron, double iron, copper, wanderers). Factory closures may return `None` to skip a malformed entry.
@@ -108,7 +124,7 @@ Several large optimizations target the Nebula zone, which can populate hundreds 
 
 ## Test Coverage
 
-The fast test suite (`unit tests/`, 493 tests) runs in ~2 s and covers:
+The fast test suite (`unit tests/`, 906 tests) runs in ~5.5 s and covers:
 
 - **Player physics** (`test_player.py`) — rotation, thrust, damping, clamping
 - **Weapons + projectiles** (`test_projectile.py`)
@@ -124,17 +140,24 @@ The fast test suite (`unit tests/`, 493 tests) runs in ~2 s and covers:
 - **Zone 2 update loop** (`test_zone2_update.py`) — 7 tests covering update branches including the `UnboundLocalError` regression (missing module-level import in `zone2.py`)
 - **CPU microbenchmarks** (`test_perf_micro.py`) — 8 tests for collision, inventory, fog, alien AI, minimap, and save serialization (all windowless, ~0.11 s)
 - **Parked ships** (`test_parked_ship.py`) — construction by level, HP/shield damage routing, hit flash, cargo/module storage, collision handler (alien/player/boss projectiles), destruction drops, serialization round trip
+- **Star Maze** (`test_star_maze.py`) — maze generation determinism, room overlap, recursive-backtracking DFS, A* room pathing (incl. Z-shape), MazeAlien/MazeSpawner stat pinning, geometry collision helpers, save/load round trip (incl. position-NOT-restored contract)
+- **Nebula boss + QWI** (`test_qwi_and_nebula_boss.py`, `test_session_boss_tweaks.py`) — boss spawn, gas/cone attacks, drop logic, QWI menu summon flow
+- **Null fields + slipspaces** (`test_null_field.py`, `test_null_field_persistence.py`, `test_slipspace.py`, `test_slipspace_minimap.py`) — cloak toggle, weapon-fire disable + 10 s timer, save/restore, minimap markers, paired teleport + velocity conservation
+- **Force wall + gas area** (`test_force_wall.py`, `test_gas_area.py`) — endpoint geometry, lifetime, closest_point clamping, segment_crosses; gas drift/bouncing/contains_point
+- **Nebula shared helpers** (`test_nebula_shared.py`) — `rebuild_shielded_list`, `update_fog`, `update_gas_damage` cooldown, `update_alien_laser_hits`, `update_player_asteroid_collision`, `update_wanderer_collision`
+- **Ship manager** (`test_ship_manager.py`, `test_basic_ship_build.py`) — `_deduct_ship_cost`, `_resize_module_slots`, `_upgrade_ship` guards + success path, `_place_basic_ship` / `_place_new_ship`, `count_l1_ships`
+- **Dialogue overlay** (`test_dialogue_overlay.py`) — open/close, SPACE/ENTER advance, digit-key picks, ESC closes, aftermath commit on terminal nodes, broken-tree cleanup
 - **Settings, video scanning, world setup helpers**
 
-The integration suite (`unit tests/integration/`, 144 tests) requires an Arcade window and covers:
+The integration suite (`unit tests/integration/`, ~309 tests) requires an Arcade window and covers:
 
-- **Functional** (`test_zone2_real_gv.py`) — Zone 2 exercised with a real GameView, including Death Blossom flow with both videos running
+- **Functional** (`test_zone2_real_gv.py`, `test_star_maze_real_gv.py`) — Zone 2 and Star Maze exercised with a real GameView, including Death Blossom flow with both videos running and Star Maze maze-spawner combat
 - **Full-frame FPS** (`test_performance.py`) — 40 FPS-threshold tests across Zone 1 + Zone 2 (full population, buildings, boss, heavy combat, minimap), warp zones, station info with and without music, inventories, parked ships, Missile Array, real music + character video, and the **trade sell / buy panels in both zones with and without both videos playing plus a buy↔sell churn scenario**
 - **GPU rendering** (`test_render_perf.py`) — microbenchmarks isolating Text.draw, SpriteList.draw, draw_points, draw_lines, draw_rect_filled vs SpriteList, fog texture rebuild
 - **Resolution scaling** (`test_resolution_perf.py`) — 12 tests across all 6 RESOLUTION_PRESETS × 2 zones (Zone 1 + Zone 2); uses `apply_resolution` to resize a hidden window between tests; cannot run in parallel (one Arcade window per process)
-- **Soak/endurance** (`test_soak.py`) — 5-minute soak tests measuring FPS + RSS every 30 s: Zone 1 combat, Zone 2 combat, video player, inventory churn, fog texture rebuild, combined worst-case. Player made invulnerable to prevent premature death. Requires `psutil` dev dependency.
+- **Soak/endurance** (`test_soak.py`) — 5-minute soak tests measuring FPS + RSS every 30 s: Zone 1 combat, Zone 2 combat, **Star Maze idle / combat churn / Nebula pressure**, video player, inventory churn, fog texture rebuild, combined worst-case. Player made invulnerable to prevent premature death. Requires `psutil` dev dependency.
 
-Grand total: 637 tests (493 fast + 144 integration). Real music-video tests load `.mp4` files from `./yvideos` (gitignored) relative to the project root. Shared soak scaffolding lives in `unit tests/integration/_soak_base.py`; refactor-pass helpers are exercised by `unit tests/test_refactor_helpers.py`.
+Grand total: ~1215 tests (906 fast + ~309 integration). Real music-video tests load `.mp4` files from `./yvideos` (gitignored) relative to the project root. Shared soak scaffolding lives in `unit tests/integration/_soak_base.py`; refactor-pass helpers are exercised by `unit tests/test_refactor_helpers.py`.
 
 Tests use PIL-generated dummy textures so no game assets are required. Fast tests need no Arcade window. `pytest` and `psutil` (for soak tests) are needed beyond the game's regular dependencies.
 

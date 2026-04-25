@@ -21,7 +21,9 @@ The codebase follows a modular extraction pattern where the central `GameView` c
 | `game_save.py` | ~690 | Save/load serialization with `_restore_sprite_list` factory helper |
 | `game_music.py` | — | Music playlist, video playback management |
 | `collisions.py` | ~490 | All collision handlers + `resolve_overlap` / `reflect_velocity` physics primitives |
-| `zones/` | — | Zone state management, warp zone logic, Zone 2 setup and hazards |
+| `qwi_menu.py` | — | Quantum Wave Integrator menu — Nebula-boss summon button (100 iron) |
+| `map_overlay.py` | — | Full-screen map (`M` key) — zoomed-out view of the active zone with player + entity overlays |
+| `zones/` | — | Zone state machine: `MainZone` (Zone 1), `Zone2` (Nebula), `StarMazeZone` (Zone 3), 4 warp-zone classes reused for 3 variants each (`WARP_*`, `NEBULA_WARP_*`, `MAZE_WARP_*`); shared content in `zone2_world.py`, `nebula_shared.py`, `maze_geometry.py` |
 
 ### Extraction Pattern
 
@@ -81,6 +83,11 @@ def _spawn_explosion(self, x, y):
 | `sprites/force_wall.py` | — | ForceWall --- deployable barrier sprite |
 | `sprites/npc_ship.py` | ~55 | `RefugeeNPCShip` --- story NPC with approach AI, hold-at-distance, no-op `take_damage` |
 | `sprites/alien_ai.py` | ~100 | Shared alien-AI helpers: `pick_patrol_target`, `compute_avoidance` (asteroid + sibling-alien + force-wall repulsion), `segment_crosses_any_wall`. Used by both `SmallAlienShip` and `Zone2Alien` |
+| `sprites/maze_alien.py` | — | MazeAlien --- A*-pathing dungeon enemy spawned by MazeSpawner; takes `rooms` + `room_graph` and replans waypoints via `astar_room_path` whenever the player is in a different room |
+| `sprites/maze_spawner.py` | — | MazeSpawner --- stationary turret in every Star Maze room; HP + shields + child cap + respawn cadence |
+| `sprites/nebula_boss.py` | — | NebulaBoss --- Zone-2 boss with cannon + gas-cloud + cone attacks; routes around force walls; rams asteroids |
+| `sprites/null_field.py` | — | NullField --- stealth patch that toggles `gv._player_cloaked`; firing inside disables it for 10 s |
+| `sprites/slipspace.py` | — | Slipspace --- paired teleporter portal that conserves velocity on entry |
 
 ## Dependency Graph
 
@@ -133,12 +140,12 @@ collisions.py
 - **Sound throttling** --- min 0.15s between pyglet media player creations
 - **BaseInventoryData mixin** --- shared item storage, drag state, icon resolution, badge texture cache (`_get_badge_texture`/`_badge_tex_cache`/`_cache_badge_list`) inherited by both inventory classes; subclasses set `_rows`/`_cols`
 - **Ruff linter** --- `ruff.toml` with bug-focused rules; catches unused imports, dead variables, and real import bugs
-- **Test infrastructure** --- `pytest.ini` excludes `integration/`; `conftest.py` provides `StubPlayer` and `StubGameView` for windowless zone testing; `psutil` dev dependency for soak tests; 493 fast + 144 integration = 637 total tests. Shared soak scaffolding lives in `unit tests/integration/_soak_base.py` (`SOAK_DURATION_S`, `MIN_FPS`, `MAX_MEMORY_GROWTH_MB`, `run_soak`). Integration covers functional, FPS (trade panels × {Zone 1, Zone 2} × {no video, both videos}, buy↔sell churn, AI Pilot fleets with/without videos, station shield combat, shielded-fleet + station-shield pairing, refugee NPC spawn + dialogue, patrol/return integration), GPU render, resolution scaling (6 presets × 2 zones), and soak/endurance (5 min each; AI pilot patrol cycle + idle orbit, dialogue spine/exhaustive/character rotation, station shield cycle, shared scaffolding). Real music-video tests load `./yvideos/*.mp4` (gitignored)
+- **Test infrastructure** --- `pytest.ini` excludes `integration/`; `conftest.py` provides `StubPlayer` and `StubGameView` for windowless zone testing; `psutil` dev dependency for soak tests; 906 fast + ~309 integration ≈ 1215 total tests. Shared soak scaffolding lives in `unit tests/integration/_soak_base.py` (`SOAK_DURATION_S`, `MIN_FPS`, `MAX_MEMORY_GROWTH_MB`, `run_soak`). Integration covers functional (Zone 2 + Star Maze real-GameView flows), FPS (trade panels × {Zone 1, Zone 2} × {no video, both videos}, buy↔sell churn, AI Pilot fleets with/without videos, station shield combat, shielded-fleet + station-shield pairing, refugee NPC spawn + dialogue, patrol/return integration), GPU render, resolution scaling (6 presets × 2 zones), and soak/endurance (5 min each; AI pilot patrol cycle + idle orbit, dialogue spine/exhaustive/character rotation, station shield cycle, **Star Maze idle / combat churn / Nebula pressure**, shared scaffolding). Real music-video tests load `./yvideos/*.mp4` (gitignored)
 - **Refactor-pass helpers** --- `collisions._hit_player_on_cooldown` replaces the 6-site `check-cd → apply-damage → reset-cd → sound → shake` pattern; `sprites/alien_ai.py` hosts the shared pick-patrol-target + compute-avoidance + segment-crosses-any-wall helpers both alien hierarchies delegate to; `escape_menu/_ui.draw_button` replaces the repeated rect+outline+text pattern across sub-modes; `constants_paths.py` exposes just the asset-path constants; `game_save._z2_alien_type_name` caches the class→tag lookup and a codec-pair table at the top of `game_save.py` documents each serialize/restore pair so drift is visible at review time
 - **EqualizerState class** --- encapsulates equalizer animation with `update(dt, volume)` and `draw(y)`
 - **MenuContext + MenuMode** --- escape menu sub-mode pattern with shared state and per-mode draw/input
 - **TYPE_CHECKING imports** --- all extracted modules avoid circular imports at runtime
-- **Zone state machine** --- `zones/` package manages transitions between Zone 1, warp zones, and Zone 2; each zone has its own asteroid/alien populations, hazard rules, and background; GameView delegates zone-specific setup and update logic to the active zone state
+- **Zone state machine** --- `zones/` package manages transitions between Zone 1, Zone 2 (Nebula), Zone 3 (Star Maze), and 12 warp zones (4 themes × 3 variants: `WARP_*`, `NEBULA_WARP_*` with 2× danger, `MAZE_WARP_*`). Each zone has its own asteroid/alien populations, hazard rules, and background; GameView delegates zone-specific setup and update logic to the active zone state. Star Maze + Zone 2 share Nebula content via `zones/nebula_shared.py` (collision/update/fog/gas/wanderer/asteroid handlers) so a fix in one zone applies to both. Star Maze geometry — recursive-backtracking maze gen, room adjacency graph, A* pathing helper, point-in-rect + segment-vs-walls helpers — lives in `zones/maze_geometry.py`. Each warp-zone class is reused for all three variants; `instance.zone_id` distinguishes the variant inside `setup`
 - **Viewport culling (update only)** --- Zone 2 only updates asteroid/wanderer/gas sprites within camera bounds + 250 px margin (gas areas get +200 px extra); offscreen wanderers spin-only. Drawing uses direct `SpriteList.draw()` calls on the static lists rather than per-frame visibility rebuild --- the static VBOs upload once and the renderer handles offscreen culling efficiently.
 - **Ranged alien standoff AI** --- gun-equipped aliens orbit at `ALIEN_STANDOFF_DIST` (300 px) with random CW/CCW direction; RammerAlien charges directly (`has_guns=False`)
 - **Turret target caching** --- `Turret._cached_target` and `_target_rescan_cd` (0.25 s) avoid scanning all aliens every frame; cached target validated cheaply (alive + in range); full rescan 4x/s
