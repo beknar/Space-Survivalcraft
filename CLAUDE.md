@@ -309,6 +309,36 @@ Every `MODULE_TYPES[key]["icon"]` texture serves three purposes:
 The legacy tinted `BLUEPRINT_PNG` still backs the inventory `bp_{key}`
 cell icon for now.
 
+### Respawn on death
+
+`combat_helpers.trigger_player_death` no longer ends the game.  It
+drops every cargo stack + equipped module + quick-use consumable at
+the death site (`_drop_player_loadout` reuses `_drop_scatter` from
+`collisions.py` so they ring around the wreckage), flags both bosses
+to retreat (`boss._patrol_home = True` — overrides `_target_x/_y`
+to `boss._spawn_x/_spawn_y` until the player is back inside
+`_PLAYER_PRIORITY_RANGE`), and resets every alien across every zone
+(active list + `_main_zone._stash` + `_zone2._building_stash` +
+`_star_maze`) to `_STATE_PATROL` with a fresh patrol target.
+
+After the existing 1.5 s death animation, `update_logic.update_death_state`
+calls `combat_helpers.respawn_player`:
+
+1. **Soft respawn** — `gv._last_station_pos` (set on Home Station
+   click in `input_handlers._handle_world_click`) points at a still-
+   standing Home Station: teleport there with 50 % HP / 50 % shields,
+   transitioning zones via `_transition_zone` if needed.  Inventory,
+   modules, level, XP all preserved.
+2. **Hard reset** — no Home Station survives in any zone: build a
+   fresh L1 `PlayerShip` of `gv._faction` / `gv._ship_type` at Zone 1
+   centre with 25 % HP / 0 shields, roll back `_ship_level`,
+   `_char_xp`, `_char_level`, `_ability_meter*`, `_module_slots`,
+   reload weapons.  `_last_station_pos / _zone` clear.
+
+The legacy `DeathScreen` is no longer triggered — respawn is
+automatic.  The screen still exists for future Game Over use but is
+unreachable through normal play.
+
 ### Story NPC + dialogue
 
 Building a `Shield Generator` in Zone 2 triggers

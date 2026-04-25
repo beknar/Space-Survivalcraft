@@ -341,8 +341,14 @@ chooses the stats. All five types are available under every faction.
 
 ## Death & Respawn
 
-- Dramatic destruction sequence with explosion and fire sparks
-- Death screen with Load Game, Main Menu, and Exit Game options
+- Dramatic destruction sequence with explosion and fire sparks (1.5 s death animation)
+- **Auto-respawn** after the death animation — no Game Over screen in normal play
+- **Drops** — every cargo stack, every equipped module (as blueprints), and every quick-use consumable lands at the death site as world pickups, scattered on a ring so they read individually instead of stacking into a single blob
+- **Soft respawn** — if the player has visited a Home Station and one still stands, the ship reappears there with **50 % HP and 50 % shields**. Inventory, modules, level, XP are preserved
+- **Hard reset** — if no Home Station exists anywhere (Zone 1, Zone 2, Star Maze), the player respawns as a fresh L1 ship at Zone 1 world centre with **25 % HP and 0 shields**. Ship type + faction are preserved; everything else (level, XP, ability meter, module slots) rolls back to first-game defaults
+- **Bosses retreat** — both the Double Star and Nebula bosses flip to "patrol home" mode and fly back to the coordinates where they originally spawned. The flag clears the first frame the respawned player re-enters priority range, so re-engagement is automatic
+- **Aliens forget the player** — every alien (across all zones, including stashed lists from inactive zones) reverts to PATROL state and picks a new patrol waypoint. If they detect the respawned ship, normal aggro runs through the standard state machine
+- The "last visited station" is recorded whenever the player clicks a Home Station to open the station inventory
 
 ## Audio
 

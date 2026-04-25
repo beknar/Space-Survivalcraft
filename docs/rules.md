@@ -105,8 +105,14 @@ When HP reaches 0:
 1. Large explosion (2.5x scale, orange-tinted) at ship position
 2. 5 additional fire spark bursts
 3. Ship and shield become invisible; thruster sound stops
-4. After 1.5 s delay, death screen appears
-5. Options: Load Game, Main Menu, Exit Game
+4. **Loadout drop** — every cargo stack, every equipped module (as blueprint pickup), and every quick-use consumable spawns at the death site, scattered on a ring
+5. **Bosses retreat** — both the Double Star and Nebula bosses flip `_patrol_home = True` and steer back toward their original spawn coordinates
+6. **Aliens forget** — every alien across every zone (active + Zone 1 stash + Zone 2 stash + Star Maze) resets to PATROL with a new patrol target
+7. After a 1.5 s death animation the player auto-respawns:
+   - **Soft respawn** at the last visited Home Station with **50 % HP / 50 % shields** (inventory, modules, level, XP preserved). The "last visited" position is captured whenever the player clicks a Home Station to open the station inventory
+   - **Hard reset** if no Home Station exists in any zone — fresh L1 `PlayerShip` of the player's chosen faction + ship type, placed at Zone 1 world centre with **25 % HP / 0 shields**. `_ship_level`, `_char_xp`, `_char_level`, `_ability_meter*`, and `_module_slots` all reset to first-game defaults; weapons reload off the new ship's gun count
+8. Boss `_patrol_home` flag clears the first frame the respawned player re-enters priority range — re-engagement is automatic
+9. The legacy death screen (Load Game / Main Menu / Exit Game) is no longer triggered by death; it remains available via the escape menu
 
 ---
 

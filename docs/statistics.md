@@ -523,6 +523,25 @@ Parked ships inherit HP and shields from `SHIP_TYPES[ship_type]` + level bonuses
 
 ---
 
+## Respawn on Death
+
+| Property | Value |
+|---|---|
+| Death animation duration | 1.5 s |
+| Soft respawn trigger | Any Home Station still standing in any zone |
+| Soft respawn HP / shields | 50 % / 50 % of max |
+| Hard reset HP / shields | 25 % / 0 |
+| Hard reset ship | L1 of player's chosen faction + ship type |
+| Hard reset wipes | `_ship_level`, `_char_xp`, `_char_level`, `_ability_meter*`, `_module_slots` |
+| Drop scatter | Ring around death site (uses `collisions._drop_scatter`) |
+| Drops on death | Every cargo stack (Iron / Copper / consumables) + every equipped module (as blueprint) + every quick-use slot is cleared |
+| Boss retreat flag | `boss._patrol_home = True` — overrides target to `boss._spawn_x/_spawn_y` until player is back inside `_PLAYER_PRIORITY_RANGE` |
+| Alien aggro reset | Every alien across active + Zone 1 stash + Zone 2 stash + Star Maze flipped to `_STATE_PATROL` with fresh patrol target |
+| Last-visited tracker | `gv._last_station_pos`, `gv._last_station_zone` — set when player clicks a Home Station |
+| Post-respawn grace window | 1.0 s `player._collision_cd` |
+
+---
+
 ## Item Stack Limits
 
 | Item | Max Stack |

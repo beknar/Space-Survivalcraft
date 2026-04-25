@@ -146,6 +146,7 @@ The fast test suite (`unit tests/`, 906 tests) runs in ~5.5 s and covers:
 - **Force wall + gas area** (`test_force_wall.py`, `test_gas_area.py`) — endpoint geometry, lifetime, closest_point clamping, segment_crosses; gas drift/bouncing/contains_point
 - **Nebula shared helpers** (`test_nebula_shared.py`) — `rebuild_shielded_list`, `update_fog`, `update_gas_damage` cooldown, `update_alien_laser_hits`, `update_player_asteroid_collision`, `update_wanderer_collision`
 - **Ship manager** (`test_ship_manager.py`, `test_basic_ship_build.py`) — `_deduct_ship_cost`, `_resize_module_slots`, `_upgrade_ship` guards + success path, `_place_basic_ship` / `_place_new_ship`, `count_l1_ships`
+- **Respawn on death** (`test_respawn_on_death.py`) — `_drop_player_loadout` (cargo / modules / quick-use), `_send_bosses_home`, `_reset_alien_aggro` across active + stashed alien lists, `_resolve_respawn_target` (last-visited / any-zone fallback / disabled-station skip), boss `_patrol_home` toggle, full `trigger_player_death` orchestration
 - **Dialogue overlay** (`test_dialogue_overlay.py`) — open/close, SPACE/ENTER advance, digit-key picks, ESC closes, aftermath commit on terminal nodes, broken-tree cleanup
 - **Settings, video scanning, world setup helpers**
 

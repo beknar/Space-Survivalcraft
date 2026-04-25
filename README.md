@@ -20,6 +20,7 @@ A top-down space survival game built with Python and the Arcade framework. Pilot
 - **Inactive zone info panel** --- Station Info (T key) shows live entity counts from every zone the player is not currently in (Double Star, Nebula, Star Maze)
 - **Full-screen map** --- press `M` to open a zoomed-out world map for the active zone with player + entity overlays
 - **Inventory polish** --- right-click any cell to split a stack in half; blueprint cells get a red-dot overlay until the blueprint is unlocked
+- **Respawn on death** --- the player ship auto-respawns 1.5 s after destruction. Soft respawn at the last visited Home Station with 50 % HP / 50 % shields (inventory, modules, level preserved); if no stations exist, hard reset to a fresh L1 ship at Zone 1 centre with 25 % HP / 0 shields and full progression rolled back. Every cargo stack, equipped module, and quick-use consumable drops at the death site as world pickups. Bosses retreat to their spawn point and patrol there; aliens forget the player and revert to PATROL until they detect the respawned ship
 - **Homing missiles** --- consumable weapon with homing AI, craftable at Advanced Crafter
 - **Advanced modules** --- Misty Step teleport, Force Wall barrier (blocks enemy lasers, boss projectiles, AND enemy movement with route-around AI), Death Blossom missile barrage
 - **Special ability meter** --- powers advanced module abilities

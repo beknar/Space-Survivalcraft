@@ -393,7 +393,7 @@ feature's merging commit.
       surfaced in T-menu; null-field cloak honoured by maze enemies
       (`a2b799b`)
 
-### 2026-04-25 — Coverage gap closure
+### 2026-04-25 — Coverage gap closure + respawn-on-death
 - [x] **5 new test files** — `test_force_wall.py`, `test_gas_area.py`,
       `test_dialogue_overlay.py`, `test_nebula_shared.py`,
       `test_ship_manager.py`. 87 new unit tests covering modules that
@@ -403,6 +403,22 @@ feature's merging commit.
       null fields, slipspaces, full-screen map, inventory polish, all
       the perf passes; updated test counts (906 fast + ~309
       integration ≈ 1,215 total)
+- [x] PR #21 (Star Maze soak found real memory leak) merged after
+      the +553 MB / +454 MB / +224 MB findings dropped to
+      +2.0 / +1.5 / +6.7 MB on re-run, validating the post-PR fixes
+      (`346d840`, `4a4af02`, `4a5cd79`)
+- [x] **Respawn-on-death system** — when the player ship is destroyed,
+      every cargo stack, equipped module, and quick-use consumable
+      drops at the death site as world pickups; both bosses retreat
+      to their spawn coordinates (`_patrol_home` flag, clears on
+      player re-entering priority range); every alien across every
+      zone resets to PATROL with a fresh target. After the 1.5 s
+      death animation the player auto-respawns at the last visited
+      Home Station with 50 % HP / 50 % shields (preserving cargo,
+      modules, level), or — if no Home Station survives in any zone
+      — falls back to a fresh L1 ship at Zone 1 centre with
+      25 % HP / 0 shields. Legacy death screen no longer triggered
+      by death. 21 new unit tests (`d8094e7`)
 
 ## Future features (from README)
 
