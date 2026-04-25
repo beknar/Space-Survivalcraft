@@ -498,6 +498,14 @@ class GameView(arcade.View):
         ]
         self._fog_revealed: int = 0
 
+        # Last visited Home Station — populated whenever the player
+        # opens the station inventory.  Drives the player respawn
+        # target after a death; ``None`` means "no station has been
+        # visited yet" → respawn in Zone 1 fresh-start mode.
+        from zones import ZoneID
+        self._last_station_pos: tuple[float, float] | None = None
+        self._last_station_zone: ZoneID | None = None
+
         gc.disable()
         self._gc_ran: bool = False
 

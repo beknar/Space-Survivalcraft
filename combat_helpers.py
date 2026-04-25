@@ -128,20 +128,24 @@ def fire_missile(gv: GameView, slot: int) -> None:
 
 
 def trigger_player_death(gv: GameView) -> None:
-    """Handle player ship destruction."""
+    """Handle player ship destruction.
+
+    On death the player is **always** respawned (no Game Over screen
+    in normal play).  The whole ship loadout — every cargo stack,
+    every equipped module, every quick-use consumable — drops as
+    world pickups at the death site so the player can reclaim them
+    on their next pass through the area.  Bosses retreat to their
+    spawn point; aliens forget the player and revert to PATROL.
+    The actual respawn happens after a 1.5 s death animation
+    (driven by ``update_logic.update_death_state`` → ``respawn_player``).
+    """
     gv._player_dead = True
-    exp = Explosion(
-        gv._explosion_frames,
-        gv.player.center_x,
-        gv.player.center_y,
-        scale=2.5,
-    )
+    px, py = gv.player.center_x, gv.player.center_y
+    exp = Explosion(gv._explosion_frames, px, py, scale=2.5)
     exp.color = (255, 180, 100, 255)
     gv.explosion_list.append(exp)
     for _ in range(5):
-        gv.fire_sparks.append(
-            FireSpark(gv.player.center_x, gv.player.center_y)
-        )
+        gv.fire_sparks.append(FireSpark(px, py))
     arcade.play_sound(gv._explosion_snd, volume=audio.sfx_volume)
     gv.player.visible = False
     gv.shield_sprite.visible = False
@@ -149,6 +153,243 @@ def trigger_player_death(gv: GameView) -> None:
         arcade.stop_sound(gv._thruster_player)
         gv._thruster_player = None
     gv._death_delay = 1.5
+    _drop_player_loadout(gv, px, py)
+    _send_bosses_home(gv)
+    _reset_alien_aggro(gv)
+
+
+def _drop_player_loadout(gv: GameView, x: float, y: float) -> None:
+    """Drop every cargo stack, module, and quick-use consumable as
+    world pickups at ``(x, y)``.  Mutates the inventory + slot lists
+    in place so the post-respawn ship starts empty."""
+    drops: list[tuple[str, int]] = []
+    # Cargo — every stack in the 5×5 grid.
+    for (_r, _c), (item_type, count) in list(gv.inventory._items.items()):
+        if count > 0:
+            drops.append((item_type, int(count)))
+    gv.inventory._items.clear()
+    gv.inventory._mark_dirty()
+    # Modules — equipped slots become blueprint pickups.
+    module_drops: list[str] = [m for m in gv._module_slots if m is not None]
+    for i in range(len(gv._module_slots)):
+        gv._module_slots[i] = None
+    gv.player.apply_modules(gv._module_slots)
+    gv._hud.set_module_count(len(gv._module_slots))
+    gv._hud._mod_slots = list(gv._module_slots)
+    # Quick-use slots — consumables on the bar drop separately from
+    # any duplicates already counted via the cargo grid (each quick-use
+    # slot mirrors an inventory item, so the inventory dump above
+    # already covers the actual item counts; we just clear the bar).
+    qu = getattr(gv, "_hud", None)
+    if qu is not None:
+        for i in range(len(qu._qu_slots)):
+            qu._qu_slots[i] = None
+            qu._qu_counts[i] = 0
+    # Lay every drop on a scatter ring around the death site so they
+    # don't stack into a single hard-to-distinguish blob.
+    from collisions import _drop_scatter
+    total = len(drops) + len(module_drops)
+    if total <= 0:
+        return
+    positions = _drop_scatter(x, y, total)
+    pi = 0
+    from sprites.pickup import IronPickup, BlueprintPickup
+    for item_type, count in drops:
+        ix, iy = positions[pi]; pi += 1
+        # Reuse the iron-pickup class for every consumable / resource;
+        # it's already generic over ``item_type`` and the inventory's
+        # add_item path accepts whatever string is set on the pickup.
+        tex = gv._iron_tex
+        if item_type == "copper":
+            tex = getattr(gv, "_copper_tex", None) or gv._iron_tex
+        p = IronPickup(tex, ix, iy, amount=count)
+        p.item_type = item_type
+        gv.iron_pickup_list.append(p)
+    bp_icons = getattr(gv, "_blueprint_drop_tex", {}) or {}
+    for mod in module_drops:
+        ix, iy = positions[pi]; pi += 1
+        tex = bp_icons.get(mod, gv._blueprint_tex)
+        gv.blueprint_pickup_list.append(
+            BlueprintPickup(tex, ix, iy, module_type=mod))
+
+
+def _send_bosses_home(gv: GameView) -> None:
+    """Flag every live boss to retreat toward its spawn point.  The
+    flag clears automatically when the player re-enters priority
+    range, so once respawned + within range the boss re-engages."""
+    boss = getattr(gv, "_boss", None)
+    if boss is not None:
+        boss._patrol_home = True
+    nb = getattr(gv, "_nebula_boss", None)
+    if nb is not None:
+        nb._patrol_home = True
+
+
+def _reset_alien_aggro(gv: GameView) -> None:
+    """Drop every alien's pursuit state across every zone so they
+    forget the dying player.  Iterating the live zone list plus the
+    Zone 1 / Zone 2 / Star Maze stashed lists covers every alien
+    sprite the player could possibly be chased by; any alien that
+    later detects the respawned player will re-aggro through its
+    normal state machine."""
+    seen: set[int] = set()
+
+    def _reset_list(lst):
+        for a in list(lst):
+            if id(a) in seen:
+                continue
+            seen.add(id(a))
+            if hasattr(a, "_state") and hasattr(a, "_STATE_PATROL"):
+                a._state = a._STATE_PATROL
+                if hasattr(a, "_pick_patrol_target"):
+                    a._pick_patrol_target()
+                if hasattr(a, "_fire_cd"):
+                    a._fire_cd = max(getattr(a, "_fire_cd", 0.0), 0.5)
+
+    _reset_list(getattr(gv, "alien_list", []) or [])
+    for z in (getattr(gv, "_main_zone", None),
+              getattr(gv, "_zone2", None),
+              getattr(gv, "_star_maze", None)):
+        if z is None:
+            continue
+        for attr in ("_aliens", "_maze_aliens", "_alien_list"):
+            lst = getattr(z, attr, None)
+            if lst is not None:
+                _reset_list(lst)
+
+
+def respawn_player(gv: GameView) -> None:
+    """Bring the player back after the death animation finishes.
+
+    Decision tree:
+
+    1. ``gv._last_station_pos`` is set AND a Home Station still
+       exists in that zone → soft respawn at that station with
+       50 % HP + 50 % shields.  Inventory / modules / level / cargo
+       are NOT touched (they were already dropped at the death
+       site by ``_drop_player_loadout``).
+    2. Otherwise → hard reset to a fresh L1 ship at Zone 1 world
+       centre with 25 % HP + 0 shields, level / XP / module slot
+       count rolled back to defaults.  Cargo + modules + quick-use
+       are already empty from the loadout dump.
+    """
+    from zones import ZoneID
+    target = _resolve_respawn_target(gv)
+    if target is not None:
+        zone_id, x, y = target
+        if zone_id is not gv._zone.zone_id:
+            gv._transition_zone(zone_id, entry_side="bottom")
+        gv.player.center_x = x
+        gv.player.center_y = y
+        gv.player.vel_x = gv.player.vel_y = 0.0
+        gv.player.hp = max(1, gv.player.max_hp // 2)
+        gv.player.shields = gv.player.max_shields // 2
+        flash_game_msg(gv, "Respawned at station", 2.5)
+    else:
+        _full_reset_respawn(gv)
+    _restore_player_after_death(gv)
+
+
+def _resolve_respawn_target(gv: GameView):
+    """Return ``(zone_id, x, y)`` for station respawn, or ``None``
+    if no Home Station exists anywhere (→ full reset)."""
+    from zones import ZoneID
+    from sprites.building import HomeStation
+    last_pos = getattr(gv, "_last_station_pos", None)
+    last_zone = getattr(gv, "_last_station_zone", None)
+
+    def _home_in(buildings) -> tuple[float, float] | None:
+        for b in (buildings or []):
+            if isinstance(b, HomeStation) and not b.disabled:
+                return (b.center_x, b.center_y)
+        return None
+
+    def _buildings_for_zone(zone_id):
+        if zone_id is gv._zone.zone_id:
+            return list(gv.building_list)
+        if zone_id is ZoneID.MAIN:
+            mz = getattr(gv, "_main_zone", None)
+            if mz is not None and hasattr(mz, "_stash"):
+                return list(mz._stash.get("building_list") or [])
+        if zone_id is ZoneID.ZONE2:
+            z2 = getattr(gv, "_zone2", None)
+            if z2 is not None and hasattr(z2, "_building_stash"):
+                return list(z2._building_stash.get("building_list") or [])
+        return []
+
+    if last_zone is not None:
+        pos = _home_in(_buildings_for_zone(last_zone))
+        if pos is not None:
+            return (last_zone, pos[0], pos[1])
+    # Fallback: any Home Station in any zone.
+    for zid in (ZoneID.MAIN, ZoneID.ZONE2):
+        pos = _home_in(_buildings_for_zone(zid))
+        if pos is not None:
+            return (zid, pos[0], pos[1])
+    return None
+
+
+def _full_reset_respawn(gv: GameView) -> None:
+    """No stations exist → drop the player back to a fresh L1 ship
+    at Zone 1 centre.  XP, ability meter, module slot count, and
+    last-station tracking all reset to first-game defaults."""
+    from zones import ZoneID
+    from constants import (
+        ABILITY_METER_MAX, MODULE_SLOT_COUNT,
+    )
+    from sprites.player import PlayerShip
+    if gv._zone.zone_id is not ZoneID.MAIN:
+        gv._transition_zone(ZoneID.MAIN, entry_side="bottom")
+    # Build a fresh L1 ship of the player's chosen faction + type.
+    new_player = PlayerShip(
+        faction=gv._faction, ship_type=gv._ship_type, ship_level=1,
+    )
+    new_player.center_x = gv._zone.world_width / 2.0
+    new_player.center_y = gv._zone.world_height / 2.0
+    new_player.vel_x = new_player.vel_y = 0.0
+    new_player.hp = max(1, new_player.max_hp // 4)
+    new_player.shields = 0
+    new_player.world_width = gv._zone.world_width
+    new_player.world_height = gv._zone.world_height
+    gv.player_list.clear()
+    gv.player = new_player
+    gv.player_list.append(new_player)
+    # Reset progression that survives a soft respawn.
+    gv._ship_level = 1
+    gv._char_xp = 0
+    gv._char_level = 1
+    gv._ability_meter_max = ABILITY_METER_MAX
+    gv._ability_meter = ABILITY_METER_MAX
+    gv._module_slots = [None] * MODULE_SLOT_COUNT
+    gv.player.apply_modules(gv._module_slots)
+    gv._hud.set_module_count(MODULE_SLOT_COUNT)
+    gv._hud._mod_slots = list(gv._module_slots)
+    # Weapons reload off the new ship's gun count.
+    from world_setup import load_weapons
+    gv._weapons = load_weapons(gv.player.guns)
+    gv._weapon_idx = 0
+    # Reposition the shield bubble onto the new player.
+    gv.shield_sprite.center_x = gv.player.center_x
+    gv.shield_sprite.center_y = gv.player.center_y
+    gv._last_station_pos = None
+    gv._last_station_zone = None
+    flash_game_msg(gv, "All stations lost — respawning at origin",
+                   3.0)
+
+
+def _restore_player_after_death(gv: GameView) -> None:
+    """Common post-respawn cleanup: re-show the ship, clear death
+    flags + cooldowns, reset force walls / ability state."""
+    gv._player_dead = False
+    gv._death_delay = 0.0
+    gv.player.visible = True
+    gv.shield_sprite.center_x = gv.player.center_x
+    gv.shield_sprite.center_y = gv.player.center_y
+    gv.shield_sprite.visible = True
+    gv.player._collision_cd = 1.0     # brief grace window on respawn
+    gv._misty_step_cd = 0.0
+    gv._force_wall_cd = 0.0
+    gv._broadside_cd = 0.0
 
 
 def spawn_explosion(gv: GameView, x: float, y: float) -> None:

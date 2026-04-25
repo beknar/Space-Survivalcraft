@@ -590,6 +590,11 @@ def _handle_world_click(gv: GameView, x: int, y: int) -> bool:
         if math.hypot(px - b.center_x, py - b.center_y) >= STATION_INFO_RANGE:
             continue
         if isinstance(b, HomeStation) and not b.disabled:
+            # Record this station as the player's most recent visit
+            # so the respawn-on-death system knows where to send them.
+            gv._last_station_pos = (b.center_x, b.center_y)
+            gv._last_station_zone = getattr(
+                getattr(gv, "_zone", None), "zone_id", None)
             gv._station_inv.toggle()
             return True
         if isinstance(b, BasicCrafter) and not b.disabled:

@@ -62,6 +62,14 @@ class BossAlienShip(arcade.Sprite):
         self._target_x: float = target_x
         self._target_y: float = target_y
 
+        # Original spawn coordinates — used as the patrol-home target
+        # while the player is dead (set ``_patrol_home = True`` from
+        # the death-handler).  Cleared automatically the first frame
+        # the player re-enters ``_PLAYER_PRIORITY_RANGE``.
+        self._spawn_x: float = x
+        self._spawn_y: float = y
+        self._patrol_home: bool = False
+
         self._heading: float = 0.0
         self.angle = 0.0
         self._phase: int = _PHASE1
@@ -319,14 +327,24 @@ class BossAlienShip(arcade.Sprite):
         if regen > 0.0 and self.shields < self.max_shields:
             self.shields = min(self.max_shields, self.shields + regen * dt)
 
-        # Update target to station position (it might move if rebuilt)
-        self._target_x = station_x
-        self._target_y = station_y
+        # Update target to station position (it might move if rebuilt).
+        # While ``_patrol_home`` is set (player is dead), target the
+        # boss's original spawn point instead so the boss circles
+        # back to where it came from.  The flag clears the first
+        # frame the player is back inside priority range.
+        if self._patrol_home:
+            self._target_x = self._spawn_x
+            self._target_y = self._spawn_y
+        else:
+            self._target_x = station_x
+            self._target_y = station_y
 
         # Distance to player and station
         dx_p = player_x - self.center_x
         dy_p = player_y - self.center_y
         dist_player = math.hypot(dx_p, dy_p)
+        if self._patrol_home and dist_player <= self._PLAYER_PRIORITY_RANGE:
+            self._patrol_home = False
 
         # ── Charge attack (Phase 2+) ──
         if self._update_charge(dt, force_walls=force_walls):

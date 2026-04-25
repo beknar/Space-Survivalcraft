@@ -192,7 +192,12 @@ def update_preamble(gv: GameView, dt: float) -> None:
 
 
 def update_death_state(gv: GameView, dt: float) -> None:
-    """Update explosions/sparks during death delay."""
+    """Update explosions/sparks during death delay; auto-respawn
+    the player when the timer expires.  The legacy death screen is
+    no longer shown — the respawn-on-death system in
+    ``combat_helpers.respawn_player`` handles every death case
+    (soft respawn at the last station, or full reset to Zone 1
+    centre when no stations exist)."""
     for exp in list(gv.explosion_list):
         exp.update_explosion(dt)
     for fs in gv.fire_sparks:
@@ -201,7 +206,8 @@ def update_death_state(gv: GameView, dt: float) -> None:
     if hasattr(gv, '_death_delay') and gv._death_delay > 0:
         gv._death_delay -= dt
         if gv._death_delay <= 0:
-            gv._death_screen.show()
+            from combat_helpers import respawn_player
+            respawn_player(gv)
 
 
 def update_timers(gv: GameView, dt: float) -> None:
