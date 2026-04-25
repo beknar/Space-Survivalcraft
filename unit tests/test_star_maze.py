@@ -14,8 +14,12 @@ from constants import (
     STAR_MAZE_ROOM_COLS, STAR_MAZE_ROOM_ROWS, STAR_MAZE_ROOM_SIZE,
     STAR_MAZE_WALL_THICK, STAR_MAZE_SPAN,
     STAR_MAZE_COUNT, STAR_MAZE_CENTERS,
-    MAZE_ALIEN_HP, MAZE_ALIEN_SPEED, MAZE_ALIEN_RADIUS,
-    MAZE_ALIEN_LASER_DAMAGE, MAZE_ALIEN_LASER_RANGE,
+    MAZE_ALIEN_HP, MAZE_ALIEN_HP_MIN, MAZE_ALIEN_HP_MAX,
+    MAZE_ALIEN_SPEED, MAZE_ALIEN_RADIUS,
+    MAZE_ALIEN_LASER_DAMAGE,
+    MAZE_ALIEN_LASER_DAMAGE_MIN, MAZE_ALIEN_LASER_DAMAGE_MAX,
+    MAZE_ALIEN_SHIELD, MAZE_ALIEN_SHIELD_CHANCE,
+    MAZE_ALIEN_LASER_RANGE,
     MAZE_ALIEN_LASER_SPEED, MAZE_ALIEN_FIRE_CD,
     MAZE_ALIEN_DETECT_DIST, MAZE_ALIEN_IRON_DROP, MAZE_ALIEN_XP,
     MAZE_SPAWNER_HP, MAZE_SPAWNER_SHIELD, MAZE_SPAWNER_SPEED,
@@ -45,16 +49,163 @@ def _arcade_window():
 # ── Spec-pinning: stat values must match user spec exactly ───────
 
 class TestMazeAlienStats:
-    def test_hp(self): assert MAZE_ALIEN_HP == 50
+    def test_hp_range(self):
+        # HP is randomised per spawn from this inclusive range.
+        assert MAZE_ALIEN_HP_MIN == 50
+        assert MAZE_ALIEN_HP_MAX == 80
+        assert MAZE_ALIEN_HP == MAZE_ALIEN_HP_MIN
     def test_speed(self): assert MAZE_ALIEN_SPEED == 120.0
     def test_radius(self): assert MAZE_ALIEN_RADIUS == 20.0
-    def test_laser_damage(self): assert MAZE_ALIEN_LASER_DAMAGE == 10.0
+    def test_laser_damage_range(self):
+        # Per-shot damage = ``self._laser_damage`` rolled at spawn
+        # from this inclusive range.
+        assert MAZE_ALIEN_LASER_DAMAGE_MIN == 20.0
+        assert MAZE_ALIEN_LASER_DAMAGE_MAX == 35.0
+        assert MAZE_ALIEN_LASER_DAMAGE == MAZE_ALIEN_LASER_DAMAGE_MIN
+    def test_shield_chance_and_value(self):
+        assert MAZE_ALIEN_SHIELD_CHANCE == 0.35
+        assert MAZE_ALIEN_SHIELD == 50
     def test_laser_range(self): assert MAZE_ALIEN_LASER_RANGE == 200.0
     def test_laser_speed(self): assert MAZE_ALIEN_LASER_SPEED == 300.0
     def test_fire_cd(self): assert MAZE_ALIEN_FIRE_CD == 1.5
     def test_detect(self): assert MAZE_ALIEN_DETECT_DIST == 300.0
     def test_iron_drop(self): assert MAZE_ALIEN_IRON_DROP == 10
     def test_xp(self): assert MAZE_ALIEN_XP == 30
+
+
+class TestMazeAlienRandomisation:
+    """Per-instance HP / damage / shield rolls.  Uses 200 spawns
+    per assertion to keep failures crisp without being slow."""
+
+    def _spawn(self):
+        from PIL import Image
+        from sprites.maze_alien import MazeAlien
+        tex = arcade.Texture(Image.new("RGBA", (8, 8), (0, 0, 0, 0)))
+        return MazeAlien(tex, 0.0, 0.0)
+
+    def test_hp_in_range(self):
+        for _ in range(200):
+            a = self._spawn()
+            assert MAZE_ALIEN_HP_MIN <= a.hp <= MAZE_ALIEN_HP_MAX
+            assert a.max_hp == a.hp
+
+    def test_hp_actually_varies(self):
+        seen = {self._spawn().hp for _ in range(200)}
+        # 200 samples across 31 possible HP values should hit at
+        # least 10 distinct values; otherwise the roll is broken.
+        assert len(seen) >= 10
+
+    def test_laser_damage_in_range(self):
+        for _ in range(200):
+            a = self._spawn()
+            assert MAZE_ALIEN_LASER_DAMAGE_MIN <= a._laser_damage \
+                <= MAZE_ALIEN_LASER_DAMAGE_MAX
+
+    def test_laser_damage_actually_varies(self):
+        seen = {round(self._spawn()._laser_damage, 2) for _ in range(200)}
+        assert len(seen) >= 50  # uniform float — should hit lots of values
+
+    def test_shield_chance_roughly_35_percent(self):
+        n = 1000
+        shielded = sum(1 for _ in range(n) if self._spawn().shields > 0)
+        rate = shielded / n
+        # Allow ±5 % tolerance — 1000 trials at p=0.35 has σ ≈ 1.5 %.
+        assert 0.30 <= rate <= 0.40, f"shield rate {rate:.3f} out of band"
+
+    def test_shielded_aliens_have_50_max_shields(self):
+        for _ in range(200):
+            a = self._spawn()
+            if a.shields > 0:
+                assert a.shields == MAZE_ALIEN_SHIELD
+                assert a.max_shields == MAZE_ALIEN_SHIELD
+
+    def test_unshielded_aliens_have_zero_max_shields(self):
+        for _ in range(200):
+            a = self._spawn()
+            if a.shields == 0:
+                assert a.max_shields == 0
+
+
+class TestMazeAlienDamageRouting:
+    """take_damage: shields absorb first, overflow falls through to
+    HP — same routing as ShieldedAlien / the player ship."""
+
+    def _spawn_shielded(self):
+        from PIL import Image
+        from sprites.maze_alien import MazeAlien
+        tex = arcade.Texture(Image.new("RGBA", (8, 8), (0, 0, 0, 0)))
+        # Roll until we get a shielded one (chance is 35 %).
+        for _ in range(50):
+            a = MazeAlien(tex, 0.0, 0.0)
+            if a.shields > 0:
+                return a
+        # Force one if randomness was unlucky (extremely unlikely).
+        a = MazeAlien(tex, 0.0, 0.0)
+        a.shields = MAZE_ALIEN_SHIELD
+        a.max_shields = MAZE_ALIEN_SHIELD
+        return a
+
+    def test_shield_absorbs_partial_damage(self):
+        a = self._spawn_shielded()
+        starting_hp = a.hp
+        a.take_damage(20)
+        assert a.shields == MAZE_ALIEN_SHIELD - 20
+        assert a.hp == starting_hp     # untouched
+
+    def test_overflow_falls_through_to_hp(self):
+        a = self._spawn_shielded()
+        starting_hp = a.hp
+        a.take_damage(MAZE_ALIEN_SHIELD + 10)
+        assert a.shields == 0
+        assert a.hp == starting_hp - 10
+
+    def test_unshielded_alien_takes_full_damage_to_hp(self):
+        from PIL import Image
+        from sprites.maze_alien import MazeAlien
+        tex = arcade.Texture(Image.new("RGBA", (8, 8), (0, 0, 0, 0)))
+        for _ in range(50):
+            a = MazeAlien(tex, 0.0, 0.0)
+            if a.shields == 0:
+                starting = a.hp
+                a.take_damage(15)
+                assert a.hp == starting - 15
+                return
+
+
+class TestMazeAlienShieldRender:
+    """draw_shield: bails when shields are zero, advances angle each
+    frame so the arc rotates."""
+
+    def _spawn_shielded(self):
+        from PIL import Image
+        from sprites.maze_alien import MazeAlien
+        tex = arcade.Texture(Image.new("RGBA", (8, 8), (0, 0, 0, 0)))
+        for _ in range(50):
+            a = MazeAlien(tex, 0.0, 0.0)
+            if a.shields > 0:
+                return a
+        a = MazeAlien(tex, 0.0, 0.0)
+        a.shields = MAZE_ALIEN_SHIELD
+        return a
+
+    def test_draw_shield_when_zero_is_noop(self):
+        from PIL import Image
+        from sprites.maze_alien import MazeAlien
+        tex = arcade.Texture(Image.new("RGBA", (8, 8), (0, 0, 0, 0)))
+        # Force-strip the shield and assert draw_shield doesn't crash.
+        a = MazeAlien(tex, 0.0, 0.0)
+        a.shields = 0
+        a.draw_shield()  # no exception → pass
+
+    def test_shield_angle_rotates_each_frame(self):
+        a = self._spawn_shielded()
+        before = a._shield_angle
+        # Fake the AI inputs that update_alien needs.  An empty
+        # SpriteList is fine — patrol path doesn't fire if no walls
+        # are passed and the player coords are far away.
+        empty = arcade.SpriteList()
+        a.update_alien(0.5, 1e6, 1e6, empty, empty, [], [])
+        assert a._shield_angle != before
 
 
 class TestMazeSpawnerStats:

@@ -1117,6 +1117,14 @@ class StarMazeZone(ZoneState):
         self._alien_projectiles.draw()
         # Maze aliens + maze projectiles.
         self._maze_aliens.draw()
+        # Shielded-maze-alien arc overlay — viewport culled with the
+        # same margin the Z2 shielded list uses above.  Iterating
+        # _maze_aliens directly (max ~20/maze × 4 mazes) is cheaper
+        # than maintaining a parallel list at this scale.
+        for ma in self._maze_aliens:
+            if ma.shields > 0 and (
+                    vx0 < ma.center_x < vx1 and vy0 < ma.center_y < vy1):
+                ma.draw_shield()
         self._maze_projectiles.draw()
         if gv._wormholes:
             gv._wormhole_list.draw()

@@ -16,8 +16,11 @@ import random
 import arcade
 
 from constants import (
-    MAZE_ALIEN_HP, MAZE_ALIEN_SPEED, MAZE_ALIEN_RADIUS,
-    MAZE_ALIEN_DETECT_DIST, MAZE_ALIEN_LASER_DAMAGE,
+    MAZE_ALIEN_HP_MIN, MAZE_ALIEN_HP_MAX,
+    MAZE_ALIEN_LASER_DAMAGE_MIN, MAZE_ALIEN_LASER_DAMAGE_MAX,
+    MAZE_ALIEN_SHIELD_CHANCE, MAZE_ALIEN_SHIELD,
+    MAZE_ALIEN_SPEED, MAZE_ALIEN_RADIUS,
+    MAZE_ALIEN_DETECT_DIST,
     MAZE_ALIEN_LASER_RANGE, MAZE_ALIEN_LASER_SPEED,
     MAZE_ALIEN_FIRE_CD,
     MAZE_ALIEN_SHEET_PNG, MAZE_ALIEN_SHEET_FRAME_SIZE,
@@ -95,10 +98,25 @@ class MazeAlien(arcade.Sprite):
         super().__init__(path_or_texture=tex, scale=_DRAW_SCALE)
         self.center_x = x
         self.center_y = y
-        self.hp: int = MAZE_ALIEN_HP
-        self.max_hp: int = MAZE_ALIEN_HP
-        self.shields: int = 0
-        self.max_shields: int = 0
+        # HP and laser damage are randomised per spawn from the
+        # spec ranges so individual maze aliens vary in toughness +
+        # bite.  35 % of spawns also get a 50-point shield rendered
+        # exactly like the Zone 2 ShieldedAlien (dashed-blue rotating
+        # arc).  Shielded aliens are added to ``zones.star_maze.
+        # _shielded_maze_aliens`` by the zone's spawn loop so the
+        # draw pass can find them in O(N) without walking every
+        # alien each frame.
+        self.hp: int = random.randint(MAZE_ALIEN_HP_MIN, MAZE_ALIEN_HP_MAX)
+        self.max_hp: int = self.hp
+        if random.random() < MAZE_ALIEN_SHIELD_CHANCE:
+            self.shields: int = MAZE_ALIEN_SHIELD
+            self.max_shields: int = MAZE_ALIEN_SHIELD
+        else:
+            self.shields: int = 0
+            self.max_shields: int = 0
+        self._laser_damage: float = random.uniform(
+            MAZE_ALIEN_LASER_DAMAGE_MIN, MAZE_ALIEN_LASER_DAMAGE_MAX)
+        self._shield_angle: float = 0.0
         self._speed: float = MAZE_ALIEN_SPEED
         self._world_w = world_w
         self._world_h = world_h
@@ -204,8 +222,37 @@ class MazeAlien(arcade.Sprite):
             self._fire_cd = 0.0
 
     def take_damage(self, amount: int) -> None:
-        self.hp -= amount
+        # Shields absorb first (matches ShieldedAlien / player damage
+        # routing); overflow falls through to HP.
+        if self.shields > 0:
+            absorbed = min(self.shields, amount)
+            self.shields -= absorbed
+            amount -= absorbed
+        if amount > 0:
+            self.hp -= amount
         self._hit_timer = 0.15
+
+    def draw_shield(self) -> None:
+        """Draw the dashed-blue rotating arc visual ShieldedAlien uses.
+        Called from ``zones.star_maze.draw_world`` for any maze alien
+        whose ``shields > 0``.  Rendering is skipped when the shield
+        has already been depleted to zero so we don't pay the eight
+        line draws per frame on stripped aliens."""
+        if self.shields <= 0:
+            return
+        cx, cy = self.center_x, self.center_y
+        r = MAZE_ALIEN_RADIUS + 15
+        segments = 8
+        arc = 360 / segments * 0.65
+        for i in range(segments):
+            start = self._shield_angle + i * (360 / segments)
+            a1 = math.radians(start)
+            a2 = math.radians(start + arc)
+            x1 = cx + math.cos(a1) * r
+            y1 = cy + math.sin(a1) * r
+            x2 = cx + math.cos(a2) * r
+            y2 = cy + math.sin(a2) * r
+            arcade.draw_line(x1, y1, x2, y2, (80, 160, 255, 180), 2)
 
     def collision_bump(self) -> None:
         self._bump_timer = ALIEN_BUMP_FLASH
@@ -229,6 +276,11 @@ class MazeAlien(arcade.Sprite):
         them is rolled back and a new patrol target is chosen.
         """
         fired: list[Projectile] = []
+
+        # Shield ring rotation — kept ticking even when no shields
+        # remain so a partial-depletion scenario doesn't visibly
+        # pause and resume.
+        self._shield_angle = (self._shield_angle + 90.0 * dt) % 360
 
         # Physics velocity damping (for knockback etc.).
         damp = ALIEN_VEL_DAMPING ** (dt * 60.0)
@@ -307,7 +359,7 @@ class MazeAlien(arcade.Sprite):
                 self._heading,
                 MAZE_ALIEN_LASER_SPEED, MAZE_ALIEN_LASER_RANGE,
                 scale=0.5,
-                damage=MAZE_ALIEN_LASER_DAMAGE,
+                damage=self._laser_damage,
             ))
 
         return fired

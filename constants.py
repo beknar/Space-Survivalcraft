@@ -777,10 +777,24 @@ DUNGEON_WALL_SHEET_PNG = os.path.join(
 )
 
 # Maze-alien stats (all per spec).
-MAZE_ALIEN_HP: int = 50
+# HP and laser damage are randomised per spawn from these inclusive
+# ranges so no two maze aliens share an exact threat profile.
+# ``MAZE_ALIEN_HP`` / ``MAZE_ALIEN_LASER_DAMAGE`` remain as the
+# minimum (baseline) values for backward-compat with code paths that
+# need a single deterministic number — the per-instance roll happens
+# in ``MazeAlien.__init__``.
+MAZE_ALIEN_HP_MIN: int = 50
+MAZE_ALIEN_HP_MAX: int = 80
+MAZE_ALIEN_HP: int = MAZE_ALIEN_HP_MIN
+MAZE_ALIEN_LASER_DAMAGE_MIN: float = 20.0
+MAZE_ALIEN_LASER_DAMAGE_MAX: float = 35.0
+MAZE_ALIEN_LASER_DAMAGE: float = MAZE_ALIEN_LASER_DAMAGE_MIN
+# 35 % of maze aliens spawn with a 50-point shield (rendered with the
+# same dashed-blue rotating arc as the Zone 2 ``ShieldedAlien``).
+MAZE_ALIEN_SHIELD_CHANCE: float = 0.35
+MAZE_ALIEN_SHIELD: int = 50
 MAZE_ALIEN_SPEED: float = 120.0
 MAZE_ALIEN_RADIUS: float = 20.0
-MAZE_ALIEN_LASER_DAMAGE: float = 10.0
 MAZE_ALIEN_LASER_RANGE: float = 200.0
 MAZE_ALIEN_LASER_SPEED: float = 300.0
 MAZE_ALIEN_FIRE_CD: float = 1.5
