@@ -261,26 +261,36 @@ def _nearest_alien_to_player(gv: GameView) -> tuple[float, float] | None:
     return best
 
 
+def _play_throttled_alien_sfx(
+    gv: GameView, snd_attr: str, base_mult: float,
+) -> None:
+    """Shared body for ``play_alien_laser_sound`` +
+    ``play_missile_launch_sound`` — both share the same throttle
+    counter (so total alien audio output stays bounded) and the
+    same nearest-alien spatial source.  Differ only in WHICH sound
+    they play and the per-source volume mix.
+    """
+    snd = getattr(gv, snd_attr, None)
+    if snd is None:
+        return
+    if getattr(gv, "_alien_laser_snd_cd", 0.0) > 0.0:
+        return
+    gv._alien_laser_snd_cd = _ALIEN_LASER_SND_INTERVAL
+    pos = _nearest_alien_to_player(gv)
+    if pos is None:
+        return
+    from settings import audio
+    play_sfx_at(gv, snd, pos[0], pos[1],
+                base_volume=audio.sfx_volume * base_mult)
+
+
 def play_alien_laser_sound(gv: GameView) -> None:
     """Play the alien-laser fire SFX with a global throttle (so
     dozens of simultaneous shots don't pile into a wall of audio)
     AND distance attenuation toward the player (so a laser fired
     on the far side of the zone doesn't blast at full volume).
     The throttle counter decays via ``update_timers``."""
-    snd = getattr(gv, "_alien_laser_snd", None)
-    if snd is None:
-        return
-    if getattr(gv, "_alien_laser_snd_cd", 0.0) > 0.0:
-        return
-    gv._alien_laser_snd_cd = _ALIEN_LASER_SND_INTERVAL
-    from settings import audio
-    pos = _nearest_alien_to_player(gv)
-    if pos is None:
-        # No aliens in any list — defensive; just skip rather than
-        # blast unattenuated.
-        return
-    play_sfx_at(gv, snd, pos[0], pos[1],
-                base_volume=audio.sfx_volume * 0.4)
+    _play_throttled_alien_sfx(gv, "_alien_laser_snd", 0.4)
 
 
 def play_missile_launch_sound(gv: GameView) -> None:
@@ -289,18 +299,7 @@ def play_missile_launch_sound(gv: GameView) -> None:
     laser uses.  Distance is measured from the nearest alien-side
     sprite, so a stalker volley far from the player drops in volume
     instead of blasting at full slider level."""
-    snd = getattr(gv, "_missile_launch_snd", None)
-    if snd is None:
-        return
-    if getattr(gv, "_alien_laser_snd_cd", 0.0) > 0.0:
-        return
-    gv._alien_laser_snd_cd = _ALIEN_LASER_SND_INTERVAL
-    from settings import audio
-    pos = _nearest_alien_to_player(gv)
-    if pos is None:
-        return
-    play_sfx_at(gv, snd, pos[0], pos[1],
-                base_volume=audio.sfx_volume * 0.5)
+    _play_throttled_alien_sfx(gv, "_missile_launch_snd", 0.5)
 
 
 def update_death_state(gv: GameView, dt: float) -> None:
