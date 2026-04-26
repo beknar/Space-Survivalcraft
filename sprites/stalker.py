@@ -50,11 +50,11 @@ def _load_frame(sheet_path: str = STALKER_PNG) -> arcade.Texture:
     return cached
 
 
-class Stalker(arcade.Sprite):
-    """Patrol/pursue missile-firing enemy."""
+from sprites.alien_ai import PatrolPursueMixin
 
-    _STATE_PATROL = 0
-    _STATE_PURSUE = 1
+
+class Stalker(PatrolPursueMixin, arcade.Sprite):
+    """Patrol/pursue missile-firing enemy."""
 
     def __init__(
         self,
@@ -80,13 +80,15 @@ class Stalker(arcade.Sprite):
         self._world_w = world_w
         self._world_h = world_h
 
-        self._state: int = self._STATE_PATROL
+        # PatrolPursueMixin requires home + patrol radius + world
+        # bounds + fire cooldown set BEFORE _init_patrol_state.
         self._home_x: float = x
         self._home_y: float = y
         self._patrol_r: float = patrol_radius
         self._tgt_x: float = x
         self._tgt_y: float = y
-        self._pick_patrol_target()
+        self._fire_cd: float = 0.0  # mixin reads this in alert()
+        self._init_patrol_state()
 
         self._heading: float = random.uniform(0.0, 360.0)
         self.angle = self._heading
@@ -105,17 +107,7 @@ class Stalker(arcade.Sprite):
         self._orbit_dir: int = random.choice((-1, 1))
 
     # ── AI helpers ───────────────────────────────────────────────────
-
-    def _pick_patrol_target(self) -> None:
-        from sprites.alien_ai import pick_patrol_target
-        self._tgt_x, self._tgt_y = pick_patrol_target(
-            self._home_x, self._home_y, self._patrol_r,
-            self._world_w, self._world_h)
-
-    def alert(self) -> None:
-        if self._state == self._STATE_PATROL:
-            self._state = self._STATE_PURSUE
-            self._fire_cd = 0.0
+    # _pick_patrol_target() and alert() come from PatrolPursueMixin.
 
     def take_damage(self, amount: int) -> None:
         self.hp -= amount
@@ -149,14 +141,7 @@ class Stalker(arcade.Sprite):
         dy = player_y - self.center_y
         dist = math.hypot(dx, dy)
 
-        if self._state == self._STATE_PATROL:
-            if dist <= STALKER_DETECT_DIST:
-                self._state = self._STATE_PURSUE
-                self._fire_cd = 0.0
-        else:
-            if dist > STALKER_DETECT_DIST * 3.0:
-                self._state = self._STATE_PATROL
-                self._pick_patrol_target()
+        self._advance_patrol_state(dist, STALKER_DETECT_DIST)
 
         self._move(dt, dist, dx, dy)
         self._update_visuals(dt)

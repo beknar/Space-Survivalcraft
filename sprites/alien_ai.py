@@ -77,6 +77,67 @@ def pick_patrol_target(
     return tx, ty
 
 
+class PatrolPursueMixin:
+    """Shared patrol/pursue state machine for every "small ship"
+    enemy class — Stalker, MazeAlien, Zone2Alien, SmallAlienShip
+    all carry the same ``_state`` field plus the same patrol-→-pursue
+    transition pattern, the same ``alert()`` method, and the same
+    ``_pick_patrol_target`` shim over the module-level helper above.
+
+    Subclasses MUST set ``_home_x``, ``_home_y``, ``_patrol_r``,
+    ``_world_w``, ``_world_h``, and ``_fire_cd`` in their __init__
+    BEFORE calling ``_init_patrol_state()`` (or assign the fields
+    themselves; the mixin only reads them).  ``_tgt_x`` and
+    ``_tgt_y`` are populated by the first patrol-target pick.
+
+    The mixin is deliberately coordinate-agnostic — it doesn't know
+    about ship sprites, projectiles, or zones.  Movement and fire
+    logic stay in each subclass; only the state machine moves here.
+    """
+
+    _STATE_PATROL = 0
+    _STATE_PURSUE = 1
+
+    def _init_patrol_state(self) -> None:
+        """Set ``_state`` = PATROL and pick the first patrol waypoint.
+        Call from subclass __init__ AFTER setting the home / patrol-
+        radius / world-size fields."""
+        self._state = self._STATE_PATROL
+        self._pick_patrol_target()
+
+    def _pick_patrol_target(self) -> None:
+        self._tgt_x, self._tgt_y = pick_patrol_target(
+            self._home_x, self._home_y, self._patrol_r,
+            self._world_w, self._world_h,
+        )
+
+    def alert(self) -> None:
+        """Force this enemy into PURSUE state (e.g. player fired
+        nearby or a sibling alerted us).  Resets the fire cooldown
+        so the alert immediately enables a shot."""
+        if self._state == self._STATE_PATROL:
+            self._state = self._STATE_PURSUE
+            self._fire_cd = 0.0
+
+    def _advance_patrol_state(self, dist: float, detect_dist: float,
+                              hysteresis: float = 3.0) -> None:
+        """Toggle between PATROL and PURSUE based on player distance.
+
+        * PATROL → PURSUE when ``dist <= detect_dist``
+        * PURSUE → PATROL when ``dist > detect_dist * hysteresis``
+          (and pick a new patrol waypoint so the alien doesn't sit
+          still after losing the player)
+        """
+        if self._state == self._STATE_PATROL:
+            if dist <= detect_dist:
+                self._state = self._STATE_PURSUE
+                self._fire_cd = 0.0
+        else:
+            if dist > detect_dist * hysteresis:
+                self._state = self._STATE_PATROL
+                self._pick_patrol_target()
+
+
 def compute_avoidance(
     body,
     base_x: float,

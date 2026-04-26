@@ -68,7 +68,10 @@ def _load_frames(sheet_path: str = MAZE_ALIEN_SHEET_PNG
     return frames
 
 
-class MazeAlien(arcade.Sprite):
+from sprites.alien_ai import PatrolPursueMixin
+
+
+class MazeAlien(PatrolPursueMixin, arcade.Sprite):
     """Maze alien — stats per design spec.
 
     Deliberately lighter than ``Zone2Alien``: no shield, single gun,
@@ -77,8 +80,7 @@ class MazeAlien(arcade.Sprite):
     zone so the existing player-hit pipeline applies.
     """
 
-    _STATE_PATROL = 0
-    _STATE_PURSUE = 1
+    # _STATE_PATROL / _STATE_PURSUE provided by PatrolPursueMixin.
 
     def __init__(
         self,
@@ -126,18 +128,20 @@ class MazeAlien(arcade.Sprite):
         self._maze_bounds: tuple[float, float, float, float] | None = (
             maze_bounds)
 
-        self._state: int = self._STATE_PATROL
+        # PatrolPursueMixin requires home + patrol radius + world
+        # bounds + fire cooldown set before _init_patrol_state.
         hx, hy = patrol_home if patrol_home is not None else (x, y)
         self._home_x: float = hx
         self._home_y: float = hy
         self._patrol_r: float = patrol_radius
         self._tgt_x: float = x
         self._tgt_y: float = y
-        self._pick_patrol_target()
+        self._fire_cd: float = 0.0
+        self._init_patrol_state()
 
         self._heading: float = random.uniform(0.0, 360.0)
         self.angle = self._heading
-        self._fire_cd: float = random.uniform(0.0, MAZE_ALIEN_FIRE_CD)
+        self._fire_cd = random.uniform(0.0, MAZE_ALIEN_FIRE_CD)
         self._laser_tex: arcade.Texture = laser_tex
 
         self._hit_timer: float = 0.0
@@ -162,12 +166,7 @@ class MazeAlien(arcade.Sprite):
         self._path_recompute_timer: float = 0.0
 
     # ── AI helpers ───────────────────────────────────────────────────
-
-    def _pick_patrol_target(self) -> None:
-        from sprites.alien_ai import pick_patrol_target
-        self._tgt_x, self._tgt_y = pick_patrol_target(
-            self._home_x, self._home_y, self._patrol_r,
-            self._world_w, self._world_h)
+    # _pick_patrol_target() and alert() come from PatrolPursueMixin.
 
     def _next_waypoint(
         self, dt: float, player_x: float, player_y: float,
@@ -216,10 +215,7 @@ class MazeAlien(arcade.Sprite):
         nxt = rooms[self._path[1]]
         return (nxt.x + nxt.w * 0.5, nxt.y + nxt.h * 0.5)
 
-    def alert(self) -> None:
-        if self._state == self._STATE_PATROL:
-            self._state = self._STATE_PURSUE
-            self._fire_cd = 0.0
+    # alert() inherited from PatrolPursueMixin.
 
     def take_damage(self, amount: int) -> None:
         # Shields absorb first (matches ShieldedAlien / player damage
@@ -295,16 +291,8 @@ class MazeAlien(arcade.Sprite):
         dy = player_y - self.center_y
         dist = math.hypot(dx, dy)
 
-        if self._state == self._STATE_PATROL:
-            if dist <= MAZE_ALIEN_DETECT_DIST:
-                self._state = self._STATE_PURSUE
-                self._fire_cd = 0.0
-        else:
-            # Disengage much further out than the detect range — matches
-            # the Zone 2 alien hysteresis.
-            if dist > MAZE_ALIEN_DETECT_DIST * 3.0:
-                self._state = self._STATE_PATROL
-                self._pick_patrol_target()
+        # Patrol/pursue transition (3× hysteresis matches Z2 aliens).
+        self._advance_patrol_state(dist, MAZE_ALIEN_DETECT_DIST)
 
         # When pursuing through walls, recompute the room-graph path
         # to the player and steer toward the next waypoint instead of
