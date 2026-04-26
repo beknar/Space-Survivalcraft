@@ -229,6 +229,12 @@ class GameView(arcade.View):
         self._missile_impact_snd = arcade.load_sound(SFX_MISSILE_IMPACT)
         self._misty_step_snd = arcade.load_sound(SFX_MISTY_STEP)
         self._force_wall_snd = arcade.load_sound(SFX_FORCE_WALL)
+        # Alien laser fire sound — global throttled play in
+        # ``update_logic.play_alien_laser_sound`` so dozens of
+        # simultaneous alien shots don't stack into a wall of audio.
+        from constants import SFX_ALIEN_LASER
+        self._alien_laser_snd = arcade.load_sound(SFX_ALIEN_LASER)
+        self._alien_laser_snd_cd: float = 0.0
 
         self._iron_tex = load_iron_texture()
 

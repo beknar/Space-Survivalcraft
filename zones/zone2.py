@@ -349,6 +349,8 @@ class Zone2(ZoneState):
                 if projs:
                     for p in projs:
                         self._alien_projectiles.append(p)
+                    from update_logic import play_alien_laser_sound
+                    play_alien_laser_sound(gv)
             else:
                 # Minimal update: velocity decay + position drift only
                 alien.center_x += alien.vel_x * dt

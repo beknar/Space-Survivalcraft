@@ -76,6 +76,12 @@ SFX_WEAPONS_DIR = os.path.join(
     _HERE, "assets", "Sci Fi Sound Effects Bundle",
     "Stormwave Audio Sci-Fi Sound Effects Bundle", "Weapons", "Energy Weapons",
 )
+# Alien-laser fire sound — same Stormwave pack, ricochet variant.
+SFX_ALIEN_LASER = os.path.join(
+    _HERE, "assets", "Sci Fi Sound Effects Bundle",
+    "Stormwave Audio Sci-Fi Sound Effects Bundle", "Weapons", "Energy Weapons",
+    "Sci-Fi Laser Weapon Ricochet 1.wav",
+)
 SFX_EXPLOSIONS_DIR = os.path.join(
     _HERE, "assets", "Sci Fi Sound Effects Bundle",
     "Stormwave Audio Sci-Fi Sound Effects Bundle", "Weapons", "Explosions",

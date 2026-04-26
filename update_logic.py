@@ -191,6 +191,23 @@ def update_preamble(gv: GameView, dt: float) -> None:
     gv._escape_menu.update(dt)
 
 
+_ALIEN_LASER_SND_INTERVAL: float = 0.12  # max one play per ~120 ms
+
+
+def play_alien_laser_sound(gv: GameView) -> None:
+    """Play the alien-laser fire SFX with a global throttle so dozens
+    of simultaneous shots don't pile into a wall of audio.  Decays
+    via ``update_timers`` (cooldown counter armed here, ticked there)."""
+    snd = getattr(gv, "_alien_laser_snd", None)
+    if snd is None:
+        return
+    if getattr(gv, "_alien_laser_snd_cd", 0.0) > 0.0:
+        return
+    gv._alien_laser_snd_cd = _ALIEN_LASER_SND_INTERVAL
+    from settings import audio
+    arcade.play_sound(snd, volume=audio.sfx_volume * 0.4)
+
+
 def update_death_state(gv: GameView, dt: float) -> None:
     """Update explosions/sparks during death delay; auto-respawn
     the player when the timer expires.  The legacy death screen is
@@ -222,6 +239,8 @@ def update_timers(gv: GameView, dt: float) -> None:
         gv._boss_announce_timer = max(0.0, gv._boss_announce_timer - dt)
     if gv._use_glow_timer > 0.0:
         gv._use_glow_timer = max(0.0, gv._use_glow_timer - dt)
+    if getattr(gv, "_alien_laser_snd_cd", 0.0) > 0.0:
+        gv._alien_laser_snd_cd = max(0.0, gv._alien_laser_snd_cd - dt)
     # Hold-to-sell loop: consume timer and drain inventory if held.
     if gv._trade_menu.open:
         action = gv._trade_menu.on_update(
@@ -519,6 +538,7 @@ def update_entities(gv: GameView, dt: float) -> None:
         )
         if proj is not None:
             gv.alien_projectile_list.append(proj)
+            play_alien_laser_sound(gv)
 
     # Alien collisions (aliens pass through each other but collide with asteroids)
     handle_alien_player_collision(gv)

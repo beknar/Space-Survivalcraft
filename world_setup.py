@@ -370,7 +370,13 @@ def populate_aliens() -> tuple[arcade.SpriteList, arcade.Texture, arcade.Texture
         if _pil_fx.mode != "RGBA":
             _pil_fx = _pil_fx.convert("RGBA")
         _pil_laser = _pil_fx.crop((4299, 82, 4359, 310))
-        alien_laser_tex = arcade.Texture(_pil_laser.rotate(90, expand=True))
+        # Flip the cropped strip 180° from its previous orientation —
+        # the prior `.rotate(90)` left the projectile pointing at the
+        # firing ship instead of away from it.  ``rotate(-90)`` =
+        # ``rotate(270)`` cancels that 180° flip relative to the old
+        # texture, so the projectile's "head" exits the muzzle in the
+        # direction of travel.
+        alien_laser_tex = arcade.Texture(_pil_laser.rotate(-90, expand=True))
         _pil_fx.close()
         _alien_tex_cache = (alien_ship_tex, alien_laser_tex)
     else:

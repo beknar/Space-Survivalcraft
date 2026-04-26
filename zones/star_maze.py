@@ -658,8 +658,11 @@ class StarMazeZone(ZoneState):
             fired = alien.update_alien(
                 dt, px, py, self._iron_asteroids, self._aliens,
                 force_walls=gv._force_walls)
-            for proj in fired:
-                self._alien_projectiles.append(proj)
+            if fired:
+                for proj in fired:
+                    self._alien_projectiles.append(proj)
+                from update_logic import play_alien_laser_sound
+                play_alien_laser_sound(gv)
 
         # Advance Nebula-alien projectiles, block them at maze
         # walls, and damage the player on contact.  Without the
@@ -747,8 +750,11 @@ class StarMazeZone(ZoneState):
         for sp in self._spawners:
             fired, should_spawn = sp.update_spawner(
                 dt, ai_px, ai_py, gv._alien_laser_tex)
-            for proj in fired:
-                self._maze_projectiles.append(proj)
+            if fired:
+                for proj in fired:
+                    self._maze_projectiles.append(proj)
+                from update_logic import play_alien_laser_sound
+                play_alien_laser_sound(gv)
             if should_spawn:
                 self._spawn_child(sp, gv._alien_laser_tex)
 
@@ -850,8 +856,11 @@ class StarMazeZone(ZoneState):
                 force_walls=gv._force_walls,
                 maze_walls=near_walls,
             )
-            for proj in fired:
-                self._maze_projectiles.append(proj)
+            if fired:
+                for proj in fired:
+                    self._maze_projectiles.append(proj)
+                from update_logic import play_alien_laser_sound
+                play_alien_laser_sound(gv)
         # Expose maze aliens + their projectiles on the shared lists
         # so the existing player-hit pipelines process them uniformly.
         gv.alien_list = self._maze_aliens
