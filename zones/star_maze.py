@@ -704,11 +704,18 @@ class StarMazeZone(ZoneState):
 
         # Stalker AI + missile fire.  Stalkers live outside the
         # mazes and use the same homing-missile sprite the player
-        # launches; ``ai_px/py`` already accounts for the null-field
-        # cloak the same way Z2 aliens do above.
+        # launches.  Compute the cloak-aware target position locally
+        # — feeding the synthetic far-away point keeps stalkers in
+        # PATROL while the player is hidden inside a null field.
+        from update_logic import player_is_cloaked
+        if player_is_cloaked(gv):
+            stalker_px, stalker_py = px + 1e9, py + 1e9
+        else:
+            stalker_px, stalker_py = px, py
         for st in list(self._stalkers):
             fired = st.update_alien(
-                dt, ai_px, ai_py, self._iron_asteroids, self._stalkers,
+                dt, stalker_px, stalker_py,
+                self._iron_asteroids, self._stalkers,
                 force_walls=gv._force_walls)
             if fired:
                 for miss in fired:
