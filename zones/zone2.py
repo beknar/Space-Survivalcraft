@@ -150,14 +150,8 @@ class Zone2(ZoneState):
         gv._fog_revealed = self._fog_revealed
 
         # Restore Zone 2 buildings (stashed when the player left)
-        if self._building_stash is not None:
-            gv.building_list = self._building_stash["building_list"]
-            gv.turret_projectile_list = self._building_stash["turret_projectile_list"]
-            gv._trade_station = self._building_stash["_trade_station"]
-            gv._parked_ships = self._building_stash.get(
-                "_parked_ships", arcade.SpriteList())
-            gv._hover_building = None
-            self._building_stash = None
+        # via the ZoneState helper — same schema as Star Maze.
+        self.restore_buildings(gv)
         # First visit or no trade station yet
         if gv._trade_station is None:
             gv._spawn_trade_station()
@@ -171,19 +165,9 @@ class Zone2(ZoneState):
         gv._wormholes.clear()
         gv._wormhole_list.clear()
 
-        # Stash Zone 2 buildings so MainZone doesn't overwrite them
-        self._building_stash = {
-            "building_list": gv.building_list,
-            "turret_projectile_list": gv.turret_projectile_list,
-            "_trade_station": gv._trade_station,
-            "_parked_ships": gv._parked_ships,
-        }
-        # Give GameView empty lists so MainZone.setup doesn't merge them
-        gv.building_list = arcade.SpriteList()
-        gv._parked_ships = arcade.SpriteList()
-        gv.turret_projectile_list = arcade.SpriteList()
-        gv._trade_station = None
-        gv._hover_building = None
+        # Stash Zone 2 buildings so MainZone doesn't overwrite them.
+        # Shared helper — Star Maze uses the same schema.
+        self.stash_buildings(gv)
 
     def get_player_spawn(self, entry_side: str) -> tuple[float, float]:
         return self._find_clear_position(

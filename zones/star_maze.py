@@ -231,17 +231,8 @@ class StarMazeZone(ZoneState):
 
         # Restore Star Maze buildings (stashed when the player left
         # OR pre-filled by ``game_save._restore_star_maze_full`` on
-        # load).  Mirrors the Zone 2 pattern; without this the
-        # player's maze base disappeared on every zone-leave + reload.
-        if self._building_stash is not None:
-            gv.building_list = self._building_stash["building_list"]
-            gv.turret_projectile_list = self._building_stash[
-                "turret_projectile_list"]
-            gv._trade_station = self._building_stash["_trade_station"]
-            gv._parked_ships = self._building_stash.get(
-                "_parked_ships", arcade.SpriteList())
-            gv._hover_building = None
-            self._building_stash = None
+        # load) via the shared ZoneState helper.
+        self.restore_buildings(gv)
 
         # Welcome flash on arrival.
         from zones import welcome_message_for
@@ -621,23 +612,9 @@ class StarMazeZone(ZoneState):
         gv._wormholes.clear()
         gv._wormhole_list.clear()
 
-        # Stash Star Maze buildings + parked ships so the next
-        # zone's setup doesn't overwrite them.  Without this the
-        # player's maze base + parked ships vanish into MainZone's
-        # stash when the player leaves through a wormhole.
-        self._building_stash = {
-            "building_list": gv.building_list,
-            "turret_projectile_list": gv.turret_projectile_list,
-            "_trade_station": gv._trade_station,
-            "_parked_ships": gv._parked_ships,
-        }
-        # Hand the GameView empty lists so the next zone's setup
-        # doesn't merge Star Maze content into its own state.
-        gv.building_list = arcade.SpriteList()
-        gv._parked_ships = arcade.SpriteList()
-        gv.turret_projectile_list = arcade.SpriteList()
-        gv._trade_station = None
-        gv._hover_building = None
+        # Stash Star Maze buildings + parked ships so the next zone's
+        # setup doesn't overwrite them.  Shared helper with Zone 2.
+        self.stash_buildings(gv)
 
     def _update_gas_damage(self, gv: GameView, dt: float) -> None:
         from zones.nebula_shared import update_gas_damage

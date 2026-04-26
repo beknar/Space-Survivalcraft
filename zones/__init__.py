@@ -96,6 +96,54 @@ class ZoneState:
     world_width: int = 6400
     world_height: int = 6400
 
+    # Shared building-stash mechanism — used by Zone 2 and Star Maze
+    # to keep their buildings + parked ships + trade station alive
+    # across zone transitions and save/load.  ``None`` means "first
+    # visit, nothing to restore".
+    _building_stash: dict | None = None
+
+    def stash_buildings(self, gv: "GameView") -> None:
+        """Snapshot ``gv``'s active buildings + trade station + parked
+        ships into ``self._building_stash`` and reset the GameView's
+        copies to empty so the next zone's setup doesn't merge them.
+
+        Called from ``teardown`` of any zone that owns its own base
+        (Zone 2, Star Maze).  Mirrors the pre-extracted inline pattern
+        each zone used to carry, so the stash schema and reset order
+        stay in lockstep across zones (a previous bug had Zone 2 and
+        Star Maze drifting on which fields they cleared)."""
+        import arcade as _arcade
+        self._building_stash = {
+            "building_list": gv.building_list,
+            "turret_projectile_list": gv.turret_projectile_list,
+            "_trade_station": gv._trade_station,
+            "_parked_ships": gv._parked_ships,
+        }
+        gv.building_list = _arcade.SpriteList()
+        gv._parked_ships = _arcade.SpriteList()
+        gv.turret_projectile_list = _arcade.SpriteList()
+        gv._trade_station = None
+        gv._hover_building = None
+
+    def restore_buildings(self, gv: "GameView") -> bool:
+        """Pop ``self._building_stash`` (if present) onto ``gv``'s
+        active fields.  Returns True when a restore happened (caller
+        can then skip first-visit setup like spawning a trade station).
+        Caller is responsible for ``setup`` semantics that come after
+        — this method only handles the field swap + clear."""
+        import arcade as _arcade
+        if self._building_stash is None:
+            return False
+        gv.building_list = self._building_stash["building_list"]
+        gv.turret_projectile_list = self._building_stash[
+            "turret_projectile_list"]
+        gv._trade_station = self._building_stash["_trade_station"]
+        gv._parked_ships = self._building_stash.get(
+            "_parked_ships", _arcade.SpriteList())
+        gv._hover_building = None
+        self._building_stash = None
+        return True
+
     def setup(self, gv: GameView) -> None:
         """Called when entering this zone. Populate zone-specific state."""
 
