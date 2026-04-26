@@ -125,6 +125,31 @@ class ZoneState:
         gv._trade_station = None
         gv._hover_building = None
 
+    def iter_enemies(self):
+        """Yield every live hostile sprite the zone knows about,
+        deduped by ``id()``.  Includes Z2 aliens (``_aliens``), Star
+        Maze enemies (``_maze_aliens`` + ``_stalkers``), and any
+        future enemy list a subclass exposes via the same naming
+        convention.  Subclasses can override to add more sources;
+        the default scan covers every existing zone.
+
+        Used by ``CombatDrone._nearest_enemy``,
+        ``update_logic._nearest_alien_to_player``, and the missile
+        homing target list — replaces three open-coded copies of
+        the same enemy-list walk that drifted whenever a new enemy
+        type was added.
+        """
+        seen: set[int] = set()
+        for attr in ("_aliens", "_maze_aliens", "_stalkers"):
+            lst = getattr(self, attr, None)
+            if lst is None:
+                continue
+            for e in lst:
+                if id(e) in seen:
+                    continue
+                seen.add(id(e))
+                yield e
+
     def restore_buildings(self, gv: "GameView") -> bool:
         """Pop ``self._building_stash`` (if present) onto ``gv``'s
         active fields.  Returns True when a restore happened (caller

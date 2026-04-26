@@ -397,31 +397,34 @@ class CombatDrone(_BaseDrone):
         """
         best = None
         best_d2 = DRONE_DETECT_RANGE * DRONE_DETECT_RANGE
-        sources: list = [getattr(gv, "alien_list", []) or []]
         zone = getattr(gv, "_zone", None)
-        if zone is not None:
-            for attr in ("_aliens", "_maze_aliens", "_stalkers"):
-                lst = getattr(zone, attr, None)
-                if lst is not None:
-                    sources.append(lst)
-        if getattr(gv, "_boss", None) is not None:
-            sources.append([gv._boss])
-        if getattr(gv, "_nebula_boss", None) is not None:
-            sources.append([gv._nebula_boss])
         seen: set[int] = set()
-        for src in sources:
-            for e in src:
-                eid = id(e)
-                if eid in seen:
-                    continue
-                seen.add(eid)
-                if getattr(e, "hp", 0) <= 0:
-                    continue
-                d2 = ((e.center_x - self.center_x) ** 2
-                      + (e.center_y - self.center_y) ** 2)
-                if d2 < best_d2:
-                    best_d2 = d2
-                    best = e
+
+        def _candidates():
+            # gv.alien_list often aliases one of the zone lists (Zone 2
+            # default) or holds a separate stash — yield it before the
+            # zone walk so dedupe-by-id catches the overlap.
+            for e in (getattr(gv, "alien_list", []) or []):
+                yield e
+            if zone is not None and hasattr(zone, "iter_enemies"):
+                yield from zone.iter_enemies()
+            for boss_attr in ("_boss", "_nebula_boss"):
+                b = getattr(gv, boss_attr, None)
+                if b is not None:
+                    yield b
+
+        for e in _candidates():
+            eid = id(e)
+            if eid in seen:
+                continue
+            seen.add(eid)
+            if getattr(e, "hp", 0) <= 0:
+                continue
+            d2 = ((e.center_x - self.center_x) ** 2
+                  + (e.center_y - self.center_y) ** 2)
+            if d2 < best_d2:
+                best_d2 = d2
+                best = e
         return best
 
     def draw_shield(self) -> None:

@@ -266,6 +266,18 @@ class TestCombatDroneTargeting:
         )
         assert d._nearest_enemy(gv) is gv._boss
 
+    def _zone_with(self, aliens=(), maze_aliens=(), stalkers=()):
+        # Build a stub zone exposing the same iter_enemies contract
+        # ZoneState provides — yields each list deduped by id.
+        from zones import ZoneState
+        z = SimpleNamespace(
+            _aliens=list(aliens),
+            _maze_aliens=list(maze_aliens),
+            _stalkers=list(stalkers),
+            iter_enemies=lambda: ZoneState.iter_enemies(z),
+        )
+        return z
+
     def test_includes_zone_aliens_when_alien_list_swapped(self):
         # Regression: in the Star Maze, gv.alien_list is swapped to
         # ``self._maze_aliens`` mid-frame.  The drone must still see
@@ -274,11 +286,7 @@ class TestCombatDroneTargeting:
         d = CombatDrone(0.0, 0.0)
         z2_alien = SimpleNamespace(center_x=120.0, center_y=0.0, hp=50)
         stalker = SimpleNamespace(center_x=80.0, center_y=0.0, hp=75)
-        zone = SimpleNamespace(
-            _aliens=[z2_alien],
-            _maze_aliens=[],
-            _stalkers=[stalker],
-        )
+        zone = self._zone_with(aliens=[z2_alien], stalkers=[stalker])
         gv = SimpleNamespace(
             alien_list=[],   # empty: simulates the post-swap state
             _zone=zone,
@@ -292,11 +300,7 @@ class TestCombatDroneTargeting:
         from sprites.drone import CombatDrone
         d = CombatDrone(0.0, 0.0)
         maze_alien = SimpleNamespace(center_x=50.0, center_y=0.0, hp=60)
-        zone = SimpleNamespace(
-            _aliens=[],
-            _maze_aliens=[maze_alien],
-            _stalkers=[],
-        )
+        zone = self._zone_with(maze_aliens=[maze_alien])
         gv = SimpleNamespace(
             alien_list=[],
             _zone=zone,

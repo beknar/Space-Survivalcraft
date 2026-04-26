@@ -234,26 +234,30 @@ def _nearest_alien_to_player(gv: GameView) -> tuple[float, float] | None:
     throttled alien-laser SFX falls off from the most-likely-fired
     source.  Walks the active zone's alien lists; returns ``None``
     if no aliens are present."""
-    import math as _m
     player = getattr(gv, "player", None)
     if player is None:
         return None
     px, py = player.center_x, player.center_y
     best = None
     best_d2 = float("inf")
-    sources = [getattr(gv, "alien_list", None) or []]
-    zone = getattr(gv, "_zone", None)
-    if zone is not None:
-        for attr in ("_aliens", "_maze_aliens", "_stalkers"):
-            lst = getattr(zone, attr, None)
-            if lst is not None:
-                sources.append(lst)
-    for src in sources:
-        for a in src:
-            d2 = (a.center_x - px) ** 2 + (a.center_y - py) ** 2
-            if d2 < best_d2:
-                best_d2 = d2
-                best = (a.center_x, a.center_y)
+    seen: set[int] = set()
+
+    def _candidates():
+        for a in (getattr(gv, "alien_list", None) or []):
+            yield a
+        zone = getattr(gv, "_zone", None)
+        if zone is not None and hasattr(zone, "iter_enemies"):
+            yield from zone.iter_enemies()
+
+    for a in _candidates():
+        aid = id(a)
+        if aid in seen:
+            continue
+        seen.add(aid)
+        d2 = (a.center_x - px) ** 2 + (a.center_y - py) ** 2
+        if d2 < best_d2:
+            best_d2 = d2
+            best = (a.center_x, a.center_y)
     return best
 
 

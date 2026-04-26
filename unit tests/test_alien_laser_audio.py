@@ -17,15 +17,21 @@ from update_logic import play_alien_laser_sound, _ALIEN_LASER_SND_INTERVAL
 def _gv():
     """Stub GV with a player + a single alien co-located so the
     distance-attenuated path inside ``play_alien_laser_sound`` runs
-    at full volume (player at origin, alien at origin → distance 0)."""
+    at full volume (player at origin, alien at origin → distance 0).
+    Zone exposes the new ``iter_enemies`` contract from ZoneState."""
+    from zones import ZoneState
     player = SimpleNamespace(center_x=0.0, center_y=0.0)
     alien = SimpleNamespace(center_x=0.0, center_y=0.0)
+    zone = SimpleNamespace(
+        _aliens=[alien], _maze_aliens=[], _stalkers=[],
+        iter_enemies=lambda: ZoneState.iter_enemies(zone),
+    )
     return SimpleNamespace(
         _alien_laser_snd=object(),   # any non-None sentinel
         _alien_laser_snd_cd=0.0,
         player=player,
-        alien_list=[alien],
-        _zone=SimpleNamespace(),
+        alien_list=[],
+        _zone=zone,
     )
 
 

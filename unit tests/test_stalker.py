@@ -204,17 +204,23 @@ class TestStalkerMissileLaunchSound:
 
     def _gv(self):
         from types import SimpleNamespace
+        from zones import ZoneState
         # Co-locate player + alien at origin so the distance-attenuated
         # play_sfx_at path inside play_missile_launch_sound runs at
-        # full volume (distance 0).
+        # full volume (distance 0).  Zone exposes the iter_enemies
+        # contract from ZoneState.
         player = SimpleNamespace(center_x=0.0, center_y=0.0)
         alien = SimpleNamespace(center_x=0.0, center_y=0.0)
+        zone = SimpleNamespace(
+            _aliens=[alien], _maze_aliens=[], _stalkers=[],
+            iter_enemies=lambda: ZoneState.iter_enemies(zone),
+        )
         return SimpleNamespace(
             _missile_launch_snd=object(),  # any non-None sentinel
             _alien_laser_snd_cd=0.0,
             player=player,
-            alien_list=[alien],
-            _zone=SimpleNamespace(),
+            alien_list=[],
+            _zone=zone,
         )
 
     def test_first_call_plays_and_arms_throttle(self):
