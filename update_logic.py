@@ -114,9 +114,29 @@ _real_play_sound = arcade.play_sound
 # ═══ GC + sound cleanup ═══════════════════════════════════════════════════
 
 
+_SOUND_HARD_CAP = 200  # backlog ceiling — see _tracked_play_sound below
+
+
 def _tracked_play_sound(*args, **kwargs):
     """Wrapper around arcade.play_sound that tracks the returned Player
-    with a creation timestamp."""
+    with a creation timestamp.
+
+    Hard cap: if ``_sound_players`` already holds ``_SOUND_HARD_CAP``
+    entries, evict + ``.delete()`` the OLDEST one synchronously before
+    appending the new player.  This bounds the list's worst-case
+    length even when the periodic ``_cleanup_finished_sounds`` timer
+    can't keep up (e.g. tests that run the update loop faster than
+    real time, where the wall-clock ``_SOUND_MAX_AGE`` check sees
+    every entry as still-fresh).  Without the cap, sustained combat
+    soaks let the list grow into the thousands and pyglet's per-frame
+    Player iteration collapsed FPS from 75 → 2 (Boss-soak regression
+    confirmed 2026-04-25)."""
+    if len(_sound_players) >= _SOUND_HARD_CAP:
+        _, oldest = _sound_players.pop(0)
+        try:
+            oldest.delete()
+        except Exception:
+            pass
     player = _real_play_sound(*args, **kwargs)
     if player is not None:
         _sound_players.append((_time.perf_counter(), player))
@@ -131,20 +151,38 @@ _MAX_DELETES_PER_TICK = 4  # spread pyglet Player.delete over frames
 
 
 def _cleanup_finished_sounds() -> None:
-    """Delete at most ``_MAX_DELETES_PER_TICK`` pyglet Players older
-    than ``_SOUND_MAX_AGE`` seconds.
+    """Delete pyglet Players older than ``_SOUND_MAX_AGE`` seconds.
 
     ``Player.delete`` releases native OpenAL + FFmpeg resources and
     can stall 20–40 ms each — with 10+ stale players piling up
-    during a combat burst, the prior "delete everything at once"
+    during a combat burst, the original "delete everything at once"
     pass caused the 150–200 ms mid-session spikes seen in
-    fps_drops.log.  Rate-limiting to 4 per tick keeps the worst
-    cleanup cost under ~160 ms total across separate frames.
-    Remaining stale players survive into the next 5-s tick, which
-    is fine — they're already finished playing.
+    fps_drops.log.
+
+    But rate-limiting to 4 deletes per 5-s tick falls *catastrophically*
+    behind sustained combat: 30 aliens at 60 fps generate ~5 sound
+    players/sec, but we'd only delete 4 every 5 s = 0.8/sec, leaving
+    +4 players/sec of permanent backlog.  Pyglet's clock then iterates
+    every live (or dead-but-not-deleted) Player on every frame, so a
+    boss-soak that ran 90 s of combat saw the backlog hit 481 players
+    and FPS collapse from 75 → 20 → 2 (measured 2026-04-25).
+
+    Fix: scale deletes-per-tick with the current backlog so the
+    delete rate always matches or exceeds the creation rate.  At
+    backlog ≤ 30 we keep the original 4/tick budget (stays cheap when
+    nothing's wrong); above that we accelerate up to 32/tick, which
+    is still well under the 150 ms spike threshold (32 × 30 ms / 5 s
+    ≈ 0.96 s, spread across many frames since cleanup runs only once
+    per 5-s tick).
     """
     now = _time.perf_counter()
-    deletes_remaining = _MAX_DELETES_PER_TICK
+    backlog = len(_sound_players)
+    if backlog > 100:
+        deletes_remaining = 32
+    elif backlog > 30:
+        deletes_remaining = 12
+    else:
+        deletes_remaining = _MAX_DELETES_PER_TICK
     alive: list[tuple[float, object]] = []
     for created_at, p in _sound_players:
         if now - created_at < _SOUND_MAX_AGE or deletes_remaining <= 0:
