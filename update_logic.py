@@ -1,4 +1,35 @@
-"""Game update logic extracted from GameView.on_update."""
+"""Game update logic extracted from GameView.on_update.
+
+Section index (search for ``═══`` headers):
+
+* GC + sound cleanup           — _tracked_play_sound, _cleanup_finished_sounds
+* update_preamble              — per-frame pre-update housekeeping
+* Distance-attenuated SFX      — play_sfx_at, _play_throttled_alien_sfx,
+                                  play_alien_laser_sound,
+                                  play_missile_launch_sound, emit_alien_shots
+* Death + timers               — update_death_state, update_timers
+* Repair / shield / craft      — update_repair_and_shields, update_crafting
+* Player movement / weapons    — update_movement, update_contrail, update_weapons
+* Entities / buildings         — update_entities, _update_parked_ships,
+                                  update_buildings, update_respawns
+* Boss helpers                 — update_boss, update_nebula_boss
+* Wormholes / abilities        — update_wormholes, update_ability_meter
+* Null fields / slipspaces     — active_null_fields, update_null_fields,
+                                  player_is_cloaked,
+                                  disable_null_field_around_player,
+                                  update_slipspaces
+* Force walls                  — update_force_walls
+* Drone tick                   — update_drone
+* Misc                         — update_missiles, update_death_blossom,
+                                  update_effects, update_station_shield,
+                                  update_refugee_npc
+
+The file is large (~1500 lines) but every section is a self-contained
+function callable directly from GameView.  A future split would carry
+import-churn cost across ~15 call sites that read these helpers by
+name; the section markers below let editors jump straight to the
+function being tuned.
+"""
 from __future__ import annotations
 
 import gc
@@ -80,6 +111,9 @@ _FULL_GC_INTERVAL = 60.0
 _real_play_sound = arcade.play_sound
 
 
+# ═══ GC + sound cleanup ═══════════════════════════════════════════════════
+
+
 def _tracked_play_sound(*args, **kwargs):
     """Wrapper around arcade.play_sound that tracks the returned Player
     with a creation timestamp."""
@@ -123,6 +157,9 @@ def _cleanup_finished_sounds() -> None:
                 pass
     _sound_players.clear()
     _sound_players.extend(alive)
+
+
+# ═══ Update preamble ═════════════════════════════════════════════════════
 
 
 def update_preamble(gv: GameView, dt: float) -> None:
@@ -192,6 +229,9 @@ def update_preamble(gv: GameView, dt: float) -> None:
 
 
 _ALIEN_LASER_SND_INTERVAL: float = 0.12  # max one play per ~120 ms
+
+
+# ═══ Distance-attenuated SFX + alien fire helpers ═══════════════════════
 
 
 def play_sfx_at(
@@ -330,6 +370,9 @@ def emit_alien_shots(
         play_alien_laser_sound(gv)
 
 
+# ═══ Death state + per-frame timers ═════════════════════════════════════
+
+
 def update_death_state(gv: GameView, dt: float) -> None:
     """Update explosions/sparks during death delay; auto-respawn
     the player when the timer expires.  The legacy death screen is
@@ -371,6 +414,9 @@ def update_timers(gv: GameView, dt: float) -> None:
         if action is not None:
             from input_handlers import apply_trade_action
             apply_trade_action(gv, action)
+
+
+# ═══ Repair / shields / craft ═══════════════════════════════════════════
 
 
 def update_repair_and_shields(gv: GameView, dt: float) -> None:
@@ -474,6 +520,9 @@ def update_crafting(gv: GameView, dt: float) -> None:
             gv._active_crafter.craft_progress,
             gv._active_crafter.crafting,
         )
+
+
+# ═══ Player movement / contrail / weapons ════════════════════════════════
 
 
 def update_movement(gv: GameView, dt: float) -> bool:
@@ -638,6 +687,9 @@ def update_weapons(gv: GameView, dt: float, fire: bool) -> None:
                 damage=BROADSIDE_DAMAGE,
             )
             gv.projectile_list.append(proj)
+
+
+# ═══ Zone-1 entity / building / boss / wormhole tick ════════════════════
 
 
 def update_entities(gv: GameView, dt: float) -> None:
@@ -1102,6 +1154,9 @@ def update_ability_meter(gv: GameView, dt: float) -> None:
             gv._move_candidate = None
 
 
+# ═══ Null fields / slipspaces / force walls / drones ═══════════════════
+
+
 def active_null_fields(gv: GameView) -> list:
     """Return the null-field list for the zone the player is currently
     in. Used by the cloaking gate + the fire-disable hook + drawing.
@@ -1367,6 +1422,9 @@ def update_drone(gv: GameView, dt: float) -> None:
         spawn_explosion(gv, drone.center_x, drone.center_y)
         drone.remove_from_sprite_lists()
         gv._active_drone = None
+
+
+# ═══ Missiles / death blossom / VFX cleanup ═════════════════════════════
 
 
 def update_missiles(gv: GameView, dt: float) -> None:
