@@ -720,6 +720,17 @@ class StarMazeZone(ZoneState):
             if fired:
                 for miss in fired:
                     self._stalker_missiles.append(miss)
+                from update_logic import play_missile_launch_sound
+                play_missile_launch_sound(gv)
+        # Stalker containment — wall push-out + maze-AABB ejection.
+        # Identical to the Z2-alien containment pass above; stalkers
+        # use the same circle-vs-AABB primitives.  Without this a
+        # stalker pursuing a player who flies into a maze entrance
+        # can drift through the doorway and end up trapped inside
+        # the maze structure (per spec they must stay outside).
+        from constants import STALKER_RADIUS
+        self._push_out_of_walls(self._stalkers, STALKER_RADIUS)
+        self._push_out_of_maze_bounds(self._stalkers, STALKER_RADIUS)
         # Advance Nebula-alien projectiles, block them at maze
         # walls, and damage the player on contact.  Without the
         # advance call these projectiles stayed on screen forever

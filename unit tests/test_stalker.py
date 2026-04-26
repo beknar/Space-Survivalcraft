@@ -193,3 +193,78 @@ class TestDroneFireSfxAttached:
         from sprites.drone import CombatDrone
         d = CombatDrone(0.0, 0.0)
         assert d._fire_snd is not None
+
+
+# ── Stalker missile-launch SFX ────────────────────────────────────────────
+
+class TestStalkerMissileLaunchSound:
+    """Stalker fires use the same SFX as the player's missile launch
+    via update_logic.play_missile_launch_sound, throttled by the
+    same global interval the alien-laser SFX uses."""
+
+    def _gv(self):
+        from types import SimpleNamespace
+        return SimpleNamespace(
+            _missile_launch_snd=object(),  # any non-None sentinel
+            _alien_laser_snd_cd=0.0,
+        )
+
+    def test_first_call_plays_and_arms_throttle(self):
+        from unittest.mock import patch
+        from update_logic import (
+            play_missile_launch_sound, _ALIEN_LASER_SND_INTERVAL,
+        )
+        gv = self._gv()
+        with patch("arcade.play_sound") as ps:
+            play_missile_launch_sound(gv)
+            assert ps.call_count == 1
+        assert gv._alien_laser_snd_cd == pytest.approx(
+            _ALIEN_LASER_SND_INTERVAL)
+
+    def test_skipped_inside_throttle_window(self):
+        from unittest.mock import patch
+        from update_logic import play_missile_launch_sound
+        gv = self._gv()
+        with patch("arcade.play_sound") as ps:
+            play_missile_launch_sound(gv)
+            play_missile_launch_sound(gv)
+            play_missile_launch_sound(gv)
+            assert ps.call_count == 1
+
+    def test_no_sound_loaded_is_safe(self):
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        from update_logic import play_missile_launch_sound
+        with patch("arcade.play_sound") as ps:
+            play_missile_launch_sound(SimpleNamespace())
+            assert ps.call_count == 0
+
+
+# ── Stalker maze containment ──────────────────────────────────────────────
+
+class TestStalkerMazeContainment:
+    """Stalkers must not be able to spawn in or drift into a maze
+    structure.  Spawn rejection is handled by ``_maze_reject_fn``
+    in the populate loop; this test confirms the populate path uses
+    a non-zero radius rejection that excludes maze AABBs."""
+
+    def test_populate_uses_reject_fn_with_radius(self):
+        # Inspect the populate loop source to confirm it calls
+        # ``_maze_reject_fn(radius=STALKER_RADIUS)`` — the only
+        # pre-condition for "stalkers can't spawn in mazes".  This
+        # is a contract test; it pins the behaviour without needing
+        # a fully-loaded zone.
+        import inspect
+        from zones import star_maze
+        src = inspect.getsource(star_maze.StarMazeZone._populate_stalkers)
+        assert "_maze_reject_fn(radius=STALKER_RADIUS)" in src
+
+    def test_update_loop_pushes_stalkers_out_of_mazes(self):
+        # The per-frame containment call lives inside the stalker
+        # block in StarMazeZone.update.  Pin it via source so a
+        # future refactor can't silently drop it.
+        import inspect
+        from zones import star_maze
+        src = inspect.getsource(star_maze.StarMazeZone.update)
+        assert "_push_out_of_maze_bounds(self._stalkers" in src
+        assert "_push_out_of_walls(self._stalkers" in src

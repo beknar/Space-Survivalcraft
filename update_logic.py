@@ -208,6 +208,26 @@ def play_alien_laser_sound(gv: GameView) -> None:
     arcade.play_sound(snd, volume=audio.sfx_volume * 0.4)
 
 
+def play_missile_launch_sound(gv: GameView) -> None:
+    """Play the player's missile-launch SFX with the same global
+    throttle the alien laser uses.  Used for stalker enemies (which
+    fire the same homing-missile sprite the player launches) so the
+    audio cue matches the projectile.  Throttle prevents 15
+    stalkers volleying simultaneously from stacking 15 sound
+    instances."""
+    snd = getattr(gv, "_missile_launch_snd", None)
+    if snd is None:
+        return
+    if getattr(gv, "_alien_laser_snd_cd", 0.0) > 0.0:
+        # Reuse the alien-laser cooldown counter so any in-flight
+        # alien audio (laser or missile) blocks each other within
+        # the throttle window.  Keeps total alien audio output bounded.
+        return
+    gv._alien_laser_snd_cd = _ALIEN_LASER_SND_INTERVAL
+    from settings import audio
+    arcade.play_sound(snd, volume=audio.sfx_volume * 0.5)
+
+
 def update_death_state(gv: GameView, dt: float) -> None:
     """Update explosions/sparks during death delay; auto-respawn
     the player when the timer expires.  The legacy death screen is
