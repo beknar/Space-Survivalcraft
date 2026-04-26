@@ -35,7 +35,7 @@ class TestStarMazeZoneLive:
         from constants import (
             STAR_MAZE_COUNT,
             STAR_MAZE_ROOM_COLS, STAR_MAZE_ROOM_ROWS,
-            MAZE_SPAWNER_MAX_ALIVE,
+            MAZE_SPAWNER_INITIAL_ALIENS,
         )
         gv = real_game_view
         gv._transition_zone(ZoneID.STAR_MAZE)
@@ -48,12 +48,14 @@ class TestStarMazeZoneLive:
         # Each maze has at least 15 rooms per the user spec.
         for maze in gv._zone.mazes:
             assert len(maze.rooms) >= 15
-        # Pre-population — each spawner has 20 children already alive
-        # and they're spread across the maze.
+        # Pre-population — each spawner brings an entourage of
+        # MAZE_SPAWNER_INITIAL_ALIENS (10) maze aliens, capped by
+        # MAZE_SPAWNER_MAX_ALIVE.  Was 20 (= cap) before the
+        # 10-alien-entourage spec.
         for sp in gv._zone.spawners:
-            assert sp.alive_children == MAZE_SPAWNER_MAX_ALIVE
+            assert sp.alive_children == MAZE_SPAWNER_INITIAL_ALIENS
         assert len(gv._zone._maze_aliens) == (
-            MAZE_SPAWNER_MAX_ALIVE * STAR_MAZE_COUNT)
+            MAZE_SPAWNER_INITIAL_ALIENS * STAR_MAZE_COUNT)
         # Wormhole layout: 1 central (→ ZONE2) + 4 corners (→ MAZE_WARP_*).
         assert len(gv._wormholes) == 5
         targets = {w.zone_target for w in gv._wormholes}
@@ -77,9 +79,12 @@ class TestStarMazeZoneLive:
                             alien.center_x, alien.center_y, r):
                         per_room[r] = per_room.get(r, 0) + 1
                         break
-            # 20 aliens spread over 25 rooms should visit at least 15
-            # distinct rooms (pigeonhole + our no-repeat sampling).
-            assert len(per_room) >= 15, (
+            # 10 aliens spread over 25 rooms via no-repeat sampling
+            # should visit at least 8 distinct rooms (one alien might
+            # land outside any room when offset randomization pushes
+            # it into a wall corridor).  Was 15 when the entourage
+            # was 20; relaxed for the 10-alien spec.
+            assert len(per_room) >= 8, (
                 f"maze at {maze.spawner}: aliens clustered in "
                 f"{len(per_room)} rooms")
 
@@ -140,16 +145,19 @@ class TestStarMazeZoneLive:
         assert isinstance(gv._zone._maze_aliens[-1], MazeAlien)
 
     def test_spawner_respects_alive_cap(self, real_game_view):
-        """Pre-population already fills the cap — a spawn tick at
-        the cap must not queue a new child."""
+        """A spawn tick at the cap must not queue a new child.
+        Pre-population only fills MAZE_SPAWNER_INITIAL_ALIENS (10),
+        so we manually push alive_children up to the cap before
+        ticking — same contract as before, different starting point."""
         from constants import MAZE_SPAWNER_MAX_ALIVE
         gv = real_game_view
         gv._transition_zone(ZoneID.STAR_MAZE)
         sp = gv._zone.spawners[0]
         gv.player.center_x = sp.center_x + 9000
         gv.player.center_y = sp.center_y
-        # Post-generation, alive_children should already be at cap.
-        assert sp.alive_children == MAZE_SPAWNER_MAX_ALIVE
+        # Force the spawner to the alive cap so the next tick can't
+        # queue another spawn.
+        sp.alive_children = MAZE_SPAWNER_MAX_ALIVE
         sp._spawn_cd = 0.0
         before = len(gv._zone._maze_aliens)
         gv._zone.update(gv, 1 / 60)
