@@ -123,6 +123,12 @@ class StarMazeZone(ZoneState):
         self._spawners: arcade.SpriteList = arcade.SpriteList()
         self._maze_aliens: arcade.SpriteList = arcade.SpriteList()
         self._maze_projectiles: arcade.SpriteList = arcade.SpriteList()
+        # Stalker — fires homing missiles, lives outside the maze
+        # rooms.  ``_stalker_missiles`` is a separate list from the
+        # player's ``_missile_list`` so the two factions never share a
+        # target pool.
+        self._stalkers: arcade.SpriteList = arcade.SpriteList()
+        self._stalker_missiles: arcade.SpriteList = arcade.SpriteList()
         # Placeholder list handed to MazeAlien.update_alien as the
         # "asteroid avoidance" input.  Allocating this as a fresh
         # SpriteList on every tick leaked ~2 MB / frame of GL-buffer
@@ -531,12 +537,44 @@ class StarMazeZone(ZoneState):
             reject_null=self._maze_reject_fn(radius=100.0),
             reject_slip=self._maze_reject_fn(radius=60.0),
         )
+        self._populate_stalkers(gv)
+
+    def _populate_stalkers(self, gv: GameView) -> None:
+        """Drop ``STALKER_COUNT`` stalkers at random outside-the-maze
+        positions.  Uses the same rejection contract as Z2 aliens
+        (radius 30 px keeps the stalker body out of any maze AABB)
+        and seeds off the world seed so the layout is deterministic
+        across save / load.
+
+        ``gv._missile_tex`` is loaded by GameView's consumable-tex
+        init pass, so it's safe to read here from ``setup``.
+        """
+        from constants import STALKER_COUNT, STALKER_RADIUS
+        from sprites.stalker import Stalker
+        rng = random.Random(self._world_seed + 401)
+        reject = self._maze_reject_fn(radius=STALKER_RADIUS)
+        margin = 200.0
+        attempts_per = 40
+        for _ in range(STALKER_COUNT):
+            for _try in range(attempts_per):
+                sx = rng.uniform(margin, self.world_width - margin)
+                sy = rng.uniform(margin, self.world_height - margin)
+                if not reject(sx, sy):
+                    self._stalkers.append(
+                        Stalker(gv._missile_tex, sx, sy,
+                                world_w=self.world_width,
+                                world_h=self.world_height))
+                    break
 
     def teardown(self, gv: GameView) -> None:
         self._fog_grid = gv._fog_grid
         self._fog_revealed = gv._fog_revealed
         self._maze_projectiles.clear()
         self._alien_projectiles.clear()
+        # In-flight stalker missiles don't survive a zone-leave —
+        # they'd home onto a player who's no longer here.  Stalker
+        # bodies persist (they live in the zone, not on the player).
+        self._stalker_missiles.clear()
         gv._wormholes.clear()
         gv._wormhole_list.clear()
 
@@ -664,14 +702,31 @@ class StarMazeZone(ZoneState):
                 from update_logic import play_alien_laser_sound
                 play_alien_laser_sound(gv)
 
+        # Stalker AI + missile fire.  Stalkers live outside the
+        # mazes and use the same homing-missile sprite the player
+        # launches; ``ai_px/py`` already accounts for the null-field
+        # cloak the same way Z2 aliens do above.
+        for st in list(self._stalkers):
+            fired = st.update_alien(
+                dt, ai_px, ai_py, self._iron_asteroids, self._stalkers,
+                force_walls=gv._force_walls)
+            if fired:
+                for miss in fired:
+                    self._stalker_missiles.append(miss)
         # Advance Nebula-alien projectiles, block them at maze
         # walls, and damage the player on contact.  Without the
         # advance call these projectiles stayed on screen forever
         # (no range-exhaust check ever ran).
         self._advance_alien_projectiles(gv, dt)
+        # Advance stalker missiles + apply damage on player contact.
+        self._advance_stalker_missiles(gv, dt)
 
         # Player-projectile-vs-Nebula-entity collisions.
         handle_projectile_hits(self, gv)
+        # Player projectile vs stalkers — Z2 helper doesn't know about
+        # them, so run a focused pass here.  Stalkers drop iron + XP
+        # via the shared kill-rewards path so character bonuses apply.
+        self._handle_projectile_hits_vs_stalkers(gv)
 
         # Z2 alien ↔ player + alien ↔ asteroid collisions (shared).
         from zones.nebula_shared import (
@@ -933,6 +988,63 @@ class StarMazeZone(ZoneState):
             gv._trigger_shake()
             proj.remove_from_sprite_lists()
 
+    def _handle_projectile_hits_vs_stalkers(self, gv: GameView) -> None:
+        """Player + drone shots vs stalker.  Mirrors the Z2 alien
+        collision pattern in ``zones.zone2_world._check_laser_vs_aliens``.
+        Drops 90 iron + 30 XP on kill via the centralised reward
+        path so character bonuses + blueprint chance apply."""
+        from sprites.explosion import HitSpark
+        from collisions import _apply_kill_rewards
+        from character_data import bonus_iron_enemy
+        from constants import (
+            STALKER_IRON_DROP, STALKER_XP, BLUEPRINT_DROP_CHANCE_ALIEN,
+        )
+        for proj in list(gv.projectile_list):
+            for stalker in arcade.check_for_collision_with_list(
+                    proj, self._stalkers):
+                gv.hit_sparks.append(
+                    HitSpark(proj.center_x, proj.center_y))
+                gv._trigger_shake()
+                proj.remove_from_sprite_lists()
+                stalker.take_damage(int(proj.damage))
+                if stalker.hp <= 0:
+                    _apply_kill_rewards(
+                        gv, stalker.center_x, stalker.center_y,
+                        STALKER_IRON_DROP, bonus_iron_enemy,
+                        BLUEPRINT_DROP_CHANCE_ALIEN, xp=STALKER_XP)
+                    stalker.remove_from_sprite_lists()
+                break
+
+    def _advance_stalker_missiles(self, gv: GameView, dt: float) -> None:
+        """Tick stalker-fired missiles toward the player and apply
+        damage on contact.  The drone (if deployed) is a viable
+        secondary target — players stay priority by being listed
+        first in the targets array, so the missile homes on the
+        nearest of the two."""
+        targets: list[tuple[float, float]] = [
+            (gv.player.center_x, gv.player.center_y)
+        ]
+        drone = getattr(gv, "_active_drone", None)
+        if drone is not None:
+            targets.append((drone.center_x, drone.center_y))
+        for m in list(self._stalker_missiles):
+            m.update_missile(dt, targets)
+            if not m.sprite_lists:
+                continue
+            # Player hit.
+            if math.hypot(m.center_x - gv.player.center_x,
+                          m.center_y - gv.player.center_y) < 25.0:
+                gv._apply_damage_to_player(int(m.damage))
+                gv._trigger_shake()
+                m.remove_from_sprite_lists()
+                continue
+            # Drone hit (secondary target).
+            if drone is not None and math.hypot(
+                    m.center_x - drone.center_x,
+                    m.center_y - drone.center_y) < drone.radius + 8.0:
+                drone.take_damage(int(m.damage))
+                m.remove_from_sprite_lists()
+
     def _block_missiles_at_walls(self, gv: GameView) -> None:
         """Remove any homing missile that's currently inside a maze
         wall.  Missiles move ~7 px/frame at 60 fps vs a 32 px thick
@@ -1135,6 +1247,11 @@ class StarMazeZone(ZoneState):
                     vx0 < ma.center_x < vx1 and vy0 < ma.center_y < vy1):
                 ma.draw_shield()
         self._maze_projectiles.draw()
+        # Stalkers + their in-flight homing missiles.
+        if len(self._stalkers) > 0:
+            self._stalkers.draw()
+        if len(self._stalker_missiles) > 0:
+            self._stalker_missiles.draw()
         if gv._wormholes:
             gv._wormhole_list.draw()
         if len(gv.building_list) > 0:

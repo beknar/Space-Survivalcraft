@@ -38,7 +38,9 @@ from constants import (
     DRONE_SCALE, DRONE_RADIUS,
     MINING_DRONE_PICKUP_RADIUS, MINING_DRONE_MINING_RANGE,
     MINING_DRONE_PNG, COMBAT_DRONE_PNG,
+    SFX_MINING_DRONE_LASER, SFX_COMBAT_DRONE_LASER,
 )
+from settings import audio
 from sprites.projectile import Projectile
 
 if TYPE_CHECKING:
@@ -48,6 +50,7 @@ if TYPE_CHECKING:
 # Module-level texture cache so each PNG decode happens once per game
 # run regardless of how many times the player redeploys a drone.
 _TEX_CACHE: dict[str, arcade.Texture] = {}
+_SND_CACHE: dict[str, arcade.Sound] = {}
 
 
 def _load(path: str) -> arcade.Texture:
@@ -56,6 +59,14 @@ def _load(path: str) -> arcade.Texture:
         tex = arcade.load_texture(path)
         _TEX_CACHE[path] = tex
     return tex
+
+
+def _load_snd(path: str) -> arcade.Sound:
+    snd = _SND_CACHE.get(path)
+    if snd is None:
+        snd = arcade.load_sound(path)
+        _SND_CACHE[path] = snd
+    return snd
 
 
 class _BaseDrone(arcade.Sprite):
@@ -72,6 +83,7 @@ class _BaseDrone(arcade.Sprite):
         shield: int,
         laser_damage: float,
         mines_rock: bool,
+        fire_snd: arcade.Sound | None = None,
     ) -> None:
         super().__init__(path_or_texture=_load(sprite_path),
                          scale=DRONE_SCALE)
@@ -93,6 +105,7 @@ class _BaseDrone(arcade.Sprite):
         self._laser_tex: arcade.Texture = laser_tex
         self._laser_damage: float = laser_damage
         self._mines_rock: bool = mines_rock
+        self._fire_snd: arcade.Sound | None = fire_snd
         # Computed each frame — used by the fire path and the alien
         # AI / collisions to know "which way is forward" for muzzle.
         self._heading: float = 0.0
@@ -169,6 +182,9 @@ class _BaseDrone(arcade.Sprite):
         self._fire_cd = DRONE_FIRE_COOLDOWN
         self._heading = heading
         self.angle = heading
+        if self._fire_snd is not None:
+            arcade.play_sound(self._fire_snd,
+                              volume=audio.sfx_volume * 0.4)
         return Projectile(
             self._laser_tex,
             self.center_x, self.center_y,
@@ -194,6 +210,7 @@ class MiningDrone(_BaseDrone):
             shield=MINING_DRONE_SHIELD,
             laser_damage=MINING_DRONE_LASER_DAMAGE,
             mines_rock=True,
+            fire_snd=_load_snd(SFX_MINING_DRONE_LASER),
         )
 
     def update_drone(
@@ -258,6 +275,7 @@ class CombatDrone(_BaseDrone):
             shield=COMBAT_DRONE_SHIELD,
             laser_damage=COMBAT_DRONE_LASER_DAMAGE,
             mines_rock=False,
+            fire_snd=_load_snd(SFX_COMBAT_DRONE_LASER),
         )
 
     def update_drone(

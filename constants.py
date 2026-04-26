@@ -82,6 +82,20 @@ SFX_ALIEN_LASER = os.path.join(
     "Stormwave Audio Sci-Fi Sound Effects Bundle", "Weapons", "Energy Weapons",
     "Sci-Fi Laser Weapon Ricochet 1.wav",
 )
+# Mining drone weapon SFX (radiation-style asteroid-cutting beam).
+SFX_MINING_DRONE_LASER = os.path.join(
+    _HERE, "assets", "Sci Fi Sound Effects Bundle",
+    "Stormwave Audio Sci-Fi Sound Effects Bundle", "Weapons", "Energy Weapons",
+    "Sci-Fi Radiation Weapon Shot 1.wav",
+)
+# Combat drone weapon SFX (small-energy laser bolt).  Note: the
+# Stormwave pack ships the file as "Small" (the user's spec had a
+# typo "Samll" — we map to the actual filename).
+SFX_COMBAT_DRONE_LASER = os.path.join(
+    _HERE, "assets", "Sci Fi Sound Effects Bundle",
+    "Stormwave Audio Sci-Fi Sound Effects Bundle", "Weapons", "Energy Weapons",
+    "Sci-Fi Small Energy Weapon Shot 1.wav",
+)
 SFX_EXPLOSIONS_DIR = os.path.join(
     _HERE, "assets", "Sci Fi Sound Effects Bundle",
     "Stormwave Audio Sci-Fi Sound Effects Bundle", "Weapons", "Explosions",
@@ -887,6 +901,31 @@ MAZE_SPAWNER_RESPAWN_INTERVAL: float = 90.0
 MAZE_SPAWNER_RADIUS: float = 40.0              # collision radius (~sprite size)
 
 # Source sheets for maze entities.
+# Stalker — third Star Maze enemy type.  Ranged missile platform
+# that fires the same homing missiles the player launches at the
+# same damage / speed / range; cooldown 1.6 s and detect range
+# wide enough that the missile has time to home before despawning.
+# Asset is the third row, third column of the 256Spacemonsters
+# faction-6 sheet (each frame is 128 × 128).
+STALKER_PNG = os.path.join(
+    _HERE, "assets", "256Spacemonsters",
+    "faction_6_monsters_128x128.png",
+)
+STALKER_FRAME_SIZE: int = 128
+STALKER_SHEET_ROW: int = 2          # 0-based, "third row from the top"
+STALKER_SHEET_COL: int = 2          # 0-based, "third column"
+STALKER_COUNT: int = 15             # spawned in the Star Maze
+STALKER_HP: int = 75
+STALKER_SPEED: float = 100.0
+STALKER_RADIUS: float = 24.0
+STALKER_DETECT_DIST: float = 700.0  # px — pursuit threshold
+STALKER_FIRE_COOLDOWN: float = 1.6  # seconds between missile launches
+STALKER_FIRE_RANGE: float = 700.0   # max range for fire trigger
+STALKER_STANDOFF_DIST: float = 450.0   # preferred orbit distance
+STALKER_IRON_DROP: int = 90
+STALKER_XP: int = 30
+STALKER_SCALE: float = 0.5
+
 MAZE_ALIEN_SHEET_PNG = os.path.join(
     _HERE, "assets", "256Spacemonsters",
     "faction_3_monsters_128x128.png",
