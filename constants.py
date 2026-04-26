@@ -362,6 +362,23 @@ MODULE_TYPES: dict[str, dict] = {
                         "craft_cost": 800, "craft_cost_copper": 400,
                         "icon": os.path.join(_POWERUPS_DIR, "powerupRed_star.png"),
                         "advanced": True},
+    # Drone consumables — crafted at the Advanced Crafter, post-Nebula
+    # blueprint drops only.  The "R" key dispatches to the matching
+    # drone based on the player's active weapon (mining beam → mining
+    # drone, basic laser → combat drone); only one drone may be
+    # deployed at a time.  See sprites/drone.py for behaviour.
+    "mining_drone":    {"label": "Mining Drones",     "effect": "mining_drone",  "value": 1,
+                        "craft_cost": 200, "craft_cost_copper": 100,
+                        "icon": os.path.join(_POWERUPS_DIR, "powerupGreen_star.png"),
+                        "advanced": True,
+                        "consumable": True, "craft_time": 30.0, "craft_count": 5,
+                        "item_key": "mining_drone"},
+    "combat_drone":    {"label": "Combat Drones",    "effect": "combat_drone",  "value": 1,
+                        "craft_cost": 200, "craft_cost_copper": 100,
+                        "icon": os.path.join(_POWERUPS_DIR, "powerupRed_bolt.png"),
+                        "advanced": True,
+                        "consumable": True, "craft_time": 30.0, "craft_count": 5,
+                        "item_key": "combat_drone"},
     "advanced_crafter": {"label": "Adv. Crafter BP",  "effect": "none",          "value": 0,
                         "craft_cost": 0, "icon": os.path.join(_POWERUPS_DIR, "shield_gold.png"),
                         "blueprint_only": True},
@@ -389,6 +406,8 @@ ZONE_GATED_MODULES: frozenset[str] = frozenset({
     "death_blossom",
     "ai_pilot",
     "advanced_crafter",
+    "mining_drone",
+    "combat_drone",
 })
 
 # Build-menu rows hidden in Zone 1.  They appear only in the Nebula
@@ -620,6 +639,46 @@ AI_PILOT_LASER_SPEED: float = 650.0        # projectile speed px/s
 AI_PILOT_LASER_DAMAGE: int = 10
 AI_PILOT_ORBIT_RADIUS_RATIO: float = 0.9   # circle at 90% of patrol radius
 AI_PILOT_HOME_ARRIVAL_DIST: float = 100.0  # "at base" threshold for return mode
+
+# ── Combat / Mining Drones ────────────────────────────────────────────────
+# Two consumable companion drones, deployed via the "R" key based on
+# the player's active weapon.  Both follow the player at a small
+# orbit offset and can take damage from alien projectiles (lower-
+# priority target than the player).  See sprites/drone.py.
+_KSC_X2_SHIPS = os.path.join(
+    _HERE, "assets", "kenney space combat assets",
+    "Space Shooter Extension", "PNG", "Sprites X2", "Ships",
+)
+MINING_DRONE_PNG = os.path.join(_KSC_X2_SHIPS, "spaceShips_009.png")
+COMBAT_DRONE_PNG = os.path.join(_KSC_X2_SHIPS, "spaceShips_004.png")
+MINING_DRONE_LASER_PNG = os.path.join(LASER_DIR, "laserGreen13.png")
+COMBAT_DRONE_LASER_PNG = os.path.join(LASER_DIR, "laserRed16.png")
+DRONE_HP: int = 75
+MINING_DRONE_SHIELD: int = 0
+COMBAT_DRONE_SHIELD: int = 25
+DRONE_MAX_SPEED: float = 450.0          # px/s
+DRONE_ROTATE_SPEED: float = 100.0       # deg/s (visual only — drones fly directly)
+# Drones target this orbit radius around the player; they ease toward
+# the rotating offset so they appear to swim alongside the ship.
+DRONE_FOLLOW_DIST: float = 80.0         # px from player
+DRONE_ORBIT_SPEED: float = 35.0         # deg/s of offset rotation
+DRONE_FIRE_COOLDOWN: float = 0.5        # seconds between shots
+DRONE_DETECT_RANGE: float = 600.0       # px — acquire targets within
+DRONE_LASER_RANGE: float = 600.0
+DRONE_LASER_SPEED: float = 700.0
+MINING_DRONE_LASER_DAMAGE: float = 20.0  # vs asteroids
+COMBAT_DRONE_LASER_DAMAGE: float = 35.0  # vs aliens / boss
+# Drones are 1/4 the size of the player ship.  Player renders at
+# scale 0.75 on a 128 px sheet (= 96 px on screen); drone scale and
+# collision radius are scaled to that ratio.
+DRONE_SCALE: float = 0.75 / 4.0          # = 0.1875
+DRONE_RADIUS: float = SHIP_RADIUS / 4.0  # collision radius for hit checks
+# Mining drone vacuum — pickups within this radius are flagged for
+# fly-to-player attraction (the existing IronPickup loop carries them
+# the rest of the way and credits the player's inventory).
+MINING_DRONE_PICKUP_RADIUS: float = 200.0
+# Mining drone scan radius for target asteroids.
+MINING_DRONE_MINING_RANGE: float = 350.0
 
 # Repair module
 REPAIR_RANGE: float = 300.0             # px — distance from Home Station for repair to activate

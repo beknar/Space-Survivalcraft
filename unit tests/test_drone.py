@@ -1,0 +1,386 @@
+"""Tests for the companion-drone system.
+
+Covers MiningDrone + CombatDrone construction, follow-orbit physics,
+take_damage shield routing, deploy_drone gating (inventory check,
+weapon-aware variant pick, one-at-a-time replace, no-op same-variant),
+and the asteroid / pickup / enemy targeting helpers.
+"""
+from __future__ import annotations
+
+from types import SimpleNamespace
+from unittest.mock import patch
+
+import arcade
+import pytest
+
+from constants import (
+    DRONE_HP, DRONE_MAX_SPEED, DRONE_FOLLOW_DIST,
+    DRONE_FIRE_COOLDOWN, DRONE_LASER_RANGE,
+    MINING_DRONE_LASER_DAMAGE, COMBAT_DRONE_LASER_DAMAGE,
+    MINING_DRONE_SHIELD, COMBAT_DRONE_SHIELD,
+    MINING_DRONE_PICKUP_RADIUS, MINING_DRONE_MINING_RANGE,
+    DRONE_SCALE,
+)
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _arcade_window():
+    w = arcade.Window(800, 600, visible=False)
+    yield w
+    w.close()
+
+
+# ── Construction + scaling ─────────────────────────────────────────────────
+
+class TestDroneConstruction:
+    def test_mining_drone_basic_stats(self):
+        from sprites.drone import MiningDrone
+        d = MiningDrone(100.0, 200.0)
+        assert d.hp == DRONE_HP
+        assert d.max_hp == DRONE_HP
+        assert d.shields == MINING_DRONE_SHIELD == 0
+        assert d._mines_rock is True
+        assert d._laser_damage == MINING_DRONE_LASER_DAMAGE
+        assert d.center_x == 100.0
+        assert d.center_y == 200.0
+
+    def test_combat_drone_basic_stats(self):
+        from sprites.drone import CombatDrone
+        d = CombatDrone(0.0, 0.0)
+        assert d.hp == DRONE_HP
+        assert d.shields == COMBAT_DRONE_SHIELD == 25
+        assert d._mines_rock is False
+        assert d._laser_damage == COMBAT_DRONE_LASER_DAMAGE
+
+    def test_drone_scale_is_quarter_of_player(self):
+        # Player ship renders at scale 0.75 on a 128 px sheet (= 96 px
+        # on screen); a "1/4 size" drone scales to 0.75 / 4 = 0.1875.
+        # Arcade 3 stores scale as a (sx, sy) tuple; both axes match.
+        from sprites.drone import MiningDrone
+        d = MiningDrone(0.0, 0.0)
+        sx, sy = d.scale
+        assert sx == pytest.approx(0.1875)
+        assert sy == pytest.approx(0.1875)
+        assert DRONE_SCALE == pytest.approx(0.1875)
+
+
+# ── Damage routing ─────────────────────────────────────────────────────────
+
+class TestDroneDamage:
+    def test_mining_drone_no_shield_takes_full_hp_hit(self):
+        from sprites.drone import MiningDrone
+        d = MiningDrone(0.0, 0.0)
+        d.take_damage(20)
+        assert d.hp == DRONE_HP - 20
+        assert d.shields == 0
+
+    def test_combat_drone_shield_absorbs_first(self):
+        from sprites.drone import CombatDrone
+        d = CombatDrone(0.0, 0.0)
+        d.take_damage(10)
+        assert d.shields == COMBAT_DRONE_SHIELD - 10
+        assert d.hp == DRONE_HP
+
+    def test_combat_drone_overflow_falls_through_to_hp(self):
+        from sprites.drone import CombatDrone
+        d = CombatDrone(0.0, 0.0)
+        d.take_damage(COMBAT_DRONE_SHIELD + 12)
+        assert d.shields == 0
+        assert d.hp == DRONE_HP - 12
+
+    def test_dead_property(self):
+        from sprites.drone import MiningDrone
+        d = MiningDrone(0.0, 0.0)
+        d.hp = 0
+        assert d.dead is True
+
+
+# ── Follow / orbit ─────────────────────────────────────────────────────────
+
+class TestDroneFollow:
+    def test_drone_steers_toward_player_offset(self):
+        from sprites.drone import CombatDrone
+        d = CombatDrone(1000.0, 1000.0)
+        d._orbit_angle = 0.0
+        # Player at (500, 500); orbit_angle 0 → offset is +x by FOLLOW_DIST
+        # → target = (500 + FOLLOW_DIST, 500).  Drone at (1000, 1000)
+        # should move toward that target.
+        d.follow(0.5, 500.0, 500.0)
+        # After half a second drone has moved at least DRONE_MAX_SPEED * 0.5
+        # toward the target, capped by remaining distance.  Both axes
+        # should have decreased.
+        assert d.center_x < 1000.0
+        assert d.center_y < 1000.0
+
+    def test_step_capped_at_distance_no_overshoot(self, monkeypatch):
+        # Freeze orbit rotation so the target sits still while the
+        # drone steers — otherwise we'd be chasing a moving point.
+        from sprites import drone as drone_mod
+        monkeypatch.setattr(drone_mod, "DRONE_ORBIT_SPEED", 0.0)
+        from sprites.drone import CombatDrone
+        d = CombatDrone(0.0, 0.0)
+        d._orbit_angle = 0.0
+        # Big dt → would normally fly far past the target if uncapped;
+        # the per-tick step is min(MAX_SPEED * dt, dist) so the drone
+        # arrives exactly at the target without overshooting.
+        d.follow(10.0, 0.0, 0.0)
+        assert d.center_x == pytest.approx(DRONE_FOLLOW_DIST, abs=1e-3)
+        assert d.center_y == pytest.approx(0.0, abs=1e-3)
+
+    def test_max_speed_per_tick(self):
+        from sprites.drone import CombatDrone
+        d = CombatDrone(0.0, 0.0)
+        d._orbit_angle = 0.0
+        # Player far away, dt = 0.1 → drone moves DRONE_MAX_SPEED * 0.1
+        # = 45 px toward (FOLLOW_DIST + 1000, 0).
+        d.follow(0.1, 1000.0, 0.0)
+        # Movement magnitude should equal DRONE_MAX_SPEED * dt.
+        import math
+        moved = math.hypot(d.center_x, d.center_y)
+        assert moved == pytest.approx(DRONE_MAX_SPEED * 0.1, abs=0.5)
+
+
+# ── Fire path ──────────────────────────────────────────────────────────────
+
+class TestDroneFire:
+    def test_fire_returns_projectile_when_off_cooldown(self):
+        from sprites.drone import CombatDrone
+        d = CombatDrone(0.0, 0.0)
+        proj = d._aim_and_fire(100.0, 0.0)
+        assert proj is not None
+        assert proj.damage == COMBAT_DRONE_LASER_DAMAGE
+        # Cooldown was armed
+        assert d._fire_cd == pytest.approx(DRONE_FIRE_COOLDOWN)
+
+    def test_fire_blocked_by_cooldown(self):
+        from sprites.drone import CombatDrone
+        d = CombatDrone(0.0, 0.0)
+        d._fire_cd = 0.3
+        assert d._aim_and_fire(100.0, 0.0) is None
+
+    def test_fire_blocked_when_target_out_of_range(self):
+        from sprites.drone import CombatDrone
+        d = CombatDrone(0.0, 0.0)
+        far = DRONE_LASER_RANGE + 100.0
+        assert d._aim_and_fire(far, 0.0) is None
+
+    def test_mining_drone_projectile_flagged_mines_rock(self):
+        from sprites.drone import MiningDrone
+        d = MiningDrone(0.0, 0.0)
+        proj = d._aim_and_fire(50.0, 0.0)
+        assert proj is not None
+        assert proj.mines_rock is True
+        assert proj.damage == MINING_DRONE_LASER_DAMAGE
+
+    def test_combat_drone_projectile_not_mining(self):
+        from sprites.drone import CombatDrone
+        d = CombatDrone(0.0, 0.0)
+        proj = d._aim_and_fire(50.0, 0.0)
+        assert proj.mines_rock is False
+
+
+# ── Mining-drone targeting ─────────────────────────────────────────────────
+
+class TestMiningDroneTargeting:
+    def _gv_with_asteroids(self, *positions):
+        gv = SimpleNamespace(
+            _zone=SimpleNamespace(
+                _iron_asteroids=[],
+                _double_iron=[],
+                _copper_asteroids=[],
+            ),
+        )
+        for x, y in positions:
+            gv._zone._iron_asteroids.append(
+                SimpleNamespace(center_x=x, center_y=y))
+        return gv
+
+    def test_picks_nearest_asteroid_in_range(self):
+        from sprites.drone import MiningDrone
+        d = MiningDrone(0.0, 0.0)
+        gv = self._gv_with_asteroids((100.0, 0.0), (200.0, 0.0))
+        target = d._nearest_asteroid(gv)
+        assert target.center_x == 100.0
+
+    def test_returns_none_when_no_asteroids_in_range(self):
+        from sprites.drone import MiningDrone
+        d = MiningDrone(0.0, 0.0)
+        gv = self._gv_with_asteroids((MINING_DRONE_MINING_RANGE + 50.0, 0.0))
+        assert d._nearest_asteroid(gv) is None
+
+    def test_pickup_vacuum_flags_nearby_pickups(self):
+        from sprites.drone import MiningDrone
+        d = MiningDrone(0.0, 0.0)
+        # Stub a pickup with the bare interface update_drone touches.
+        nearby = SimpleNamespace(center_x=50.0, center_y=0.0, _flying=False)
+        far = SimpleNamespace(
+            center_x=MINING_DRONE_PICKUP_RADIUS + 50.0,
+            center_y=0.0, _flying=False,
+        )
+        gv = SimpleNamespace(
+            iron_pickup_list=[nearby, far],
+            blueprint_pickup_list=[],
+            player=SimpleNamespace(center_x=0.0, center_y=0.0),
+            _zone=SimpleNamespace(
+                _iron_asteroids=[],
+                _double_iron=[],
+                _copper_asteroids=[],
+            ),
+        )
+        d.update_drone(0.016, gv)
+        assert nearby._flying is True
+        assert far._flying is False
+
+
+# ── Combat-drone targeting ─────────────────────────────────────────────────
+
+class TestCombatDroneTargeting:
+    def test_picks_nearest_alive_enemy(self):
+        from sprites.drone import CombatDrone
+        d = CombatDrone(0.0, 0.0)
+        # Fake aliens — nearest is at (100, 0); the dead one at (50, 0)
+        # must be skipped (hp <= 0).
+        alive = SimpleNamespace(center_x=100.0, center_y=0.0, hp=10)
+        dead = SimpleNamespace(center_x=50.0, center_y=0.0, hp=0)
+        gv = SimpleNamespace(
+            alien_list=[dead, alive],
+            _boss=None,
+            _nebula_boss=None,
+        )
+        target = d._nearest_enemy(gv)
+        assert target is alive
+
+    def test_returns_none_when_no_enemies_in_range(self):
+        from sprites.drone import CombatDrone
+        d = CombatDrone(0.0, 0.0)
+        gv = SimpleNamespace(alien_list=[], _boss=None, _nebula_boss=None)
+        assert d._nearest_enemy(gv) is None
+
+    def test_includes_boss_as_target(self):
+        from sprites.drone import CombatDrone
+        d = CombatDrone(0.0, 0.0)
+        gv = SimpleNamespace(
+            alien_list=[],
+            _boss=SimpleNamespace(center_x=200.0, center_y=0.0, hp=2000),
+            _nebula_boss=None,
+        )
+        assert d._nearest_enemy(gv) is gv._boss
+
+
+# ── deploy_drone ──────────────────────────────────────────────────────────
+
+class _StubInventory:
+    def __init__(self, items=None):
+        self._items = items or {}
+
+    def count_item(self, name):
+        return self._items.get(name, 0)
+
+    def remove_item(self, name, qty):
+        self._items[name] = max(0, self._items.get(name, 0) - qty)
+
+
+def _make_deploy_gv(*, mines_rock: bool, items=None):
+    """Minimal GV for testing deploy_drone."""
+    gv = SimpleNamespace(
+        _escape_menu=SimpleNamespace(open=False),
+        _player_dead=False,
+        _active_weapon=SimpleNamespace(mines_rock=mines_rock),
+        inventory=_StubInventory(items or {"mining_drone": 5,
+                                            "combat_drone": 5}),
+        player=SimpleNamespace(center_x=500.0, center_y=500.0),
+        _drone_list=arcade.SpriteList(),
+        _active_drone=None,
+        _flash_msg="",
+        _flash_timer=0.0,
+        _zone=SimpleNamespace(zone_id=None),
+        _null_fields=[],
+    )
+    return gv
+
+
+class TestDeployDrone:
+    def test_mining_beam_active_deploys_mining_drone(self):
+        from combat_helpers import deploy_drone
+        gv = _make_deploy_gv(mines_rock=True)
+        deploy_drone(gv)
+        assert gv._active_drone is not None
+        assert type(gv._active_drone).__name__ == "MiningDrone"
+        assert gv.inventory.count_item("mining_drone") == 4
+
+    def test_basic_laser_active_deploys_combat_drone(self):
+        from combat_helpers import deploy_drone
+        gv = _make_deploy_gv(mines_rock=False)
+        deploy_drone(gv)
+        assert type(gv._active_drone).__name__ == "CombatDrone"
+        assert gv.inventory.count_item("combat_drone") == 4
+
+    def test_same_variant_press_is_noop_no_consume(self):
+        from combat_helpers import deploy_drone
+        gv = _make_deploy_gv(mines_rock=True)
+        deploy_drone(gv)  # mining drone deployed
+        assert gv.inventory.count_item("mining_drone") == 4
+        deploy_drone(gv)  # press R again — no-op
+        assert gv.inventory.count_item("mining_drone") == 4
+        assert len(gv._drone_list) == 1
+
+    def test_other_variant_press_replaces_active_drone(self):
+        from combat_helpers import deploy_drone
+        gv = _make_deploy_gv(mines_rock=True)
+        deploy_drone(gv)
+        first = gv._active_drone
+        # Switch weapon — basic laser now active
+        gv._active_weapon = SimpleNamespace(mines_rock=False)
+        deploy_drone(gv)
+        assert type(gv._active_drone).__name__ == "CombatDrone"
+        assert gv._active_drone is not first
+        assert gv.inventory.count_item("combat_drone") == 4
+        assert len(gv._drone_list) == 1   # old one removed
+
+    def test_no_inventory_leaves_drone_unchanged(self):
+        from combat_helpers import deploy_drone
+        gv = _make_deploy_gv(mines_rock=True,
+                              items={"mining_drone": 0, "combat_drone": 5})
+        deploy_drone(gv)
+        assert gv._active_drone is None
+        assert gv._flash_msg != ""    # got a flash message
+
+    def test_blocked_by_escape_menu(self):
+        from combat_helpers import deploy_drone
+        gv = _make_deploy_gv(mines_rock=False)
+        gv._escape_menu.open = True
+        deploy_drone(gv)
+        assert gv._active_drone is None
+
+    def test_blocked_by_player_dead(self):
+        from combat_helpers import deploy_drone
+        gv = _make_deploy_gv(mines_rock=False)
+        gv._player_dead = True
+        deploy_drone(gv)
+        assert gv._active_drone is None
+
+
+# ── Constants registration ────────────────────────────────────────────────
+
+class TestModuleTypeRegistration:
+    def test_mining_drone_in_module_types(self):
+        from constants import MODULE_TYPES
+        m = MODULE_TYPES["mining_drone"]
+        assert m["consumable"] is True
+        assert m["item_key"] == "mining_drone"
+        assert m["craft_cost"] == 200
+        assert m["craft_cost_copper"] == 100
+        assert m["advanced"] is True
+
+    def test_combat_drone_in_module_types(self):
+        from constants import MODULE_TYPES
+        m = MODULE_TYPES["combat_drone"]
+        assert m["consumable"] is True
+        assert m["item_key"] == "combat_drone"
+        assert m["craft_cost"] == 200
+        assert m["craft_cost_copper"] == 100
+
+    def test_both_drones_zone_gated(self):
+        from constants import ZONE_GATED_MODULES
+        assert "mining_drone" in ZONE_GATED_MODULES
+        assert "combat_drone" in ZONE_GATED_MODULES

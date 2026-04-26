@@ -1156,6 +1156,48 @@ def update_force_walls(gv: GameView, dt: float) -> None:
         gv._nebula_gas_clouds = survivors
 
 
+def update_drone(gv: GameView, dt: float) -> None:
+    """Advance the player's active drone (if any).  Routes any fired
+    projectile into ``gv.projectile_list`` so the existing player-
+    projectile collision code handles asteroid + alien damage,
+    applies alien-projectile damage to the drone, and despawns the
+    drone once HP hits zero.
+
+    Called every frame by ``GameView.on_update``; cheap when no
+    drone is deployed (single early return)."""
+    drone = getattr(gv, "_active_drone", None)
+    if drone is None:
+        return
+    fired = drone.update_drone(dt, gv)
+    if fired is not None:
+        gv.projectile_list.append(fired)
+    # Alien projectiles → drone damage.  Cheap O(P) — alien projectile
+    # lists rarely exceed ~30.  Boss projectiles route through the
+    # same alien_projectile_list contract for non-Main zones, but the
+    # MAIN zone uses ``_boss_projectile_list`` separately.
+    import math as _m
+    r = drone.radius
+    proj_lists = [getattr(gv, "alien_projectile_list", None),
+                  getattr(gv, "_boss_projectile_list", None)]
+    for plist in proj_lists:
+        if plist is None:
+            continue
+        for proj in list(plist):
+            if _m.hypot(proj.center_x - drone.center_x,
+                        proj.center_y - drone.center_y) <= r + 8.0:
+                drone.take_damage(int(getattr(proj, "damage", 0)))
+                proj.remove_from_sprite_lists()
+                if drone.dead:
+                    break
+        if drone.dead:
+            break
+    if drone.dead:
+        from combat_helpers import spawn_explosion
+        spawn_explosion(gv, drone.center_x, drone.center_y)
+        drone.remove_from_sprite_lists()
+        gv._active_drone = None
+
+
 def update_missiles(gv: GameView, dt: float) -> None:
     """Update homing missiles and check hits."""
     from sprites.explosion import HitSpark

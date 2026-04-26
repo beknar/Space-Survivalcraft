@@ -141,6 +141,9 @@ def handle_key_press(gv: GameView, key: int, modifiers: int) -> None:
         _try_force_wall(gv)
     elif key == arcade.key.X:
         _try_death_blossom(gv)
+    elif key == arcade.key.R:
+        from combat_helpers import deploy_drone
+        deploy_drone(gv)
     elif key in (arcade.key.W, arcade.key.A, arcade.key.S, arcade.key.D):
         _try_misty_step(gv, key)
 

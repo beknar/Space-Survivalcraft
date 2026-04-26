@@ -44,6 +44,7 @@ class TestGatedSetsSanity:
             "rear_turret", "homing_missile", "misty_step",
             "force_wall", "death_blossom", "ai_pilot",
             "advanced_crafter",
+            "mining_drone", "combat_drone",
         })
 
     def test_gated_buildings_match_user_spec(self):

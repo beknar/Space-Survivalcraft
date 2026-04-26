@@ -102,6 +102,55 @@ def use_shield_recharge(gv: GameView, slot: int) -> None:
     disable_null_field_around_player(gv)
 
 
+def deploy_drone(gv: GameView) -> None:
+    """Handle the R key.  Picks the drone variant from the active
+    weapon (mining beam → mining drone, basic laser → combat drone)
+    and either deploys it (consuming one charge) or — if a drone of
+    the matching variant is already out — does nothing.  Pressing R
+    after a weapon switch replaces the active drone with the matching
+    variant for the cost of one charge of the new variant.
+
+    Behaviour summary:
+      * No drone deployed → spawn the matching variant; consume one
+        ``mining_drone`` / ``combat_drone`` from the inventory.
+      * Same variant already deployed → no-op (no charge consumed).
+      * Other variant deployed → despawn that drone, spawn the new
+        one, consume one charge of the new variant.
+    """
+    if gv._escape_menu.open or gv._player_dead:
+        return
+    weapon = gv._active_weapon
+    is_mining = bool(getattr(weapon, "mines_rock", False))
+    item_key = "mining_drone" if is_mining else "combat_drone"
+    desired_cls_name = "MiningDrone" if is_mining else "CombatDrone"
+    # Already-deployed branch.
+    active = getattr(gv, "_active_drone", None)
+    if active is not None:
+        if type(active).__name__ == desired_cls_name:
+            return  # same variant — no-op, no consume
+        # Wrong variant — despawn so the new one can take its place.
+        active.remove_from_sprite_lists()
+        gv._active_drone = None
+    # Inventory check.
+    if gv.inventory.count_item(item_key) <= 0:
+        flash_game_msg(gv, f"No {item_key.replace('_', ' ')}s available!")
+        return
+    # Spawn behind the player so the drone visibly enters the world.
+    spawn_x = gv.player.center_x
+    spawn_y = gv.player.center_y
+    from sprites.drone import MiningDrone, CombatDrone
+    drone = MiningDrone(spawn_x, spawn_y) if is_mining \
+        else CombatDrone(spawn_x, spawn_y)
+    gv._drone_list.append(drone)
+    gv._active_drone = drone
+    gv.inventory.remove_item(item_key, 1)
+    flash_game_msg(gv, f"{drone._LABEL} deployed!", 1.5)
+    # Deploying inside a null field breaks the cloak — same rule
+    # the other consumable-fire helpers follow.
+    from update_logic import disable_null_field_around_player
+    disable_null_field_around_player(gv)
+
+
 def fire_missile(gv: GameView, slot: int) -> None:
     """Fire a homing missile from the given quick-use slot."""
     from constants import MISSILE_FIRE_RATE

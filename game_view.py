@@ -167,6 +167,13 @@ class GameView(arcade.View):
         self._missile_tex: arcade.Texture | None = None
         self._rear_turret_cd: float = 0.0
 
+        # Companion drone — at most one active at a time, replaceable
+        # by pressing R after switching to the other weapon class.
+        # ``None`` means no drone deployed.  See sprites/drone.py and
+        # combat_helpers.deploy_drone for the deploy flow.
+        self._drone_list: arcade.SpriteList = arcade.SpriteList()
+        self._active_drone = None
+
     def _init_text_overlays(self) -> None:
         """Cached arcade.Text objects for flash messages and boss announce."""
         self._flash_msg: str = ""
@@ -934,6 +941,7 @@ class GameView(arcade.View):
         _ul.update_station_shield(self, delta_time)
         _ul.update_refugee_npc(self, delta_time)
         _ul.update_missiles(self, delta_time)
+        _ul.update_drone(self, delta_time)
         _ul.update_death_blossom(self, delta_time)
         _ul.update_effects(self, delta_time)
 

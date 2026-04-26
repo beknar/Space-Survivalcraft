@@ -328,6 +328,15 @@ def draw_world(gv: GameView, cx: float, cy: float, hw: float, hh: float) -> None
     # Shared world entities (always drawn)
     gv.projectile_list.draw()
     gv._missile_list.draw()
+    # Active drone (single sprite list of length 0 or 1) — drawn before
+    # the player so the player sprite reads on top of any orbit overlap.
+    drone_list = getattr(gv, "_drone_list", None)
+    if drone_list is not None and len(drone_list) > 0:
+        drone_list.draw()
+        active = getattr(gv, "_active_drone", None)
+        if active is not None and getattr(active, "shields", 0) > 0 \
+                and hasattr(active, "draw_shield"):
+            active.draw_shield()
     # Force walls
     for wall in gv._force_walls:
         wall.draw()
