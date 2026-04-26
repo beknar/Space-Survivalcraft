@@ -194,10 +194,75 @@ def update_preamble(gv: GameView, dt: float) -> None:
 _ALIEN_LASER_SND_INTERVAL: float = 0.12  # max one play per ~120 ms
 
 
+def play_sfx_at(
+    gv: GameView,
+    snd,
+    x: float,
+    y: float,
+    base_volume: float = 1.0,
+) -> None:
+    """Play an in-world SFX with linear distance attenuation toward
+    the player.  Sounds further than ``SOUND_HEARING_RADIUS`` away
+    are silenced entirely (no media player created).  Inside the
+    radius the volume scales as ``base_volume * (1 - d / radius)``.
+
+    UI sounds (button clicks, menu confirms, music) should bypass
+    this helper and call ``arcade.play_sound`` directly — they have
+    no spatial source and the user expects them at full slider
+    volume.
+
+    ``snd is None`` is a no-op (safe for soak-test stubs)."""
+    import math as _m
+    from constants import SOUND_HEARING_RADIUS
+    if snd is None:
+        return
+    player = getattr(gv, "player", None)
+    if player is None:
+        # No spatial reference — fall back to unattenuated play so
+        # things like the death-screen explosion still register.
+        arcade.play_sound(snd, volume=base_volume)
+        return
+    d = _m.hypot(x - player.center_x, y - player.center_y)
+    if d >= SOUND_HEARING_RADIUS:
+        return
+    falloff = 1.0 - d / SOUND_HEARING_RADIUS
+    arcade.play_sound(snd, volume=base_volume * falloff)
+
+
+def _nearest_alien_to_player(gv: GameView) -> tuple[float, float] | None:
+    """Return the (x, y) of the alien closest to the player so the
+    throttled alien-laser SFX falls off from the most-likely-fired
+    source.  Walks the active zone's alien lists; returns ``None``
+    if no aliens are present."""
+    import math as _m
+    player = getattr(gv, "player", None)
+    if player is None:
+        return None
+    px, py = player.center_x, player.center_y
+    best = None
+    best_d2 = float("inf")
+    sources = [getattr(gv, "alien_list", None) or []]
+    zone = getattr(gv, "_zone", None)
+    if zone is not None:
+        for attr in ("_aliens", "_maze_aliens", "_stalkers"):
+            lst = getattr(zone, attr, None)
+            if lst is not None:
+                sources.append(lst)
+    for src in sources:
+        for a in src:
+            d2 = (a.center_x - px) ** 2 + (a.center_y - py) ** 2
+            if d2 < best_d2:
+                best_d2 = d2
+                best = (a.center_x, a.center_y)
+    return best
+
+
 def play_alien_laser_sound(gv: GameView) -> None:
-    """Play the alien-laser fire SFX with a global throttle so dozens
-    of simultaneous shots don't pile into a wall of audio.  Decays
-    via ``update_timers`` (cooldown counter armed here, ticked there)."""
+    """Play the alien-laser fire SFX with a global throttle (so
+    dozens of simultaneous shots don't pile into a wall of audio)
+    AND distance attenuation toward the player (so a laser fired
+    on the far side of the zone doesn't blast at full volume).
+    The throttle counter decays via ``update_timers``."""
     snd = getattr(gv, "_alien_laser_snd", None)
     if snd is None:
         return
@@ -205,27 +270,33 @@ def play_alien_laser_sound(gv: GameView) -> None:
         return
     gv._alien_laser_snd_cd = _ALIEN_LASER_SND_INTERVAL
     from settings import audio
-    arcade.play_sound(snd, volume=audio.sfx_volume * 0.4)
+    pos = _nearest_alien_to_player(gv)
+    if pos is None:
+        # No aliens in any list — defensive; just skip rather than
+        # blast unattenuated.
+        return
+    play_sfx_at(gv, snd, pos[0], pos[1],
+                base_volume=audio.sfx_volume * 0.4)
 
 
 def play_missile_launch_sound(gv: GameView) -> None:
-    """Play the player's missile-launch SFX with the same global
-    throttle the alien laser uses.  Used for stalker enemies (which
-    fire the same homing-missile sprite the player launches) so the
-    audio cue matches the projectile.  Throttle prevents 15
-    stalkers volleying simultaneously from stacking 15 sound
-    instances."""
+    """Play the player's missile-launch SFX (used for stalker fires)
+    with the same global throttle + distance attenuation the alien
+    laser uses.  Distance is measured from the nearest alien-side
+    sprite, so a stalker volley far from the player drops in volume
+    instead of blasting at full slider level."""
     snd = getattr(gv, "_missile_launch_snd", None)
     if snd is None:
         return
     if getattr(gv, "_alien_laser_snd_cd", 0.0) > 0.0:
-        # Reuse the alien-laser cooldown counter so any in-flight
-        # alien audio (laser or missile) blocks each other within
-        # the throttle window.  Keeps total alien audio output bounded.
         return
     gv._alien_laser_snd_cd = _ALIEN_LASER_SND_INTERVAL
     from settings import audio
-    arcade.play_sound(snd, volume=audio.sfx_volume * 0.5)
+    pos = _nearest_alien_to_player(gv)
+    if pos is None:
+        return
+    play_sfx_at(gv, snd, pos[0], pos[1],
+                base_volume=audio.sfx_volume * 0.5)
 
 
 def update_death_state(gv: GameView, dt: float) -> None:

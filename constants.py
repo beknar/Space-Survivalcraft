@@ -82,6 +82,14 @@ SFX_ALIEN_LASER = os.path.join(
     "Stormwave Audio Sci-Fi Sound Effects Bundle", "Weapons", "Energy Weapons",
     "Sci-Fi Laser Weapon Ricochet 1.wav",
 )
+# Distance-based SFX hearing radius — sounds emitted from world
+# positions further than this from the player are silenced entirely;
+# inside the radius, volume falls off linearly to zero at the edge.
+# Lets the player feel the distance to combat instead of being
+# bathed in the audio of every fight in the zone.  See
+# ``update_logic.play_sfx_at``.
+SOUND_HEARING_RADIUS: float = 600.0
+
 # Mining drone weapon SFX (radiation-style asteroid-cutting beam).
 SFX_MINING_DRONE_LASER = os.path.join(
     _HERE, "assets", "Sci Fi Sound Effects Bundle",

@@ -70,7 +70,8 @@ def _apply_kill_rewards(
         gv._spawn_asteroid_explosion(x, y)
     else:
         gv._spawn_explosion(x, y)
-    arcade.play_sound(gv._explosion_snd, volume=0.7)
+    from update_logic import play_sfx_at
+    play_sfx_at(gv, gv._explosion_snd, x, y, base_volume=0.7)
     gv._spawn_iron_pickup(x - 20, y, amount=base_iron)
     _cn = _audio.character_name
     _cl = gv._char_level
@@ -380,7 +381,10 @@ def handle_alien_laser_building_hits(gv: GameView) -> None:
                         b.disabled = True
                         b.color = (128, 128, 128, 255)
                 gv._spawn_explosion(building.center_x, building.center_y)
-                arcade.play_sound(gv._explosion_snd, volume=0.7)
+                from update_logic import play_sfx_at
+                play_sfx_at(gv, gv._explosion_snd,
+                            building.center_x, building.center_y,
+                            base_volume=0.7)
                 building.remove_from_sprite_lists()
 
 
@@ -462,8 +466,11 @@ def _boss_death(gv: GameView) -> None:
     """Handle boss death: explosion, loot, wormholes, victory message."""
     boss = gv._boss
     gv._spawn_explosion(boss.center_x, boss.center_y)
-    arcade.play_sound(gv._explosion_snd, volume=1.0)
-    arcade.play_sound(gv._victory_snd, volume=0.8)
+    from update_logic import play_sfx_at
+    play_sfx_at(gv, gv._explosion_snd, boss.center_x, boss.center_y,
+                base_volume=1.0)
+    play_sfx_at(gv, gv._victory_snd, boss.center_x, boss.center_y,
+                base_volume=0.8)
     gv._spawn_iron_pickup(boss.center_x, boss.center_y, amount=BOSS_IRON_DROP)
     gv._add_xp(BOSS_XP_REWARD)
     gv._boss = None
@@ -541,8 +548,11 @@ def _nebula_boss_death(gv: GameView) -> None:
     if nb is None:
         return
     gv._spawn_explosion(nb.center_x, nb.center_y)
-    arcade.play_sound(gv._explosion_snd, volume=1.0)
-    arcade.play_sound(gv._victory_snd, volume=0.8)
+    from update_logic import play_sfx_at
+    play_sfx_at(gv, gv._explosion_snd, nb.center_x, nb.center_y,
+                base_volume=1.0)
+    play_sfx_at(gv, gv._victory_snd, nb.center_x, nb.center_y,
+                base_volume=0.8)
     # Scatter the two drops so they're next to each other instead of
     # stacked at the boss centre.
     (ix, iy), (cx, cy) = _drop_scatter(nb.center_x, nb.center_y, 2)
@@ -642,7 +652,10 @@ def handle_boss_building_hits(gv: GameView) -> None:
                             b.disabled = True
                             b.color = (128, 128, 128, 255)
                     gv._spawn_explosion(building.center_x, building.center_y)
-                    arcade.play_sound(gv._explosion_snd, volume=0.7)
+                    from update_logic import play_sfx_at
+                    play_sfx_at(gv, gv._explosion_snd,
+                                building.center_x, building.center_y,
+                                base_volume=0.7)
                     building.remove_from_sprite_lists()
                 break  # projectile consumed
 
@@ -677,7 +690,9 @@ def _destroy_parked_ship(gv: GameView, ship) -> None:
     at a glance and the auto-attraction code picks them up cleanly.
     """
     gv._spawn_explosion(ship.center_x, ship.center_y)
-    arcade.play_sound(gv._explosion_snd, volume=0.7)
+    from update_logic import play_sfx_at
+    play_sfx_at(gv, gv._explosion_snd,
+                ship.center_x, ship.center_y, base_volume=0.7)
     # Pre-count every pickup this death will produce so we can lay
     # them out on one ring.
     cargo_drops: list[tuple[str, int]] = []

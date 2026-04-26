@@ -204,9 +204,17 @@ class TestStalkerMissileLaunchSound:
 
     def _gv(self):
         from types import SimpleNamespace
+        # Co-locate player + alien at origin so the distance-attenuated
+        # play_sfx_at path inside play_missile_launch_sound runs at
+        # full volume (distance 0).
+        player = SimpleNamespace(center_x=0.0, center_y=0.0)
+        alien = SimpleNamespace(center_x=0.0, center_y=0.0)
         return SimpleNamespace(
             _missile_launch_snd=object(),  # any non-None sentinel
             _alien_laser_snd_cd=0.0,
+            player=player,
+            alien_list=[alien],
+            _zone=SimpleNamespace(),
         )
 
     def test_first_call_plays_and_arms_throttle(self):

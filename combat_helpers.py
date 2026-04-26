@@ -530,7 +530,8 @@ def try_respawn_asteroids(gv: GameView) -> None:
             continue
         gv.asteroid_list.append(IronAsteroid(gv._asteroid_tex, ax, ay))
         gv.hit_sparks.append(HitSpark(ax, ay))
-        arcade.play_sound(gv._bump_snd, volume=0.3)
+        from update_logic import play_sfx_at
+        play_sfx_at(gv, gv._bump_snd, ax, ay, base_volume=0.3)
         return
 
 
@@ -557,7 +558,8 @@ def try_respawn_aliens(gv: GameView) -> None:
             SmallAlienShip(gv._alien_ship_tex, gv._alien_laser_tex, ax, ay)
         )
         gv.hit_sparks.append(HitSpark(ax, ay))
-        arcade.play_sound(gv._bump_snd, volume=0.3)
+        from update_logic import play_sfx_at
+        play_sfx_at(gv, gv._bump_snd, ax, ay, base_volume=0.3)
         return
 
 

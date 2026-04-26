@@ -254,7 +254,9 @@ def destroy_building_at(gv: GameView, wx: float, wy: float) -> None:
                 b.disabled = True
                 b.color = (128, 128, 128, 255)
         gv._spawn_explosion(best.center_x, best.center_y)
-        arcade.play_sound(gv._explosion_snd, volume=0.7)
+        from update_logic import play_sfx_at
+        play_sfx_at(gv, gv._explosion_snd,
+                    best.center_x, best.center_y, base_volume=0.7)
         best.remove_from_sprite_lists()
 
 
