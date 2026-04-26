@@ -493,6 +493,43 @@ def spawn_blueprint_pickup(gv: GameView, x: float, y: float) -> None:
     gv.blueprint_pickup_list.append(bp)
 
 
+def _player_owns_blueprint(gv: GameView, key: str) -> bool:
+    """A blueprint counts as 'owned' if the player has the pickup
+    item in either inventory OR has already unlocked the recipe at
+    a crafter (recipe unlocks persist across zone visits)."""
+    bp_key = f"bp_{key}"
+    inv = getattr(gv, "inventory", None)
+    if inv is not None and inv.count_item(bp_key) > 0:
+        return True
+    sinv = getattr(gv, "_station_inv", None)
+    if sinv is not None and sinv.count_item(bp_key) > 0:
+        return True
+    cm = getattr(gv, "_craft_menu", None)
+    if cm is not None and key in getattr(cm, "_unlocked", set()):
+        return True
+    return False
+
+
+def spawn_unowned_blueprint_pickup(
+    gv: GameView, x: float, y: float,
+) -> None:
+    """Spawn a blueprint pickup the player has NOT yet received or
+    unlocked.  If every blueprint in the post-Nebula pool is already
+    owned, fall back to a random one (matches the user spec for the
+    fully-collected case).  Used by maze-spawner kills so each
+    spawner death meaningfully advances the player's collection.
+    """
+    pool = list(MODULE_TYPES.keys())
+    if not pool:
+        return
+    unowned = [k for k in pool if not _player_owns_blueprint(gv, k)]
+    mod_type = random.choice(unowned) if unowned else random.choice(pool)
+    tex = gv._blueprint_drop_tex.get(mod_type, gv._blueprint_tex)
+    bp = BlueprintPickup(tex, x, y, mod_type,
+                         lifetime=WORLD_ITEM_LIFETIME)
+    gv.blueprint_pickup_list.append(bp)
+
+
 def add_xp(gv: GameView, amount: int) -> None:
     """Add XP and check for level-up; reapply bonuses if leveled."""
     from character_data import level_for_xp

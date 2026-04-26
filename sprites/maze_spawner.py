@@ -73,6 +73,12 @@ class MazeSpawner(arcade.Sprite):
         # Ticks down while ``killed`` is True; at zero the spawner
         # resurrects with full HP + shields.
         self._respawn_cd: float = 0.0
+        # Latch flipped True the frame the spawner appears (initial
+        # construction OR respawn after kill).  The zone reads this
+        # flag in ``_update_spawners`` to drop 10 fresh maze aliens
+        # around it (capped by MAZE_SPAWNER_MAX_ALIVE), then clears
+        # the flag so subsequent ticks don't re-spawn the entourage.
+        self.just_respawned: bool = True
         self._hit_timer: float = 0.0
         # Track how many MazeAliens this spawner has currently alive
         # so the zone can enforce the cap without walking every alien
@@ -126,6 +132,8 @@ class MazeSpawner(arcade.Sprite):
                 # post-respawn spawn doesn't fire immediately.
                 self._spawn_cd = MAZE_SPAWNER_SPAWN_INTERVAL
                 self.visible = True
+                # Signal the zone to repopulate the entourage.
+                self.just_respawned = True
             return fired, should_spawn
 
         # Visual hit tint.
@@ -202,3 +210,7 @@ class MazeSpawner(arcade.Sprite):
         self._respawn_cd = float(data.get("respawn_cd", 0.0))
         self.alive_children = int(data.get("alive_children", 0))
         self.uid = int(data.get("uid", 0))
+        # Restored spawners didn't "just respawn" — they're being
+        # rehydrated from disk.  Clearing this flag prevents a phantom
+        # 10-alien repopulation the first frame after load.
+        self.just_respawned = False

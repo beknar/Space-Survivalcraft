@@ -479,43 +479,19 @@ class StarMazeZone(ZoneState):
             sp.uid = i + 1   # uid 0 reserved for "unlinked"
             self._spawners.append(sp)
 
-        # Pre-populate each spawner's maze with MAZE_SPAWNER_MAX_ALIVE
-        # (20) aliens spread across the maze's rooms — one alien per
-        # randomly-chosen room, with no repetition so the 20 aliens
-        # spread evenly across the 25 rooms of the maze.  Uses a
-        # dedicated RNG derived from the world seed so save/load is
-        # deterministic.
-        from constants import MAZE_SPAWNER_MAX_ALIVE
+        # Pre-populate each spawner with the standard "spawner came
+        # online" entourage (10 maze aliens — see
+        # ``MAZE_SPAWNER_INITIAL_ALIENS``).  ``_spawn_entourage`` does
+        # the actual room-pick + sprite construction and is reused
+        # per-frame whenever a respawned spawner sets the
+        # ``just_respawned`` latch.
+        from constants import MAZE_SPAWNER_INITIAL_ALIENS
         prep_rng = random.Random(self._world_seed + 977)
         for sp, maze in zip(self._spawners, self._mazes):
-            bounds = (maze.bounds.x, maze.bounds.y,
-                      maze.bounds.w, maze.bounds.h)
-            # Pick 20 distinct rooms; if we somehow have fewer than
-            # 20 rooms, repeat rooms to reach the count.
-            room_sample = list(maze.rooms)
-            prep_rng.shuffle(room_sample)
-            rooms_pick = room_sample[:MAZE_SPAWNER_MAX_ALIVE]
-            while len(rooms_pick) < MAZE_SPAWNER_MAX_ALIVE:
-                rooms_pick.append(prep_rng.choice(maze.rooms))
-            for room in rooms_pick:
-                ax = room.x + room.w / 2 + prep_rng.uniform(
-                    -room.w / 4, room.w / 4)
-                ay = room.y + room.h / 2 + prep_rng.uniform(
-                    -room.h / 4, room.h / 4)
-                alien = MazeAlien(
-                    gv._alien_laser_tex, ax, ay,
-                    world_w=self.world_width,
-                    world_h=self.world_height,
-                    patrol_home=(ax, ay),
-                    patrol_radius=max(
-                        80.0, room.w / 2.0 - 40.0),
-                    maze_bounds=bounds,
-                    rooms=maze.rooms,
-                    room_graph=maze.room_graph,
-                )
-                self._maze_aliens.append(alien)
-                self._alien_parent[alien] = sp.uid
-                sp.alive_children += 1
+            self._spawn_entourage(sp, maze,
+                                   MAZE_SPAWNER_INITIAL_ALIENS,
+                                   gv, rng=prep_rng)
+            sp.just_respawned = False  # initial spawn already covered
 
         # Nebula-style population (asteroids, gas, wanderers, null
         # fields, slipspaces, four Z2 alien types) — same counts as
@@ -538,6 +514,51 @@ class StarMazeZone(ZoneState):
             reject_slip=self._maze_reject_fn(radius=60.0),
         )
         self._populate_stalkers(gv)
+
+    def _spawn_entourage(
+        self, sp: MazeSpawner, maze: MazeLayout,
+        count: int, gv: GameView,
+        rng: random.Random | None = None,
+    ) -> int:
+        """Spawn up to ``count`` MazeAliens around ``sp``, capped by
+        ``MAZE_SPAWNER_MAX_ALIVE - sp.alive_children``.  Returns the
+        number actually spawned.  Aliens are placed in random rooms
+        of the spawner's home maze (with no repeats while rooms are
+        available) so an entourage of 10 spreads across the maze
+        instead of stacking on top of the spawner."""
+        from constants import MAZE_SPAWNER_MAX_ALIVE
+        free_slots = MAZE_SPAWNER_MAX_ALIVE - sp.alive_children
+        n = min(count, max(0, free_slots))
+        if n <= 0:
+            return 0
+        if rng is None:
+            rng = random
+        bounds = (maze.bounds.x, maze.bounds.y,
+                  maze.bounds.w, maze.bounds.h)
+        room_sample = list(maze.rooms)
+        rng.shuffle(room_sample)
+        rooms_pick = room_sample[:n]
+        while len(rooms_pick) < n:
+            rooms_pick.append(rng.choice(maze.rooms))
+        for room in rooms_pick:
+            ax = room.x + room.w / 2 + rng.uniform(
+                -room.w / 4, room.w / 4)
+            ay = room.y + room.h / 2 + rng.uniform(
+                -room.h / 4, room.h / 4)
+            alien = MazeAlien(
+                gv._alien_laser_tex, ax, ay,
+                world_w=self.world_width,
+                world_h=self.world_height,
+                patrol_home=(ax, ay),
+                patrol_radius=max(80.0, room.w / 2.0 - 40.0),
+                maze_bounds=bounds,
+                rooms=maze.rooms,
+                room_graph=maze.room_graph,
+            )
+            self._maze_aliens.append(alien)
+            self._alien_parent[alien] = sp.uid
+            sp.alive_children += 1
+        return n
 
     def _populate_stalkers(self, gv: GameView) -> None:
         """Drop ``STALKER_COUNT`` stalkers at random outside-the-maze
@@ -830,6 +851,17 @@ class StarMazeZone(ZoneState):
                 play_alien_laser_sound(gv)
             if should_spawn:
                 self._spawn_child(sp, gv._alien_laser_tex)
+            # Respawn entourage — when a killed spawner's timer
+            # ticks to zero it sets ``just_respawned``; drop a fresh
+            # entourage of MAZE_SPAWNER_INITIAL_ALIENS around it
+            # (capped by the alive-cap) and clear the latch.
+            if sp.just_respawned:
+                from constants import MAZE_SPAWNER_INITIAL_ALIENS
+                maze = self._maze_for_spawner(sp)
+                if maze is not None:
+                    self._spawn_entourage(
+                        sp, maze, MAZE_SPAWNER_INITIAL_ALIENS, gv)
+                sp.just_respawned = False
 
     def _spawn_child(self, sp: MazeSpawner,
                      laser_tex: arcade.Texture) -> None:
@@ -1183,10 +1215,18 @@ class StarMazeZone(ZoneState):
                         proj.center_x, proj.center_y))
                     proj.remove_from_sprite_lists()
                     if sp.killed:
+                        # bp_chance=0.0 — the spawner ALWAYS drops a
+                        # guaranteed unowned blueprint instead of
+                        # rolling against the random pool.
                         _apply_kill_rewards(
                             gv, sp.center_x, sp.center_y,
                             MAZE_SPAWNER_IRON_DROP, bonus_iron_enemy,
                             0.0, xp=MAZE_SPAWNER_XP)
+                        from combat_helpers import (
+                            spawn_unowned_blueprint_pickup,
+                        )
+                        spawn_unowned_blueprint_pickup(
+                            gv, sp.center_x, sp.center_y + 25)
                     hit_something = True
                     break
             if hit_something:

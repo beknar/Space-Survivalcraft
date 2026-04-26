@@ -904,6 +904,12 @@ MAZE_SPAWNER_XP: int = 100
 # Killed spawners self-resurrect after 90 s (1.5 min) and resume
 # their normal 30 s spawn cadence from full HP + shield.
 MAZE_SPAWNER_MAX_ALIVE: int = 20
+# Number of maze aliens that materialise around a spawner the
+# moment it appears (initial setup OR post-kill respawn), capped by
+# the alive-cap above.  Lets the spawner enter the world with an
+# entourage instead of starting empty and having to drip out aliens
+# at the slow MAZE_SPAWNER_SPAWN_INTERVAL cadence.
+MAZE_SPAWNER_INITIAL_ALIENS: int = 10
 MAZE_SPAWNER_SPAWN_INTERVAL: float = 30.0
 MAZE_SPAWNER_RESPAWN_INTERVAL: float = 90.0
 MAZE_SPAWNER_RADIUS: float = 40.0              # collision radius (~sprite size)
