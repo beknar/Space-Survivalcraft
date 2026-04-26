@@ -395,15 +395,29 @@ MODULE_TYPES: dict[str, dict] = {
     # drone based on the player's active weapon (mining beam → mining
     # drone, basic laser → combat drone); only one drone may be
     # deployed at a time.  See sprites/drone.py for behaviour.
+    # Drone icons reference the drone ship PNG directly so the
+    # crafter recipe + inventory mod cell + spinning world drop all
+    # show the actual drone silhouette.  ``_init_inventories``
+    # additionally generates a red-dot-overlay variant of each drone
+    # icon for the BLUEPRINT cell + world drop (so blueprints stay
+    # visually distinguishable from already-owned consumables).  Asset
+    # paths are forward-declared lower in this file; the icon entry is
+    # resolved at game-view init, by which time both constants exist.
     "mining_drone":    {"label": "Mining Drones",     "effect": "mining_drone",  "value": 1,
                         "craft_cost": 200, "craft_cost_copper": 100,
-                        "icon": os.path.join(_POWERUPS_DIR, "powerupGreen_star.png"),
+                        "icon": os.path.join(
+                            _HERE, "assets", "kenney space combat assets",
+                            "Space Shooter Extension", "PNG", "Sprites X2",
+                            "Ships", "spaceShips_009.png"),
                         "advanced": True,
                         "consumable": True, "craft_time": 30.0, "craft_count": 5,
                         "item_key": "mining_drone"},
     "combat_drone":    {"label": "Combat Drones",    "effect": "combat_drone",  "value": 1,
                         "craft_cost": 200, "craft_cost_copper": 100,
-                        "icon": os.path.join(_POWERUPS_DIR, "powerupRed_bolt.png"),
+                        "icon": os.path.join(
+                            _HERE, "assets", "kenney space combat assets",
+                            "Space Shooter Extension", "PNG", "Sprites X2",
+                            "Ships", "spaceShips_004.png"),
                         "advanced": True,
                         "consumable": True, "craft_time": 30.0, "craft_count": 5,
                         "item_key": "combat_drone"},

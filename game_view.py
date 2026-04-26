@@ -58,6 +58,48 @@ import update_logic as _ul
 import input_handlers as _ih
 
 
+# Cache the generated red-dot blueprint variants so a save / load
+# round-trip doesn't re-decode + re-paste the dot every time the
+# GameView is rebuilt.  Keyed by source icon path.
+_BP_DOT_VARIANT_CACHE: dict[str, arcade.Texture] = {}
+
+
+def _make_blueprint_red_dot_variant(icon_path: str) -> arcade.Texture:
+    """Return an ``arcade.Texture`` of the icon at ``icon_path`` with
+    a small red dot stamped in the upper-right corner — used to mark
+    the BLUEPRINT version of an item visually distinct from the
+    already-owned consumable / module icon.
+
+    The dot is sized as a fraction of the icon's smaller dimension
+    so 32-px crafter icons and 256-px ship sheets both end up with a
+    proportional cue.  Cached per source path to keep the PIL paste
+    out of the hot reload path.
+    """
+    cached = _BP_DOT_VARIANT_CACHE.get(icon_path)
+    if cached is not None:
+        return cached
+    from PIL import Image as _PILImage, ImageDraw as _PILDraw
+    src = _PILImage.open(icon_path).convert("RGBA").copy()
+    w, h = src.size
+    # Dot diameter ≈ 22 % of the smaller dimension; clamp to a
+    # reasonable px range so tiny icons stay readable and giant
+    # ship sprites don't get a cartoonish polka dot.
+    dot_d = max(8, min(48, int(min(w, h) * 0.22)))
+    pad = max(2, dot_d // 4)
+    x0 = w - dot_d - pad
+    y0 = pad
+    draw = _PILDraw.Draw(src)
+    # Solid red core + slightly darker outline so the dot reads
+    # against bright + dark icons alike.
+    draw.ellipse((x0, y0, x0 + dot_d, y0 + dot_d),
+                 fill=(230, 40, 40, 255),
+                 outline=(120, 0, 0, 255),
+                 width=max(1, dot_d // 12))
+    tex = arcade.Texture(src)
+    _BP_DOT_VARIANT_CACHE[icon_path] = tex
+    return tex
+
+
 class GameView(arcade.View):
 
     def __init__(
@@ -382,17 +424,28 @@ class GameView(arcade.View):
             repair_pack_icon=self._repair_pack_tex,
             shield_recharge_icon=self._shield_recharge_tex,
         )
+        # Drone blueprints get a red dot in the upper-right corner so
+        # the BP version is visually distinguishable from the placed
+        # consumable (which uses the same drone-ship icon as the
+        # ``mod_{key}`` cell).  Other modules don't need this — their
+        # icons are already abstract enough that the BP / consumable
+        # split reads via the cell label.
+        _DOT_KEYS: set[str] = {"mining_drone", "combat_drone"}
         for key, info in MODULE_TYPES.items():
             mod_icon = arcade.load_texture(info["icon"])
             self.inventory.item_icons[f"mod_{key}"] = mod_icon
+            if key in _DOT_KEYS:
+                bp_icon = _make_blueprint_red_dot_variant(info["icon"])
+            else:
+                bp_icon = mod_icon
             # Inventory + crafter + world-drop all share the same
             # per-module icon — previously the inventory bp_{key}
             # cell used a tinted BLUEPRINT_PNG, so picking up a
             # world-drop blueprint made the icon change mid-flight.
-            self.inventory.item_icons[f"bp_{key}"] = mod_icon
+            self.inventory.item_icons[f"bp_{key}"] = bp_icon
             self.inventory._item_names[f"bp_{key}"] = f"BP {info['label']}"
             self.inventory._item_names[f"mod_{key}"] = info["label"]
-            self._blueprint_drop_tex[key] = mod_icon
+            self._blueprint_drop_tex[key] = bp_icon
         self.inventory.item_icons["copper"] = self._copper_tex
         self.inventory.item_icons["missile"] = self._missile_tex
 
