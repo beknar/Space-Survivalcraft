@@ -448,6 +448,17 @@ class GameView(arcade.View):
             self._blueprint_drop_tex[key] = bp_icon
         self.inventory.item_icons["copper"] = self._copper_tex
         self.inventory.item_icons["missile"] = self._missile_tex
+        # Drone consumables — same drone-ship icon as the ``mod_<key>``
+        # cell (no red dot — that marker is reserved for the BLUEPRINT
+        # variant).  Without this registration the crafted item lands
+        # in inventory but the cell renders blank, so the player
+        # can't see (or drag) their freshly-crafted drones.  Friendly
+        # display name keeps the item-name tooltip readable.
+        for _drone_key in ("mining_drone", "combat_drone"):
+            _drone_icon = self.inventory.item_icons[f"mod_{_drone_key}"]
+            self.inventory.item_icons[_drone_key] = _drone_icon
+            self.inventory._item_names[_drone_key] = (
+                MODULE_TYPES[_drone_key]["label"])
 
     def _init_buildings_and_overlays(self) -> None:
         """Building list, build menu, ghost preview state, station info /
@@ -511,6 +522,21 @@ class GameView(arcade.View):
             self._station_inv.item_icons[f"bp_{key}"] = mod_icon
         self._station_inv.item_icons["copper"] = self._copper_tex
         self._station_inv.item_icons["missile"] = self._missile_tex
+        # Drone consumables — same registration as the ship inventory
+        # so freshly crafted drones at the Advanced Crafter actually
+        # render in the station grid.  ``bp_<key>`` cells use the
+        # red-dot variant from the ship-inventory pass; the consumable
+        # cell stays the plain drone sprite.
+        for _drone_key in ("mining_drone", "combat_drone"):
+            _drone_icon = self._station_inv.item_icons[f"mod_{_drone_key}"]
+            self._station_inv.item_icons[_drone_key] = _drone_icon
+            # Promote the dotted blueprint variant into the station
+            # inventory too (the loop above only knew about the plain
+            # mod icon — the dotted version was generated separately
+            # in _init_inventories).
+            _bp_dotted = self.inventory.item_icons.get(f"bp_{_drone_key}")
+            if _bp_dotted is not None:
+                self._station_inv.item_icons[f"bp_{_drone_key}"] = _bp_dotted
 
         self._craft_menu = CraftMenu()
         self._craft_menu.repair_pack_icon = self._repair_pack_tex

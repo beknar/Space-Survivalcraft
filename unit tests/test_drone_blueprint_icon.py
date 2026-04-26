@@ -130,3 +130,72 @@ class TestGameViewBlueprintIconWiring:
             "spaceShips_009.png")
         assert MODULE_TYPES["combat_drone"]["icon"].endswith(
             "spaceShips_004.png")
+
+
+# ── Crafted-consumable visibility regression ─────────────────────────────
+
+class TestCraftedDroneVisibility:
+    """Regression: crafting a drone at the Advanced Crafter must
+    actually show up in the station inventory.  The crafter calls
+    ``gv._station_inv.add_item("mining_drone" / "combat_drone", 5)``;
+    without an entry in ``item_icons`` for those keys the cell
+    rendered blank, so the player couldn't see (or drag) their
+    freshly-crafted drones."""
+
+    def _gv(self):
+        from game_view import GameView
+        return GameView(faction="Earth", ship_type="Cruiser",
+                        ship_level=1)
+
+    def test_ship_inventory_has_mining_drone_icon(self):
+        gv = self._gv()
+        assert "mining_drone" in gv.inventory.item_icons
+        # Must be the plain drone sprite (no red dot — that's BP only).
+        assert (gv.inventory.item_icons["mining_drone"]
+                is gv.inventory.item_icons["mod_mining_drone"])
+
+    def test_ship_inventory_has_combat_drone_icon(self):
+        gv = self._gv()
+        assert "combat_drone" in gv.inventory.item_icons
+        assert (gv.inventory.item_icons["combat_drone"]
+                is gv.inventory.item_icons["mod_combat_drone"])
+
+    def test_station_inventory_has_mining_drone_icon(self):
+        gv = self._gv()
+        assert "mining_drone" in gv._station_inv.item_icons
+        assert (gv._station_inv.item_icons["mining_drone"]
+                is gv._station_inv.item_icons["mod_mining_drone"])
+
+    def test_station_inventory_has_combat_drone_icon(self):
+        gv = self._gv()
+        assert "combat_drone" in gv._station_inv.item_icons
+        assert (gv._station_inv.item_icons["combat_drone"]
+                is gv._station_inv.item_icons["mod_combat_drone"])
+
+    def test_station_blueprint_uses_dotted_variant(self):
+        # The dotted blueprint variant created in _init_inventories
+        # for the ship inventory must also be installed in the
+        # station inventory so a deposited blueprint reads with the
+        # same dot marker on both grids.
+        gv = self._gv()
+        assert (gv._station_inv.item_icons["bp_mining_drone"]
+                is gv.inventory.item_icons["bp_mining_drone"])
+        assert (gv._station_inv.item_icons["bp_combat_drone"]
+                is gv.inventory.item_icons["bp_combat_drone"])
+
+    def test_friendly_item_name_set_on_ship_inventory(self):
+        gv = self._gv()
+        assert (gv.inventory._item_names.get("mining_drone")
+                == "Mining Drones")
+        assert (gv.inventory._item_names.get("combat_drone")
+                == "Combat Drones")
+
+    def test_crafted_drone_actually_renders(self):
+        # Add the item via the same path the crafter uses, then
+        # confirm the cell has both an icon (visible) and a count.
+        gv = self._gv()
+        gv._station_inv.add_item("mining_drone", 5)
+        assert gv._station_inv.count_item("mining_drone") == 5
+        # Icon resolves (the resolved Texture is what
+        # _build_render_cache stamps into the cell).
+        assert gv._station_inv.item_icons.get("mining_drone") is not None
