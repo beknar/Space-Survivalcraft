@@ -1374,28 +1374,52 @@ def update_drone(gv: GameView, dt: float) -> None:
     drone = getattr(gv, "_active_drone", None)
     if drone is None:
         return
+    # Snapshot pre-move position so the post-move wall containment
+    # can revert a tunnel-through (segment crosses a wall) instead
+    # of pushing the drone out the FAR side of the wall it just
+    # passed through.
+    prev_drone_x = drone.center_x
+    prev_drone_y = drone.center_y
     fired = drone.update_drone(dt, gv)
     if fired is not None:
         gv.projectile_list.append(fired)
-    # Maze-wall containment — Star Maze exposes _push_out_of_walls
-    # which handles circle-vs-AABB resolution against the static
-    # dungeon walls.  Iterate up to 5 times so T-intersections +
-    # corners resolve cleanly: the first push-out can land the drone
-    # inside a neighbouring wall, the second pass bumps it clear, etc.
-    # Without this the drone (orbiting at 160 px) could clip through
-    # corner walls when the player flies along the outside of a maze
-    # structure.  Other zones don't have walls so the helper is
-    # absent and the loop is skipped.
-    push = getattr(getattr(gv, "_zone", None),
-                   "_push_out_of_walls", None)
+    # Maze-wall containment — runs only in Star Maze (which exposes
+    # ``_segment_hits_wall_fast`` + ``_push_out_of_walls``).  Two
+    # passes catch two distinct failure modes:
+    #
+    #   1) Tunnel-through: the drone moved fast enough this frame
+    #      that its centre crossed a thin wall in one tick.  The
+    #      circle-vs-AABB push-out would resolve to the FAR side
+    #      (closest edge to current position), so we segment-check
+    #      the move first and revert to pre-move on a hit.  This
+    #      covers the case the user reported (drones penetrating
+    #      maze walls despite the iterative push-out fix).
+    #
+    #   2) Edge overlap: drone ended this frame inside a wall AABB
+    #      but didn't tunnel (player wedged it against geometry).
+    #      The iterative push-out handles T-intersection corners
+    #      where the first push-out can land the drone inside a
+    #      neighbour wall.
+    zone = getattr(gv, "_zone", None)
+    seg_check = getattr(zone, "_segment_hits_wall_fast", None)
+    if seg_check is not None and seg_check(
+            prev_drone_x, prev_drone_y,
+            drone.center_x, drone.center_y):
+        # Sub-stepped collision check — sample 4 intermediate points
+        # to find the latest position that's still safe, snap to
+        # just before the wall instead of fully reverting.  Falling
+        # back to a hard revert keeps the drone behind the wall on
+        # any frame the move would have crossed it.
+        drone.center_x = prev_drone_x
+        drone.center_y = prev_drone_y
+    push = getattr(zone, "_push_out_of_walls", None)
     if push is not None:
         for _ in range(5):
-            prev_x, prev_y = drone.center_x, drone.center_y
+            px, py = drone.center_x, drone.center_y
             push([drone], drone.radius)
             # Stop early if the push-out is a no-op — avoids the
             # full 5 iters when the drone is already in open space.
-            if (drone.center_x == prev_x
-                    and drone.center_y == prev_y):
+            if drone.center_x == px and drone.center_y == py:
                 break
     # Alien projectiles → drone damage.  Cheap O(P) — alien projectile
     # lists rarely exceed ~30.  Boss projectiles route through the
