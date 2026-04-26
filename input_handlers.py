@@ -142,8 +142,13 @@ def handle_key_press(gv: GameView, key: int, modifiers: int) -> None:
     elif key == arcade.key.X:
         _try_death_blossom(gv)
     elif key == arcade.key.R:
-        from combat_helpers import deploy_drone
-        deploy_drone(gv)
+        from combat_helpers import deploy_drone, recall_drone
+        # Shift+R: dedicated "put away" — stash the active drone back
+        # into the inventory without deploying anything new.
+        if modifiers & arcade.key.MOD_SHIFT:
+            recall_drone(gv)
+        else:
+            deploy_drone(gv)
     elif key in (arcade.key.W, arcade.key.A, arcade.key.S, arcade.key.D):
         _try_misty_step(gv, key)
 
@@ -411,7 +416,11 @@ def _apply_craft_action(gv: GameView, action: str) -> None:
     from character_data import craft_cost_multiplier
     crafter = gv._active_crafter
     if action == "cancel_craft":
-        target = gv._craft_menu._craft_target
+        # Refund based on the THIS crafter's target — two parallel
+        # crafters can hold different recipes, so reading the menu's
+        # shared field would refund the wrong amount when the player
+        # cancels the second crafter while the first is still going.
+        target = crafter.craft_target
         ccm = craft_cost_multiplier(audio.character_name, gv._char_level)
         if target and target in MODULE_TYPES:
             refund = int(MODULE_TYPES[target]["craft_cost"] * ccm)
@@ -420,6 +429,7 @@ def _apply_craft_action(gv: GameView, action: str) -> None:
         gv._station_inv.add_item("iron", refund)
         crafter.crafting = False
         crafter.craft_timer = 0.0
+        crafter.craft_target = ""
         gv._craft_menu._craft_target = ""
         return
     if action == "craft":
@@ -429,6 +439,11 @@ def _apply_craft_action(gv: GameView, action: str) -> None:
         crafter.crafting = True
         crafter.craft_timer = 0.0
         crafter.craft_total = CRAFT_TIME
+        # The menu's _craft_target was set to "" for repair pack or
+        # "shield_recharge" for the shield recharge recipe.  Carry
+        # whichever one is current onto this crafter so two crafters
+        # can run different recipes simultaneously.
+        crafter.craft_target = gv._craft_menu._craft_target
         return
     if action.startswith("craft_module:"):
         mod_key = action.split(":", 1)[1]
@@ -439,6 +454,7 @@ def _apply_craft_action(gv: GameView, action: str) -> None:
         crafter.crafting = True
         crafter.craft_timer = 0.0
         crafter.craft_total = CRAFT_TIME
+        crafter.craft_target = mod_key
         gv._craft_menu._craft_target = mod_key
 
 
@@ -1059,6 +1075,15 @@ def handle_mouse_motion(gv: GameView, x: int, y: int, dx: int, dy: int) -> None:
                 hover_dist = d
                 hover_ps = ps
         gv._hover_parked_ship = hover_ps
+        # Drone hover — show HP / shield tooltip when cursor is over
+        # the active companion drone.
+        gv._hover_drone = None
+        active_drone = getattr(gv, "_active_drone", None)
+        if active_drone is not None:
+            d = math.hypot(wx - active_drone.center_x,
+                           wy - active_drone.center_y)
+            if d < 30.0:
+                gv._hover_drone = active_drone
         # Refugee NPC hover
         gv._hover_refugee = False
         if gv._refugee_npc is not None:

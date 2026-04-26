@@ -340,6 +340,9 @@ class _StubInventory:
     def remove_item(self, name, qty):
         self._items[name] = max(0, self._items.get(name, 0) - qty)
 
+    def add_item(self, name, qty=1):
+        self._items[name] = self._items.get(name, 0) + qty
+
 
 def _make_deploy_gv(*, mines_rock: bool, items=None):
     """Minimal GV for testing deploy_drone."""
@@ -386,15 +389,21 @@ class TestDeployDrone:
         assert len(gv._drone_list) == 1
 
     def test_other_variant_press_replaces_active_drone(self):
+        # The swap path now REFUNDS the displaced drone instead of
+        # destroying it.  Net result of the round trip: -1 of the
+        # new variant, 0 of the old variant.
         from combat_helpers import deploy_drone
         gv = _make_deploy_gv(mines_rock=True)
         deploy_drone(gv)
         first = gv._active_drone
+        assert gv.inventory.count_item("mining_drone") == 4
         # Switch weapon — basic laser now active
         gv._active_weapon = SimpleNamespace(mines_rock=False)
         deploy_drone(gv)
         assert type(gv._active_drone).__name__ == "CombatDrone"
         assert gv._active_drone is not first
+        # Old mining drone refunded back to 5; new combat drone consumed.
+        assert gv.inventory.count_item("mining_drone") == 5
         assert gv.inventory.count_item("combat_drone") == 4
         assert len(gv._drone_list) == 1   # old one removed
 

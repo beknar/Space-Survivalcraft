@@ -420,6 +420,19 @@ def draw_world(gv: GameView, cx: float, cy: float, hw: float, hh: float) -> None
         t.x = ps.center_x
         t.y = ps.center_y + 45
         t.draw()
+    # Hover tooltip for the active drone — HP + shield readout so the
+    # player can decide whether to recall it before it dies.
+    hover_d = getattr(gv, "_hover_drone", None)
+    if hover_d is not None:
+        label = (f"{hover_d._LABEL}  "
+                 f"HP {hover_d.hp}/{hover_d.max_hp}  "
+                 f"Shield {int(hover_d.shields)}/{hover_d.max_shields}")
+        t = gv._t_drone_tip
+        if t.text != label:
+            t.text = label
+        t.x = hover_d.center_x
+        t.y = hover_d.center_y + 25
+        t.draw()
     for spark in gv.hit_sparks:
         spark.draw()
     for fs in gv.fire_sparks:

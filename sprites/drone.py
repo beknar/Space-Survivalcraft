@@ -110,6 +110,20 @@ class _BaseDrone(arcade.Sprite):
         # AI / collisions to know "which way is forward" for muzzle.
         self._heading: float = 0.0
         self.angle = 0.0
+        # Stuck-on-target detection — if the drone has had the same
+        # live target in sight for >5 s without making any progress
+        # (target HP unchanged, drone physically not closing the
+        # distance — typically a wall is blocking the shot or the
+        # drone is wedged), abandon the target and just follow the
+        # player for a cooldown window so it doesn't grind on
+        # geometry forever.
+        self._target_acquired_timer: float = 0.0
+        self._target_cooldown: float = 0.0
+        self._stuck_target = None
+        self._stuck_target_hp: int = 0
+        # Shield regen accumulator (fractional shield points carry
+        # across frames; integer ``shields`` is bumped when ≥ 1.0).
+        self._shield_regen_acc: float = 0.0
 
     # ── Damage ───────────────────────────────────────────────────────
 
@@ -162,6 +176,71 @@ class _BaseDrone(arcade.Sprite):
         self._shield_angle = (self._shield_angle + 90.0 * dt) % 360.0
         # Cooldown tick.
         self._fire_cd = max(0.0, self._fire_cd - dt)
+        # Target-stuck timers: cooldown counts down whenever active;
+        # acquired-timer is reset by ``_aim_and_fire`` on every
+        # successful shot, so it only grows when the drone has a
+        # target it can't shoot at.
+        if self._target_cooldown > 0.0:
+            self._target_cooldown = max(0.0, self._target_cooldown - dt)
+
+    def regen_shields(self, dt: float, player) -> None:
+        """Match the player ship's shield regen rate.  Player carries
+        ``_shield_regen`` (per ship type, e.g. 0.5 pt/s for a Cruiser);
+        the drone accumulates fractional shield points and bumps the
+        integer ``shields`` counter when it crosses 1.0.  Caller
+        passes the player ship from update_drone so the drone doesn't
+        need to import GameView."""
+        if self.shields >= self.max_shields or self.max_shields <= 0:
+            return
+        rate = float(getattr(player, "_shield_regen", 0.0))
+        if rate <= 0.0:
+            return
+        self._shield_regen_acc += rate * dt
+        if self._shield_regen_acc >= 1.0:
+            bump = int(self._shield_regen_acc)
+            self._shield_regen_acc -= bump
+            self.shields = min(self.max_shields, self.shields + bump)
+
+    def has_target_lock(self) -> bool:
+        """True iff the drone is currently allowed to engage targets.
+        Flips False once the stuck-on-target timer has built up
+        beyond 5 s without progress (drone is jammed against a wall
+        or the laser is being absorbed by geometry) and stays False
+        until the target_cooldown bleeds back to zero (5 s of
+        follow-only)."""
+        return self._target_cooldown <= 0.0
+
+    def _track_stuck_progress(
+        self, dt: float, target,
+    ) -> bool:
+        """Return True when the drone is "stuck" on this target —
+        same target in sight for ≥ 5 s with no HP loss.  Caller
+        should drop the target and enter the follow-only cooldown.
+        Resets internal state on any progress.
+        """
+        if target is None:
+            self._stuck_target = None
+            self._target_acquired_timer = 0.0
+            return False
+        if target is not self._stuck_target:
+            # New target — reset progress markers.
+            self._stuck_target = target
+            self._stuck_target_hp = int(getattr(target, "hp", 0))
+            self._target_acquired_timer = 0.0
+            return False
+        cur_hp = int(getattr(target, "hp", 0))
+        if cur_hp < self._stuck_target_hp:
+            # We damaged it — making progress, reset.
+            self._stuck_target_hp = cur_hp
+            self._target_acquired_timer = 0.0
+            return False
+        self._target_acquired_timer += dt
+        if self._target_acquired_timer >= 5.0:
+            self._target_acquired_timer = 0.0
+            self._target_cooldown = 5.0
+            self._stuck_target = None
+            return True
+        return False
 
     # ── Fire ─────────────────────────────────────────────────────────
 
@@ -221,6 +300,7 @@ class MiningDrone(_BaseDrone):
         ``gv.projectile_list``."""
         self.follow(dt, gv.player.center_x, gv.player.center_y)
         self.update_visuals(dt)
+        self.regen_shields(dt, gv.player)
         # Vacuum any iron / blueprint pickup within reach by flagging
         # it as flying — the standard pickup loop in game_view's
         # on_update already pulls it toward the player and credits
@@ -233,8 +313,16 @@ class MiningDrone(_BaseDrone):
                               p.center_y - self.center_y
                               ) <= MINING_DRONE_PICKUP_RADIUS:
                     p._flying = True
-        # Find the nearest static asteroid in the active zone.
+        # Find the nearest static asteroid in the active zone — only
+        # while the stuck-cooldown is clear (otherwise the drone is
+        # in follow-only mode for 5 s after grinding on an
+        # unreachable target).
+        if not self.has_target_lock():
+            return None
         target = self._nearest_asteroid(gv)
+        # Stuck check: same target with no HP drop for 5 s → bail.
+        if self._track_stuck_progress(dt, target):
+            return None
         if target is None:
             return None
         return self._aim_and_fire(target.center_x, target.center_y)
@@ -283,7 +371,13 @@ class CombatDrone(_BaseDrone):
     ) -> Projectile | None:
         self.follow(dt, gv.player.center_x, gv.player.center_y)
         self.update_visuals(dt)
+        self.regen_shields(dt, gv.player)
+        if not self.has_target_lock():
+            return None
         target = self._nearest_enemy(gv)
+        # Stuck check: same target with no HP drop for 5 s → bail.
+        if self._track_stuck_progress(dt, target):
+            return None
         if target is None:
             return None
         return self._aim_and_fire(target.center_x, target.center_y)

@@ -102,20 +102,44 @@ def use_shield_recharge(gv: GameView, slot: int) -> None:
     disable_null_field_around_player(gv)
 
 
+def _drone_item_key_for(drone) -> str:
+    """Map an active drone instance back to its inventory item key."""
+    return ("mining_drone" if type(drone).__name__ == "MiningDrone"
+            else "combat_drone")
+
+
+def recall_drone(gv: GameView) -> None:
+    """Stash the active drone back into the player's inventory
+    without deploying anything new.  Used by the dedicated "put
+    away" key (Shift+R) and as the swap helper for ``deploy_drone``
+    when the player swaps to the other variant.  No-op when no
+    drone is deployed."""
+    active = getattr(gv, "_active_drone", None)
+    if active is None:
+        return
+    key = _drone_item_key_for(active)
+    gv.inventory.add_item(key, 1)
+    active.remove_from_sprite_lists()
+    gv._active_drone = None
+    flash_game_msg(gv, "Drone recalled", 1.2)
+
+
 def deploy_drone(gv: GameView) -> None:
     """Handle the R key.  Picks the drone variant from the active
     weapon (mining beam → mining drone, basic laser → combat drone)
-    and either deploys it (consuming one charge) or — if a drone of
-    the matching variant is already out — does nothing.  Pressing R
-    after a weapon switch replaces the active drone with the matching
-    variant for the cost of one charge of the new variant.
+    and either deploys it (consuming one charge) or swaps the
+    currently-active drone for the other variant.  Swapping refunds
+    the old drone's charge to the inventory before consuming the new
+    one — pressing R while the WRONG drone is out is now a clean
+    swap rather than a destructive replacement.
 
     Behaviour summary:
       * No drone deployed → spawn the matching variant; consume one
         ``mining_drone`` / ``combat_drone`` from the inventory.
       * Same variant already deployed → no-op (no charge consumed).
-      * Other variant deployed → despawn that drone, spawn the new
-        one, consume one charge of the new variant.
+      * Other variant deployed → recall the active drone (refund 1
+        of its variant), spawn the new one, consume 1 of the new
+        variant.  Net result: 0 destroyed, 1 swapped.
     """
     if gv._escape_menu.open or gv._player_dead:
         return
@@ -128,7 +152,11 @@ def deploy_drone(gv: GameView) -> None:
     if active is not None:
         if type(active).__name__ == desired_cls_name:
             return  # same variant — no-op, no consume
-        # Wrong variant — despawn so the new one can take its place.
+        # Different variant — refund it first (back into inventory),
+        # then fall through to the standard deploy path so the new
+        # variant is spawned + consumed cleanly.
+        old_key = _drone_item_key_for(active)
+        gv.inventory.add_item(old_key, 1)
         active.remove_from_sprite_lists()
         gv._active_drone = None
     # Inventory check.

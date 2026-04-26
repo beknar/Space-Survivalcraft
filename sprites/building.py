@@ -148,6 +148,13 @@ class BasicCrafter(StationModule):
         self.crafting: bool = False
         self.craft_timer: float = 0.0
         self.craft_total: float = 0.0  # total craft time for progress bar
+        # Per-crafter target so two parallel crafters can produce
+        # different items.  ``""`` (empty string) = repair pack
+        # (default recipe); set when the player starts a craft via
+        # the menu attached to ``gv._active_crafter``.  Read by
+        # ``update_logic.update_crafting`` on completion instead of
+        # the menu's shared ``_craft_target`` field.
+        self.craft_target: str = ""
 
     @property
     def craft_progress(self) -> float:

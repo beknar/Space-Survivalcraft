@@ -215,6 +215,14 @@ class GameView(arcade.View):
         # combat_helpers.deploy_drone for the deploy flow.
         self._drone_list: arcade.SpriteList = arcade.SpriteList()
         self._active_drone = None
+        self._hover_drone = None
+        # Cached tooltip text for the drone hover overlay (HP/shield).
+        # Populated lazily in _init_text_overlays so we don't allocate
+        # an arcade.Text per frame.
+        self._t_drone_tip = arcade.Text(
+            "", 0, 0, arcade.color.WHITE, 9, bold=True,
+            anchor_x="center", anchor_y="bottom",
+        )
 
     def _init_text_overlays(self) -> None:
         """Cached arcade.Text objects for flash messages and boss announce."""

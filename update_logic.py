@@ -413,7 +413,12 @@ def update_crafting(gv: GameView, dt: float) -> None:
             if b.craft_timer >= b.craft_total:
                 b.crafting = False
                 b.craft_timer = 0.0
-                target = gv._craft_menu._craft_target
+                # Per-crafter target so two parallel crafters can
+                # produce different items.  Falls back to the menu's
+                # shared ``_craft_target`` for old saves whose
+                # crafters didn't carry the field yet.
+                target = getattr(b, "craft_target", "") \
+                    or gv._craft_menu._craft_target
                 if target and target in MODULE_TYPES:
                     info = MODULE_TYPES[target]
                     if info.get("consumable"):
@@ -426,6 +431,12 @@ def update_crafting(gv: GameView, dt: float) -> None:
                     gv._station_inv.add_item("shield_recharge", CRAFT_RESULT_COUNT)
                 else:
                     gv._station_inv.add_item("repair_pack", CRAFT_RESULT_COUNT)
+                # Reset this crafter's target so the next craft starts
+                # fresh.  The menu's _craft_target is intentionally
+                # left alone — it tracks the LAST opened crafter's
+                # current selection, not a per-crafter state.
+                if hasattr(b, "craft_target"):
+                    b.craft_target = ""
 
     if gv._craft_menu.open and gv._active_crafter is not None:
         gv._craft_menu.update(
@@ -1284,14 +1295,24 @@ def update_drone(gv: GameView, dt: float) -> None:
         gv.projectile_list.append(fired)
     # Maze-wall containment — Star Maze exposes _push_out_of_walls
     # which handles circle-vs-AABB resolution against the static
-    # dungeon walls.  Without this the drone (orbiting at 160 px)
-    # could clip through a wall when the player flies along the
-    # outside of a maze structure.  Other zones don't have walls
-    # so the helper is absent and the call is skipped.
+    # dungeon walls.  Iterate up to 5 times so T-intersections +
+    # corners resolve cleanly: the first push-out can land the drone
+    # inside a neighbouring wall, the second pass bumps it clear, etc.
+    # Without this the drone (orbiting at 160 px) could clip through
+    # corner walls when the player flies along the outside of a maze
+    # structure.  Other zones don't have walls so the helper is
+    # absent and the loop is skipped.
     push = getattr(getattr(gv, "_zone", None),
                    "_push_out_of_walls", None)
     if push is not None:
-        push([drone], drone.radius)
+        for _ in range(5):
+            prev_x, prev_y = drone.center_x, drone.center_y
+            push([drone], drone.radius)
+            # Stop early if the push-out is a no-op — avoids the
+            # full 5 iters when the drone is already in open space.
+            if (drone.center_x == prev_x
+                    and drone.center_y == prev_y):
+                break
     # Alien projectiles → drone damage.  Cheap O(P) — alien projectile
     # lists rarely exceed ~30.  Boss projectiles route through the
     # same alien_projectile_list contract for non-Main zones, but the

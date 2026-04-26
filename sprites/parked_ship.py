@@ -81,6 +81,12 @@ class ParkedShip(arcade.Sprite):
         self._shield_regen_acc: float = 0.0
         self._shield_regen_rate: float = (
             stats["shield_regen"] * _AI_SHIELD_REGEN_MULT)
+        # Tracks ``has_ai_pilot`` between frames so the zone update
+        # can detect the install moment and force the ship straight
+        # into "patrol" mode (with a fresh orbit angle) — otherwise
+        # the ship sometimes stays put for a few seconds after the
+        # player drops the module on it.
+        self._ai_pilot_was_installed: bool = False
 
     @property
     def has_ai_pilot(self) -> bool:
@@ -122,6 +128,16 @@ class ParkedShip(arcade.Sprite):
                 self.color = (255, 255, 255, 255)
 
         if self.has_ai_pilot:
+            # Install-edge detection — flip the ship straight into
+            # "patrol" the moment AI Pilot is installed, even if a
+            # mid-flight ``return`` was active before.  Without this
+            # the ship can sit still for several seconds after the
+            # player drops the module on it (the stale state never
+            # got reset to a valid patrol target).
+            if not self._ai_pilot_was_installed:
+                self._ai_mode = "patrol"
+                self._ai_fire_cd = 0.0
+                self._ai_pilot_was_installed = True
             self._ensure_ai_shield()
             # Half-rate shield regen.
             if self.shields < self.max_shields:
@@ -134,6 +150,10 @@ class ParkedShip(arcade.Sprite):
             if self._shield_sprite is not None:
                 self._shield_sprite.update_shield(
                     dt, self.center_x, self.center_y, self.shields)
+        elif self._ai_pilot_was_installed:
+            # Module removed — clear the latch so a future re-install
+            # triggers the install-edge reset above.
+            self._ai_pilot_was_installed = False
 
     def update_ai(
         self,
