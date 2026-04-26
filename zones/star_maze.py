@@ -841,6 +841,33 @@ class StarMazeZone(ZoneState):
         self._update_player_wall_collision(gv)
         self._reconcile_dead_aliens()
 
+        # Buildings — turrets + missile arrays + crafters tick the
+        # same way they do in MAIN.  Without this, building HP bars
+        # don't update, turrets don't acquire targets, and the AI
+        # Pilot's "fire into turret_projectile_list" path has no
+        # damage handler running at the receiving end.  Swap in the
+        # zone alien lists so turrets target the right enemies.
+        from update_logic import (
+            update_buildings, _update_parked_ships,
+        )
+        from collisions import handle_parked_ship_damage
+        _saved_alien = gv.alien_list
+        _saved_aproj = gv.alien_projectile_list
+        gv.alien_list = self._maze_aliens
+        gv.alien_projectile_list = self._maze_projectiles
+        update_buildings(gv, dt)
+        gv.alien_list = _saved_alien
+        gv.alien_projectile_list = _saved_aproj
+
+        # Parked ships — damage absorption + AI pilot tick.  Without
+        # this the AI Pilot module never patrols when installed in
+        # Star Maze.  Use the zone's alien lists for target picks.
+        handle_parked_ship_damage(gv)
+        _saved_alien = gv.alien_list
+        gv.alien_list = self._maze_aliens
+        _update_parked_ships(gv, dt)
+        gv.alien_list = _saved_alien
+
         # Respawn Nebula content on the Zone 2 cadence.  Maze
         # spawners stay dead or self-respawn on their own timer.
         self._respawn_timer += dt

@@ -757,6 +757,11 @@ def draw_ui(gv: GameView) -> None:
     gv._station_inv.draw()
     gv.inventory.draw()
     gv._station_inv.draw_drag_preview()
+    # HUD drag overlays (module-slot + quick-use) — drawn AFTER the
+    # inventory paints so a module being dragged from the HUD into
+    # the cargo grid stays visible above the grid instead of getting
+    # buried under it.
+    gv._hud.draw_drag_preview()
     from ship_manager import count_l1_ships
     gv._build_menu.draw(
         iron=gv.inventory.total_iron + gv._station_inv.total_iron,

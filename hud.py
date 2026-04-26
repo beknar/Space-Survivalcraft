@@ -408,20 +408,9 @@ class HUD:
                                  tip_sx + self._mod_cell // 2,
                                  mod_y + self._mod_cell + 4,
                                  outline_color=(200, 180, 80))
-        # Drag preview
-        if self._mod_drag_src is not None and self._mod_drag_type is not None:
-            cs = self._mod_cell
-            fx = self._mod_drag_x - cs // 2
-            fy = self._mod_drag_y - cs // 2
-            arcade.draw_rect_filled(arcade.LBWH(fx, fy, cs, cs), (70, 90, 40, 180))
-            arcade.draw_rect_outline(arcade.LBWH(fx, fy, cs, cs),
-                                     (200, 180, 80), border_width=2)
-            icon = self._mod_icons.get(self._mod_drag_type)
-            if icon:
-                pad = 4
-                arcade.draw_texture_rect(icon,
-                    arcade.LBWH(fx + pad, fy + pad, cs - pad * 2, cs - pad * 2),
-                    alpha=200)
+        # Drag preview moved to draw_drag_preview() so it renders
+        # ABOVE the open inventory grids (this method is called
+        # from draw_logic before the inventories paint themselves).
 
     def _resolve_qu_icon(self, item_type: str):
         """Return the quick-use icon texture for an item type, or None."""
@@ -432,6 +421,49 @@ class HUD:
         if item_type == "missile" and self._missile_icon is not None:
             return self._missile_icon
         return None
+
+    def draw_drag_preview(self) -> None:
+        """Draw the in-flight drag-icon overlay for the module bar
+        AND the quick-use bar.  Called from ``draw_logic.draw_ui``
+        AFTER the inventory overlays so the dragged icon stays on
+        top of any inventory grid the cursor passes over.
+        """
+        # Module-slot drag.
+        if self._mod_drag_src is not None and self._mod_drag_type is not None:
+            cs = self._mod_cell
+            fx = self._mod_drag_x - cs // 2
+            fy = self._mod_drag_y - cs // 2
+            arcade.draw_rect_filled(
+                arcade.LBWH(fx, fy, cs, cs), (70, 90, 40, 180))
+            arcade.draw_rect_outline(
+                arcade.LBWH(fx, fy, cs, cs),
+                (200, 180, 80), border_width=2)
+            icon = self._mod_icons.get(self._mod_drag_type)
+            if icon:
+                pad = 4
+                arcade.draw_texture_rect(
+                    icon,
+                    arcade.LBWH(fx + pad, fy + pad,
+                                cs - pad * 2, cs - pad * 2),
+                    alpha=200)
+        # Quick-use drag.
+        if self._qu_drag_src is not None and self._qu_drag_type is not None:
+            cs = self._qu_cell
+            fx = self._qu_drag_x - cs // 2
+            fy = self._qu_drag_y - cs // 2
+            arcade.draw_rect_filled(
+                arcade.LBWH(fx, fy, cs, cs), (70, 90, 40, 180))
+            arcade.draw_rect_outline(
+                arcade.LBWH(fx, fy, cs, cs),
+                arcade.color.YELLOW, border_width=2)
+            icon = self._resolve_qu_icon(self._qu_drag_type)
+            if icon is not None:
+                icon_pad = 4
+                arcade.draw_texture_rect(
+                    icon,
+                    arcade.LBWH(fx + icon_pad, fy + icon_pad + 2,
+                                cs - icon_pad * 2, cs - icon_pad * 2 - 4),
+                    alpha=200)
 
     def _draw_quick_use_bar(self, play_cx: int, qu_y: int) -> None:
         """Draw the 10-slot quick-use consumable bar at the bottom."""
@@ -507,26 +539,8 @@ class HUD:
                 draw_tooltip(self._t_qu_tip, name,
                              tip_sx + cs // 2, qu_y + cs + 4,
                              outline_color=arcade.color.LIGHT_GRAY)
-        # Drag preview
-        if self._qu_drag_src is not None and self._qu_drag_type is not None:
-            fx = self._qu_drag_x - cs // 2
-            fy = self._qu_drag_y - cs // 2
-            arcade.draw_rect_filled(arcade.LBWH(fx, fy, cs, cs), (70, 90, 40, 180))
-            arcade.draw_rect_outline(arcade.LBWH(fx, fy, cs, cs),
-                                     arcade.color.YELLOW, border_width=2)
-            icon = self._resolve_qu_icon(self._qu_drag_type)
-            if icon is not None:
-                icon_pad = 4
-                arcade.draw_texture_rect(
-                    icon,
-                    arcade.LBWH(fx + icon_pad, fy + icon_pad + 2,
-                                cs - icon_pad * 2, cs - icon_pad * 2 - 4),
-                    alpha=200)
-            else:
-                self._t_qu_num.text = self._qu_drag_type[:3].upper()
-                self._t_qu_num.x = fx + cs // 2
-                self._t_qu_num.y = fy + cs // 2 - 2
-                self._t_qu_num.color = arcade.color.YELLOW
+        # Drag preview moved to draw_drag_preview() so it renders
+        # ABOVE the open inventory grids.
                 self._t_qu_num.draw()
             if self._qu_drag_count > 0:
                 self._t_qu_num.text = str(self._qu_drag_count)
