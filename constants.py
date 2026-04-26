@@ -702,7 +702,7 @@ DRONE_MAX_SPEED: float = 450.0          # px/s
 DRONE_ROTATE_SPEED: float = 100.0       # deg/s (visual only — drones fly directly)
 # Drones target this orbit radius around the player; they ease toward
 # the rotating offset so they appear to swim alongside the ship.
-DRONE_FOLLOW_DIST: float = 80.0         # px from player
+DRONE_FOLLOW_DIST: float = 160.0        # px from player
 DRONE_ORBIT_SPEED: float = 35.0         # deg/s of offset rotation
 DRONE_FIRE_COOLDOWN: float = 0.5        # seconds between shots
 DRONE_DETECT_RANGE: float = 600.0       # px — acquire targets within
