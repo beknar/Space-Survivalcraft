@@ -316,7 +316,7 @@ class Zone2(ZoneState):
         # Aliens — full AI for nearby, cheap position-only for distant.
         # Null field cloak: feed the aliens a far-away position so they
         # stay in PATROL.
-        from update_logic import player_is_cloaked
+        from update_logic import player_is_cloaked, emit_alien_shots
         if player_is_cloaked(gv):
             ai_px, ai_py = px + 1e9, py + 1e9
         else:
@@ -330,7 +330,6 @@ class Zone2(ZoneState):
                 projs = alien.update_alien(
                     dt, ai_px, ai_py, self._iron_asteroids, self._aliens,
                     force_walls=getattr(gv, '_force_walls', None))
-                from update_logic import emit_alien_shots
                 emit_alien_shots(gv, self._alien_projectiles, projs)
             else:
                 # Minimal update: velocity decay + position drift only

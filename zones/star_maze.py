@@ -729,12 +729,15 @@ class StarMazeZone(ZoneState):
         # update_slipspaces (which already walk the active zone's
         # _null_fields / _slipspaces lists).  Don't double-tick here.
 
-        # Z2 alien AI + projectile fire.
+        # Z2 alien AI + projectile fire.  Import emit_alien_shots
+        # ONCE per tick (not per alien) — the per-loop import was a
+        # major cost driver on the heavy-combat soaks (60+ aliens =
+        # 3600+ import lookups per second).
+        from update_logic import emit_alien_shots
         for alien in list(self._aliens):
             fired = alien.update_alien(
                 dt, px, py, self._iron_asteroids, self._aliens,
                 force_walls=gv._force_walls)
-            from update_logic import emit_alien_shots
             emit_alien_shots(gv, self._alien_projectiles, fired)
 
         # Stalker AI + missile fire.  Stalkers live outside the
@@ -975,7 +978,7 @@ class StarMazeZone(ZoneState):
         # Full-list scan was 20 aliens × 120 walls × 5 iters = 12k
         # AABB tests per frame and was the biggest near-maze hit.
         from constants import MAZE_ALIEN_RADIUS as _MAR
-        from update_logic import player_is_cloaked
+        from update_logic import player_is_cloaked, emit_alien_shots
         query_r = _MAR + 40.0
         # Null-field cloak — when the player is inside an active null
         # field, feed the maze aliens a synthetic player position far
@@ -996,7 +999,6 @@ class StarMazeZone(ZoneState):
                 force_walls=gv._force_walls,
                 maze_walls=near_walls,
             )
-            from update_logic import emit_alien_shots
             emit_alien_shots(gv, self._maze_projectiles, fired)
         # Expose maze aliens + their projectiles on the shared lists
         # so the existing player-hit pipelines process them uniformly.
