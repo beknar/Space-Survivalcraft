@@ -266,6 +266,67 @@ class TestCombatDroneTargeting:
         )
         assert d._nearest_enemy(gv) is gv._boss
 
+    def test_includes_zone_aliens_when_alien_list_swapped(self):
+        # Regression: in the Star Maze, gv.alien_list is swapped to
+        # ``self._maze_aliens`` mid-frame.  The drone must still see
+        # ``zone._aliens`` (Z2 aliens) and ``zone._stalkers``.
+        from sprites.drone import CombatDrone
+        d = CombatDrone(0.0, 0.0)
+        z2_alien = SimpleNamespace(center_x=120.0, center_y=0.0, hp=50)
+        stalker = SimpleNamespace(center_x=80.0, center_y=0.0, hp=75)
+        zone = SimpleNamespace(
+            _aliens=[z2_alien],
+            _maze_aliens=[],
+            _stalkers=[stalker],
+        )
+        gv = SimpleNamespace(
+            alien_list=[],   # empty: simulates the post-swap state
+            _zone=zone,
+            _boss=None,
+            _nebula_boss=None,
+        )
+        # Stalker is closer (80 vs 120) — must be picked.
+        assert d._nearest_enemy(gv) is stalker
+
+    def test_includes_zone_maze_aliens(self):
+        from sprites.drone import CombatDrone
+        d = CombatDrone(0.0, 0.0)
+        maze_alien = SimpleNamespace(center_x=50.0, center_y=0.0, hp=60)
+        zone = SimpleNamespace(
+            _aliens=[],
+            _maze_aliens=[maze_alien],
+            _stalkers=[],
+        )
+        gv = SimpleNamespace(
+            alien_list=[],
+            _zone=zone,
+            _boss=None,
+            _nebula_boss=None,
+        )
+        assert d._nearest_enemy(gv) is maze_alien
+
+    def test_dedupes_when_alien_list_is_zone_list(self):
+        # If gv.alien_list IS the same object as zone._aliens (Zone 2
+        # default), the drone must not double-count it.  Use the
+        # alien's id() to dedupe — same alive count as the source.
+        from sprites.drone import CombatDrone
+        d = CombatDrone(0.0, 0.0)
+        a = SimpleNamespace(center_x=100.0, center_y=0.0, hp=50)
+        zone_aliens = [a]
+        zone = SimpleNamespace(
+            _aliens=zone_aliens,
+            _maze_aliens=[],
+            _stalkers=[],
+        )
+        gv = SimpleNamespace(
+            alien_list=zone_aliens,    # same list
+            _zone=zone,
+            _boss=None,
+            _nebula_boss=None,
+        )
+        # Should still pick alien `a` (no exception, no double-count).
+        assert d._nearest_enemy(gv) is a
+
 
 # ── deploy_drone ──────────────────────────────────────────────────────────
 

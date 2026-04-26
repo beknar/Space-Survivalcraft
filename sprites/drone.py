@@ -289,16 +289,38 @@ class CombatDrone(_BaseDrone):
         return self._aim_and_fire(target.center_x, target.center_y)
 
     def _nearest_enemy(self, gv: "GameView"):
+        """Pick the nearest live hostile within ``DRONE_DETECT_RANGE``.
+
+        Walks every enemy sprite list the active zone exposes —
+        ``gv.alien_list`` alone isn't enough because the Star Maze
+        swaps that reference between ``self._aliens`` (Z2 aliens
+        outside the maze) and ``self._maze_aliens`` (inside) during
+        update, leaving whichever was last assigned visible.  By
+        scanning the zone's underlying lists directly the drone
+        engages every faction (maze aliens, Z2 aliens, stalkers,
+        plus both bosses) regardless of which list happens to be on
+        ``gv.alien_list`` when this method runs.
+        """
         best = None
         best_d2 = DRONE_DETECT_RANGE * DRONE_DETECT_RANGE
-        # Aliens (active zone), bosses, nebula boss.
-        sources = [getattr(gv, "alien_list", [])]
+        sources: list = [getattr(gv, "alien_list", []) or []]
+        zone = getattr(gv, "_zone", None)
+        if zone is not None:
+            for attr in ("_aliens", "_maze_aliens", "_stalkers"):
+                lst = getattr(zone, attr, None)
+                if lst is not None:
+                    sources.append(lst)
         if getattr(gv, "_boss", None) is not None:
             sources.append([gv._boss])
         if getattr(gv, "_nebula_boss", None) is not None:
             sources.append([gv._nebula_boss])
+        seen: set[int] = set()
         for src in sources:
             for e in src:
+                eid = id(e)
+                if eid in seen:
+                    continue
+                seen.add(eid)
                 if getattr(e, "hp", 0) <= 0:
                     continue
                 d2 = ((e.center_x - self.center_x) ** 2
