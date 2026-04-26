@@ -19,10 +19,13 @@ _HELP_LINES = [
     ("B", "Build menu"),
     ("T", "Station info"),
     ("C", "Ship stats"),
+    ("M", "Toggle full-screen map"),
     ("F", "Toggle FPS"),
     ("G", "Force Wall (ability)"),
     ("X", "Death Blossom (ability)"),
     ("WASD x2", "Misty Step (ability)"),
+    ("R", "Deploy / swap drone"),
+    ("Shift+R", "Recall drone (refund)"),
     ("ESC", "Menu"),
 ]
 _GAMEPAD_LINES = [
@@ -30,6 +33,19 @@ _GAMEPAD_LINES = [
     ("A button", "Fire"),
     ("RB", "Cycle weapon"),
     ("Y button", "Inventory"),
+]
+# Multi-line how-to for the drone deploy/recall flow.  Plain text
+# (no key/action split) so each line can carry a bit more context
+# than a single keybind row would fit.
+_DRONE_LINES = [
+    "Mining beam active + R: deploy MINING drone",
+    "Basic laser active + R: deploy COMBAT drone",
+    "Same drone already out: R is a no-op",
+    "Other drone already out: R swaps",
+    "  (refunds 1 of old, consumes 1 of new)",
+    "Shift+R: recall drone (refunds 1 charge)",
+    "Craft both at Adv. Crafter: 200 iron + 100 copper / 5",
+    "Hover the drone for HP / shield readout",
 ]
 
 
@@ -42,6 +58,9 @@ class HelpMode(MenuMode):
                                      bold=True, anchor_x="center")
         self._t_gp_hdr = arcade.Text("GAMEPAD", 0, 0, arcade.color.LIGHT_GREEN, 10,
                                      bold=True, anchor_x="center")
+        self._t_drone_hdr = arcade.Text(
+            "DRONES", 0, 0, arcade.color.YELLOW_ORANGE, 10,
+            bold=True, anchor_x="center")
         self._t_keys: list[arcade.Text] = []
         self._t_actions: list[arcade.Text] = []
         for lines in (_HELP_LINES, _GAMEPAD_LINES):
@@ -49,6 +68,13 @@ class HelpMode(MenuMode):
                 self._t_keys.append(arcade.Text(key_text, 0, 0, (180, 180, 180), 10))
                 self._t_actions.append(arcade.Text(action, 0, 0, arcade.color.WHITE, 9,
                                                    anchor_x="right"))
+        # Drone how-to is rendered as plain left-aligned lines
+        # (no key/action split) so each step can carry a bit more
+        # context than a single keybind row would.
+        self._t_drone_lines: list[arcade.Text] = [
+            arcade.Text(line, 0, 0, arcade.color.WHITE, 9)
+            for line in _DRONE_LINES
+        ]
 
     def draw(self) -> None:
         px, py = self.ctx.recalc()
@@ -76,6 +102,18 @@ class HelpMode(MenuMode):
                 line_y -= 18
                 item_idx += 1
             line_y -= 10
+
+        # Drones — multi-line procedural how-to (full-width plain
+        # text instead of key/action pairs).
+        self._t_drone_hdr.x = cx
+        self._t_drone_hdr.y = line_y
+        self._t_drone_hdr.draw()
+        line_y -= 18
+        for tline in self._t_drone_lines:
+            tline.x = px + 16
+            tline.y = line_y
+            tline.draw()
+            line_y -= 14
 
         draw_back_button(px, py, self.ctx.t_back)
 
