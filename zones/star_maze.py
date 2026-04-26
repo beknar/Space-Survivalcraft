@@ -734,11 +734,8 @@ class StarMazeZone(ZoneState):
             fired = alien.update_alien(
                 dt, px, py, self._iron_asteroids, self._aliens,
                 force_walls=gv._force_walls)
-            if fired:
-                for proj in fired:
-                    self._alien_projectiles.append(proj)
-                from update_logic import play_alien_laser_sound
-                play_alien_laser_sound(gv)
+            from update_logic import emit_alien_shots
+            emit_alien_shots(gv, self._alien_projectiles, fired)
 
         # Stalker AI + missile fire.  Stalkers live outside the
         # mazes and use the same homing-missile sprite the player
@@ -755,11 +752,8 @@ class StarMazeZone(ZoneState):
                 dt, stalker_px, stalker_py,
                 self._iron_asteroids, self._stalkers,
                 force_walls=gv._force_walls)
-            if fired:
-                for miss in fired:
-                    self._stalker_missiles.append(miss)
-                from update_logic import play_missile_launch_sound
-                play_missile_launch_sound(gv)
+            emit_alien_shots(gv, self._stalker_missiles, fired,
+                             use_missile_sound=True)
         # Stalker containment — wall push-out + maze-AABB ejection.
         # Identical to the Z2-alien containment pass above; stalkers
         # use the same circle-vs-AABB primitives.  Without this a
@@ -885,14 +879,11 @@ class StarMazeZone(ZoneState):
             ai_px, ai_py = px + 1e9, py + 1e9
         else:
             ai_px, ai_py = px, py
+        from update_logic import emit_alien_shots
         for sp in self._spawners:
             fired, should_spawn = sp.update_spawner(
                 dt, ai_px, ai_py, gv._alien_laser_tex)
-            if fired:
-                for proj in fired:
-                    self._maze_projectiles.append(proj)
-                from update_logic import play_alien_laser_sound
-                play_alien_laser_sound(gv)
+            emit_alien_shots(gv, self._maze_projectiles, fired)
             if should_spawn:
                 self._spawn_child(sp, gv._alien_laser_tex)
             # Respawn entourage — when a killed spawner's timer
@@ -1005,11 +996,8 @@ class StarMazeZone(ZoneState):
                 force_walls=gv._force_walls,
                 maze_walls=near_walls,
             )
-            if fired:
-                for proj in fired:
-                    self._maze_projectiles.append(proj)
-                from update_logic import play_alien_laser_sound
-                play_alien_laser_sound(gv)
+            from update_logic import emit_alien_shots
+            emit_alien_shots(gv, self._maze_projectiles, fired)
         # Expose maze aliens + their projectiles on the shared lists
         # so the existing player-hit pipelines process them uniformly.
         gv.alien_list = self._maze_aliens

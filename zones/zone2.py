@@ -330,11 +330,8 @@ class Zone2(ZoneState):
                 projs = alien.update_alien(
                     dt, ai_px, ai_py, self._iron_asteroids, self._aliens,
                     force_walls=getattr(gv, '_force_walls', None))
-                if projs:
-                    for p in projs:
-                        self._alien_projectiles.append(p)
-                    from update_logic import play_alien_laser_sound
-                    play_alien_laser_sound(gv)
+                from update_logic import emit_alien_shots
+                emit_alien_shots(gv, self._alien_projectiles, projs)
             else:
                 # Minimal update: velocity decay + position drift only
                 alien.center_x += alien.vel_x * dt

@@ -302,6 +302,34 @@ def play_missile_launch_sound(gv: GameView) -> None:
     _play_throttled_alien_sfx(gv, "_missile_launch_snd", 0.5)
 
 
+def emit_alien_shots(
+    gv: GameView, projectile_list, fired, *,
+    use_missile_sound: bool = False,
+) -> None:
+    """Append every projectile in ``fired`` (a list, possibly empty,
+    or a single projectile) to ``projectile_list`` and trigger one
+    throttled fire SFX.  Skips both the append loop and the SFX
+    when ``fired`` is falsy.
+
+    Replaces the four-line ``if fired: for p in fired: list.append;
+    play_alien_laser_sound(gv)`` pattern that was open-coded at five
+    sites across update_logic + zone2 + star_maze.  Stalker-style
+    callers pass ``use_missile_sound=True`` for the missile-launch
+    SFX variant.
+    """
+    if not fired:
+        return
+    if isinstance(fired, list):
+        for p in fired:
+            projectile_list.append(p)
+    else:
+        projectile_list.append(fired)
+    if use_missile_sound:
+        play_missile_launch_sound(gv)
+    else:
+        play_alien_laser_sound(gv)
+
+
 def update_death_state(gv: GameView, dt: float) -> None:
     """Update explosions/sparks during death delay; auto-respawn
     the player when the timer expires.  The legacy death screen is
@@ -641,9 +669,7 @@ def update_entities(gv: GameView, dt: float) -> None:
             gv.asteroid_list, gv.alien_list,
             force_walls=gv._force_walls,
         )
-        if proj is not None:
-            gv.alien_projectile_list.append(proj)
-            play_alien_laser_sound(gv)
+        emit_alien_shots(gv, gv.alien_projectile_list, proj)
 
     # Alien collisions (aliens pass through each other but collide with asteroids)
     handle_alien_player_collision(gv)
