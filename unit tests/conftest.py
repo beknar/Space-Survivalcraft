@@ -13,6 +13,25 @@ from PIL import Image as PILImage
 import arcade
 
 
+@pytest.fixture(scope="module")
+def arcade_window():
+    """Module-scoped hidden arcade.Window — opt-in shared fixture
+    for tests that construct Sprites, Textures, or anything else
+    that needs a live OpenGL context.
+
+    Test files that previously declared their own
+    ``_arcade_window`` autouse fixture can switch to this one by
+    adding ``pytestmark = pytest.mark.usefixtures("arcade_window")``
+    at the module level (or accepting it as a parameter on a
+    single test).  Module-scoped construction means the window is
+    shared across every test in the file, same as the inline
+    fixtures it replaces.
+    """
+    w = arcade.Window(800, 600, visible=False)
+    yield w
+    w.close()
+
+
 @pytest.fixture
 def dummy_texture() -> arcade.Texture:
     """A 32x32 red RGBA PIL image wrapped as an arcade.Texture."""
