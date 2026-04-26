@@ -1282,6 +1282,16 @@ def update_drone(gv: GameView, dt: float) -> None:
     fired = drone.update_drone(dt, gv)
     if fired is not None:
         gv.projectile_list.append(fired)
+    # Maze-wall containment — Star Maze exposes _push_out_of_walls
+    # which handles circle-vs-AABB resolution against the static
+    # dungeon walls.  Without this the drone (orbiting at 160 px)
+    # could clip through a wall when the player flies along the
+    # outside of a maze structure.  Other zones don't have walls
+    # so the helper is absent and the call is skipped.
+    push = getattr(getattr(gv, "_zone", None),
+                   "_push_out_of_walls", None)
+    if push is not None:
+        push([drone], drone.radius)
     # Alien projectiles → drone damage.  Cheap O(P) — alien projectile
     # lists rarely exceed ~30.  Boss projectiles route through the
     # same alien_projectile_list contract for non-Main zones, but the
