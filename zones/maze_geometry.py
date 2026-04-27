@@ -627,16 +627,33 @@ class WaypointPlanner:
                         best = i
                 troom = best
         # Body is in the entrance room and target sits outside the
-        # maze — direct waypoint to the entrance gap so the drone
-        # actually crosses the outer wall instead of bouncing on it.
+        # maze — steer through the entrance gap.  Two phases:
+        #
+        #   * Body NOT yet at the gap → emit the gap midpoint so
+        #     the drone heads for it.
+        #   * Body within ``_DOORWAY_ARRIVAL_RADIUS`` of the gap →
+        #     emit the target's position so the drone steps OUT
+        #     of the gap toward the player.  Without this second
+        #     phase the drone parks on the gap midpoint and the
+        #     update loop's ``dist <= 0.001`` early-return keeps
+        #     it stuck forever (telemetry-pinned regression
+        #     2026-04-26 20:20: drone at (2170, 3332) for 326
+        #     consecutive frames at the maze 1 west entrance).
         if (sroom is not None
                 and find_room_index(tx, ty, self._rooms) is None
                 and self._room_to_exit_room.get(sroom) == sroom):
             self._anchor_x = None
             self._anchor_y = None
             self._stuck_t = 0.0
-            return self._exit_xy_by_room.get(
-                sroom, (tx, ty))
+            exit_xy = self._exit_xy_by_room.get(sroom)
+            if exit_xy is None:
+                return (tx, ty)
+            ex, ey = exit_xy
+            d2 = (sx - ex) ** 2 + (sy - ey) ** 2
+            if d2 <= (self._DOORWAY_ARRIVAL_RADIUS
+                      * self._DOORWAY_ARRIVAL_RADIUS):
+                return (tx, ty)
+            return exit_xy
         if sroom is None or troom is None or sroom == troom:
             # Body is also outside any room (or already shares the
             # target's room) — caller should chase directly.  Clear

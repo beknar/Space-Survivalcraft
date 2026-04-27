@@ -305,6 +305,44 @@ class TestPlannerRoutesThroughEntrance:
         assert wp is not None
         assert wp == maze.entrance_xy
 
+    def test_body_at_entrance_gap_emits_target_position(self, maze):
+        """Telemetry regression (drone_return_telemetry.log,
+        2026-04-26 20:20): drone parked at exactly the entrance
+        midpoint (2170, 3332) for 326 frames.  The planner kept
+        emitting the entrance midpoint as the waypoint while the
+        drone was already standing on it, so the update loop's
+        ``dist <= 0.001`` early-out kept the drone frozen.
+
+        Now: when the body is within DOORWAY_ARRIVAL_RADIUS of the
+        entrance midpoint and target is outside the maze, the
+        planner emits the TARGET position — the entrance gap is
+        clear, the drone can fly straight out of it toward the
+        player.
+        """
+        from zones.maze_geometry import WaypointPlanner
+        room_to_exit = {i: maze.entrance_room
+                        for i in range(len(maze.rooms))}
+        exit_xy = {i: maze.entrance_xy
+                   for i in range(len(maze.rooms))}
+        # Body sitting EXACTLY at the entrance midpoint.
+        sx, sy = maze.entrance_xy
+        # Target outside the maze, opposite side from the entrance
+        # axis — far enough to be in open space.
+        tx = maze.bounds.x - 800.0
+        ty = sy
+        p = WaypointPlanner(
+            maze.rooms, maze.room_graph, maze.doorways,
+            room_to_exit, exit_xy)
+        wp = p.plan(0.016, sx, sy, tx, ty)
+        assert wp is not None
+        # Must NOT be the entrance midpoint (that's where we are).
+        assert wp != maze.entrance_xy, (
+            "planner emitted the body's own position as waypoint — "
+            "drone-loop's dist-zero early-out would freeze it")
+        # The waypoint should be the target (or at least pointing
+        # in the target's direction).
+        assert wp == (tx, ty)
+
 
 class TestDoorwayArrival:
     """Telemetry-pinned regression (drone_return_telemetry.log,
