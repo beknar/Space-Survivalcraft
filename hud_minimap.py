@@ -90,6 +90,7 @@ def draw_minimap(
     gas_positions: list[tuple[float, float, float]] | None = None,
     gas_always_visible: bool = False,
     parked_ship_positions: list[tuple[float, float]] | None = None,
+    drone_position: tuple[float, float] | None = None,
     null_field_positions: list[tuple[float, float, float, bool]] | None = None,
     slipspace_positions: list[tuple[float, float]] | None = None,
     maze_rooms: list[tuple[float, float, float, float]] | None = None,
@@ -411,6 +412,28 @@ def draw_minimap(
             # at ~1/15 the GL-call cost.
             arcade.draw_points(ss_pts, (180, 240, 255, 160), 9)
             arcade.draw_points(ss_pts, (120, 220, 255, 240), 5)
+
+    # Active drone — small blue X (4 px arms).  Drawn before the
+    # player dot so the player chevron stays on top when the two
+    # overlap (drone in formation right next to the ship).  Skipped
+    # entirely when the drone tile is still under fog.
+    if drone_position is not None:
+        dpx, dpy = drone_position
+        skip = False
+        if _has_fog:
+            gx = int(dpx * _inv_cell)
+            gy = int(dpy * _inv_cell)
+            if not (0 <= gx < _fw and 0 <= gy < _fh and _fg[gy][gx]):
+                skip = True
+        if not skip:
+            mx_d = mx + dpx * sx_w
+            my_d = my + dpy * sy_h
+            colour = (80, 160, 255, 230)
+            arm = 4.0
+            arcade.draw_line(mx_d - arm, my_d - arm,
+                              mx_d + arm, my_d + arm, colour, 2)
+            arcade.draw_line(mx_d - arm, my_d + arm,
+                              mx_d + arm, my_d - arm, colour, 2)
 
     # Parked ships (teal dots)
     if parked_ship_positions:

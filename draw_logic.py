@@ -740,6 +740,9 @@ def draw_ui(gv: GameView) -> None:
         gas_positions=_gas_positions(gv),
         gas_always_visible=_gas_always_visible(gv),
         parked_ship_positions=[(ps.center_x, ps.center_y) for ps in gv._parked_ships],
+        drone_position=(
+            (gv._active_drone.center_x, gv._active_drone.center_y)
+            if getattr(gv, "_active_drone", None) is not None else None),
         null_field_positions=_null_field_positions(gv),
         slipspace_positions=_slipspace_positions(gv),
         maze_rooms=_maze_rooms(gv),
@@ -789,6 +792,50 @@ def draw_ui(gv: GameView) -> None:
     gv._dialogue.draw()
     # Full-screen map last so it sits on top of every other overlay.
     gv._map_overlay.draw(gv)
+
+    # Map drone hover — when the large map is open AND the cursor is
+    # over the drone's plotted X marker, render the same status
+    # tooltip the in-world hover uses, anchored to the cursor.  Uses
+    # ``_hover_screen_x/_y`` written by the mouse-motion handler so
+    # the tooltip tracks the cursor smoothly.
+    if (gv._map_overlay.open
+            and getattr(gv, "_active_drone", None) is not None):
+        sx = gv._hover_screen_x
+        sy = gv._hover_screen_y
+        wp = gv._map_overlay.world_pos_at_screen(gv, sx, sy)
+        if wp is not None:
+            wx, wy = wp
+            d = gv._active_drone
+            # Compute pixel radius for "near the X marker" in world
+            # units: the X is ~4 px on the map; convert that back to
+            # world coords using the same scale draw_minimap uses.
+            win = arcade.get_window()
+            mx, my, mw, mh = gv._map_overlay._rect(win.width, win.height)
+            zw = gv._zone.world_width
+            zh = gv._zone.world_height
+            # 12 screen pixels of slack on each axis converts to:
+            slack_wx = 12.0 * zw / mw
+            slack_wy = 12.0 * zh / mh
+            slack = max(slack_wx, slack_wy)
+            if math.hypot(wx - d.center_x, wy - d.center_y) <= slack:
+                from sprites.drone import drone_tooltip_text
+                label = drone_tooltip_text(d)
+                gv._t_drone_tip.text = label
+                tw = len(label) * 7 + 16
+                th = 18
+                tx0 = max(2, min(gv.window.width - tw - 2,
+                                  sx - tw // 2))
+                ty = sy + 16
+                if ty + th > gv.window.height:
+                    ty = sy - 22
+                arcade.draw_rect_filled(
+                    arcade.LBWH(tx0, ty, tw, th), (10, 10, 30, 230))
+                arcade.draw_rect_outline(
+                    arcade.LBWH(tx0, ty, tw, th),
+                    arcade.color.STEEL_BLUE, border_width=1)
+                gv._t_drone_tip.x = tx0 + tw // 2
+                gv._t_drone_tip.y = ty + 2
+                gv._t_drone_tip.draw()
 
     # Building hover tooltip
     if (gv._hover_building is not None

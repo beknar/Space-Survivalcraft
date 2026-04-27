@@ -48,6 +48,25 @@ class MapOverlay:
     def toggle(self) -> None:
         self.open = not self.open
 
+    def world_pos_at_screen(
+        self, gv: GameView, sx: float, sy: float,
+    ) -> tuple[float, float] | None:
+        """Convert (sx, sy) screen pixel coords to (wx, wy) world coords
+        within the open map canvas.  Returns ``None`` when the cursor
+        sits outside the map rect or the map is closed (no hover
+        target should be considered)."""
+        if not self.open:
+            return None
+        win = arcade.get_window()
+        mx, my, mw, mh = self._rect(win.width, win.height)
+        if not (mx <= sx <= mx + mw and my <= sy <= my + mh):
+            return None
+        zw = gv._zone.world_width
+        zh = gv._zone.world_height
+        wx = (sx - mx) / mw * zw
+        wy = (sy - my) / mh * zh
+        return (wx, wy)
+
     def _rect(self, window_w: int, window_h: int) -> tuple[int, int, int, int]:
         """Return the (x, y, w, h) for the map canvas.
 
@@ -111,6 +130,9 @@ class MapOverlay:
             gas_always_visible=_gas_always_visible(gv),
             parked_ship_positions=[
                 (ps.center_x, ps.center_y) for ps in gv._parked_ships],
+            drone_position=(
+                (gv._active_drone.center_x, gv._active_drone.center_y)
+                if getattr(gv, "_active_drone", None) is not None else None),
             null_field_positions=_null_field_positions(gv),
             slipspace_positions=_slipspace_positions(gv),
             maze_rooms=_maze_rooms(gv),

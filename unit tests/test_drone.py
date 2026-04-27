@@ -275,6 +275,72 @@ class TestDroneTooltip:
         d._target_cooldown = 3.0
         assert drone_status_label(d) == "Stuck — holding"
 
+    def test_stuck_behind_wall_at_far_distance_status_is_stuck(self):
+        """Regression: drone wedged behind a maze wall while the
+        player sits 800+ px away in another room.  The planner ticks
+        without finding a navigable approach (drone can't reach the
+        path's first room because a wall is in the way), and after
+        1 s of no-progress the status must read "Stuck" — not
+        "Following" / "Returning to ship", which leaves the player
+        thinking the drone's still on its way.
+
+        Reproduces the user-reported case end-to-end through the
+        WaypointPlanner.  No GameView / arcade window needed."""
+        from sprites.drone import (
+            CombatDrone, _BaseDrone, drone_status_label)
+        from zones.maze_geometry import generate_maze, WaypointPlanner
+
+        # Deterministic maze + the two rooms farthest from each
+        # other so the drone-to-player straight-line distance clears
+        # the 800 px threshold called out in the user report.
+        maze = generate_maze(0.0, 0.0, seed=42)
+        import math as _m
+        n = len(maze.rooms)
+        best_pair = (0, 1)
+        best_d = 0.0
+        for i in range(n):
+            for j in range(i + 1, n):
+                a, b = maze.rooms[i], maze.rooms[j]
+                d2 = _m.hypot(
+                    (a.x + a.w * 0.5) - (b.x + b.w * 0.5),
+                    (a.y + a.h * 0.5) - (b.y + b.h * 0.5))
+                if d2 > best_d:
+                    best_d = d2
+                    best_pair = (i, j)
+        start_idx, target_idx = best_pair
+        sr = maze.rooms[start_idx]
+        tr = maze.rooms[target_idx]
+        drone_x = sr.x + sr.w * 0.5
+        drone_y = sr.y + sr.h * 0.5
+        player_x = tr.x + tr.w * 0.5
+        player_y = tr.y + tr.h * 0.5
+
+        # Sanity check — the two endpoints are well past 800 px so
+        # this matches the user's "800 px away" scenario.
+        import math
+        assert math.hypot(player_x - drone_x,
+                          player_y - drone_y) > 800.0
+
+        d = CombatDrone(drone_x, drone_y)
+        d._follow_planner = WaypointPlanner(maze.rooms, maze.room_graph)
+
+        # Run the planner ticks without moving the drone (simulates
+        # being wedged on a wall corner).  After the planner-stall
+        # threshold (1 s) the status must surface "Stuck".
+        dt = 0.05
+        for _ in range(int(1.5 / dt)):
+            d._follow_planner.plan(
+                dt, d.center_x, d.center_y, player_x, player_y)
+        assert d._follow_planner._stuck_t >= 1.0, (
+            "planner stall timer didn't reach 1 s — test setup "
+            "failed to reproduce the stuck condition")
+
+        status = drone_status_label(d)
+        assert "Stuck" in status, (
+            f"Drone wedged behind a wall {math.hypot(player_x - drone_x, player_y - drone_y):.0f} px from player "
+            f"reports status='{status}' instead of a 'Stuck' state. "
+            "Planner-stall timer fix lost.")
+
 
 class TestDroneReturnHomeMode:
     """Drone enters RETURN_HOME at >800 px from the player and stays

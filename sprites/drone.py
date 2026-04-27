@@ -93,19 +93,31 @@ def _segment_crosses_any_wall(
     return False
 
 
+_STUCK_PATH_THRESHOLD: float = 1.0   # planner-stall seconds → "Stuck"
+
+
 def drone_status_label(drone) -> str:
     """Human-readable status string for the hover tooltip.
 
-    Reads the mode machine + stuck cooldown:
+    Resolution order:
 
-      * "Stuck — holding" when the per-target stuck cooldown is
-        active (drone gave up on a target it couldn't reach)
-      * "Hunting enemy" while in ATTACK mode
-      * "Returning to ship" while in RETURN_HOME mode
-      * "Following" otherwise (default FOLLOW state)
+      1. ``_target_cooldown > 0`` — drone abandoned a target it
+         couldn't reach behind a wall and is parked in cooldown.
+      2. The follow-planner has been failing to make progress for
+         at least ``_STUCK_PATH_THRESHOLD`` seconds.  This catches
+         the regression where a drone is wedged behind a wall but
+         hasn't yet hit the planner's 5-s give-up — without this
+         signal the status would still read "Following" or
+         "Returning" while the drone is visibly stuck.
+      3. Mode machine: ATTACK → "Hunting enemy",
+         RETURN_HOME → "Returning to ship", else "Following".
     """
     if getattr(drone, "_target_cooldown", 0.0) > 0.0:
         return "Stuck — holding"
+    planner = getattr(drone, "_follow_planner", None)
+    if (planner is not None
+            and getattr(planner, "_stuck_t", 0.0) >= _STUCK_PATH_THRESHOLD):
+        return "Stuck — no path"
     mode = getattr(drone, "_mode", _BaseDrone._MODE_FOLLOW)
     if mode == _BaseDrone._MODE_ATTACK:
         return "Hunting enemy"
