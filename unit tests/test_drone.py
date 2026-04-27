@@ -226,6 +226,79 @@ class TestDroneFollowAttackMode:
         assert d._mode == _BaseDrone._MODE_ATTACK
 
 
+class TestCombatDronePrioritizesSpawners:
+    """Maze spawners are priority targets for the combat drone —
+    killing one halts its laser fire AND its alien drip, so it's
+    much more impactful than picking off the next maze alien."""
+
+    def _drone_at(self, x, y):
+        from sprites.drone import CombatDrone
+        return CombatDrone(x, y)
+
+    def test_spawner_in_range_picked_over_closer_alien(self):
+        """Spawner at 200 px and alien at 50 px — drone targets the
+        spawner because it's the priority class, not the closest."""
+        drone = self._drone_at(0.0, 0.0)
+        spawner = SimpleNamespace(
+            center_x=200.0, center_y=0.0, hp=500, killed=False)
+        alien = SimpleNamespace(
+            center_x=50.0, center_y=0.0, hp=60, killed=False)
+        zone = SimpleNamespace(
+            _spawners=[spawner],
+            iter_enemies=lambda: iter([alien]))
+        gv = SimpleNamespace(
+            _zone=zone, alien_list=[alien],
+            _boss=None, _nebula_boss=None)
+        assert drone._nearest_enemy(gv) is spawner
+
+    def test_killed_spawner_skipped(self):
+        """A spawner currently in its dead/respawning phase should
+        not be picked even though it's still in the list."""
+        drone = self._drone_at(0.0, 0.0)
+        dead = SimpleNamespace(
+            center_x=200.0, center_y=0.0, hp=500, killed=True)
+        alien = SimpleNamespace(
+            center_x=50.0, center_y=0.0, hp=60)
+        zone = SimpleNamespace(
+            _spawners=[dead],
+            iter_enemies=lambda: iter([alien]))
+        gv = SimpleNamespace(
+            _zone=zone, alien_list=[alien],
+            _boss=None, _nebula_boss=None)
+        assert drone._nearest_enemy(gv) is alien
+
+    def test_spawner_out_of_range_falls_back_to_alien(self):
+        """Spawner exists but sits beyond DRONE_DETECT_RANGE — drone
+        falls through to the standard nearest-enemy pass and picks
+        the in-range alien."""
+        from constants import DRONE_DETECT_RANGE
+        drone = self._drone_at(0.0, 0.0)
+        far_sp = SimpleNamespace(
+            center_x=DRONE_DETECT_RANGE + 100.0, center_y=0.0,
+            hp=500, killed=False)
+        alien = SimpleNamespace(
+            center_x=50.0, center_y=0.0, hp=60)
+        zone = SimpleNamespace(
+            _spawners=[far_sp],
+            iter_enemies=lambda: iter([alien]))
+        gv = SimpleNamespace(
+            _zone=zone, alien_list=[alien],
+            _boss=None, _nebula_boss=None)
+        assert drone._nearest_enemy(gv) is alien
+
+    def test_no_spawners_attr_safe(self):
+        """Zones without ``_spawners`` (Zone 1, Zone 2) are handled
+        gracefully — drone falls through to the alien pass."""
+        drone = self._drone_at(0.0, 0.0)
+        alien = SimpleNamespace(
+            center_x=50.0, center_y=0.0, hp=60)
+        zone = SimpleNamespace(iter_enemies=lambda: iter([alien]))
+        gv = SimpleNamespace(
+            _zone=zone, alien_list=[alien],
+            _boss=None, _nebula_boss=None)
+        assert drone._nearest_enemy(gv) is alien
+
+
 class TestDroneStackAndSave:
     def test_drone_max_stack_is_100(self):
         """Both drone consumables stack 100-deep per the spec."""

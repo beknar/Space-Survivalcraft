@@ -632,19 +632,49 @@ class CombatDrone(_BaseDrone):
     def _nearest_enemy(self, gv: "GameView"):
         """Pick the nearest live hostile within ``DRONE_DETECT_RANGE``.
 
-        Walks every enemy sprite list the active zone exposes —
-        ``gv.alien_list`` alone isn't enough because the Star Maze
-        swaps that reference between ``self._aliens`` (Z2 aliens
-        outside the maze) and ``self._maze_aliens`` (inside) during
-        update, leaving whichever was last assigned visible.  By
-        scanning the zone's underlying lists directly the drone
+        Maze spawners are **priority targets** — if any spawner sits
+        in range, the closest one is returned ahead of every other
+        enemy class.  Killing a spawner stops its alien drip + ends
+        its laser fire, so prioritising them is much more impactful
+        than picking off the next maze alien.
+
+        Otherwise walks every enemy sprite list the active zone
+        exposes — ``gv.alien_list`` alone isn't enough because the
+        Star Maze swaps that reference between ``self._aliens`` (Z2
+        aliens outside the maze) and ``self._maze_aliens`` (inside)
+        during update, leaving whichever was last assigned visible.
+        By scanning the zone's underlying lists directly the drone
         engages every faction (maze aliens, Z2 aliens, stalkers,
         plus both bosses) regardless of which list happens to be on
         ``gv.alien_list`` when this method runs.
         """
+        zone = getattr(gv, "_zone", None)
+        # Priority pass: maze spawners.  Star Maze stores them on
+        # ``zone._spawners`` (an arcade SpriteList).  Each spawner
+        # exposes ``hp`` like every other damageable thing; we filter
+        # dead ones (hp <= 0) the same way as the alien pass below.
+        spawners = getattr(zone, "_spawners", None)
+        if spawners:
+            best_sp = None
+            best_sp_d2 = DRONE_DETECT_RANGE * DRONE_DETECT_RANGE
+            for sp in spawners:
+                # ``killed`` is the source of truth (spawner respawns
+                # after a window — hp can read >0 even while it's
+                # still in the dead phase); skip those husks.
+                if getattr(sp, "killed", False):
+                    continue
+                if getattr(sp, "hp", 0) <= 0:
+                    continue
+                d2 = ((sp.center_x - self.center_x) ** 2
+                      + (sp.center_y - self.center_y) ** 2)
+                if d2 < best_sp_d2:
+                    best_sp_d2 = d2
+                    best_sp = sp
+            if best_sp is not None:
+                return best_sp
+
         best = None
         best_d2 = DRONE_DETECT_RANGE * DRONE_DETECT_RANGE
-        zone = getattr(gv, "_zone", None)
         seen: set[int] = set()
 
         def _candidates():
