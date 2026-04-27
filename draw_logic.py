@@ -420,13 +420,16 @@ def draw_world(gv: GameView, cx: float, cy: float, hw: float, hh: float) -> None
         t.x = ps.center_x
         t.y = ps.center_y + 45
         t.draw()
-    # Hover tooltip for the active drone — HP + shield readout so the
-    # player can decide whether to recall it before it dies.
+    # Hover tooltip for the active drone — HP, shield (when shields
+    # exist), and current AI status (hunting / returning / following
+    # / stuck) so the player can tell at a glance what the drone is
+    # doing before deciding to recall.  Wording lives in
+    # ``sprites.drone.drone_tooltip_text`` so tests can pin it
+    # without spinning up a real GameView.
     hover_d = getattr(gv, "_hover_drone", None)
     if hover_d is not None:
-        label = (f"{hover_d._LABEL}  "
-                 f"HP {hover_d.hp}/{hover_d.max_hp}  "
-                 f"Shield {int(hover_d.shields)}/{hover_d.max_shields}")
+        from sprites.drone import drone_tooltip_text
+        label = drone_tooltip_text(hover_d)
         t = gv._t_drone_tip
         if t.text != label:
             t.text = label

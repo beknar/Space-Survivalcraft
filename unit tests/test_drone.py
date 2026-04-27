@@ -227,6 +227,55 @@ class TestDroneFollowAttackMode:
         assert d._mode == _BaseDrone._MODE_ATTACK
 
 
+class TestDroneTooltip:
+    """Hover tooltip wording — the player needs to read HP, shield
+    (when present), and AI state at a glance to decide whether to
+    recall the drone."""
+
+    def test_combat_drone_default_tooltip_includes_shield_and_following(self):
+        from sprites.drone import CombatDrone, drone_tooltip_text
+        d = CombatDrone(0.0, 0.0)
+        text = drone_tooltip_text(d)
+        assert "Combat Drone" in text
+        assert f"HP {d.hp}/{d.max_hp}" in text
+        # Combat drone has 25 max shields → segment must appear.
+        assert "Shield" in text
+        assert "Following" in text
+
+    def test_mining_drone_tooltip_omits_shield_when_zero_max(self):
+        """Mining drones have ``max_shields = 0`` — the Shield
+        segment must not appear in their tooltip."""
+        from sprites.drone import MiningDrone, drone_tooltip_text
+        d = MiningDrone(0.0, 0.0)
+        text = drone_tooltip_text(d)
+        assert "Mining Drone" in text
+        assert "Shield" not in text
+
+    def test_hunting_status_in_attack_mode(self):
+        from sprites.drone import (
+            CombatDrone, _BaseDrone, drone_status_label)
+        d = CombatDrone(0.0, 0.0)
+        d._mode = _BaseDrone._MODE_ATTACK
+        assert drone_status_label(d) == "Hunting enemy"
+
+    def test_returning_status_in_return_home_mode(self):
+        from sprites.drone import (
+            CombatDrone, _BaseDrone, drone_status_label)
+        d = CombatDrone(0.0, 0.0)
+        d._mode = _BaseDrone._MODE_RETURN_HOME
+        assert drone_status_label(d) == "Returning to ship"
+
+    def test_stuck_overrides_other_modes(self):
+        """Active stuck cooldown wins over the mode flag — the drone
+        is frozen and the player should know."""
+        from sprites.drone import (
+            CombatDrone, _BaseDrone, drone_status_label)
+        d = CombatDrone(0.0, 0.0)
+        d._mode = _BaseDrone._MODE_ATTACK
+        d._target_cooldown = 3.0
+        assert drone_status_label(d) == "Stuck — holding"
+
+
 class TestDroneReturnHomeMode:
     """Drone enters RETURN_HOME at >800 px from the player and stays
     in it (with hysteresis) until back inside 600 px.  RETURN_HOME

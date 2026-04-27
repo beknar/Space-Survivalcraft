@@ -93,6 +93,44 @@ def _segment_crosses_any_wall(
     return False
 
 
+def drone_status_label(drone) -> str:
+    """Human-readable status string for the hover tooltip.
+
+    Reads the mode machine + stuck cooldown:
+
+      * "Stuck — holding" when the per-target stuck cooldown is
+        active (drone gave up on a target it couldn't reach)
+      * "Hunting enemy" while in ATTACK mode
+      * "Returning to ship" while in RETURN_HOME mode
+      * "Following" otherwise (default FOLLOW state)
+    """
+    if getattr(drone, "_target_cooldown", 0.0) > 0.0:
+        return "Stuck — holding"
+    mode = getattr(drone, "_mode", _BaseDrone._MODE_FOLLOW)
+    if mode == _BaseDrone._MODE_ATTACK:
+        return "Hunting enemy"
+    if mode == _BaseDrone._MODE_RETURN_HOME:
+        return "Returning to ship"
+    return "Following"
+
+
+def drone_tooltip_text(drone) -> str:
+    """Composite hover-tooltip line: label, HP, shield (only when
+    the drone class actually carries shields — mining drone has 0
+    max so the segment is omitted), and status.  Same string the
+    draw layer renders; extracted so tests can pin the wording
+    without spinning up a real GameView."""
+    parts = [
+        getattr(drone, "_LABEL", "Drone"),
+        f"HP {drone.hp}/{drone.max_hp}",
+    ]
+    if drone.max_shields > 0:
+        parts.append(
+            f"Shield {int(drone.shields)}/{drone.max_shields}")
+    parts.append(drone_status_label(drone))
+    return "  ".join(parts)
+
+
 def _walls_from_zone(gv) -> list | None:
     """Return the active zone's wall-rect list, or None if the zone
     doesn't have one (open zones — Zone 1, Zone 2 outside the
