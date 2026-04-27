@@ -165,6 +165,8 @@ def recall_drone(gv: GameView) -> None:
     gv.inventory.add_item(key, 1)
     active.remove_from_sprite_lists()
     gv._active_drone = None
+    import drone_telemetry as _tel
+    _tel.stop(reason="drone recalled")
     flash_game_msg(gv, "Drone recalled", 1.2)
 
 
@@ -217,6 +219,15 @@ def deploy_drone(gv: GameView) -> None:
     gv._active_drone = drone
     gv.inventory.remove_item(item_key, 1)
     flash_game_msg(gv, f"{drone._LABEL} deployed!", 1.5)
+    # Drone-behaviour telemetry — start a fresh recording session
+    # whose lifetime matches the deployed drone's.  Header captures
+    # the deploy zone so post-mortem grep finds the right session.
+    import drone_telemetry as _tel
+    zone_name = getattr(getattr(gv._zone, "zone_id", None),
+                        "name", "?")
+    _tel.start(reason=(
+        f"{drone._LABEL} deployed in {zone_name} at "
+        f"({drone.center_x:.0f},{drone.center_y:.0f})"))
     # Deploying inside a null field breaks the cloak — same rule
     # the other consumable-fire helpers follow.
     from update_logic import disable_null_field_around_player
