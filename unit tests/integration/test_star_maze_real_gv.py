@@ -56,7 +56,23 @@ class TestStarMazeZoneLive:
             assert sp.alive_children == MAZE_SPAWNER_INITIAL_ALIENS
         assert len(gv._zone._maze_aliens) == (
             MAZE_SPAWNER_INITIAL_ALIENS * STAR_MAZE_COUNT)
-        # Wormhole layout: 1 central (→ ZONE2) + 4 corners (→ MAZE_WARP_*).
+        # Initial wormhole layout: 1 central (→ ZONE2) only.
+        # The 4 corner MAZE_WARP_* wormholes are gated on a
+        # Nebula-boss kill inside the Star Maze and stay hidden
+        # until ``mark_nebula_boss_defeated`` flips the flag.
+        assert len(gv._wormholes) == 1
+        assert gv._wormholes[0].zone_target is ZoneID.ZONE2
+
+    def test_corner_wormholes_unlock_after_nebula_boss_defeat(
+        self, real_game_view,
+    ):
+        """Killing the Star Maze's Nebula boss unlocks the 4
+        MAZE_WARP_* corner wormholes.  Pin the unlock geometry +
+        targets so the gating fix doesn't quietly break."""
+        gv = real_game_view
+        gv._transition_zone(ZoneID.STAR_MAZE)
+        assert len(gv._wormholes) == 1
+        gv._zone.mark_nebula_boss_defeated(gv)
         assert len(gv._wormholes) == 5
         targets = {w.zone_target for w in gv._wormholes}
         assert ZoneID.ZONE2 in targets

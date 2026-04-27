@@ -70,8 +70,35 @@ def _tick(gv, n: int, dt: float = 1 / 60) -> None:
 
 
 def _enter_star_maze(gv):
+    """Transition into the Star Maze with a PINNED world seed so
+    the room layout / doorway positions are deterministic across
+    runs.  Without this the test outcomes depend on
+    ``StarMazeZone.__init__``'s random seed (room connections
+    differ → drone routing tests pass on some runs and fail on
+    others) and the suite reports flaky failures.
+
+    Also clears every alien / stalker / live spawner so the
+    drone's mode machine doesn't flip to ATTACK on a passing
+    enemy and skip the FOLLOW / RETURN_HOME paths the routing
+    tests are trying to exercise.
+    """
     if gv._zone.zone_id != ZoneID.STAR_MAZE:
+        from zones import create_zone
+        if gv._star_maze is None:
+            gv._star_maze = create_zone(ZoneID.STAR_MAZE)
+        gv._star_maze._world_seed = 42
         gv._transition_zone(ZoneID.STAR_MAZE)
+    # Wipe every hostile so the drone mode-machine stays in
+    # FOLLOW / RETURN_HOME for the test's full duration.  Spawners
+    # are flagged ``killed`` (they have a respawn flow that
+    # ``remove_from_sprite_lists`` would corrupt).
+    zone = gv._zone
+    for attr in ("_maze_aliens", "_stalkers", "_aliens"):
+        lst = getattr(zone, attr, None)
+        if lst is not None:
+            lst.clear()
+    for sp in getattr(zone, "_spawners", ()):
+        sp.killed = True
 
 
 # ═══════════════════════════════════════════════════════════════════════════
