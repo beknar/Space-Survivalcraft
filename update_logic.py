@@ -1606,48 +1606,32 @@ def update_drone(gv: GameView, dt: float) -> None:
     exit_xy_by_room = None
     exit_outer_xy_by_room = None
     if zone is not None:
-        cached = getattr(zone, "_drone_unified_geometry", None)
-        if cached is None:
-            mazes = getattr(zone, "_mazes", None)
-            if mazes:
-                rooms = []
-                room_graph = {}
-                doorways = {}
-                room_to_exit_room = {}
-                exit_xy_by_room = {}
-                exit_outer_xy_by_room = {}
-                offset = 0
-                for m in mazes:
-                    rooms.extend(m.rooms)
-                    for k, neighbours in m.room_graph.items():
-                        room_graph[k + offset] = [
-                            n + offset for n in neighbours]
-                    for edge_key, midpoint in (
-                            getattr(m, "doorways", None) or {}).items():
-                        a, b = tuple(edge_key)
-                        doorways[
-                            frozenset((a + offset, b + offset))
-                        ] = midpoint
-                    exit_room = getattr(
-                        m, "entrance_room", 0) + offset
-                    exit_xy = getattr(
-                        m, "entrance_xy", (0.0, 0.0))
-                    exit_outer_xy = getattr(
-                        m, "entrance_xy_outer", exit_xy)
-                    for k in m.room_graph:
-                        room_to_exit_room[k + offset] = exit_room
-                        exit_xy_by_room[k + offset] = exit_xy
-                        exit_outer_xy_by_room[k + offset] = exit_outer_xy
-                    offset += len(m.rooms)
-                cached = (rooms, room_graph, doorways,
-                          room_to_exit_room, exit_xy_by_room,
-                          exit_outer_xy_by_room)
-            else:
-                cached = (None, None, None, None, None, None)
-            zone._drone_unified_geometry = cached
-        (rooms, room_graph, doorways,
-         room_to_exit_room, exit_xy_by_room,
-         exit_outer_xy_by_room) = cached
+        mazes = getattr(zone, "_mazes", None)
+        if mazes:
+            rooms = []
+            room_graph = {}
+            doorways = {}
+            room_to_exit_room = {}
+            exit_xy_by_room = {}
+            exit_outer_xy_by_room = {}
+            offset = 0
+            for m in mazes:
+                rooms.extend(m.rooms)
+                for k, neighbours in m.room_graph.items():
+                    room_graph[k + offset] = [n + offset for n in neighbours]
+                for edge_key, midpoint in (
+                        getattr(m, "doorways", None) or {}).items():
+                    a, b = tuple(edge_key)
+                    doorways[frozenset((a + offset, b + offset))] = midpoint
+                exit_room = getattr(m, "entrance_room", 0) + offset
+                exit_xy = getattr(m, "entrance_xy", (0.0, 0.0))
+                exit_outer_xy = getattr(
+                    m, "entrance_xy_outer", exit_xy)
+                for k in m.room_graph:
+                    room_to_exit_room[k + offset] = exit_room
+                    exit_xy_by_room[k + offset] = exit_xy
+                    exit_outer_xy_by_room[k + offset] = exit_outer_xy
+                offset += len(m.rooms)
     drone.attach_maze_planner(
         rooms, room_graph, doorways,
         room_to_exit_room, exit_xy_by_room,
