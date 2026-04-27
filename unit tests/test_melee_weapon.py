@@ -119,7 +119,9 @@ class TestBladeIdlePose:
         update_weapons(gv, 1 / 60, fire=False)
         return gv
 
-    def test_blade_50_px_ahead_for_non_bastion(self):
+    def test_blade_offset_is_base_hit_radius_for_non_bastion(self):
+        """Blade rests at MELEE_HIT_RADIUS (80 px) ahead of the
+        non-Bastion ship's nose."""
         from constants import MELEE_HIT_RADIUS
         gv = self._setup_with_melee_active("Cruiser")
         b = gv._active_blade
@@ -127,7 +129,9 @@ class TestBladeIdlePose:
         assert b.center_y == pytest.approx(2000.0 + MELEE_HIT_RADIUS)
         assert b.hit_radius == MELEE_HIT_RADIUS
 
-    def test_blade_80_px_ahead_for_bastion(self):
+    def test_blade_offset_is_bastion_hit_radius_for_bastion(self):
+        """Bastion gets a longer reach — blade rests at
+        MELEE_BASTION_HIT_RADIUS (110 px) ahead."""
         from constants import MELEE_BASTION_HIT_RADIUS
         gv = self._setup_with_melee_active("Bastion")
         b = gv._active_blade
@@ -135,11 +139,32 @@ class TestBladeIdlePose:
             2000.0 + MELEE_BASTION_HIT_RADIUS)
         assert b.hit_radius == MELEE_BASTION_HIT_RADIUS
 
-    def test_blade_idle_angle_matches_heading(self):
+    def test_blade_idle_angle_aligned_with_heading(self):
+        """Idle blade renders aligned with the ship's heading.
+        The sword PNG is drawn diagonally so the rendered angle
+        is ``heading + MELEE_TEX_ANGLE_OFFSET`` (the offset
+        compensates for the texture's native tilt)."""
+        from constants import MELEE_TEX_ANGLE_OFFSET
         gv = self._setup_with_melee_active("Cruiser")
-        # Idle blade points forward (no swing rotation applied).
         assert gv._active_blade.angle == pytest.approx(
-            gv.player.heading)
+            gv.player.heading + MELEE_TEX_ANGLE_OFFSET)
+
+
+class TestBladeReachConstants:
+    def test_base_reach_is_80_px(self):
+        from constants import MELEE_HIT_RADIUS
+        assert MELEE_HIT_RADIUS == 80.0
+
+    def test_bastion_reach_is_110_px(self):
+        from constants import MELEE_BASTION_HIT_RADIUS
+        assert MELEE_BASTION_HIT_RADIUS == 110.0
+
+    def test_tex_angle_offset_present(self):
+        """Some non-zero offset must exist or the diagonally-
+        drawn sword PNG will render tilted right of the ship's
+        spine (the regression we're fixing here)."""
+        from constants import MELEE_TEX_ANGLE_OFFSET
+        assert MELEE_TEX_ANGLE_OFFSET != 0.0
 
 
 # ── Bastion bonus ────────────────────────────────────────────────────────

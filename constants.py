@@ -263,7 +263,7 @@ BROADSIDE_RANGE: float = 400.0        # max travel distance
 # so the visual reads as a sword swing rather than a snapshot.
 MELEE_COOLDOWN: float = 0.30          # seconds between swings
 MELEE_DAMAGE: int = 40                # base HP damage per enemy per swing
-MELEE_HIT_RADIUS: float = 50.0        # px — also offset from nose
+MELEE_HIT_RADIUS: float = 80.0        # px — also offset from nose
 MELEE_SWING_LIFETIME: float = 0.25    # seconds the swing animation runs
 MELEE_SWING_ARC: float = 90.0         # degrees the texture rotates over its life
 # Half the on-screen size of the player ship (player renders at
@@ -271,10 +271,16 @@ MELEE_SWING_ARC: float = 90.0         # degrees the texture rotates over its lif
 # so 48 / 128 = 0.375 puts the blade at exactly half the ship's
 # rendered size).
 MELEE_SCALE: float = 0.375
+# Sword PNG is drawn diagonally (point in the upper-right of the
+# square), so without compensation the sprite renders tilted right
+# even when the ship's heading is 0.  Subtracting 45° rotates the
+# texture so the blade tip aligns with the ship's spine /
+# direction of travel.
+MELEE_TEX_ANGLE_OFFSET: float = -45.0
 # Bastion bonus — longer reach + extra punch when wielding the
 # energy blade.  All other ship types use the base values above.
 MELEE_BASTION_DAMAGE_BONUS: int = 15
-MELEE_BASTION_HIT_RADIUS: float = 80.0
+MELEE_BASTION_HIT_RADIUS: float = 110.0
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 6. Inventory / Quick Use

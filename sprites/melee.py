@@ -20,6 +20,7 @@ import arcade
 
 from constants import (
     MELEE_SCALE, MELEE_SWING_ARC, MELEE_SWING_LIFETIME,
+    MELEE_TEX_ANGLE_OFFSET,
 )
 
 
@@ -59,15 +60,20 @@ class MeleeBlade(arcade.Sprite):
         ny = math.cos(rad)
         self.center_x = self._ship.center_x + nx * self._offset
         self.center_y = self._ship.center_y + ny * self._offset
+        # ``MELEE_TEX_ANGLE_OFFSET`` compensates for the sword
+        # PNG's diagonal art so the blade tip lines up with the
+        # ship's heading direction in both idle and swinging
+        # poses.
         if self._swing_timer > 0.0:
             progress = 1.0 - (self._swing_timer / MELEE_SWING_LIFETIME)
             progress = max(0.0, min(1.0, progress))
             self.angle = (self._ship.heading
                           - MELEE_SWING_ARC * 0.5
-                          + MELEE_SWING_ARC * progress)
+                          + MELEE_SWING_ARC * progress
+                          + MELEE_TEX_ANGLE_OFFSET)
         else:
             # Idle — blade points straight ahead.
-            self.angle = self._ship.heading
+            self.angle = self._ship.heading + MELEE_TEX_ANGLE_OFFSET
 
     def update_blade(self, dt: float) -> None:
         """Advance the swing animation (if any) and re-anchor."""
