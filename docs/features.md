@@ -199,6 +199,137 @@ chooses the stats. All five types are available under every faction.
 - **AI Pilot module** --- craft an `AI Pilot` at the Advanced Crafter (800 iron + 400 copper) and drag-install it onto any parked ship. As soon as the ship is unpiloted, it begins a counter-clockwise circular patrol at 90 % of the 400 px patrol radius around the Home Station. It engages enemies inside 600 px, firing a laser every 0.5 s into the turret-projectile list (so existing turret damage handling applies). If it fires at a target and no other enemies remain inside detect range, it flies straight back to the Home Station and resumes patrol once within 100 px of base
 - **Zone-aware** --- parked ships stashed/restored during zone transitions and fully serialized in save/load
 
+## Companion Drones
+
+Two consumable drone variants stack 100-deep in the inventory and are
+crafted at the Advanced Crafter (200 iron + 100 copper for 5 of
+either). Press **R** to deploy the variant matching your active
+weapon (Mining Beam → MiningDrone, Basic Laser → CombatDrone); press
+**Shift+R** to recall the deployed drone and refund 1 charge. Only
+one drone may be deployed at a time; pressing R with the *other*
+weapon active swaps drones (refunds 1 of the old, consumes 1 of
+the new).
+
+### Stats and roles
+
+- **MiningDrone** (75 HP, 0 shields, 20 dmg mining beam) — auto-mines
+  asteroids in range and vacuums up iron / blueprint pickups within
+  `MINING_DRONE_PICKUP_RADIUS` so loot ferries back to the player
+  without manual flybys.
+- **CombatDrone** (75 HP, 25 shields, 35 dmg laser, dashed-blue
+  shield arc) — auto-engages enemies inside `DRONE_DETECT_RANGE`
+  (600 px). **Maze spawners are priority targets** — killing one
+  shuts off both its laser and its alien drip, so the drone always
+  picks the nearest live spawner over an aggressively-firing alien
+  parked next to it.
+
+### Slot-based follow
+
+Drones trail the player at one of three fixed 80 px slots relative
+to the player's heading: **LEFT** (default, perpendicular-left),
+**RIGHT** (perpendicular-right), and **BACK** (opposite forward).
+The slot picker tries LEFT first, falls through to RIGHT then BACK
+if the segment from player to slot is blocked by a maze wall.
+Sticky preference keeps the drone from ping-ponging between LEFT
+and RIGHT every frame in open space.
+
+### Mode machine
+
+Per-frame mode chosen by `_update_mode`:
+
+- `FOLLOW` (default) — slot-based follow at 80 px from the player.
+- `ATTACK` — enters when a target sits within `DRONE_DETECT_RANGE`
+  (600 px) AND there is no maze wall on the line of sight.
+- `RETURN_HOME` — enters when the player drifts past
+  `DRONE_BREAK_OFF_DIST` (800 px); A*-paths back to the player
+  through maze rooms while ignoring every enemy. Exits at <600 px
+  (hysteresis).
+
+A **stuck cooldown** (`_target_cooldown`) overrides everything —
+when the drone abandons a target it can't reach behind a wall, it
+freezes for 5 s before re-engaging. Surfaced as **"Stuck —
+holding"** in the hover tooltip.
+
+### Maze pathfinding (A* + safety nets)
+
+Inside the Star Maze, drones use a shared `WaypointPlanner` over
+the room-adjacency graph:
+
+- **Doorway-aware steering** — emits the world-space midpoint of
+  the carved doorway between the current and next room, not the
+  next room's centre, so straight-line steering can't clip a wall
+  corner.
+- **Wall-band snap** — when the body's `find_room_index` returns
+  None but it's within `_WALL_BAND_SLACK` (50 px) of a room AABB,
+  the planner snaps the source to the nearest room. Catches drones
+  partly clipped into the wall thickness.
+- **Doorway arrival** — the path advances when the body is within
+  `_DOORWAY_ARRIVAL_RADIUS` (24 px) of the current doorway, so the
+  drone keeps moving instead of parking on the gap midpoint.
+- **Maze entrance routing** — when the target sits outside every
+  room, the planner heads for the **maze entrance room**, not the
+  geographically-nearest room (which may be a sealed dead end).
+  Once at the entrance the planner emits a fixed point past the
+  gap (`entrance_xy_outer`) so the drone steps cleanly into open
+  space rather than oscillating on the gap midpoint.
+- **Symmetric entry** — body OUTSIDE the maze with target INSIDE
+  → planner emits the entrance gap so the drone enters cleanly
+  through the carved opening.
+- **Un-stick nudge** — safety net for any remaining edge case.
+  Tracks per-frame movement; if the drone hasn't moved more than
+  10 px in 0.5 s while it should be steering, slides perpendicular
+  to the steering vector for one frame to dislodge corner wedges.
+  Direction alternates each fire.
+
+### Fleet Control menu (`Y` key)
+
+Modal overlay with four buttons:
+
+- **RETURN** *(direct order)* — break off and A*-path back to
+  the player. Auto-clears only when the drone is BOTH within
+  160 px of the player AND has clear line of sight.
+- **ATTACK** *(direct order)* — engage every detected enemy and
+  ignore the 800 px break-off so the drone roams to fight.
+- **FOLLOW ONLY** *(reaction)* — passive escort; never enters
+  ATTACK even with targets in range.
+- **ATTACK ONLY** *(reaction, default)* — original autonomy
+  (engages targets in detect range, otherwise follows).
+
+Direct orders override reactions until cleared; reactions persist
+across deployments and are saved with the game.
+
+### Friendly fire + line of sight
+
+- Player projectiles **pass through AI-piloted parked ships** —
+  no impact spark, no damage, projectile keeps travelling. Unmanned
+  parked ships still take friendly fire so old hulls can be
+  cleared deliberately.
+- Drones **disengage when a maze wall blocks line of sight** to
+  their target. A 7-sample segment test from drone to target
+  catches wall geometry; on hit the drone returns to FOLLOW
+  rather than grinding lasers into the wall.
+
+### Map markers + hover tooltip
+
+- **Minimap + full-screen map** — active drone is plotted as a
+  small blue X (4 px arms). Drawn before the player chevron so
+  the chevron stays on top when the two overlap. Honours fog of
+  war — no marker on hidden tiles.
+- **Hover tooltip (in-world or large map)** — shows
+  `<Label>  HP <hp>/<max>  [Shield <s>/<max>]  <status>`. Status
+  resolves to `Following`, `Hunting enemy`, `Returning to ship`,
+  `Stuck — holding`, or `Stuck — no path`. Shield segment is
+  omitted when `max_shields == 0` (mining drone).
+
+### Save persistence
+
+The deployed drone round-trips through saves: variant (mining vs
+combat), position, HP, shields, current `_reaction`, and any
+active `_direct_order` are all serialised into the save dict and
+restored on load. The drone re-acquires targets on the first tick
+post-load (targeting / cooldown state is intentionally not
+persisted).
+
 ## Space Station Building System
 
 - Build menu (B key) with iron cost from ship + station inventory

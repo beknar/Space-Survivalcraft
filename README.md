@@ -28,7 +28,10 @@ A top-down space survival game built with Python and the Arcade framework. Pilot
 - **75 minable asteroids** that drop iron and copper ore for crafting
 - **Modular space station** with 8+ building types, turrets, missile arrays, repair module, and crafters; long-press LMB on turrets/missile arrays to drag-move them within the home-station radius
 - **Multi-ship system** --- upgrade ships via build menu placement; old ship persists in the world with its own HP, cargo, and modules; click a parked ship to switch control; hover a parked ship for an HP tooltip; ships take damage from any source and drop cargo on destruction
-- **AI Pilot module** --- craft at the Advanced Crafter (800 iron + 400 copper) and drag-install it onto a parked ship; the ship orbits the Home Station, engages enemies within 600 px, and returns to base after firing when no other enemies remain
+- **AI Pilot module** --- craft at the Advanced Crafter (800 iron + 400 copper) and drag-install it onto a parked ship; the ship orbits the Home Station, engages enemies within 600 px, and returns to base after firing when no other enemies remain. Player projectiles pass straight through AI-piloted ships (no friendly fire)
+- **Companion Drones** --- two consumable variants (Mining Drone + Combat Drone) crafted at the Advanced Crafter (200 iron + 100 copper / 5). Press **R** to deploy the variant that matches your active weapon; press **Shift+R** to recall (refund 1 charge). Stack 100 deep; saved with the game. Combat drone targets maze spawners as priority. Hover the drone (in-world or on the map's blue X marker) for HP/shields/status
+- **Drone slot follow + AI** --- drones trail at one of three fixed 80 px slots (LEFT/RIGHT/BACK relative to player heading), switching when a maze wall blocks the chosen slot. Mode machine: FOLLOW (default) → ATTACK (target in range + LOS clear) → RETURN_HOME (player past 800 px). Inside the Star Maze drones use A* over the room graph with doorway-aware steering, wall-band snap, doorway-arrival path advance, maze-entrance routing for "target outside" cases, and a perpendicular un-stick nudge as safety net
+- **Fleet Control menu (`Y`)** --- four buttons issue drone orders: RETURN (break off + A* home, ignore enemies, clear when close + LOS clear), ATTACK (engage every detected enemy, ignore 800 px break-off), FOLLOW ONLY (passive escort), ATTACK ONLY (default reaction). Direct orders override reactions; reactions persist across deployments and saves
 - **Story encounter** --- building a Shield Generator in the Nebula triggers the Double Star Refugee (Scout Kael Vox); click the ship within 320 px to open a character-specific branching conversation tree. Debra's tree is a full five-scene arc uncovering the disappearance of Ken Tamashii
 - **Station shield** --- placing a Shield Generator activates a faction-tinted bubble that absorbs alien + boss projectiles before they reach buildings. Renders as a solid circle-outline border (plus a faint interior glow) that grows with the station; refugee NPC auto-parks beyond the station's outermost building edge with generous clearance
 - **AI Pilot parked-ship shield** --- AI-piloted parked ships carry a yellow shield bubble that regenerates at half the ship's normal rate so the fleet can sustain patrol damage while the player is off elsewhere
@@ -92,7 +95,7 @@ The [ROADMAP](ROADMAP.md) tracks shipped features in chronological order alongsi
 ## Running Tests
 
 ```bash
-# Fast suite (906 tests, ~5.5s)
+# Fast suite (1150 tests, ~25s)
 python -m pytest "unit tests/" -v
 
 # Integration tests (~309 tests — requires an Arcade window)
@@ -102,7 +105,7 @@ python -m pytest "unit tests/integration/" -v
 python -m pytest "unit tests/integration/test_soak.py" -v
 ```
 
-906 fast unit tests covering player physics, weapons, asteroids, aliens, pickups, blueprints, shields, explosions, contrails, inventory (incl. render-cache dirty flag and badge texture cache), damage routing, buildings, ship modules (inc. AI Pilot patrol/return behaviour), parked ships, refugee NPC + dialogue tree, dialogue overlay lifecycle, station shield absorb helper, respawn, fog of war, video scanning, settings, collision physics primitives + `_hit_player_on_cooldown` helper, save-restore helpers, shared alien-AI helpers (`compute_avoidance` / `pick_patrol_target`), zone-aware Station Info world stats, Zone 2 update loop branches, **Star Maze geometry + A* pathing + MazeAlien/MazeSpawner stats + save round-trip, Nebula boss + QWI menu, null fields + slipspaces + persistence, force wall geometry, gas area drift/bouncing, nebula_shared collision/update helpers, ship_manager upgrade + place + switch flow**, and CPU microbenchmarks. ~309 integration tests cover full-frame FPS thresholds across all three zones (inc. trade sell/buy panel × zones × {no video, both videos}, buy↔sell churn, AI Pilot fleets, station-shield combat, shielded-fleet + station-shield pairing, refugee NPC spawn + dialogue click flow, patrol/return integration, Star Maze real-GameView flows), GPU rendering microbenchmarks, resolution scaling across all 6 presets, and 5-minute soak/endurance tests measuring FPS and RSS stability (inc. AI Pilot patrol cycle, dialogue churn, station shield cycle, **Star Maze idle / combat churn / Nebula pressure**, shared scaffolding). Linted with [ruff](https://docs.astral.sh/ruff/) (`ruff.toml` — bug-focused rules).
+906 fast unit tests covering player physics, weapons, asteroids, aliens, pickups, blueprints, shields, explosions, contrails, inventory (incl. render-cache dirty flag and badge texture cache), damage routing, buildings, ship modules (inc. AI Pilot patrol/return behaviour), parked ships, refugee NPC + dialogue tree, dialogue overlay lifecycle, station shield absorb helper, respawn, fog of war, video scanning, settings, collision physics primitives + `_hit_player_on_cooldown` helper, save-restore helpers, shared alien-AI helpers (`compute_avoidance` / `pick_patrol_target`), zone-aware Station Info world stats, Zone 2 update loop branches, **Star Maze geometry + A* pathing + MazeAlien/MazeSpawner stats + save round-trip, Nebula boss + QWI menu, null fields + slipspaces + persistence, force wall geometry, gas area drift/bouncing, nebula_shared collision/update helpers, ship_manager upgrade + place + switch flow**, and CPU microbenchmarks. ~378 integration tests cover full-frame FPS thresholds across all three zones (inc. trade sell/buy panel × zones × {no video, both videos}, buy↔sell churn, AI Pilot fleets, station-shield combat, shielded-fleet + station-shield pairing, refugee NPC spawn + dialogue click flow, patrol/return integration, Star Maze real-GameView flows), GPU rendering microbenchmarks, resolution scaling across all 6 presets, and 5-minute soak/endurance tests measuring FPS and RSS stability (inc. AI Pilot patrol cycle, dialogue churn, station shield cycle, **Star Maze idle / combat churn / Nebula pressure**, shared scaffolding). Linted with [ruff](https://docs.astral.sh/ruff/) (`ruff.toml` — bug-focused rules).
 
 ## Project Structure
 
@@ -178,7 +181,7 @@ Space Survivalcraft/
 ├── zones/               # Zone state machine — MainZone, Zone2,
 │                        # StarMazeZone, 4 warp zones × 3 variants,
 │                        # zone2_world.py, maze_geometry.py, nebula_shared.py
-├── unit tests/          # 906 fast tests + ~309 integration tests
+├── unit tests/          # 906 fast tests + ~378 integration tests
 ├── docs/                # Full game documentation
 ├── characters/          # Character videos and portraits
 ├── docs/game-rules.md   # Comprehensive rules reference

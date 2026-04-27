@@ -22,6 +22,9 @@
 | Misty Step teleport | Double-tap W/A/S/D |
 | Toggle FPS display | F |
 | Full-screen map | M |
+| Deploy drone (mining or combat, picks the matching variant from active weapon) | R |
+| Recall drone (refunds 1 charge to inventory) | Shift+R |
+| Fleet Control menu (drone orders) | Y |
 | Escape menu | Escape |
 
 ### Mouse
@@ -58,3 +61,5 @@ Gamepad dead zone: 0.15
 - **Move turret / missile array**: Left-click-and-hold (>= 0.4 s) on a placed Turret or Missile Array to pick it up; drag to a new position within 300 px of the Home Station and release to drop it. A short click does nothing; ESC snaps it back to the original position.
 - **Trade sell panel**: Mouse-wheel scrolls the sell list (scrollbar thumb visible); hold left-click on a row to sell one unit every 0.15 s.
 - **Story NPC (Double Star Refugee)**: Hovering surfaces the "Double Star Refugee" label; left-click the ship while within 320 px to open the dialogue tree. Inside the dialogue, **1-4** pick a choice, **SPACE / ENTER** advance linear beats, and **ESC** closes without committing quest flags.
+- **Drones**: Press **R** with the Mining Beam active to deploy a Mining Drone, or with the Basic Laser active to deploy a Combat Drone. **Shift+R** recalls the deployed drone back to inventory (refund 1 charge). Hover the drone in-world to see HP / shields / status; the active drone is plotted as a small blue X on both the minimap and the full-screen map (hover the X on the large map for the same tooltip).
+- **Fleet Control (`Y`)**: Modal overlay with four buttons. **RETURN** breaks off and A*-paths back to the player; **ATTACK** engages all detected enemies and ignores the 800 px break-off; **FOLLOW ONLY** is a passive-escort reaction; **ATTACK ONLY** is the default reaction (engage in detect range, otherwise follow). Direct orders override reactions; reactions persist across deployments and saves. ESC or Y closes the menu.

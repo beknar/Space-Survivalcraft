@@ -420,6 +420,62 @@ feature's merging commit.
       25 % HP / 0 shields. Legacy death screen no longer triggered
       by death. 21 new unit tests (`d8094e7`)
 
+### 2026-04-26 — Companion drones, Fleet Control, drone pathfinding
+- [x] **Companion drones** — two consumable variants (MiningDrone +
+      CombatDrone), R to deploy, Shift+R to recall, crafted at the
+      Advanced Crafter (200 iron + 100 copper / 5), stack 100 deep,
+      75 HP each (combat drone gets a 25-shield blue arc).  One
+      drone deployed at a time; pressing R with the other weapon
+      swaps them.  Mining drone auto-mines + vacuums pickups;
+      combat drone engages enemies inside 600 px with maze
+      spawners as priority targets (`278d51f`, `120dd15`,
+      `881454c`, `e85c386`)
+- [x] **Slot-based follow** — drones trail at one of three 80 px
+      slots relative to player heading (LEFT default, RIGHT and
+      BACK fallbacks when a maze wall blocks the chosen slot).
+      Sticky preference avoids ping-pong in open space (`1b5137a`)
+- [x] **FOLLOW / ATTACK / RETURN_HOME mode machine** — auto-engage
+      in detect range, line-of-sight check disengages on wall
+      blockage, RETURN_HOME triggers when the player drifts past
+      800 px (drone A*-paths back ignoring all enemies, hysteresis
+      exits at 600 px).  Stuck cooldown overrides everything when
+      the drone gives up on a target it can't reach (`88b59c3`,
+      `c5dba34`)
+- [x] **A* drone pathfinding inside the Star Maze** — shared
+      `WaypointPlanner` over the room graph with doorway-aware
+      steering (gap midpoint, not room centre), wall-band snap
+      (recovers a sensible source room when the drone is inside
+      the wall thickness), doorway-arrival path advance,
+      maze-entrance routing when the target sits outside the
+      maze, exit-via-outer-point + entry-via-entrance to handle
+      both directions cleanly, and a perpendicular un-stick
+      nudge as safety net (`933d492`, `c4bdf8e`, `cdecac4`,
+      `1d4394d`, `5315609`, `b33429f`, `cba4605`)
+- [x] **Fleet Control menu (Y key)** — modal overlay with four
+      buttons: RETURN + ATTACK direct orders, FOLLOW ONLY +
+      ATTACK ONLY persistent reactions.  Direct orders override
+      reactions; reactions persist across deployments and saves.
+      RETURN clears only when the drone is BOTH close AND has
+      LOS to the player (`881afea`, `6366c52`)
+- [x] **AI ship friendly-fire immunity** — player projectiles
+      pass through any parked ship with the AI Pilot module
+      installed.  Unmanned parked ships still take friendly fire
+      (`c5dba34`)
+- [x] **Drone hover tooltip + map markers** — small blue X plotted
+      on the minimap and full-screen map for the active drone;
+      hovering (in-world or on the map's X) shows HP, shields
+      (combat only), and status (`Following` / `Hunting enemy` /
+      `Returning to ship` / `Stuck — holding` / `Stuck — no
+      path`).  Save round-trip persists drone position, HP,
+      shields, reaction, and standing direct order
+      (`897825e`, `e85c386`, `be2e7fd`)
+- [x] **Sound-player FPS leak fix** — combat soaks were collapsing
+      from 178 → 2 FPS as `arcade.play_sound` accumulated dead
+      pyglet Players the cleanup couldn't drain fast enough.
+      Backlog-scaled per-tick deletes + a 200-entry hard cap on
+      the tracking list keep FPS stable through 5 minutes of
+      sustained boss combat (`fd2ac1d`)
+
 ## Future features (from README)
 
 - [x] **Ship level advancement** — upgrade ships through experience
