@@ -128,6 +128,22 @@ class StarMazeZone(ZoneState):
         # has len == STAR_MAZE_COUNT.
         self._spawners: arcade.SpriteList = arcade.SpriteList()
         self._maze_aliens: arcade.SpriteList = arcade.SpriteList()
+        # Persistent combined SpriteList that ``update`` swaps into
+        # ``gv.alien_list`` for the ``update_buildings`` window so
+        # turrets and missile arrays target every Star Maze enemy.
+        # CACHED so we don't allocate a fresh list every frame —
+        # appending a sprite to a SpriteList adds a back-reference
+        # to the sprite's ``sprite_lists`` tuple, and a fresh per-
+        # frame list would leak refs (the temp list goes out of
+        # scope without ``clear()`` being called, so sprites hold
+        # stale refs that accumulate at ~75/frame).  After ~60 s
+        # every sprite carries thousands of stale refs and per-
+        # sprite position updates — which iterate ``sprite_lists``
+        # to invalidate buffers — become catastrophically slow
+        # (sub-20 FPS observed in live play).  Clearing at the
+        # start of each frame removes the back-refs cleanly.
+        self._turret_target_list: arcade.SpriteList = arcade.SpriteList(
+            use_spatial_hash=False)
         self._maze_projectiles: arcade.SpriteList = arcade.SpriteList()
         # Stalker — fires homing missiles, lives outside the maze
         # rooms.  ``_stalker_missiles`` is a separate list from the
@@ -606,6 +622,9 @@ class StarMazeZone(ZoneState):
         self._fog_revealed = gv._fog_revealed
         self._maze_projectiles.clear()
         self._alien_projectiles.clear()
+        # Drop the cached turret-target back-references so the
+        # contained sprites don't pin the leaving zone in memory.
+        self._turret_target_list.clear()
         # In-flight stalker missiles don't survive a zone-leave —
         # they'd home onto a player who's no longer here.  Stalker
         # bodies persist (they live in the zone, not on the player).
@@ -871,20 +890,17 @@ class StarMazeZone(ZoneState):
         from collisions import handle_parked_ship_damage
         _saved_alien = gv.alien_list
         _saved_aproj = gv.alien_projectile_list
-        # Build a fresh SpriteList containing every mobile hostile
-        # the Star Maze exposes — maze aliens AND stalkers AND
-        # Z2-style aliens — so station turrets and missile arrays
-        # acquire and damage the full enemy population, not just
-        # the maze aliens.  ``handle_turret_projectile_hits``
-        # uses ``arcade.check_for_collision_with_list`` which
-        # requires a real SpriteList, so a plain ``list`` won't
-        # work.  ``use_spatial_hash=False`` because we throw
-        # this list away after one frame; the hash rebuild cost
-        # would dwarf the savings.  Spawners are deliberately
-        # excluded — they have a ``killed`` flag + respawn flow
-        # that's incompatible with the collision handler's
+        # Refill the cached combined target list (see __init__ for
+        # why it's cached — fresh-per-frame leaked SpriteList back-
+        # references into every sprite's ``sprite_lists`` tuple,
+        # tanking FPS over time).  ``clear()`` removes the back-
+        # references cleanly so re-appending the same sprites
+        # next frame doesn't accumulate.  Spawners deliberately
+        # excluded — their ``killed`` flag + respawn flow is
+        # incompatible with the collision handler's
         # ``remove_from_sprite_lists()`` call after ``hp <= 0``.
-        targets = arcade.SpriteList(use_spatial_hash=False)
+        targets = self._turret_target_list
+        targets.clear()
         for a in self._maze_aliens:
             targets.append(a)
         for a in (getattr(self, "_aliens", None) or ()):

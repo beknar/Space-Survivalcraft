@@ -87,6 +87,66 @@ class TestTurretTargetsIncludeAllStarMazeEnemies:
 # ── Turret damage actually lands on a stalker ─────────────────────────────
 
 
+class TestTurretTargetListIsCached:
+    """Regression: an earlier version of this fix built a fresh
+    ``arcade.SpriteList`` each frame and appended ~75 sprites
+    without ever calling ``clear()`` on the temp list.  ``append``
+    adds the SpriteList to each sprite's ``sprite_lists`` back-
+    reference tuple, so the temp list (out of scope after the
+    swap restoration) was kept alive by the contained sprites —
+    the per-sprite ``sprite_lists`` tuple grew at ~75 entries per
+    frame.  Sprite-position updates iterate ``sprite_lists`` to
+    invalidate buffers, so after ~60 s every sprite carried
+    thousands of stale refs and FPS collapsed below 20.
+
+    Fix: cache ONE SpriteList on the zone and ``clear()``-then-
+    refill it each frame.  ``clear()`` removes the back-reference
+    cleanly so re-adding the same sprite next frame doesn't
+    accumulate.
+
+    These tests pin the cached list IS reused across ticks AND
+    that no sprite holds more than one reference to the cached
+    list at any time.
+    """
+
+    def test_turret_target_list_object_is_stable_across_ticks(self):
+        from game_view import GameView
+        gv = GameView(faction="Earth", ship_type="Cruiser",
+                       skip_music=True)
+        _enter_star_maze(gv)
+        zone = gv._zone
+        first_id = id(zone._turret_target_list)
+        for _ in range(10):
+            zone.update(gv, 1 / 60)
+        assert id(zone._turret_target_list) == first_id, (
+            "cached turret-target list got swapped — "
+            "per-frame allocation regression")
+
+    def test_no_back_reference_accumulation(self):
+        """After ticking many frames, no sprite that lives in the
+        Star Maze should hold MORE THAN ONE reference to the
+        cached turret-target list.  Catches the leak that caused
+        the sub-20-FPS collapse — without the fix, every sprite
+        accumulated +1 reference per frame."""
+        from game_view import GameView
+        gv = GameView(faction="Earth", ship_type="Cruiser",
+                       skip_music=True)
+        _enter_star_maze(gv)
+        zone = gv._zone
+        for _ in range(20):
+            zone.update(gv, 1 / 60)
+        cached = zone._turret_target_list
+        for src in (zone._maze_aliens, zone._stalkers,
+                    getattr(zone, "_aliens", None) or ()):
+            for s in src:
+                count = sum(1 for sl in s.sprite_lists
+                            if sl is cached)
+                assert count <= 1, (
+                    f"sprite holds {count} refs to the cached "
+                    f"turret-target list — back-reference leak "
+                    f"regressed")
+
+
 class TestTurretProjectileDamagesStalker:
     """End-to-end: spawn a turret + a stalker right next to each
     other; tick the zone for a frame; the turret-projectile
