@@ -121,6 +121,23 @@ class _BaseDrone(arcade.Sprite):
         self._target_cooldown: float = 0.0
         self._stuck_target = None
         self._stuck_target_hp: int = 0
+        # Pathfinder routing the drone toward the player when an
+        # orbit position lands across a wall (Star Maze only — the
+        # zone hands the rooms+graph to ``update_drone`` via the gv
+        # helper).  Defaults to a no-op planner; replaced lazily on
+        # first call to ``follow`` once the active zone exposes its
+        # geometry.  When the planner gives up (5 s without movement
+        # toward the player) the drone freezes in place via the
+        # existing ``_target_cooldown`` for the planner's COOLDOWN
+        # window — exact same treatment as a stuck weapon target.
+        from zones.maze_geometry import WaypointPlanner
+        self._follow_planner: WaypointPlanner = WaypointPlanner(None, None)
+        self._follow_planner_geom_id: int = 0
+        # Latched flag for "drone is currently routing through a
+        # waypoint, not the orbit position" so the firing path knows
+        # not to fire across a wall (heading would face the waypoint,
+        # not the enemy).
+        self._routing_to_waypoint: bool = False
         # Shield regen accumulator (fractional shield points carry
         # across frames; integer ``shields`` is bumped when ≥ 1.0).
         self._shield_regen_acc: float = 0.0
@@ -145,11 +162,42 @@ class _BaseDrone(arcade.Sprite):
     def follow(self, dt: float, player_x: float, player_y: float) -> None:
         """Steer toward the rotating offset position around the
         player; projectile-style straight-line motion (no inertia).
-        Speed-capped at ``DRONE_MAX_SPEED``."""
+        Speed-capped at ``DRONE_MAX_SPEED``.
+
+        If a maze WaypointPlanner is attached and the player sits in
+        a different maze room than the drone, route via the planner
+        — head toward the next room's centre instead of the orbit
+        offset, which would otherwise sit on the far side of a wall
+        and produce the "drone grinding into the wall corner"
+        regression.  When the planner gives up (5 s of no movement
+        toward the player), freeze + stop firing for its COOLDOWN
+        window via ``_target_cooldown`` so the drone doesn't keep
+        re-grinding the same path.
+        """
         self._orbit_angle = (self._orbit_angle + DRONE_ORBIT_SPEED * dt) % 360.0
         rad = math.radians(self._orbit_angle)
         target_x = player_x + math.cos(rad) * DRONE_FOLLOW_DIST
         target_y = player_y + math.sin(rad) * DRONE_FOLLOW_DIST
+
+        # Pathfinding override — the planner returns either a room-
+        # centre waypoint to head toward, or None (same room / no
+        # path needed / cooling down).
+        wp = self._follow_planner.plan(
+            dt, self.center_x, self.center_y, player_x, player_y)
+        if self._follow_planner.gave_up():
+            # Pathfinding gave up — freeze + disable firing for the
+            # cooldown window so the drone stops grinding.  Patrol
+            # behaviour for a drone is "do nothing for a beat" — it's
+            # an escort, not a wandering AI.
+            self._target_cooldown = self._follow_planner.COOLDOWN
+            self._routing_to_waypoint = False
+            return
+        if wp is not None:
+            target_x, target_y = wp
+            self._routing_to_waypoint = True
+        else:
+            self._routing_to_waypoint = False
+
         dx = target_x - self.center_x
         dy = target_y - self.center_y
         dist = math.hypot(dx, dy)
@@ -164,6 +212,24 @@ class _BaseDrone(arcade.Sprite):
         # ship so the projectile flies forward on launch.
         self._heading = math.degrees(math.atan2(nx, ny)) % 360.0
         self.angle = self._heading
+
+    def attach_maze_planner(
+        self,
+        rooms,
+        room_graph,
+    ) -> None:
+        """Swap in a fresh WaypointPlanner for the supplied maze
+        geometry — used by ``update_logic.update_drone`` when the
+        drone is inside the Star Maze.  The geometry id check avoids
+        re-allocating every frame when the drone stays in the same
+        zone.  Pass ``rooms=None`` / ``room_graph=None`` to revert
+        the planner to no-op (e.g. exiting the Star Maze)."""
+        gid = id(rooms) ^ id(room_graph)
+        if gid == self._follow_planner_geom_id:
+            return
+        from zones.maze_geometry import WaypointPlanner
+        self._follow_planner = WaypointPlanner(rooms, room_graph)
+        self._follow_planner_geom_id = gid
 
     def update_visuals(self, dt: float) -> None:
         # Hit-flash tint.

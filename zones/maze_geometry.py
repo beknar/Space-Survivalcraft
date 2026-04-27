@@ -383,6 +383,183 @@ def astar_room_path(
     return []
 
 
+class WaypointPlanner:
+    """Stateful, per-body pathfinder over the room graph.
+
+    Replaces the inlined A* + waypoint logic that used to live on each
+    enemy / drone class.  A single shared implementation means both
+    MazeAlien (chasing the player) and the player's combat / mining
+    drones (chasing the player or a target across walls) get identical
+    "find the next room to steer toward, and give up if it isn't
+    working" behaviour.
+
+    Usage per frame::
+
+        wp = planner.plan(dt, body.center_x, body.center_y, tx, ty)
+        if planner.gave_up():
+            # Pathfinding failed for 5 s with no progress — caller
+            # should drop pursuit and patrol / hold for ``COOLDOWN``
+            # seconds before trying again.
+            body.enter_patrol()
+        elif wp is not None:
+            wx, wy = wp                # steer toward this point
+        else:
+            ...                        # same room as target → chase
+                                       # directly, no path needed
+
+    Progress is measured by **physical movement** of the body: every
+    ``FAIL_TIMEOUT`` seconds we expect the body to have travelled at
+    least ``STUCK_DIST`` from its last anchor.  If it didn't, the
+    planner declares failure — that catches the "grinding against a
+    wall" case (waypoint produced but body can't reach it).  After
+    failure the planner refuses to plan for ``COOLDOWN`` seconds so
+    the body's patrol behaviour can shake it loose.
+
+    Pure stateful object — no zone / GameView coupling.  ``rooms`` /
+    ``room_graph`` may both be ``None`` (caller is outside a maze) in
+    which case the planner is a no-op and never gives up.
+    """
+
+    FAIL_TIMEOUT: float = 5.0       # seconds w/o progress → give up
+    COOLDOWN: float = 5.0           # seconds of no-planning after giving up
+    STUCK_DIST: float = 30.0        # px the body must move within FAIL_TIMEOUT
+    REPLAN_INTERVAL: float = 0.5    # A* recompute cadence
+
+    def __init__(
+        self,
+        rooms: list[Rect] | None,
+        room_graph: dict[int, list[int]] | None,
+    ) -> None:
+        self._rooms = rooms
+        self._room_graph = room_graph
+        self._path: list[int] = []
+        self._path_target_room: int | None = None
+        self._replan_t: float = 0.0
+        # Progress anchor — set on entering a planning state, reset
+        # whenever the body has moved STUCK_DIST from it.
+        self._anchor_x: float | None = None
+        self._anchor_y: float | None = None
+        self._stuck_t: float = 0.0
+        # Cooldown ticking down after a give-up event.
+        self._cooldown_t: float = 0.0
+        # Latch consumed once by ``gave_up()``.
+        self._just_gave_up: bool = False
+
+    def gave_up(self) -> bool:
+        """Return True exactly once per failure event.  Caller should
+        switch behaviour (drop target, patrol, etc.) on True."""
+        if self._just_gave_up:
+            self._just_gave_up = False
+            return True
+        return False
+
+    def cooling_down(self) -> bool:
+        return self._cooldown_t > 0.0
+
+    def reset(self) -> None:
+        """Clear all planner state — used on target change so a new
+        target gets a fresh stuck timer."""
+        self._path = []
+        self._path_target_room = None
+        self._anchor_x = None
+        self._anchor_y = None
+        self._stuck_t = 0.0
+        self._just_gave_up = False
+        # Note: cooldown_t is intentionally NOT reset — a body that
+        # just gave up shouldn't be able to instantly re-plan by
+        # picking a new target.
+
+    def plan(
+        self, dt: float,
+        sx: float, sy: float,
+        tx: float, ty: float,
+    ) -> tuple[float, float] | None:
+        """Return the next waypoint to steer toward, or ``None`` if
+        the body should chase the target directly (same room) or
+        fall back to its idle behaviour (cooling down / unsupported).
+
+        Always tick the cooldown timer regardless of success."""
+        if self._cooldown_t > 0.0:
+            self._cooldown_t = max(0.0, self._cooldown_t - dt)
+            return None
+        if self._rooms is None or self._room_graph is None:
+            return None
+        sroom = find_room_index(sx, sy, self._rooms)
+        troom = find_room_index(tx, ty, self._rooms)
+        if sroom is None or troom is None or sroom == troom:
+            # Same room or one endpoint is in a wall — chase direct.
+            # Clear stuck tracker so the next inter-room plan starts
+            # with a fresh budget.
+            self._anchor_x = None
+            self._anchor_y = None
+            self._stuck_t = 0.0
+            return None
+
+        # Re-plan the room sequence on cadence, on target change, or
+        # if our current path no longer starts in our room.
+        self._replan_t -= dt
+        if (self._path_target_room != troom
+                or not self._path
+                or self._replan_t <= 0.0
+                or sroom not in self._path):
+            self._path = astar_room_path(
+                sroom, troom, self._room_graph, self._rooms)
+            self._path_target_room = troom
+            self._replan_t = self.REPLAN_INTERVAL
+
+        if not self._path:
+            # Disconnected components — body and target live in
+            # rooms that aren't reachable through the carved doorways
+            # (e.g. the player is in a different maze entirely).  The
+            # caller should chase directly through whatever open
+            # space lies between them; only the explicit no-progress
+            # timer counts as "give up", so a quick no-path frame
+            # doesn't strand the body in cooldown.
+            self._anchor_x = None
+            self._stuck_t = 0.0
+            return None
+
+        # Drop already-passed entries up to current room.
+        while self._path and self._path[0] != sroom:
+            self._path.pop(0)
+        if len(self._path) < 2:
+            self._anchor_x = None
+            self._stuck_t = 0.0
+            return None
+
+        # Stuck detection — anchor on first plan call after a reset,
+        # then measure displacement.  ``STUCK_DIST`` worth of motion
+        # within FAIL_TIMEOUT counts as progress.
+        if self._anchor_x is None:
+            self._anchor_x = sx
+            self._anchor_y = sy
+            self._stuck_t = 0.0
+        else:
+            moved_sq = ((sx - self._anchor_x) ** 2
+                        + (sy - self._anchor_y) ** 2)
+            if moved_sq >= self.STUCK_DIST * self.STUCK_DIST:
+                self._anchor_x = sx
+                self._anchor_y = sy
+                self._stuck_t = 0.0
+            else:
+                self._stuck_t += dt
+                if self._stuck_t >= self.FAIL_TIMEOUT:
+                    self._fail()
+                    return None
+
+        nxt = self._rooms[self._path[1]]
+        return (nxt.x + nxt.w * 0.5, nxt.y + nxt.h * 0.5)
+
+    def _fail(self) -> None:
+        """Trigger a give-up event — used by both the unreachable-
+        target path and the no-progress timeout."""
+        self._just_gave_up = True
+        self._cooldown_t = self.COOLDOWN
+        self._path = []
+        self._anchor_x = None
+        self._stuck_t = 0.0
+
+
 def point_inside_any_room_interior(
     x: float, y: float,
     rooms: list[Rect],

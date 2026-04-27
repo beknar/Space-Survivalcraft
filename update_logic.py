@@ -1412,6 +1412,30 @@ def update_drone(gv: GameView, dt: float) -> None:
     drone = getattr(gv, "_active_drone", None)
     if drone is None:
         return
+    # Hand the drone the active zone's room geometry (Star Maze only —
+    # other zones expose neither attribute).  Inside the maze the
+    # drone uses ``WaypointPlanner`` to route around walls when its
+    # orbit-position would land on the far side of one; outside, the
+    # planner is a no-op.  ``attach_maze_planner`` is identity-checked
+    # so this is cheap on every frame after the first.
+    zone = getattr(gv, "_zone", None)
+    rooms = None
+    room_graph = None
+    if zone is not None:
+        # Star Maze stores the per-maze layouts in ``self._mazes``;
+        # combine all rooms + graphs into single lists/dicts so the
+        # drone's planner can reach any maze the player wanders into.
+        mazes = getattr(zone, "_mazes", None)
+        if mazes:
+            rooms = []
+            room_graph = {}
+            offset = 0
+            for m in mazes:
+                rooms.extend(m.rooms)
+                for k, neighbours in m.room_graph.items():
+                    room_graph[k + offset] = [n + offset for n in neighbours]
+                offset += len(m.rooms)
+    drone.attach_maze_planner(rooms, room_graph)
     # Snapshot pre-move position so the post-move wall containment
     # can revert a tunnel-through (segment crosses a wall) instead
     # of pushing the drone out the FAR side of the wall it just

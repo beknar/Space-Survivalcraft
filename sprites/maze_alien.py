@@ -153,17 +153,22 @@ class MazeAlien(PatrolPursueMixin, arcade.Sprite):
         self._stuck_timer: float = 0.0
         self._orbit_dir: int = random.choice((-1, 1))
 
-        # A* pathing — when both ``rooms`` and ``room_graph`` are
+        # Pathfinding — when both ``rooms`` and ``room_graph`` are
         # supplied, the alien plans a sequence of room indices toward
-        # the player and steers waypoint-to-waypoint instead of
-        # straight at the player (which would grind on walls between
-        # rooms).  Path is recomputed on a 0.5 s cadence and whenever
-        # the player moves to a different room.
+        # the player via ``WaypointPlanner`` and steers waypoint-to-
+        # waypoint instead of straight at the player (which would
+        # grind on walls between rooms).  When the planner reports
+        # ``gave_up()`` (5 s of no progress, e.g. wedged on a corner),
+        # the alien drops pursuit and reverts to PATROL for
+        # ``_pathfind_cooldown`` seconds — the planner stays in its
+        # own internal cooldown for the same window so it won't
+        # re-engage immediately even if the patrol target wanders
+        # back into pursue range.
         self._rooms: list | None = rooms
         self._room_graph: dict | None = room_graph
-        self._path: list[int] = []
-        self._path_player_room: int | None = None
-        self._path_recompute_timer: float = 0.0
+        from zones.maze_geometry import WaypointPlanner
+        self._planner = WaypointPlanner(rooms, room_graph)
+        self._pathfind_cooldown: float = 0.0
 
     # ── AI helpers ───────────────────────────────────────────────────
     # _pick_patrol_target() and alert() come from PatrolPursueMixin.
@@ -172,48 +177,25 @@ class MazeAlien(PatrolPursueMixin, arcade.Sprite):
         self, dt: float, player_x: float, player_y: float,
     ) -> tuple[float, float] | None:
         """Return the world position the alien should steer toward
-        right now, given A* over the room graph.  Returns ``None``
-        when the alien is in the player's room (or no path exists)
-        so the caller falls back to direct chase.
+        right now via :class:`WaypointPlanner`.  Returns ``None`` when
+        the alien is already in the player's room, when no path
+        exists, or when the planner is cooling down — in which case
+        the caller should fall back to direct chase / patrol.
+        Side effect: if the planner gave up this frame, demote to
+        PATROL state and start the patrol-only cooldown so the alien
+        doesn't immediately re-pursue and re-grind on the same wall.
         """
-        from zones.maze_geometry import find_room_index, astar_room_path
-        rooms = self._rooms
-        graph = self._room_graph
-        if rooms is None or graph is None:
+        wp = self._planner.plan(
+            dt, self.center_x, self.center_y, player_x, player_y)
+        if self._planner.gave_up():
+            # Planner declared the path unreachable / no-progress.
+            # Drop pursuit, scatter out via patrol, and don't try
+            # pathfinding again until the cooldown elapses.
+            self._state = self._STATE_PATROL
+            self._pick_patrol_target()
+            self._pathfind_cooldown = self._planner.COOLDOWN
             return None
-        my_room = find_room_index(self.center_x, self.center_y, rooms)
-        player_room = find_room_index(player_x, player_y, rooms)
-        if my_room is None or player_room is None:
-            return None
-        # Same room — direct line of sight, fall through to existing
-        # orbit/chase behavior.
-        if my_room == player_room:
-            self._path = []
-            return None
-        # Re-plan if the player has moved rooms or the recompute timer
-        # elapsed.  Cheap (≤ 25 rooms in the open set) so we don't
-        # need a per-frame budget.
-        self._path_recompute_timer -= dt
-        if (self._path_player_room != player_room
-                or not self._path
-                or my_room not in self._path
-                or self._path_recompute_timer <= 0.0):
-            self._path = astar_room_path(my_room, player_room, graph, rooms)
-            self._path_player_room = player_room
-            self._path_recompute_timer = 0.5
-        if not self._path:
-            return None
-        # Drop any path entries we've already advanced past.
-        while self._path and self._path[0] != my_room:
-            self._path.pop(0)
-        if len(self._path) < 2:
-            return None
-        # Steer toward the centre of the next room in the path.  The
-        # carved doorway is full room-width wide, so straight-line
-        # navigation between adjacent room centres always passes
-        # through the gap.
-        nxt = rooms[self._path[1]]
-        return (nxt.x + nxt.w * 0.5, nxt.y + nxt.h * 0.5)
+        return wp
 
     # alert() inherited from PatrolPursueMixin.
 
@@ -292,7 +274,19 @@ class MazeAlien(PatrolPursueMixin, arcade.Sprite):
         dist = math.hypot(dx, dy)
 
         # Patrol/pursue transition (3× hysteresis matches Z2 aliens).
-        self._advance_patrol_state(dist, MAZE_ALIEN_DETECT_DIST)
+        # While the pathfind cooldown is active the alien is forced to
+        # stay in PATROL — it just got "stuck" trying to chase the
+        # player and needs a window to scatter out before trying
+        # again.  Same window the WaypointPlanner uses internally to
+        # refuse re-planning.
+        if self._pathfind_cooldown > 0.0:
+            self._pathfind_cooldown = max(
+                0.0, self._pathfind_cooldown - dt)
+            if self._state == self._STATE_PURSUE:
+                self._state = self._STATE_PATROL
+                self._pick_patrol_target()
+        else:
+            self._advance_patrol_state(dist, MAZE_ALIEN_DETECT_DIST)
 
         # When pursuing through walls, recompute the room-graph path
         # to the player and steer toward the next waypoint instead of
