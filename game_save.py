@@ -729,6 +729,42 @@ def _restore_parked_ships(gv: GameView, data: list[dict]) -> None:
         gv._parked_ships.append(ps)
 
 
+def _serialize_active_drone(gv: GameView) -> dict | None:
+    """Serialize the currently deployed drone (if any).  Returns
+    ``None`` when no drone is active so the field round-trips cleanly
+    on saves made before drones existed.
+
+    Stores variant + position + HP / shield so loading restores the
+    drone in flight at the same place with the same damage state.
+    Targeting / cooldown state is intentionally not persisted — the
+    drone re-acquires on the first tick after load."""
+    drone = getattr(gv, "_active_drone", None)
+    if drone is None:
+        return None
+    from sprites.drone import MiningDrone
+    return {
+        "variant": "mining" if isinstance(drone, MiningDrone) else "combat",
+        "x": drone.center_x,
+        "y": drone.center_y,
+        "hp": drone.hp,
+        "shields": drone.shields,
+    }
+
+
+def _restore_active_drone(gv: GameView, data: dict | None) -> None:
+    """Recreate the drone saved by ``_serialize_active_drone``.  Skips
+    silently when ``data`` is None / missing."""
+    if not data:
+        return
+    from sprites.drone import MiningDrone, CombatDrone
+    cls = MiningDrone if data.get("variant") == "mining" else CombatDrone
+    d = cls(float(data.get("x", 0.0)), float(data.get("y", 0.0)))
+    d.hp = int(data.get("hp", d.hp))
+    d.shields = int(data.get("shields", d.shields))
+    gv._drone_list.append(d)
+    gv._active_drone = d
+
+
 # ── Main save/restore ─────────────────────────────────────────────────────
 
 def save_to_dict(gv: GameView, name: str = "") -> dict:
@@ -772,6 +808,7 @@ def save_to_dict(gv: GameView, name: str = "") -> dict:
         "zone2_state": _save_zone2_state(gv),
         "star_maze_state": _save_star_maze_state(gv),
         "parked_ships": _serialize_parked_ships(gv),
+        "active_drone": _serialize_active_drone(gv),
         # Refugee NPC + Debra quest flags
         "station_shield_hp": gv._station_shield_hp,
         "station_shield_max_hp": gv._station_shield_max_hp,
@@ -992,6 +1029,9 @@ def restore_state(view: GameView, data: dict) -> None:
 
     # Parked ships
     _restore_parked_ships(view, data.get("parked_ships", []))
+
+    # Active drone (re-deploy in flight at saved position)
+    _restore_active_drone(view, data.get("active_drone"))
 
     # Station shield (re-spawned on next update tick if a Shield
     # Generator exists; HP is restored directly).

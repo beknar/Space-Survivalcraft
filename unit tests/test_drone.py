@@ -226,6 +226,61 @@ class TestDroneFollowAttackMode:
         assert d._mode == _BaseDrone._MODE_ATTACK
 
 
+class TestDroneStackAndSave:
+    def test_drone_max_stack_is_100(self):
+        """Both drone consumables stack 100-deep per the spec."""
+        from constants import MAX_STACK
+        assert MAX_STACK["mining_drone"] == 100
+        assert MAX_STACK["combat_drone"] == 100
+
+    def test_serialize_active_drone_none_when_no_drone(self):
+        from game_save import _serialize_active_drone
+        gv = SimpleNamespace(_active_drone=None)
+        assert _serialize_active_drone(gv) is None
+
+    def test_serialize_round_trip_combat_drone(self):
+        from game_save import (
+            _serialize_active_drone, _restore_active_drone)
+        from sprites.drone import CombatDrone
+        d = CombatDrone(1234.0, 5678.0)
+        d.hp = 42
+        d.shields = 7
+        gv = SimpleNamespace(_active_drone=d)
+        blob = _serialize_active_drone(gv)
+        assert blob == {
+            "variant": "combat",
+            "x": 1234.0, "y": 5678.0,
+            "hp": 42, "shields": 7,
+        }
+        # Round-trip into a fresh gv with the sprite-list scaffolding.
+        gv2 = SimpleNamespace(
+            _active_drone=None,
+            _drone_list=arcade.SpriteList())
+        _restore_active_drone(gv2, blob)
+        assert gv2._active_drone is not None
+        assert gv2._active_drone.__class__.__name__ == "CombatDrone"
+        assert gv2._active_drone.center_x == 1234.0
+        assert gv2._active_drone.center_y == 5678.0
+        assert gv2._active_drone.hp == 42
+        assert gv2._active_drone.shields == 7
+
+    def test_serialize_round_trip_mining_drone(self):
+        from game_save import (
+            _serialize_active_drone, _restore_active_drone)
+        from sprites.drone import MiningDrone
+        d = MiningDrone(0.0, 0.0)
+        d.hp = 10
+        gv = SimpleNamespace(_active_drone=d)
+        blob = _serialize_active_drone(gv)
+        assert blob["variant"] == "mining"
+        gv2 = SimpleNamespace(
+            _active_drone=None,
+            _drone_list=arcade.SpriteList())
+        _restore_active_drone(gv2, blob)
+        assert gv2._active_drone.__class__.__name__ == "MiningDrone"
+        assert gv2._active_drone.hp == 10
+
+
 class TestPlayerProjectileVsAIShip:
     def test_player_lasers_skip_ai_piloted_parked_ship(self):
         """``handle_parked_ship_damage`` must not damage parked ships

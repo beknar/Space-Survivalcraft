@@ -270,6 +270,8 @@ MAX_STACK: dict[str, int] = {
     "shield_recharge": 99,
     "copper": 999,
     "missile": 500,
+    "mining_drone": 100,
+    "combat_drone": 100,
 }
 MAX_STACK_DEFAULT: int = 10  # for blueprints, modules, etc.
 
