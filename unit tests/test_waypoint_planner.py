@@ -283,65 +283,102 @@ class TestPlannerRoutesThroughEntrance:
         assert p._path != []
         assert p._path[-1] == maze.entrance_room
 
-    def test_body_at_entrance_with_target_outside_emits_exit_xy(self, maze):
-        """When the body has reached the entrance room the planner
-        emits the entrance gap midpoint as the waypoint, so the
-        drone crosses the outer wall instead of bouncing on it."""
+    def test_body_in_entrance_room_emits_outer_xy(self, maze):
+        """When the body is in the entrance room with target outside,
+        the planner emits the OUTSIDE point past the gap.  Aiming at
+        the gap midpoint itself stalls (drone-loop's dist=0 early-
+        return); aiming at the player flip-flops (close → player,
+        body moves away, far → gap, body moves back, …).  A fixed
+        outer point lets the body steer continuously through the
+        gap into open space."""
         from zones.maze_geometry import WaypointPlanner
         room_to_exit = {i: maze.entrance_room
                         for i in range(len(maze.rooms))}
         exit_xy = {i: maze.entrance_xy
                    for i in range(len(maze.rooms))}
+        exit_outer = {i: maze.entrance_xy_outer
+                      for i in range(len(maze.rooms))}
         er = maze.rooms[maze.entrance_room]
         sx = er.x + er.w * 0.5
         sy = er.y + er.h * 0.5
-        # Target outside the maze.
         tx = maze.bounds.x - 800.0
         ty = sy
         p = WaypointPlanner(
             maze.rooms, maze.room_graph, maze.doorways,
-            room_to_exit, exit_xy)
+            room_to_exit, exit_xy, exit_outer)
         wp = p.plan(0.016, sx, sy, tx, ty)
         assert wp is not None
-        assert wp == maze.entrance_xy
+        assert wp == maze.entrance_xy_outer
 
-    def test_body_at_entrance_gap_emits_target_position(self, maze):
+    def test_body_at_entrance_gap_does_not_oscillate(self, maze):
         """Telemetry regression (drone_return_telemetry.log,
-        2026-04-26 20:20): drone parked at exactly the entrance
-        midpoint (2170, 3332) for 326 frames.  The planner kept
-        emitting the entrance midpoint as the waypoint while the
-        drone was already standing on it, so the update loop's
-        ``dist <= 0.001`` early-out kept the drone frozen.
+        2026-04-26 20:28): drone oscillating between two waypoints
+        each frame — entrance midpoint when far from gap, player
+        when close.  Net displacement ~0 for 5 s before the
+        un-stick nudge eventually shoved the drone across.
 
-        Now: when the body is within DOORWAY_ARRIVAL_RADIUS of the
-        entrance midpoint and target is outside the maze, the
-        planner emits the TARGET position — the entrance gap is
-        clear, the drone can fly straight out of it toward the
-        player.
+        Fix: the EXIT branch now emits a fixed OUTSIDE point past
+        the gap.  Same waypoint regardless of whether the body is
+        on or off the midpoint, so no flip-flop.  Once the body
+        crosses the entrance the wall-band snap can no longer
+        reach the entrance room (too far), planner falls through
+        to direct chase.
         """
         from zones.maze_geometry import WaypointPlanner
         room_to_exit = {i: maze.entrance_room
                         for i in range(len(maze.rooms))}
         exit_xy = {i: maze.entrance_xy
                    for i in range(len(maze.rooms))}
-        # Body sitting EXACTLY at the entrance midpoint.
-        sx, sy = maze.entrance_xy
-        # Target outside the maze, opposite side from the entrance
-        # axis — far enough to be in open space.
+        exit_outer = {i: maze.entrance_xy_outer
+                      for i in range(len(maze.rooms))}
         tx = maze.bounds.x - 800.0
-        ty = sy
+        ty = maze.entrance_xy[1]
         p = WaypointPlanner(
             maze.rooms, maze.room_graph, maze.doorways,
-            room_to_exit, exit_xy)
+            room_to_exit, exit_xy, exit_outer)
+        # Sample many positions across the body's possible local
+        # range — every one should produce the SAME waypoint
+        # (entrance_xy_outer).  No flip-flop possible.
+        for dx in (-30.0, -15.0, -5.0, 0.0, 5.0, 15.0, 30.0):
+            for dy in (-15.0, 0.0, 15.0):
+                wp = p.plan(0.016,
+                            maze.entrance_xy[0] + dx,
+                            maze.entrance_xy[1] + dy,
+                            tx, ty)
+                assert wp == maze.entrance_xy_outer, (
+                    f"oscillation: body offset ({dx},{dy}) emitted "
+                    f"wp={wp}, expected {maze.entrance_xy_outer}")
+
+
+class TestPlannerEntryRoutesViaEntranceGap:
+    """Drone OUTSIDE the maze, target INSIDE the maze.  Without an
+    explicit entry branch the drone falls through to direct chase
+    and bangs against the outer wall.  Telemetry-pinned by the
+    user's "spins at the entrance before entering" scenario."""
+
+    def test_body_outside_with_target_inside_emits_entrance_xy(self, maze):
+        from zones.maze_geometry import WaypointPlanner
+        room_to_exit = {i: maze.entrance_room
+                        for i in range(len(maze.rooms))}
+        exit_xy = {i: maze.entrance_xy
+                   for i in range(len(maze.rooms))}
+        exit_outer = {i: maze.entrance_xy_outer
+                      for i in range(len(maze.rooms))}
+        # Body well outside the maze (past wall-band slack so the
+        # snap doesn't bring it inside).
+        sx = maze.bounds.x - 200.0
+        sy = maze.entrance_xy[1]
+        # Target inside a room far from the entrance.
+        tr = maze.rooms[(maze.entrance_room + 7) % len(maze.rooms)]
+        tx = tr.x + tr.w * 0.5
+        ty = tr.y + tr.h * 0.5
+        p = WaypointPlanner(
+            maze.rooms, maze.room_graph, maze.doorways,
+            room_to_exit, exit_xy, exit_outer)
         wp = p.plan(0.016, sx, sy, tx, ty)
-        assert wp is not None
-        # Must NOT be the entrance midpoint (that's where we are).
-        assert wp != maze.entrance_xy, (
-            "planner emitted the body's own position as waypoint — "
-            "drone-loop's dist-zero early-out would freeze it")
-        # The waypoint should be the target (or at least pointing
-        # in the target's direction).
-        assert wp == (tx, ty)
+        assert wp == maze.entrance_xy, (
+            "expected entrance midpoint as the steering target so "
+            "the drone enters through the gap, got " + str(wp))
 
 
 class TestDoorwayArrival:
@@ -387,6 +424,9 @@ class TestDoorwayArrival:
         # The new waypoint must NOT equal the doorway we just
         # arrived at — that's the whole point of advancing.
         assert wp != door_ab
+
+
+class TestStuckTimeout:
     def test_no_progress_for_5_seconds_triggers_give_up(self, maze):
         p = WaypointPlanner(maze.rooms, maze.room_graph)
         # Pick start + target in different rooms.

@@ -468,6 +468,7 @@ class _BaseDrone(arcade.Sprite):
         doorways=None,
         room_to_exit_room=None,
         exit_xy_by_room=None,
+        exit_outer_xy_by_room=None,
     ) -> None:
         """Swap in a fresh WaypointPlanner for the supplied maze
         geometry — used by ``update_logic.update_drone`` when the
@@ -491,7 +492,8 @@ class _BaseDrone(arcade.Sprite):
         from zones.maze_geometry import WaypointPlanner
         self._follow_planner = WaypointPlanner(
             rooms, room_graph, doorways,
-            room_to_exit_room, exit_xy_by_room)
+            room_to_exit_room, exit_xy_by_room,
+            exit_outer_xy_by_room)
         self._follow_planner_geom_id = gid
 
     def update_visuals(self, dt: float) -> None:

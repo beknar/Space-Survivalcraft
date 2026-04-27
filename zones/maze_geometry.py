@@ -72,8 +72,18 @@ class MazeLayout(NamedTuple):
     # sits outside any room the planner heads for the entrance
     # room first (instead of the geographically nearest room,
     # which would dump the drone into a sealed dead end).
+    #
+    # ``entrance_xy_outer`` sits ``2 * wall_thick`` past the gap
+    # along the outward normal — a known-clear point in open space
+    # outside the maze.  Used as the steering target when leaving
+    # the maze: emitting ``entrance_xy`` itself causes oscillation
+    # (the body sits on the gap midpoint, planner switches to
+    # "target" waypoint, body moves away, planner switches back to
+    # gap, body moves back, …).  Aiming for a fixed point ON THE
+    # FAR SIDE of the gap means the body never has to flip-flop.
     entrance_room: int = 0
     entrance_xy: tuple[float, float] = (0.0, 0.0)
+    entrance_xy_outer: tuple[float, float] = (0.0, 0.0)
 
 
 def _add_outer_wall_with_gap(
@@ -275,30 +285,43 @@ def generate_maze(
     # Resolve the entrance room + world-space gap midpoint from the
     # randomly-chosen ``entrance_side`` / ``entrance_cell``.  Same
     # geometry the outer-wall builder used to carve the gap.
+    # ``outer_step`` distance for the "outside the maze" steering
+    # target — far enough past the gap that arriving at it cannot
+    # also satisfy the "close to gap" check (which would re-engage
+    # the exit branch and create flip-flop).
+    outer_step = wall_thick * 2.0
     if entrance_side == "N":
         entrance_room = _idx(entrance_cell, rows - 1)
         entrance_xy = (
             origin_x + wall_thick + entrance_cell * step + half_room,
             origin_y + total_h - half_wall,
         )
+        entrance_xy_outer = (entrance_xy[0],
+                              entrance_xy[1] + outer_step)
     elif entrance_side == "S":
         entrance_room = _idx(entrance_cell, 0)
         entrance_xy = (
             origin_x + wall_thick + entrance_cell * step + half_room,
             origin_y + half_wall,
         )
+        entrance_xy_outer = (entrance_xy[0],
+                              entrance_xy[1] - outer_step)
     elif entrance_side == "E":
         entrance_room = _idx(cols - 1, entrance_cell)
         entrance_xy = (
             origin_x + total_w - half_wall,
             origin_y + wall_thick + entrance_cell * step + half_room,
         )
+        entrance_xy_outer = (entrance_xy[0] + outer_step,
+                              entrance_xy[1])
     else:  # "W"
         entrance_room = _idx(0, entrance_cell)
         entrance_xy = (
             origin_x + half_wall,
             origin_y + wall_thick + entrance_cell * step + half_room,
         )
+        entrance_xy_outer = (entrance_xy[0] - outer_step,
+                              entrance_xy[1])
 
     return MazeLayout(
         rooms=rooms, walls=walls,
@@ -307,6 +330,7 @@ def generate_maze(
         doorways=doorways,
         entrance_room=entrance_room,
         entrance_xy=entrance_xy,
+        entrance_xy_outer=entrance_xy_outer,
     )
 
 
@@ -509,6 +533,7 @@ class WaypointPlanner:
         doorways: dict[frozenset[int], tuple[float, float]] | None = None,
         room_to_exit_room: dict[int, int] | None = None,
         exit_xy_by_room: dict[int, tuple[float, float]] | None = None,
+        exit_outer_xy_by_room: dict[int, tuple[float, float]] | None = None,
     ) -> None:
         self._rooms = rooms
         self._room_graph = room_graph
@@ -527,6 +552,14 @@ class WaypointPlanner:
         # might be sealed off from the target's side.
         self._room_to_exit_room = room_to_exit_room or {}
         self._exit_xy_by_room = exit_xy_by_room or {}
+        # World-space point ~2*wall_thick OUTSIDE the maze along the
+        # entrance's outward normal.  Steering target for the EXIT
+        # branch — picking a fixed point past the gap (instead of
+        # the gap midpoint or the player position) eliminates the
+        # frame-by-frame oscillation that pinned the drone in the
+        # entrance for ~5 s of telemetry-recorded grinding before
+        # the un-stick nudge eventually shoved it across.
+        self._exit_outer_xy_by_room = exit_outer_xy_by_room or {}
         self._path: list[int] = []
         self._path_target_room: int | None = None
         self._replan_t: float = 0.0
@@ -626,25 +659,31 @@ class WaypointPlanner:
                         best_d2 = d2
                         best = i
                 troom = best
-        # Body is in the entrance room and target sits outside the
-        # maze — steer through the entrance gap.  Two phases:
-        #
-        #   * Body NOT yet at the gap → emit the gap midpoint so
-        #     the drone heads for it.
-        #   * Body within ``_DOORWAY_ARRIVAL_RADIUS`` of the gap →
-        #     emit the target's position so the drone steps OUT
-        #     of the gap toward the player.  Without this second
-        #     phase the drone parks on the gap midpoint and the
-        #     update loop's ``dist <= 0.001`` early-return keeps
-        #     it stuck forever (telemetry-pinned regression
-        #     2026-04-26 20:20: drone at (2170, 3332) for 326
-        #     consecutive frames at the maze 1 west entrance).
+        # EXIT branch — body is in the entrance room and target sits
+        # outside the maze.  Steer toward a fixed point JUST PAST
+        # the entrance gap (``entrance_xy_outer``) instead of the
+        # gap midpoint or the player's position.  Aiming at the gap
+        # midpoint stalls the drone (it sits on the midpoint with
+        # dist=0); switching to the player on arrival creates a
+        # one-frame flip-flop (close → emit player, body moves
+        # away, far → emit midpoint, body moves back, …) that
+        # pinned the drone in the gap for ~5 s of telemetry-
+        # recorded oscillation.  A fixed outer point lets the body
+        # steer continuously through the gap into open space; once
+        # outside the maze the wall-band snap can no longer reach
+        # the entrance room (too far) and the planner falls
+        # through to direct chase.
         if (sroom is not None
                 and find_room_index(tx, ty, self._rooms) is None
                 and self._room_to_exit_room.get(sroom) == sroom):
             self._anchor_x = None
             self._anchor_y = None
             self._stuck_t = 0.0
+            outer = self._exit_outer_xy_by_room.get(sroom)
+            if outer is not None:
+                return outer
+            # No outer-point table (legacy callers) → fall back to
+            # the gap midpoint then to the target.
             exit_xy = self._exit_xy_by_room.get(sroom)
             if exit_xy is None:
                 return (tx, ty)
@@ -654,6 +693,21 @@ class WaypointPlanner:
                       * self._DOORWAY_ARRIVAL_RADIUS):
                 return (tx, ty)
             return exit_xy
+        # ENTRY branch — body is OUTSIDE every room (and not within
+        # wall-band slack of one) but the target sits inside one.
+        # Without this the planner falls through to direct chase
+        # and the drone bangs against the maze's outer wall trying
+        # to fly through it toward the target.  Aim for the
+        # entrance gap midpoint so the body crosses the wall
+        # cleanly; once inside the maze the existing A* + doorway
+        # routing takes over.
+        if sroom is None and troom is not None:
+            entrance = self._exit_xy_by_room.get(troom)
+            if entrance is not None:
+                self._anchor_x = None
+                self._anchor_y = None
+                self._stuck_t = 0.0
+                return entrance
         if sroom is None or troom is None or sroom == troom:
             # Body is also outside any room (or already shares the
             # target's room) — caller should chase directly.  Clear
