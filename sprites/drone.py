@@ -636,29 +636,20 @@ class _BaseDrone(arcade.Sprite):
         # the doorway-aware planner can't (drone wedged in a wall
         # gap, planner gave the right waypoint but push-out keeps
         # bouncing the drone back to the corner).
-        nudged = self._try_unstick_nudge(dt, target_x, target_y)
-        if not nudged:
-            dx = target_x - self.center_x
-            dy = target_y - self.center_y
-            dist = math.hypot(dx, dy)
-            if dist > 0.001:
-                step = min(DRONE_MAX_SPEED * dt, dist)
-                nx = dx / dist
-                ny = dy / dist
-                self.center_x += nx * step
-                self.center_y += ny * step
-                self._heading = math.degrees(
-                    math.atan2(nx, ny)) % 360.0
-                self.angle = self._heading
-        # Telemetry — record one snapshot per RETURN_HOME tick when
-        # the recorder is active.  Runs after movement so ``moved``
-        # in the next snapshot reflects this frame's progress.
-        import drone_telemetry as _tel
-        if _tel.is_recording():
-            _tel.record_frame(
-                self, player,
-                waypoint=(target_x, target_y),
-                nudge_fired=nudged)
+        if self._try_unstick_nudge(dt, target_x, target_y):
+            return
+        dx = target_x - self.center_x
+        dy = target_y - self.center_y
+        dist = math.hypot(dx, dy)
+        if dist <= 0.001:
+            return
+        step = min(DRONE_MAX_SPEED * dt, dist)
+        nx = dx / dist
+        ny = dy / dist
+        self.center_x += nx * step
+        self.center_y += ny * step
+        self._heading = math.degrees(math.atan2(nx, ny)) % 360.0
+        self.angle = self._heading
 
     def _update_mode(
         self, player, target, walls: list | None = None,
@@ -701,9 +692,6 @@ class _BaseDrone(arcade.Sprite):
                 # Reunited — clear the order and fall through to
                 # normal logic so reactions take over again.
                 self._direct_order = None
-                import drone_telemetry as _tel
-                _tel.stop(reason=(
-                    "return order auto-cleared (close + LOS clear)"))
             else:
                 self._mode = self._MODE_RETURN_HOME
                 return

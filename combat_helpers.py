@@ -137,35 +137,16 @@ def apply_fleet_order(gv: GameView, order: str) -> str:
     drone = getattr(gv, "_active_drone", None)
     if drone is None:
         return "No drone deployed"
-    import drone_telemetry as _tel
-    if order == "return":
-        drone._direct_order = "return"
-        # Header includes drone + player coords for the reader; gv
-        # may be a SimpleNamespace stub in tests so we look up the
-        # player defensively.
-        player = getattr(gv, "player", None)
-        if player is not None:
-            ply_str = (f"player at ({player.center_x:.0f},"
-                       f"{player.center_y:.0f})")
-        else:
-            ply_str = "player position unknown"
-        _tel.start(reason=(
-            f"RETURN issued; drone at "
-            f"({drone.center_x:.0f},{drone.center_y:.0f}); "
-            f"{ply_str}"))
-    elif order == "attack":
-        drone._direct_order = "attack"
-        _tel.stop(reason="ATTACK order issued")
+    if order in ("return", "attack"):
+        drone._direct_order = order
     elif order == "follow_only":
         drone._reaction = "follow"
         # Clear any direct order so the new reaction takes effect
         # immediately rather than after the order auto-clears.
         drone._direct_order = None
-        _tel.stop(reason="FOLLOW_ONLY reaction set")
     elif order == "attack_only":
         drone._reaction = "attack"
         drone._direct_order = None
-        _tel.stop(reason="ATTACK_ONLY reaction set")
     else:
         return f"Unknown order: {order}"
     return _FLEET_ORDER_LABELS.get(order, "Order applied")
@@ -184,8 +165,6 @@ def recall_drone(gv: GameView) -> None:
     gv.inventory.add_item(key, 1)
     active.remove_from_sprite_lists()
     gv._active_drone = None
-    import drone_telemetry as _tel
-    _tel.stop(reason="drone recalled")
     flash_game_msg(gv, "Drone recalled", 1.2)
 
 
