@@ -624,6 +624,8 @@ def _save_star_maze_state(gv: GameView) -> dict | None:
         "fog_revealed": zone._fog_revealed,
         "buildings": sm_buildings,
         "trade_station": sm_trade,
+        "nebula_boss_defeated": getattr(
+            zone, "_nebula_boss_defeated", False),
     }
 
 
@@ -632,6 +634,8 @@ def _restore_star_maze_full(view: GameView, state: dict) -> None:
     from zones import ZoneID, create_zone
     zone = create_zone(ZoneID.STAR_MAZE)
     zone._world_seed = state.get("world_seed", zone._world_seed)
+    zone._nebula_boss_defeated = bool(
+        state.get("nebula_boss_defeated", False))
     populated = bool(state.get("populated", False))
     if populated:
         # Regenerate rooms + walls + spawners deterministically from

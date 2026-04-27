@@ -1319,6 +1319,8 @@ def _check_slipspace_teleport(gv: GameView) -> None:
     dest = _r.choice(candidates)
 
     # Teleport — preserve velocity + heading.
+    src_x = gv.player.center_x
+    src_y = gv.player.center_y
     gv.player.center_x = dest.center_x
     gv.player.center_y = dest.center_y
     # Mark the destination as the "currently inside" so we don't
@@ -1329,6 +1331,24 @@ def _check_slipspace_teleport(gv: GameView) -> None:
     if hasattr(gv, "shield_sprite") and gv.shield_sprite is not None:
         gv.shield_sprite.center_x = dest.center_x
         gv.shield_sprite.center_y = dest.center_y
+    # Drag the active drone through the slipspace too — preserve
+    # its offset from the player so it pops out of the destination
+    # in the same relative position.  Without this the drone is
+    # left behind at the entry slipspace and has to trundle back to
+    # the player on its own (often via RETURN_HOME if the gap clears
+    # the 800 px break-off).
+    drone = getattr(gv, "_active_drone", None)
+    if drone is not None:
+        offx = drone.center_x - src_x
+        offy = drone.center_y - src_y
+        drone.center_x = dest.center_x + offx
+        drone.center_y = dest.center_y + offy
+        # Reset the drone's per-frame movement / nudge anchors so
+        # the un-stick tracker doesn't fire on the next frame just
+        # because the drone "teleported" without steering.
+        drone._nudge_anchor_x = drone.center_x
+        drone._nudge_anchor_y = drone.center_y
+        drone._nudge_timer = 0.0
 
     # Sound — use the cached slipspace SFX loaded in GameView init.
     snd = getattr(gv, "_slipspace_snd", None)

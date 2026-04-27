@@ -155,6 +155,29 @@ def _walls_from_zone(gv) -> list | None:
     return getattr(zone, "_walls", None)
 
 
+def _iter_asteroids(gv) -> list:
+    """Return a flat list of every asteroid + magnetic wanderer the
+    active zone exposes, for collision and avoidance.  Combines
+    Zone 1's ``gv.asteroid_list`` with the Nebula / Star-Maze
+    per-zone lists (``_iron_asteroids``, ``_double_iron``,
+    ``_copper_asteroids``, ``_wanderers``).  Empty list when no
+    asteroids exist (warp zones).
+    """
+    out: list = []
+    al = getattr(gv, "asteroid_list", None)
+    if al:
+        out.extend(al)
+    zone = getattr(gv, "_zone", None)
+    if zone is not None:
+        for attr in (
+                "_iron_asteroids", "_double_iron",
+                "_copper_asteroids", "_wanderers"):
+            zlist = getattr(zone, attr, None)
+            if zlist:
+                out.extend(zlist)
+    return out
+
+
 class _BaseDrone(arcade.Sprite):
     """Common follow / attack / damage / shield state for both drones.
 
@@ -213,6 +236,14 @@ class _BaseDrone(arcade.Sprite):
     _NUDGE_TIME: float = 0.5
     _NUDGE_DIST: float = 10.0
     _NUDGE_IMPULSE: float = 60.0   # extra px applied perpendicular
+    # Asteroid avoidance — drones now collide with asteroids (push
+    # out on overlap) and bias their steering vector away from
+    # nearby ones.  ``_PAD`` is a small slack added to the strict
+    # (drone + asteroid) radius so the drone clears the rock
+    # cleanly rather than skimming the surface; ``_AVOID_RADIUS``
+    # is how far out the steering bias starts attenuating in.
+    _ASTEROID_PUSH_PAD: float = 1.0
+    _ASTEROID_AVOID_RADIUS: float = 60.0
 
     def __init__(
         self,
@@ -398,6 +429,7 @@ class _BaseDrone(arcade.Sprite):
     def follow(
         self, dt: float, player_x: float, player_y: float,
         player=None, walls: list | None = None,
+        asteroids: list | None = None,
     ) -> None:
         """Steer toward a fixed slot beside / behind the player.
 
@@ -445,21 +477,29 @@ class _BaseDrone(arcade.Sprite):
         # planner is routing through doorways and the drone wedges
         # on a corner; same safety net as RETURN_HOME).
         if self._try_unstick_nudge(dt, target_x, target_y):
+            self._apply_asteroid_pushout(asteroids or ())
             return
         dx = target_x - self.center_x
         dy = target_y - self.center_y
         dist = math.hypot(dx, dy)
         if dist <= 0.001:
+            self._apply_asteroid_pushout(asteroids or ())
             return
-        step = min(DRONE_MAX_SPEED * dt, dist)
         nx = dx / dist
         ny = dy / dist
+        # Bias the steering vector away from nearby asteroids so the
+        # drone routes around them instead of bouncing on push-out.
+        nx, ny = self._asteroid_avoidance(asteroids or (), nx, ny)
+        step = min(DRONE_MAX_SPEED * dt, dist)
         self.center_x += nx * step
         self.center_y += ny * step
         # Heading uses the same (sin, cos) convention as the player
         # ship so the projectile flies forward on launch.
         self._heading = math.degrees(math.atan2(nx, ny)) % 360.0
         self.angle = self._heading
+        # Post-move push-out so the drone never ends a frame
+        # overlapping an asteroid.
+        self._apply_asteroid_pushout(asteroids or ())
 
     def attach_maze_planner(
         self,
@@ -532,6 +572,72 @@ class _BaseDrone(arcade.Sprite):
             self._shield_regen_acc -= bump
             self.shields = min(self.max_shields, self.shields + bump)
 
+    def _apply_asteroid_pushout(self, asteroids) -> bool:
+        """Push the drone out of any asteroid it overlaps after a
+        movement tick.  ``asteroids`` is a flat iterable of
+        sprites with ``center_x`` / ``center_y``; uses the constant
+        ``ASTEROID_RADIUS`` for every asteroid (matches the
+        collision layer used by player-vs-asteroid).  Returns True
+        iff a push fired this frame so the caller can suppress
+        further movement.
+
+        Cheap O(N) — drones run this every frame they actively
+        steer, but the overlap test short-circuits via squared
+        distance and the inner branch only runs on contacts."""
+        if not asteroids:
+            return False
+        from constants import ASTEROID_RADIUS
+        moved = False
+        r_total = self.radius + ASTEROID_RADIUS + self._ASTEROID_PUSH_PAD
+        r_total_sq = r_total * r_total
+        for a in asteroids:
+            dx = self.center_x - a.center_x
+            dy = self.center_y - a.center_y
+            d2 = dx * dx + dy * dy
+            if d2 >= r_total_sq or d2 == 0.0:
+                continue
+            d = math.sqrt(d2)
+            nx = dx / d
+            ny = dy / d
+            pen = r_total - d
+            self.center_x += nx * pen
+            self.center_y += ny * pen
+            moved = True
+        return moved
+
+    def _asteroid_avoidance(
+        self, asteroids, base_x: float, base_y: float,
+    ) -> tuple[float, float]:
+        """Return a steering vector blending the desired ``(base_x,
+        base_y)`` direction with a soft repulsion away from nearby
+        asteroids.  Vector is unit-magnitude (or zero).  Routing
+        emerges from this term combined with the per-frame push-out
+        — drones smoothly steer around rocks instead of grinding
+        on them when push-out shoves them sideways.
+        """
+        if not asteroids:
+            return (base_x, base_y)
+        from constants import ASTEROID_RADIUS
+        thresh = (self.radius + ASTEROID_RADIUS
+                  + self._ASTEROID_AVOID_RADIUS)
+        thresh_sq = thresh * thresh
+        sx, sy = base_x, base_y
+        for a in asteroids:
+            dx = self.center_x - a.center_x
+            dy = self.center_y - a.center_y
+            d2 = dx * dx + dy * dy
+            if d2 >= thresh_sq or d2 == 0.0:
+                continue
+            d = math.sqrt(d2)
+            # Linear falloff — stronger close, zero at threshold.
+            w = 1.0 - d / thresh
+            sx += (dx / d) * w
+            sy += (dy / d) * w
+        mag = math.hypot(sx, sy)
+        if mag < 0.001:
+            return (base_x, base_y)
+        return (sx / mag, sy / mag)
+
     def _try_unstick_nudge(
         self, dt: float, target_x: float, target_y: float,
     ) -> bool:
@@ -601,6 +707,7 @@ class _BaseDrone(arcade.Sprite):
     def _run_return_home(
         self, dt: float, player_x: float, player_y: float,
         player, walls: list | None,
+        asteroids: list | None = None,
     ) -> None:
         """RETURN_HOME tick — A* via the existing WaypointPlanner with
         the planner's give-up cooldown forcibly cleared each frame so
@@ -637,19 +744,23 @@ class _BaseDrone(arcade.Sprite):
         # gap, planner gave the right waypoint but push-out keeps
         # bouncing the drone back to the corner).
         if self._try_unstick_nudge(dt, target_x, target_y):
+            self._apply_asteroid_pushout(asteroids or ())
             return
         dx = target_x - self.center_x
         dy = target_y - self.center_y
         dist = math.hypot(dx, dy)
         if dist <= 0.001:
+            self._apply_asteroid_pushout(asteroids or ())
             return
-        step = min(DRONE_MAX_SPEED * dt, dist)
         nx = dx / dist
         ny = dy / dist
+        nx, ny = self._asteroid_avoidance(asteroids or (), nx, ny)
+        step = min(DRONE_MAX_SPEED * dt, dist)
         self.center_x += nx * step
         self.center_y += ny * step
         self._heading = math.degrees(math.atan2(nx, ny)) % 360.0
         self.angle = self._heading
+        self._apply_asteroid_pushout(asteroids or ())
 
     def _update_mode(
         self, player, target, walls: list | None = None,
@@ -846,6 +957,7 @@ class MiningDrone(_BaseDrone):
         self.update_visuals(dt)
         self.regen_shields(dt, gv.player)
         walls = _walls_from_zone(gv)
+        asteroids = _iter_asteroids(gv)
         # Mode update — target = nearest asteroid.
         target = (self._nearest_asteroid(gv) if self.has_target_lock()
                   else None)
@@ -853,11 +965,15 @@ class MiningDrone(_BaseDrone):
         if self._mode == self._MODE_RETURN_HOME:
             self._run_return_home(
                 dt, gv.player.center_x, gv.player.center_y,
-                gv.player, walls)
+                gv.player, walls, asteroids)
         elif self._mode == self._MODE_FOLLOW:
             self.follow(dt, gv.player.center_x, gv.player.center_y,
-                        player=gv.player, walls=walls)
-        # else (ATTACK): hold position while attacking (no movement)
+                        player=gv.player, walls=walls,
+                        asteroids=asteroids)
+        else:
+            # ATTACK: hold position but still avoid drifting into a
+            # rock if push-out from a previous frame left an overlap.
+            self._apply_asteroid_pushout(asteroids)
         # Vacuum any iron / blueprint pickup within reach by flagging
         # it as flying — the standard pickup loop in game_view's
         # on_update already pulls it toward the player and credits
@@ -878,6 +994,13 @@ class MiningDrone(_BaseDrone):
         return self._aim_and_fire(target.center_x, target.center_y)
 
     def _nearest_asteroid(self, gv: "GameView"):
+        """Pick the nearest mineable rock within
+        ``MINING_DRONE_MINING_RANGE``.  Now includes wandering
+        magnetic asteroids alongside the static iron / double-iron /
+        copper lists — wanderers carry the same ``mines_rock``
+        damage profile and were previously invisible to the drone
+        only because the source list omitted them.
+        """
         from itertools import chain
         best = None
         best_d2 = MINING_DRONE_MINING_RANGE * MINING_DRONE_MINING_RANGE
@@ -888,6 +1011,7 @@ class MiningDrone(_BaseDrone):
             sources.append(zone._iron_asteroids)
             sources.append(getattr(zone, "_double_iron", []))
             sources.append(getattr(zone, "_copper_asteroids", []))
+            sources.append(getattr(zone, "_wanderers", []))
         else:
             sources.append(getattr(gv, "asteroid_list", []))
         for a in chain(*sources):
@@ -922,18 +1046,22 @@ class CombatDrone(_BaseDrone):
         self.update_visuals(dt)
         self.regen_shields(dt, gv.player)
         walls = _walls_from_zone(gv)
+        asteroids = _iter_asteroids(gv)
         target = (self._nearest_enemy(gv) if self.has_target_lock()
                   else None)
         self._update_mode(gv.player, target, walls)
         if self._mode == self._MODE_RETURN_HOME:
             self._run_return_home(
                 dt, gv.player.center_x, gv.player.center_y,
-                gv.player, walls)
+                gv.player, walls, asteroids)
             return None
         elif self._mode == self._MODE_FOLLOW:
             self.follow(dt, gv.player.center_x, gv.player.center_y,
-                        player=gv.player, walls=walls)
-        # else (ATTACK): hold station and engage
+                        player=gv.player, walls=walls,
+                        asteroids=asteroids)
+        else:
+            # ATTACK — hold station; clear any leftover overlap.
+            self._apply_asteroid_pushout(asteroids)
         if self._mode != self._MODE_ATTACK or target is None:
             return None
         # Stuck check: same target with no HP drop for 5 s → bail.

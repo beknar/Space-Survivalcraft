@@ -111,6 +111,12 @@ class StarMazeZone(ZoneState):
     def __init__(self) -> None:
         self._world_seed: int = random.randint(0, 2**31 - 1)
         self._populated: bool = False
+        # Whether the player has defeated this zone's Nebula boss
+        # (summoned via QWI inside the Star Maze).  Gates the four
+        # corner wormholes — until True, only the central return
+        # wormhole exists.  Persisted in save/load so the unlock
+        # survives session resumes.
+        self._nebula_boss_defeated: bool = False
         # Per-maze artefacts — parallel lists indexed by maze id.
         self._mazes: list[MazeLayout] = []
         # Flattened room + wall lists covering both mazes (used by
@@ -209,21 +215,15 @@ class StarMazeZone(ZoneState):
         gv._wormholes = [wh]
         gv._wormhole_list.clear()
         gv._wormhole_list.append(wh)
-        # Four corner wormholes chaining to the MAZE_WARP_* variants.
-        margin = 220
-        ww = self.world_width
-        whh = self.world_height
-        corners = [
-            (margin, margin, ZoneID.MAZE_WARP_METEOR),
-            (ww - margin, margin, ZoneID.MAZE_WARP_LIGHTNING),
-            (margin, whh - margin, ZoneID.MAZE_WARP_GAS),
-            (ww - margin, whh - margin, ZoneID.MAZE_WARP_ENEMY),
-        ]
-        for (wx, wy, target) in corners:
-            cwh = Wormhole(wx, wy)
-            cwh.zone_target = target
-            gv._wormholes.append(cwh)
-            gv._wormhole_list.append(cwh)
+        # Four corner wormholes chaining to the MAZE_WARP_* variants —
+        # ONLY visible after the player defeats this zone's Nebula
+        # boss (summoned via a QWI built in the Star Maze).  Until
+        # then the maze is sealed except for the central return
+        # wormhole back to Zone 2.
+        if self._nebula_boss_defeated:
+            for cwh in self._build_corner_wormholes():
+                gv._wormholes.append(cwh)
+                gv._wormhole_list.append(cwh)
 
         # Fog grid hand-off.
         gv._fog_grid = self._fog_grid
@@ -645,6 +645,42 @@ class StarMazeZone(ZoneState):
         """World-space position of the central return wormhole.  Kept
         as a method so ``setup`` + ``get_player_spawn`` stay in sync."""
         return (self.world_width / 2, self.world_height / 2)
+
+    def _build_corner_wormholes(self) -> list[Wormhole]:
+        """Build the four MAZE_WARP_* corner wormholes for this
+        zone.  Shared between ``setup`` (when the boss-defeat flag
+        is True at zone enter) and ``mark_nebula_boss_defeated``
+        (live unlock when the player kills the boss inside the
+        maze)."""
+        margin = 220
+        ww = self.world_width
+        whh = self.world_height
+        corners = [
+            (margin, margin, ZoneID.MAZE_WARP_METEOR),
+            (ww - margin, margin, ZoneID.MAZE_WARP_LIGHTNING),
+            (margin, whh - margin, ZoneID.MAZE_WARP_GAS),
+            (ww - margin, whh - margin, ZoneID.MAZE_WARP_ENEMY),
+        ]
+        out: list[Wormhole] = []
+        for (wx, wy, target) in corners:
+            cwh = Wormhole(wx, wy)
+            cwh.zone_target = target
+            out.append(cwh)
+        return out
+
+    def mark_nebula_boss_defeated(self, gv: GameView) -> None:
+        """Called from the collision layer when the Nebula boss dies
+        while the player is inside the Star Maze.  Flips the
+        persistence flag and adds the four corner wormholes to the
+        live wormhole lists so the player can enter them without
+        leaving and re-entering the zone.  Mirrors the matching
+        method on ``Zone2``."""
+        if self._nebula_boss_defeated:
+            return
+        self._nebula_boss_defeated = True
+        for cwh in self._build_corner_wormholes():
+            gv._wormholes.append(cwh)
+            gv._wormhole_list.append(cwh)
 
     def _find_open_point(self, cx: float, cy: float,
                          radius: float = 80.0) -> tuple[float, float]:

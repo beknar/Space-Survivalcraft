@@ -568,11 +568,14 @@ def _nebula_boss_death(gv: GameView) -> None:
         gv._nebula_boss_list.clear()
     if hasattr(gv, "_nebula_gas_clouds"):
         gv._nebula_gas_clouds.clear()
-    # Unlock the four corner wormholes to the Star Maze.  The current
-    # zone is Zone 2 (we just killed its boss); defer to it for the
-    # actual placement so the Zone 2 state owns the persistence flag.
+    # Unlock the four corner wormholes for the zone the boss died
+    # in.  Both Zone 2 and the Star Maze gate their corner wormholes
+    # behind a Nebula-boss kill (Zone 2 → MAZE_WARP_*; Star Maze →
+    # MAZE_WARP_*).  Defer to whichever zone the player is currently
+    # in so each owns its own persistence flag.
     from zones.zone2 import Zone2 as _Zone2
-    if isinstance(gv._zone, _Zone2):
+    from zones.star_maze import StarMazeZone as _StarMazeZone
+    if isinstance(gv._zone, (_Zone2, _StarMazeZone)):
         gv._zone.mark_nebula_boss_defeated(gv)
     gv._boss_announce_timer = 5.0
     gv._t_boss_announce.text = "Nebula Boss KILLED"
