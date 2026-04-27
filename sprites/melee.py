@@ -51,29 +51,65 @@ class MeleeBlade(arcade.Sprite):
     # ── Pose ────────────────────────────────────────────────────────
 
     def _update_pose(self) -> None:
-        """Anchor to the ship's nose at ``self._offset`` ahead.
-        Rotation: idle → points forward (matches ship heading);
-        swinging → rotates from ``-arc/2`` to ``+arc/2`` over the
-        swing's lifetime."""
+        """Anchor the blade so the **handle** sits at
+        ``self._offset`` ahead of the ship's nose, and the blade
+        extends forward (and arcs through the swing) from there.
+
+        arcade Sprites rotate around their center, so to make the
+        sword swing around the handle (rather than the middle of
+        the blade) we have to slide the sprite centre forward
+        each frame: ``sprite_center = pivot + half_length *
+        tip_direction``.  The pivot stays glued to the ship; the
+        sprite centre traces a small arc as the swing rotates the
+        tip direction.
+
+        ``MELEE_TEX_ANGLE_OFFSET`` compensates for the sword PNG's
+        diagonal art so the blade tip lines up with the ship's
+        heading + swing offset.
+        """
+        # Pivot — handle position, fixed ahead of the ship's nose.
         rad = math.radians(self._ship.heading)
         nx = math.sin(rad)
         ny = math.cos(rad)
-        self.center_x = self._ship.center_x + nx * self._offset
-        self.center_y = self._ship.center_y + ny * self._offset
-        # ``MELEE_TEX_ANGLE_OFFSET`` compensates for the sword
-        # PNG's diagonal art so the blade tip lines up with the
-        # ship's heading direction in both idle and swinging
-        # poses.
+        pivot_x = self._ship.center_x + nx * self._offset
+        pivot_y = self._ship.center_y + ny * self._offset
+
+        # Swing-animation progress (-arc/2 → +arc/2 over lifetime).
         if self._swing_timer > 0.0:
             progress = 1.0 - (self._swing_timer / MELEE_SWING_LIFETIME)
             progress = max(0.0, min(1.0, progress))
-            self.angle = (self._ship.heading
-                          - MELEE_SWING_ARC * 0.5
-                          + MELEE_SWING_ARC * progress
-                          + MELEE_TEX_ANGLE_OFFSET)
+            swing_offset = (-MELEE_SWING_ARC * 0.5
+                            + MELEE_SWING_ARC * progress)
         else:
-            # Idle — blade points straight ahead.
-            self.angle = self._ship.heading + MELEE_TEX_ANGLE_OFFSET
+            swing_offset = 0.0
+
+        # Rendered sprite angle — texture offset compensates for
+        # the diagonally-drawn sword PNG.
+        self.angle = (self._ship.heading + swing_offset
+                      + MELEE_TEX_ANGLE_OFFSET)
+
+        # Slide the sprite centre forward by half a blade-length
+        # along the blade's current pointing direction so the
+        # handle (rear of sprite) stays at the pivot.  Tip
+        # direction excludes the texture-art offset — that's just
+        # for visual rotation, not the physical direction the
+        # blade is pointing.
+        tip_rad = math.radians(self._ship.heading + swing_offset)
+        tip_x = math.sin(tip_rad)
+        tip_y = math.cos(tip_rad)
+        half_len = self.height * 0.5
+        self.center_x = pivot_x + tip_x * half_len
+        self.center_y = pivot_y + tip_y * half_len
+
+    @property
+    def handle_pos(self) -> tuple[float, float]:
+        """World-space position of the swing pivot (the rear /
+        handle of the blade).  Equal to
+        ``(ship.center + offset * ship_forward)`` regardless of
+        swing animation state."""
+        rad = math.radians(self._ship.heading)
+        return (self._ship.center_x + math.sin(rad) * self._offset,
+                self._ship.center_y + math.cos(rad) * self._offset)
 
     def update_blade(self, dt: float) -> None:
         """Advance the swing animation (if any) and re-anchor."""

@@ -119,25 +119,41 @@ class TestBladeIdlePose:
         update_weapons(gv, 1 / 60, fire=False)
         return gv
 
-    def test_blade_offset_is_base_hit_radius_for_non_bastion(self):
-        """Blade rests at MELEE_HIT_RADIUS (80 px) ahead of the
-        non-Bastion ship's nose."""
+    def test_blade_handle_at_base_hit_radius_for_non_bastion(self):
+        """Handle (pivot) sits at MELEE_HIT_RADIUS (80 px) ahead
+        of the non-Bastion ship's nose; the blade extends further
+        forward from there."""
         from constants import MELEE_HIT_RADIUS
         gv = self._setup_with_melee_active("Cruiser")
         b = gv._active_blade
-        assert b.center_x == pytest.approx(1000.0)
-        assert b.center_y == pytest.approx(2000.0 + MELEE_HIT_RADIUS)
+        hx, hy = b.handle_pos
+        assert hx == pytest.approx(1000.0)
+        assert hy == pytest.approx(2000.0 + MELEE_HIT_RADIUS)
         assert b.hit_radius == MELEE_HIT_RADIUS
 
-    def test_blade_offset_is_bastion_hit_radius_for_bastion(self):
-        """Bastion gets a longer reach — blade rests at
+    def test_blade_handle_at_bastion_hit_radius_for_bastion(self):
+        """Bastion gets a longer reach — handle sits at
         MELEE_BASTION_HIT_RADIUS (110 px) ahead."""
         from constants import MELEE_BASTION_HIT_RADIUS
         gv = self._setup_with_melee_active("Bastion")
         b = gv._active_blade
-        assert b.center_y == pytest.approx(
-            2000.0 + MELEE_BASTION_HIT_RADIUS)
+        _, hy = b.handle_pos
+        assert hy == pytest.approx(2000.0 + MELEE_BASTION_HIT_RADIUS)
         assert b.hit_radius == MELEE_BASTION_HIT_RADIUS
+
+    def test_blade_sprite_center_offset_forward_from_handle(self):
+        """Sprite centre is half a blade-length AHEAD of the
+        handle — that's what gives the swing-from-handle effect.
+        The sprite rotates around its centre, so for the visible
+        rotation pivot to be at the handle the centre has to
+        slide forward by half the sprite's height."""
+        gv = self._setup_with_melee_active("Cruiser")
+        b = gv._active_blade
+        hx, hy = b.handle_pos
+        # Heading=0 → blade extends straight up → centre at
+        # handle + (0, half_height).
+        assert b.center_x == pytest.approx(hx)
+        assert b.center_y == pytest.approx(hy + b.height * 0.5)
 
     def test_blade_idle_angle_aligned_with_heading(self):
         """Idle blade renders aligned with the ship's heading.
@@ -148,6 +164,55 @@ class TestBladeIdlePose:
         gv = self._setup_with_melee_active("Cruiser")
         assert gv._active_blade.angle == pytest.approx(
             gv.player.heading + MELEE_TEX_ANGLE_OFFSET)
+
+
+class TestHandleStaysFixedDuringSwing:
+    def test_handle_position_invariant_across_swing_animation(self):
+        """The whole point of swinging from the handle is that
+        the handle stays put while the tip arcs through the air.
+        Tick a swing across multiple frames; the handle position
+        must be identical (or near-identical) at every step
+        because the ship hasn't moved."""
+        from update_logic import update_weapons
+        from game_view import GameView
+        gv = GameView(faction="Earth", ship_type="Cruiser",
+                       skip_music=True)
+        gv._cycle_weapon(); gv._cycle_weapon()
+        # Park the player so handle is at a known location.
+        gv.player.center_x = 500.0
+        gv.player.center_y = 600.0
+        gv.player.heading = 0.0
+        update_weapons(gv, 1 / 60, fire=True)   # spawn + start swing
+        b = gv._active_blade
+        handle_at_start = b.handle_pos
+        # Tick across the swing without moving the player.
+        for _ in range(8):
+            update_weapons(gv, 1 / 60, fire=False)
+            assert b.handle_pos == pytest.approx(handle_at_start), (
+                "handle moved during the swing animation — the "
+                "pivot is wandering, not staying put")
+
+    def test_sprite_center_moves_during_swing(self):
+        """Sanity check on the inverse: the sprite's centre DOES
+        move during the swing animation (it traces a small arc
+        as the tip swings).  If this stayed put we'd be back to
+        rotating around the middle."""
+        from update_logic import update_weapons
+        from game_view import GameView
+        gv = GameView(faction="Earth", ship_type="Cruiser",
+                       skip_music=True)
+        gv._cycle_weapon(); gv._cycle_weapon()
+        update_weapons(gv, 1 / 60, fire=True)
+        b = gv._active_blade
+        center_at_start = (b.center_x, b.center_y)
+        # Tick a couple of frames into the swing so the rotation
+        # has moved the sprite centre away from its starting pose.
+        for _ in range(4):
+            update_weapons(gv, 1 / 60, fire=False)
+        assert ((b.center_x, b.center_y) != pytest.approx(
+            center_at_start)), (
+            "sprite centre stayed put — pivot-from-handle math "
+            "isn't running")
 
 
 class TestBladeReachConstants:
