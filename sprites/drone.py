@@ -638,6 +638,22 @@ class _BaseDrone(arcade.Sprite):
             return (base_x, base_y)
         return (sx / mag, sy / mag)
 
+    def _vacuum_pickups(self, gv: "GameView") -> None:
+        """Flag any iron / blueprint pickup within reach as flying so
+        the standard pickup loop in ``game_view.on_update`` carries
+        it back to the player.  Both drones run this every frame —
+        mining drones for the obvious mining loot loop, combat
+        drones so they incidentally vacuum loot they happen to fly
+        past during patrols and engagements."""
+        for plist in (gv.iron_pickup_list, gv.blueprint_pickup_list):
+            for p in plist:
+                if getattr(p, "_flying", True):
+                    continue
+                if math.hypot(p.center_x - self.center_x,
+                              p.center_y - self.center_y
+                              ) <= MINING_DRONE_PICKUP_RADIUS:
+                    p._flying = True
+
     def _try_unstick_nudge(
         self, dt: float, target_x: float, target_y: float,
     ) -> bool:
@@ -974,18 +990,7 @@ class MiningDrone(_BaseDrone):
             # ATTACK: hold position but still avoid drifting into a
             # rock if push-out from a previous frame left an overlap.
             self._apply_asteroid_pushout(asteroids)
-        # Vacuum any iron / blueprint pickup within reach by flagging
-        # it as flying — the standard pickup loop in game_view's
-        # on_update already pulls it toward the player and credits
-        # the inventory on contact.  Runs in both modes.
-        for plist in (gv.iron_pickup_list, gv.blueprint_pickup_list):
-            for p in plist:
-                if getattr(p, "_flying", True):
-                    continue
-                if math.hypot(p.center_x - self.center_x,
-                              p.center_y - self.center_y
-                              ) <= MINING_DRONE_PICKUP_RADIUS:
-                    p._flying = True
+        self._vacuum_pickups(gv)
         if self._mode != self._MODE_ATTACK or target is None:
             return None
         # Stuck check: same target with no HP drop for 5 s → bail.
@@ -1062,6 +1067,11 @@ class CombatDrone(_BaseDrone):
         else:
             # ATTACK — hold station; clear any leftover overlap.
             self._apply_asteroid_pushout(asteroids)
+        # Combat drones also vacuum any iron / blueprint pickup
+        # they fly past — no reason to leave loot on the ground
+        # just because the drone happens to be the combat variant
+        # rather than the mining one.
+        self._vacuum_pickups(gv)
         if self._mode != self._MODE_ATTACK or target is None:
             return None
         # Stuck check: same target with no HP drop for 5 s → bail.

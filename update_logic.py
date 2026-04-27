@@ -1576,13 +1576,20 @@ def update_missiles(gv: GameView, dt: float) -> None:
     elif hasattr(gv._zone, '_aliens'):
         for a in gv._zone._aliens:
             targets.append((a.center_x, a.center_y))
-    # Star Maze: maze aliens + live spawners are both homing targets.
+    # Star Maze: maze aliens + live spawners + stalkers are all
+    # homing targets.  Stalkers live OUTSIDE the maze structures
+    # but are full hostile ships (75 HP, 100 px/s, missile-armed)
+    # so the player's homing missiles should track them like every
+    # other enemy.
     if gv._zone.zone_id == ZoneID.STAR_MAZE:
         for a in getattr(gv._zone, "_maze_aliens", ()):
             targets.append((a.center_x, a.center_y))
         for sp in getattr(gv._zone, "spawners", ()):
             if not sp.killed:
                 targets.append((sp.center_x, sp.center_y))
+        for st in getattr(gv._zone, "_stalkers", ()):
+            if getattr(st, "hp", 0) > 0:
+                targets.append((st.center_x, st.center_y))
     # Bosses are zone-agnostic targets — the Double Star lives in the
     # zone it was summoned in, the Nebula boss in Zone 2 via the QWI.
     if gv._boss is not None and gv._boss.hp > 0:
@@ -1661,6 +1668,22 @@ def update_missiles(gv: GameView, dt: float) -> None:
                                 MAZE_SPAWNER_IRON_DROP, bonus_iron_enemy,
                                 0.0, xp=MAZE_SPAWNER_XP,
                             )
+                        m.remove_from_sprite_lists()
+                        hit = True
+                        break
+            # Stalkers — Star-Maze-specific, full ships outside the
+            # maze structures.  Use the zone-2 loot drop since
+            # they're roughly equivalent enemy class.
+            if not hit:
+                for st in list(getattr(gv._zone, "_stalkers", ())):
+                    if math.hypot(m.center_x - st.center_x,
+                                  m.center_y - st.center_y) < 25:
+                        gv.hit_sparks.append(HitSpark(
+                            m.center_x, m.center_y))
+                        gv._spawn_explosion(m.center_x, m.center_y)
+                        st.take_damage(int(m.damage))
+                        if getattr(st, "hp", 1) <= 0:
+                            drop_zone2_alien_loot(gv._zone, gv, st)
                         m.remove_from_sprite_lists()
                         hit = True
                         break

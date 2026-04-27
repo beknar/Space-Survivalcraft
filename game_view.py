@@ -721,6 +721,24 @@ class GameView(arcade.View):
         self.player.center_y = py
         self.player.vel_x = 0.0
         self.player.vel_y = 0.0
+        # Drag the active drone through the wormhole with the player
+        # — it doesn't make sense to leave the drone stranded in the
+        # zone the player just left.  Drop it next to the spawn so
+        # the slot picker can settle it on the next tick; reset the
+        # un-stick nudge anchor so the tracker doesn't fire on the
+        # teleport jump.  Also clear the planner's cached path since
+        # the maze geometry just changed (the planner rebuilds via
+        # ``attach_maze_planner`` on the next ``update_drone`` call).
+        active_drone = getattr(self, "_active_drone", None)
+        if active_drone is not None:
+            active_drone.center_x = px + 30
+            active_drone.center_y = py + 30
+            active_drone._nudge_anchor_x = active_drone.center_x
+            active_drone._nudge_anchor_y = active_drone.center_y
+            active_drone._nudge_timer = 0.0
+            # Force the maze planner to re-attach with the new
+            # zone's geometry on the next tick.
+            active_drone._follow_planner_geom_id = 0
         # Zone entry announcement
         _ZONE_NAMES = {
             ZoneID.MAIN: "Entering the Double Star Zone",

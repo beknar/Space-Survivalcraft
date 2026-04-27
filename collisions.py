@@ -720,6 +720,14 @@ def _destroy_parked_ship(gv: GameView, ship) -> None:
         from sprites.pickup import BlueprintPickup
         tex = _bp_icons.get(mod, gv._blueprint_tex)
         bp = BlueprintPickup(tex, x, y, module_type=mod)
+        # Modules dropped from a destroyed parked ship were
+        # already-installed instances — they should land in the
+        # player's inventory as ready-to-equip modules
+        # (``mod_<key>``), NOT blueprints (``bp_<key>``) that need
+        # to be re-crafted.  ``BlueprintPickup`` defaults to the
+        # ``bp_`` form; override the item_type so the inventory
+        # add_item call routes to the correct slot icon.
+        bp.item_type = f"mod_{mod}"
         gv.blueprint_pickup_list.append(bp)
     ship.remove_from_sprite_lists()
 
