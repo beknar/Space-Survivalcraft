@@ -567,6 +567,7 @@ class StarMazeZone(ZoneState):
                 maze_bounds=bounds,
                 rooms=maze.rooms,
                 room_graph=maze.room_graph,
+                doorways=getattr(maze, "doorways", None),
             )
             self._maze_aliens.append(alien)
             self._alien_parent[alien] = sp.uid
@@ -930,6 +931,8 @@ class StarMazeZone(ZoneState):
             maze_bounds=bounds,
             rooms=maze.rooms if maze is not None else None,
             room_graph=maze.room_graph if maze is not None else None,
+            doorways=(getattr(maze, "doorways", None)
+                      if maze is not None else None),
         )
         self._maze_aliens.append(alien)
         self._alien_parent[alien] = sp.uid

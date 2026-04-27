@@ -55,6 +55,14 @@ class MazeLayout(NamedTuple):
     room_graph: dict[int, list[int]]
     rows: int
     cols: int
+    # World-space midpoint of the carved-out doorway between two
+    # connected rooms.  Keyed by ``frozenset({a, b})`` so callers
+    # don't have to know the order.  Used by ``WaypointPlanner`` to
+    # aim at the gap in the wall before aiming at the next room's
+    # centre — without this the drone steers a straight line
+    # between two room centres that may clip a wall corner and
+    # wedge the drone forever.
+    doorways: dict[frozenset[int], tuple[float, float]] = {}
 
 
 def _add_outer_wall_with_gap(
@@ -226,22 +234,38 @@ def generate_maze(
     # rooms list above is laid out as ``rooms[c * rows + r]`` so that
     # index can be derived from a (col, row) pair.
     room_graph: dict[int, list[int]] = {i: [] for i in range(len(rooms))}
+    # World-space midpoint of each carved doorway, indexed by the
+    # unordered pair of room indices it connects.  Used by the
+    # WaypointPlanner to aim at the gap before aiming at the next
+    # room's centre.
+    doorways: dict[frozenset[int], tuple[float, float]] = {}
 
     def _idx(c: int, r: int) -> int:
         return c * rows + r
+    half_wall = wall_thick * 0.5
+    half_room = room_size * 0.5
     for (c, r) in carved_h_edges:           # connects (c, r) ↔ (c, r+1)
         a, b = _idx(c, r), _idx(c, r + 1)
         room_graph[a].append(b)
         room_graph[b].append(a)
+        # Carved horizontal wall sat at y = origin_y + wall_thick +
+        # r*step + room_size; its midpoint along x is the room centre.
+        dx = origin_x + wall_thick + c * step + half_room
+        dy = origin_y + wall_thick + r * step + room_size + half_wall
+        doorways[frozenset((a, b))] = (dx, dy)
     for (c, r) in carved_v_edges:           # connects (c, r) ↔ (c+1, r)
         a, b = _idx(c, r), _idx(c + 1, r)
         room_graph[a].append(b)
         room_graph[b].append(a)
+        dx = origin_x + wall_thick + c * step + room_size + half_wall
+        dy = origin_y + wall_thick + r * step + half_room
+        doorways[frozenset((a, b))] = (dx, dy)
 
     return MazeLayout(
         rooms=rooms, walls=walls,
         spawner=spawner_xy, bounds=bounds,
         room_graph=room_graph, rows=rows, cols=cols,
+        doorways=doorways,
     )
 
 
@@ -429,9 +453,17 @@ class WaypointPlanner:
         self,
         rooms: list[Rect] | None,
         room_graph: dict[int, list[int]] | None,
+        doorways: dict[frozenset[int], tuple[float, float]] | None = None,
     ) -> None:
         self._rooms = rooms
         self._room_graph = room_graph
+        # Optional: per-edge doorway midpoints.  When present, the
+        # planner aims at the gap-in-the-wall first, then the next
+        # room's centre — straight-line steering between two room
+        # centres can clip a wall corner and wedge the body forever.
+        # ``None`` keeps the legacy room-centre behaviour for
+        # callers that haven't passed it yet.
+        self._doorways = doorways or {}
         self._path: list[int] = []
         self._path_target_room: int | None = None
         self._replan_t: float = 0.0
@@ -547,6 +579,16 @@ class WaypointPlanner:
                     self._fail()
                     return None
 
+        # Doorway-aware steering: when we know the gap location
+        # between the current room and the next, aim there first so
+        # we cleanly cross the wall instead of clipping a corner.
+        # Falls back to the next room's centre when no doorway entry
+        # exists (caller didn't pass the doorways table or the maze
+        # is laid out without carved gaps for some reason).
+        edge_key = frozenset((sroom, self._path[1]))
+        door = self._doorways.get(edge_key)
+        if door is not None:
+            return door
         nxt = self._rooms[self._path[1]]
         return (nxt.x + nxt.w * 0.5, nxt.y + nxt.h * 0.5)
 

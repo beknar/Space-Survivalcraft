@@ -73,6 +73,85 @@ class TestProducesWaypoint:
         )
 
 
+class TestDoorwayWaypoint:
+    """Doorway-aware steering: when crossing rooms, the planner
+    should aim at the carved gap in the wall, not the next room's
+    centre — straight-line steering between two room centres can
+    clip a wall corner and wedge the body forever.
+    """
+
+    def test_doorways_present_on_layout(self, maze):
+        # Every entry in the room graph should have a corresponding
+        # doorway midpoint (graph is symmetric, doorways are keyed
+        # by frozenset so both directions resolve to one entry).
+        for a, neighbours in maze.room_graph.items():
+            for b in neighbours:
+                assert frozenset((a, b)) in maze.doorways
+
+    def test_doorway_lies_on_carved_wall_gap(self, maze):
+        """Each doorway midpoint must sit between the two rooms it
+        connects (axis-overlap with the wall band that was carved out).
+        """
+        for edge_key, (mx, my) in maze.doorways.items():
+            a, b = tuple(edge_key)
+            ra, rb = maze.rooms[a], maze.rooms[b]
+            # Doorway midpoint must lie inside the union of the two
+            # room AABBs along the perpendicular axis (the open gap
+            # has the same span as the rooms it connects).
+            in_a_or_b = (
+                (ra.x <= mx <= ra.x + ra.w
+                 and ra.y <= my <= ra.y + ra.h + 32)
+                or
+                (rb.x <= mx <= rb.x + rb.w
+                 and rb.y <= my <= rb.y + rb.h + 32)
+                or
+                (ra.x - 32 <= mx <= ra.x + ra.w + 32
+                 and ra.y - 32 <= my <= ra.y + ra.h + 32))
+            assert in_a_or_b, f"doorway {edge_key} at {(mx, my)} not near rooms"
+
+    def test_planner_aims_at_doorway_not_room_centre(self, maze):
+        """Adjacent rooms (single-step path) — planner returns the
+        doorway midpoint, NOT the next room's centre."""
+        # Pick any pair of adjacent rooms.
+        start_idx, neighbours = next(
+            (i, n) for i, n in maze.room_graph.items() if n)
+        target_idx = neighbours[0]
+        sr = maze.rooms[start_idx]
+        tr = maze.rooms[target_idx]
+        sx = sr.x + sr.w * 0.5
+        sy = sr.y + sr.h * 0.5
+        tx = tr.x + tr.w * 0.5
+        ty = tr.y + tr.h * 0.5
+        p = WaypointPlanner(maze.rooms, maze.room_graph, maze.doorways)
+        wp = p.plan(0.016, sx, sy, tx, ty)
+        assert wp is not None
+        wx, wy = wp
+        door = maze.doorways[frozenset((start_idx, target_idx))]
+        # Allow tiny float tolerance.
+        assert abs(wx - door[0]) < 0.5
+        assert abs(wy - door[1]) < 0.5
+        # Confirm it's actually different from the room centre (so
+        # we know the test is doing something).
+        assert (abs(wx - tx) > 1.0 or abs(wy - ty) > 1.0)
+
+    def test_planner_falls_back_to_room_centre_without_doorways(self, maze):
+        """Caller passing no doorway table — planner reverts to the
+        legacy room-centre target so older callers keep working."""
+        start_idx, neighbours = next(
+            (i, n) for i, n in maze.room_graph.items() if n)
+        target_idx = neighbours[0]
+        sr = maze.rooms[start_idx]
+        tr = maze.rooms[target_idx]
+        p = WaypointPlanner(maze.rooms, maze.room_graph)  # no doorways
+        wp = p.plan(0.016,
+                    sr.x + sr.w * 0.5, sr.y + sr.h * 0.5,
+                    tr.x + tr.w * 0.5, tr.y + tr.h * 0.5)
+        assert wp is not None
+        wx, wy = wp
+        assert abs(wx - (tr.x + tr.w * 0.5)) < 0.5
+        assert abs(wy - (tr.y + tr.h * 0.5)) < 0.5
+
+
 class TestStuckTimeout:
     def test_no_progress_for_5_seconds_triggers_give_up(self, maze):
         p = WaypointPlanner(maze.rooms, maze.room_graph)

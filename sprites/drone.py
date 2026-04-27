@@ -195,6 +195,15 @@ class _BaseDrone(arcade.Sprite):
     # RETURN_HOME until it's reeled back inside this radius — keeps
     # the mode flag from oscillating at exactly the break-off line.
     _RETURN_HOME_EXIT_DIST = 600.0
+    # Un-stick nudge thresholds.  Anchor-vs-now movement under
+    # ``_NUDGE_DIST`` over ``_NUDGE_TIME`` seconds while the drone
+    # should be moving (FOLLOW with off-slot delta or RETURN_HOME)
+    # triggers a single perpendicular impulse for one frame.  The
+    # anchor resets after the nudge (or any real movement) so we
+    # don't re-fire every tick.
+    _NUDGE_TIME: float = 0.5
+    _NUDGE_DIST: float = 10.0
+    _NUDGE_IMPULSE: float = 60.0   # extra px applied perpendicular
 
     def __init__(
         self,
@@ -244,6 +253,16 @@ class _BaseDrone(arcade.Sprite):
         #                roams to engage.
         self._reaction: str = "attack"
         self._direct_order: str | None = None
+        # Un-stick nudge — safety net for the doorway-aware planner.
+        # When the drone hasn't moved appreciably for ``_NUDGE_TIME``
+        # seconds while it's actively trying to navigate (FOLLOW or
+        # RETURN_HOME with a non-trivial distance to target), apply
+        # a one-frame perpendicular impulse to dislodge from the
+        # corner / wall it's grinding on.
+        self._nudge_anchor_x: float | None = None
+        self._nudge_anchor_y: float | None = None
+        self._nudge_timer: float = 0.0
+        self._nudge_dir: float = 0.0  # last sliding-nudge angle (rad)
         self._fire_cd: float = 0.0
         self._hit_timer: float = 0.0
         self._shield_angle: float = 0.0
@@ -413,6 +432,11 @@ class _BaseDrone(arcade.Sprite):
                 target_x = player_x - DRONE_FOLLOW_DIST
                 target_y = player_y
 
+        # Un-stick nudge for FOLLOW too (mostly fires when the
+        # planner is routing through doorways and the drone wedges
+        # on a corner; same safety net as RETURN_HOME).
+        if self._try_unstick_nudge(dt, target_x, target_y):
+            return
         dx = target_x - self.center_x
         dy = target_y - self.center_y
         dist = math.hypot(dx, dy)
@@ -432,18 +456,24 @@ class _BaseDrone(arcade.Sprite):
         self,
         rooms,
         room_graph,
+        doorways=None,
     ) -> None:
         """Swap in a fresh WaypointPlanner for the supplied maze
         geometry — used by ``update_logic.update_drone`` when the
         drone is inside the Star Maze.  The geometry id check avoids
         re-allocating every frame when the drone stays in the same
         zone.  Pass ``rooms=None`` / ``room_graph=None`` to revert
-        the planner to no-op (e.g. exiting the Star Maze)."""
+        the planner to no-op (e.g. exiting the Star Maze).
+
+        ``doorways`` is the per-edge midpoint table from MazeLayout;
+        without it the planner falls back to room-centre steering
+        (which clips wall corners and can wedge the drone)."""
         gid = id(rooms) ^ id(room_graph)
         if gid == self._follow_planner_geom_id:
             return
         from zones.maze_geometry import WaypointPlanner
-        self._follow_planner = WaypointPlanner(rooms, room_graph)
+        self._follow_planner = WaypointPlanner(rooms, room_graph,
+                                                doorways)
         self._follow_planner_geom_id = gid
 
     def update_visuals(self, dt: float) -> None:
@@ -482,6 +512,72 @@ class _BaseDrone(arcade.Sprite):
             self._shield_regen_acc -= bump
             self.shields = min(self.max_shields, self.shields + bump)
 
+    def _try_unstick_nudge(
+        self, dt: float, target_x: float, target_y: float,
+    ) -> bool:
+        """Safety-net nudge.  When the drone has been trying to
+        steer toward (target_x, target_y) but hasn't physically
+        moved more than ``_NUDGE_DIST`` over ``_NUDGE_TIME`` seconds,
+        slide one frame's worth of motion perpendicular to the
+        steering direction so a wall-corner wedge can pop free.
+
+        Returns True iff a nudge fired this frame; the caller should
+        treat it like a normal step (no further movement that frame).
+        Always advances the per-tick anchor / timer.
+        """
+        if self._nudge_anchor_x is None:
+            self._nudge_anchor_x = self.center_x
+            self._nudge_anchor_y = self.center_y
+            self._nudge_timer = 0.0
+            self._nudge_dir = (
+                self._nudge_dir if self._nudge_dir != 0.0
+                else 1.0)   # 1.0 = right-perpendicular, -1.0 = left
+            return False
+        moved_sq = (
+            (self.center_x - self._nudge_anchor_x) ** 2
+            + (self.center_y - self._nudge_anchor_y) ** 2
+        )
+        if moved_sq >= self._NUDGE_DIST * self._NUDGE_DIST:
+            # Real progress — reset the tracker so we only fire when
+            # actually stuck.
+            self._nudge_anchor_x = self.center_x
+            self._nudge_anchor_y = self.center_y
+            self._nudge_timer = 0.0
+            return False
+        self._nudge_timer += dt
+        if self._nudge_timer < self._NUDGE_TIME:
+            return False
+        # Trigger a perpendicular slide.  Direction toward target
+        # gives the steering vector; perpendicular rotates it 90°.
+        # Alternates side each fire so a single wall corner that
+        # blocks the right-slide gets a left-slide on the next try.
+        dx = target_x - self.center_x
+        dy = target_y - self.center_y
+        d = math.hypot(dx, dy)
+        if d <= 0.001:
+            self._nudge_timer = 0.0
+            return False
+        nx = dx / d
+        ny = dy / d
+        side = self._nudge_dir
+        # 90° rotation: (nx, ny) → (ny, -nx) for right, (-ny, nx) for left.
+        px = ny * side
+        py = -nx * side
+        step = self._NUDGE_IMPULSE * dt
+        # Cap the nudge to per-frame max speed so we never teleport.
+        max_step = DRONE_MAX_SPEED * dt
+        if step > max_step:
+            step = max_step
+        self.center_x += px * step
+        self.center_y += py * step
+        # Flip side for next attempt + reset the timer so we don't
+        # nudge again immediately if the wall is on both axes.
+        self._nudge_dir = -side
+        self._nudge_anchor_x = self.center_x
+        self._nudge_anchor_y = self.center_y
+        self._nudge_timer = 0.0
+        return True
+
     def _run_return_home(
         self, dt: float, player_x: float, player_y: float,
         player, walls: list | None,
@@ -514,6 +610,14 @@ class _BaseDrone(arcade.Sprite):
         else:
             # Same room or no path — head straight for the player.
             target_x, target_y = player_x, player_y
+        # Un-stick nudge: when the drone hasn't moved much in 0.5 s
+        # while RETURN_HOME wants it to, slide perpendicular for a
+        # single frame to pop free of wall corners.  Catches cases
+        # the doorway-aware planner can't (drone wedged in a wall
+        # gap, planner gave the right waypoint but push-out keeps
+        # bouncing the drone back to the corner).
+        if self._try_unstick_nudge(dt, target_x, target_y):
+            return
         dx = target_x - self.center_x
         dy = target_y - self.center_y
         dist = math.hypot(dx, dy)

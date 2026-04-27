@@ -94,6 +94,7 @@ class MazeAlien(PatrolPursueMixin, arcade.Sprite):
         maze_bounds: tuple[float, float, float, float] | None = None,
         rooms: list | None = None,
         room_graph: dict | None = None,
+        doorways: dict | None = None,
     ) -> None:
         frames = _load_frames()
         tex = random.choice(frames)
@@ -167,7 +168,7 @@ class MazeAlien(PatrolPursueMixin, arcade.Sprite):
         self._rooms: list | None = rooms
         self._room_graph: dict | None = room_graph
         from zones.maze_geometry import WaypointPlanner
-        self._planner = WaypointPlanner(rooms, room_graph)
+        self._planner = WaypointPlanner(rooms, room_graph, doorways)
         self._pathfind_cooldown: float = 0.0
 
     # ── AI helpers ───────────────────────────────────────────────────

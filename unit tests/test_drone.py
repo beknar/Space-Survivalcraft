@@ -342,6 +342,73 @@ class TestDroneTooltip:
             "Planner-stall timer fix lost.")
 
 
+class TestDroneUnstickNudge:
+    """Safety-net nudge — when the drone hasn't physically moved for
+    half a second while it should be heading somewhere, slide one
+    frame perpendicular to the steering vector to dislodge from a
+    wall corner."""
+
+    def _drone(self):
+        from sprites.drone import CombatDrone
+        d = CombatDrone(0.0, 0.0)
+        return d
+
+    def test_nudge_does_not_fire_immediately(self):
+        """First call only sets the anchor — must not return True."""
+        d = self._drone()
+        fired = d._try_unstick_nudge(0.05, 100.0, 0.0)
+        assert fired is False
+
+    def test_nudge_does_not_fire_when_drone_is_progressing(self):
+        """Drone making real progress (>NUDGE_DIST in <NUDGE_TIME)
+        must reset the timer, not nudge."""
+        d = self._drone()
+        d._try_unstick_nudge(0.05, 100.0, 0.0)  # anchor
+        # Move past the threshold.
+        d.center_x = 50.0
+        fired = d._try_unstick_nudge(0.05, 100.0, 0.0)
+        assert fired is False
+        assert d._nudge_timer == 0.0
+
+    def test_nudge_fires_after_half_second_of_no_movement(self):
+        """Drone wedged at the same coords for 0.5+ s while wanting
+        to head somewhere → nudge perpendicular for one frame."""
+        from sprites.drone import _BaseDrone
+        d = self._drone()
+        # First call anchors at the origin.
+        d._try_unstick_nudge(0.05, 100.0, 0.0)
+        before = (d.center_x, d.center_y)
+        fired_any = False
+        # Tick for >= NUDGE_TIME without moving.
+        for _ in range(int(_BaseDrone._NUDGE_TIME / 0.05) + 2):
+            if d._try_unstick_nudge(0.05, 100.0, 0.0):
+                fired_any = True
+                break
+        assert fired_any is True, "no nudge fired after wedge timeout"
+        moved = (d.center_x - before[0]) ** 2 + (d.center_y - before[1]) ** 2
+        assert moved > 0.0, "nudge fired but drone didn't move"
+
+    def test_nudge_alternates_sides(self):
+        """Two consecutive nudges should fire from opposite sides so
+        a corner that blocks the right slide doesn't strand the drone."""
+        from sprites.drone import _BaseDrone
+        d = self._drone()
+        d._try_unstick_nudge(0.05, 100.0, 0.0)  # anchor
+        for _ in range(int(_BaseDrone._NUDGE_TIME / 0.05) + 2):
+            if d._try_unstick_nudge(0.05, 100.0, 0.0):
+                first_dir = d._nudge_dir   # was flipped on fire
+                break
+        # Hold position again until the next nudge fires.
+        d.center_x = d.center_y = 0.0   # back to origin
+        d._nudge_anchor_x = d._nudge_anchor_y = 0.0
+        for _ in range(int(_BaseDrone._NUDGE_TIME / 0.05) + 2):
+            if d._try_unstick_nudge(0.05, 100.0, 0.0):
+                second_dir = d._nudge_dir
+                break
+        # Direction toggles each fire.
+        assert first_dir != second_dir
+
+
 class TestDroneReturnHomeMode:
     """Drone enters RETURN_HOME at >800 px from the player and stays
     in it (with hysteresis) until back inside 600 px.  RETURN_HOME

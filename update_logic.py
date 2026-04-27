@@ -1421,21 +1421,30 @@ def update_drone(gv: GameView, dt: float) -> None:
     zone = getattr(gv, "_zone", None)
     rooms = None
     room_graph = None
+    doorways = None
     if zone is not None:
         # Star Maze stores the per-maze layouts in ``self._mazes``;
-        # combine all rooms + graphs into single lists/dicts so the
-        # drone's planner can reach any maze the player wanders into.
+        # combine all rooms + graphs + doorways into single lists/
+        # dicts so the drone's planner can reach any maze the player
+        # wanders into.  Doorway keys remap with the same offset as
+        # the room graph so the (a, b) frozenset still references the
+        # correct two rooms after stitching.
         mazes = getattr(zone, "_mazes", None)
         if mazes:
             rooms = []
             room_graph = {}
+            doorways = {}
             offset = 0
             for m in mazes:
                 rooms.extend(m.rooms)
                 for k, neighbours in m.room_graph.items():
                     room_graph[k + offset] = [n + offset for n in neighbours]
+                for edge_key, midpoint in (
+                        getattr(m, "doorways", None) or {}).items():
+                    a, b = tuple(edge_key)
+                    doorways[frozenset((a + offset, b + offset))] = midpoint
                 offset += len(m.rooms)
-    drone.attach_maze_planner(rooms, room_graph)
+    drone.attach_maze_planner(rooms, room_graph, doorways)
     # Snapshot pre-move position so the post-move wall containment
     # can revert a tunnel-through (segment crosses a wall) instead
     # of pushing the drone out the FAR side of the wall it just
