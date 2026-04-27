@@ -121,15 +121,30 @@ class _BaseDrone(arcade.Sprite):
         instead of trying to keep up with the player.  Switches back
         to FOLLOW when the player drifts past ``DRONE_BREAK_OFF_DIST``
         away or the target dies / leaves range.
+
+      * ``_MODE_RETURN_HOME`` — entered when the player is more than
+        ``DRONE_BREAK_OFF_DIST`` (800 px) away.  The drone ignores
+        every enemy, runs the WaypointPlanner's A* room-graph search
+        toward the player, and never enters the planner's 5-s freeze
+        cooldown — if a plan attempt fails the cooldown is wiped and
+        the drone immediately re-tries on the next frame.  Exits to
+        FOLLOW once the drone closes back inside the 600-px hysteresis
+        threshold so it doesn't ping-pong at exactly 800 px.
     """
 
     _LABEL: str = "Drone"
 
     _MODE_FOLLOW = 0
     _MODE_ATTACK = 1
+    _MODE_RETURN_HOME = 2
     _SLOT_LEFT = 0
     _SLOT_RIGHT = 1
     _SLOT_BACK = 2
+
+    # Once a drone enters RETURN_HOME at >800 px away, it stays in
+    # RETURN_HOME until it's reeled back inside this radius — keeps
+    # the mode flag from oscillating at exactly the break-off line.
+    _RETURN_HOME_EXIT_DIST = 600.0
 
     def __init__(
         self,
@@ -399,6 +414,51 @@ class _BaseDrone(arcade.Sprite):
             self._shield_regen_acc -= bump
             self.shields = min(self.max_shields, self.shields + bump)
 
+    def _run_return_home(
+        self, dt: float, player_x: float, player_y: float,
+        player, walls: list | None,
+    ) -> None:
+        """RETURN_HOME tick — A* via the existing WaypointPlanner with
+        the planner's give-up cooldown forcibly cleared each frame so
+        the drone never freezes.  When the planner reports a route
+        the drone steers to the next room's centre; when no route
+        exists (or the drone shares a room with the player) it falls
+        back to a direct straight-line chase past slot picking,
+        because slot picking would just stick the drone behind the
+        wrong wall again.
+
+        Skips firing entirely — the drone ignores every enemy until
+        it's reeled back inside ``_RETURN_HOME_EXIT_DIST``.
+        """
+        # Forcibly clear the planner's cooldown each frame so it
+        # doesn't park the drone in its 5-s freeze while the player
+        # is still far away.  ``reset()`` also wipes the stuck
+        # tracker so each frame starts fresh.
+        if self._follow_planner._cooldown_t > 0.0:
+            self._follow_planner._cooldown_t = 0.0
+        wp = self._follow_planner.plan(
+            dt, self.center_x, self.center_y, player_x, player_y)
+        # Discard the gave_up flag — RETURN_HOME never freezes.  We
+        # consume it by calling ``gave_up()`` to clear the latch.
+        self._follow_planner.gave_up()
+        if wp is not None:
+            target_x, target_y = wp
+        else:
+            # Same room or no path — head straight for the player.
+            target_x, target_y = player_x, player_y
+        dx = target_x - self.center_x
+        dy = target_y - self.center_y
+        dist = math.hypot(dx, dy)
+        if dist <= 0.001:
+            return
+        step = min(DRONE_MAX_SPEED * dt, dist)
+        nx = dx / dist
+        ny = dy / dist
+        self.center_x += nx * step
+        self.center_y += ny * step
+        self._heading = math.degrees(math.atan2(nx, ny)) % 360.0
+        self.angle = self._heading
+
     def _update_mode(
         self, player, target, walls: list | None = None,
     ) -> None:
@@ -407,16 +467,27 @@ class _BaseDrone(arcade.Sprite):
         line of sight between drone and target.  When a wall blocks
         line of sight, return to FOLLOW (the drone shouldn't
         try to engage a target it can't actually shoot at — it'll
-        just grind on the wall).  Also returns to FOLLOW once the
-        player drifts past ``DRONE_BREAK_OFF_DIST`` away.
+        just grind on the wall).  When the player drifts past
+        ``DRONE_BREAK_OFF_DIST`` away, switch to RETURN_HOME — A*
+        path-find back to the player while ignoring every enemy
+        until the drone has closed the gap.
 
         Called every frame from ``update_drone`` BEFORE the follow /
         fire branches so the chosen branch matches current state."""
         d_to_player = math.hypot(self.center_x - player.center_x,
                                  self.center_y - player.center_y)
-        # Far from the player → break off and re-form.
-        if d_to_player > DRONE_BREAK_OFF_DIST:
-            self._mode = self._MODE_FOLLOW
+        # Far from the player → enter / stay in RETURN_HOME.  Hysteresis:
+        # once we've entered RETURN_HOME we hold it until the drone is
+        # back inside ``_RETURN_HOME_EXIT_DIST`` (600 px), so a drone
+        # making slow progress at ~800 px doesn't flicker the mode
+        # every frame.
+        if self._mode == self._MODE_RETURN_HOME:
+            if d_to_player > self._RETURN_HOME_EXIT_DIST:
+                return
+            # Close enough — drop back to normal follow / attack
+            # logic below.
+        elif d_to_player > DRONE_BREAK_OFF_DIST:
+            self._mode = self._MODE_RETURN_HOME
             return
         if target is None:
             self._mode = self._MODE_FOLLOW
@@ -547,10 +618,14 @@ class MiningDrone(_BaseDrone):
         target = (self._nearest_asteroid(gv) if self.has_target_lock()
                   else None)
         self._update_mode(gv.player, target, walls)
-        if self._mode == self._MODE_FOLLOW:
+        if self._mode == self._MODE_RETURN_HOME:
+            self._run_return_home(
+                dt, gv.player.center_x, gv.player.center_y,
+                gv.player, walls)
+        elif self._mode == self._MODE_FOLLOW:
             self.follow(dt, gv.player.center_x, gv.player.center_y,
                         player=gv.player, walls=walls)
-        # else: hold position while attacking (no follow movement)
+        # else (ATTACK): hold position while attacking (no movement)
         # Vacuum any iron / blueprint pickup within reach by flagging
         # it as flying — the standard pickup loop in game_view's
         # on_update already pulls it toward the player and credits
@@ -618,10 +693,15 @@ class CombatDrone(_BaseDrone):
         target = (self._nearest_enemy(gv) if self.has_target_lock()
                   else None)
         self._update_mode(gv.player, target, walls)
-        if self._mode == self._MODE_FOLLOW:
+        if self._mode == self._MODE_RETURN_HOME:
+            self._run_return_home(
+                dt, gv.player.center_x, gv.player.center_y,
+                gv.player, walls)
+            return None
+        elif self._mode == self._MODE_FOLLOW:
             self.follow(dt, gv.player.center_x, gv.player.center_y,
                         player=gv.player, walls=walls)
-        # else: hold station and engage
+        # else (ATTACK): hold station and engage
         if self._mode != self._MODE_ATTACK or target is None:
             return None
         # Stuck check: same target with no HP drop for 5 s → bail.

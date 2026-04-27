@@ -185,18 +185,19 @@ class TestDroneFollowAttackMode:
         d._update_mode(player, target)
         assert d._mode == _BaseDrone._MODE_ATTACK
 
-    def test_player_far_breaks_off_back_to_follow(self):
+    def test_player_far_breaks_off_to_return_home(self):
         from sprites.drone import CombatDrone, _BaseDrone
         from constants import DRONE_BREAK_OFF_DIST
         d = CombatDrone(0.0, 0.0)
-        # Player at exactly the break-off distance + 1 px → drone
-        # must be in FOLLOW even with a target right next to it.
+        # Player past BREAK_OFF + a target right next to drone.  The
+        # >800 px rule wins — drone enters RETURN_HOME and ignores
+        # the enemy until it's reeled back in.
         player = SimpleNamespace(
             center_x=DRONE_BREAK_OFF_DIST + 1.0, center_y=0.0)
         target = SimpleNamespace(center_x=50.0, center_y=0.0, hp=100)
         d._mode = _BaseDrone._MODE_ATTACK
         d._update_mode(player, target)
-        assert d._mode == _BaseDrone._MODE_FOLLOW
+        assert d._mode == _BaseDrone._MODE_RETURN_HOME
 
     def test_wall_between_drone_and_target_disengages(self):
         """Line-of-sight is broken by a wall between drone and target
@@ -224,6 +225,87 @@ class TestDroneFollowAttackMode:
         walls = [(80.0, 200.0, 40.0, 40.0)]
         d._update_mode(player, target, walls)
         assert d._mode == _BaseDrone._MODE_ATTACK
+
+
+class TestDroneReturnHomeMode:
+    """Drone enters RETURN_HOME at >800 px from the player and stays
+    in it (with hysteresis) until back inside 600 px.  RETURN_HOME
+    ignores enemies entirely and keeps re-trying A* even after the
+    planner gives up — the cooldown freeze that protects FOLLOW from
+    grinding doesn't apply when the drone is trying to reunite with
+    a player on the other side of the map."""
+
+    def test_far_player_triggers_return_home(self):
+        from sprites.drone import CombatDrone, _BaseDrone
+        from constants import DRONE_BREAK_OFF_DIST
+        d = CombatDrone(0.0, 0.0)
+        # Player 900 px away — past BREAK_OFF (800).
+        player = SimpleNamespace(
+            center_x=DRONE_BREAK_OFF_DIST + 100.0, center_y=0.0,
+            heading=0.0)
+        # Even with an in-range target, mode must be RETURN_HOME.
+        target = SimpleNamespace(center_x=50.0, center_y=0.0, hp=100)
+        d._update_mode(player, target, walls=None)
+        assert d._mode == _BaseDrone._MODE_RETURN_HOME
+
+    def test_return_home_hysteresis_holds_past_break_off(self):
+        """Once in RETURN_HOME, the drone holds it down to 600 px
+        instead of flipping back at 800 px."""
+        from sprites.drone import CombatDrone, _BaseDrone
+        d = CombatDrone(0.0, 0.0)
+        d._mode = _BaseDrone._MODE_RETURN_HOME
+        # Player at 700 px — below BREAK_OFF (800) but above EXIT
+        # (600).  Should remain RETURN_HOME.
+        player = SimpleNamespace(
+            center_x=700.0, center_y=0.0, heading=0.0)
+        d._update_mode(player, target=None, walls=None)
+        assert d._mode == _BaseDrone._MODE_RETURN_HOME
+
+    def test_return_home_exits_at_close_range(self):
+        from sprites.drone import CombatDrone, _BaseDrone
+        d = CombatDrone(0.0, 0.0)
+        d._mode = _BaseDrone._MODE_RETURN_HOME
+        # Player at 500 px — inside EXIT (600) → should drop back to
+        # FOLLOW with no target, or ATTACK if a target's in range.
+        player = SimpleNamespace(
+            center_x=500.0, center_y=0.0, heading=0.0)
+        d._update_mode(player, target=None, walls=None)
+        assert d._mode == _BaseDrone._MODE_FOLLOW
+
+    def test_return_home_clears_planner_cooldown_each_frame(self):
+        """The 5-s give-up freeze in WaypointPlanner must be reset
+        every tick while RETURN_HOME is active so the drone keeps
+        trying to A* its way back to the player."""
+        from sprites.drone import CombatDrone
+        d = CombatDrone(0.0, 0.0)
+        # Pretend the planner just gave up — cooldown active.
+        d._follow_planner._cooldown_t = 4.5
+        player = SimpleNamespace(
+            center_x=2000.0, center_y=2000.0, heading=0.0)
+        d._run_return_home(
+            1 / 60, player.center_x, player.center_y, player,
+            walls=None)
+        # After one tick of RETURN_HOME the cooldown is wiped.
+        assert d._follow_planner._cooldown_t == 0.0
+
+    def test_return_home_moves_toward_player(self):
+        """With no walls and a far-away player, the drone steps
+        directly toward the player position."""
+        from sprites.drone import CombatDrone
+        import math
+        d = CombatDrone(0.0, 0.0)
+        player = SimpleNamespace(
+            center_x=1000.0, center_y=0.0, heading=0.0)
+        before = (d.center_x, d.center_y)
+        d._run_return_home(
+            0.1, player.center_x, player.center_y, player,
+            walls=None)
+        moved = math.hypot(d.center_x - before[0],
+                           d.center_y - before[1])
+        # DRONE_MAX_SPEED * dt per tick = 45 px at 0.1 s.
+        assert moved > 30.0
+        # Movement is along the +x axis (toward the player).
+        assert d.center_x > 0.0
 
 
 class TestCombatDronePrioritizesSpawners:
