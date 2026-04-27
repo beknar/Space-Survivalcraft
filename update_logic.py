@@ -665,10 +665,108 @@ def update_contrail(gv: GameView, dt: float) -> None:
     gv._contrail = [p for p in gv._contrail if not p.dead]
 
 
+def _spawn_melee_swing(gv: GameView, sword_tex) -> bool:
+    """Spawn a fresh ``MeleeSwing`` sprite at the player's nose with
+    ship-type-aware reach + damage.  Returns True iff the swing
+    was actually appended (always True at the moment — kept as a
+    return for symmetry with the ``Weapon.fire`` branch's
+    fired_any tracking)."""
+    from sprites.melee import MeleeSwing
+    from constants import (
+        MELEE_DAMAGE, MELEE_HIT_RADIUS,
+        MELEE_BASTION_DAMAGE_BONUS, MELEE_BASTION_HIT_RADIUS,
+    )
+    is_bastion = (getattr(gv, "_ship_type", "")
+                  or getattr(gv.player, "_ship_type", "")) == "Bastion"
+    hit_radius = (MELEE_BASTION_HIT_RADIUS if is_bastion
+                  else MELEE_HIT_RADIUS)
+    damage = (MELEE_DAMAGE + MELEE_BASTION_DAMAGE_BONUS
+              if is_bastion else MELEE_DAMAGE)
+    swing = MeleeSwing(
+        sword_tex, gv.player,
+        offset=hit_radius,           # appears AT the hit-radius distance ahead
+        damage=damage,
+        hit_radius=hit_radius,
+    )
+    gv._melee_swings.append(swing)
+    return True
+
+
+def update_melee_swings(gv: GameView, dt: float) -> None:
+    """Tick every active swing, deal AOE damage to enemies in the
+    swing's radius (each enemy hit once per swing), and cull
+    expired swings.  Cheap O(N_swings × N_enemies) per frame —
+    swings are short-lived and there's almost never more than 2 in
+    flight."""
+    swings = getattr(gv, "_melee_swings", None)
+    if not swings:
+        return
+    import math as _m
+    for sw in list(swings):
+        sw.update_swing(dt)
+    # AOE damage pass — iterate every active swing and check it
+    # against every enemy class the active zone exposes.
+    enemies: list = list(gv.alien_list)
+    zone = getattr(gv, "_zone", None)
+    if zone is not None:
+        for attr in ("_aliens", "_maze_aliens", "_stalkers"):
+            zlist = getattr(zone, attr, None)
+            if zlist is not None and zlist is not gv.alien_list:
+                enemies.extend(zlist)
+    # Bosses are zone-agnostic targets.
+    if gv._boss is not None and gv._boss.hp > 0:
+        enemies.append(gv._boss)
+    nb = getattr(gv, "_nebula_boss", None)
+    if nb is not None and nb.hp > 0:
+        enemies.append(nb)
+    if enemies:
+        from collisions import _apply_kill_rewards
+        from character_data import bonus_iron_enemy
+        from constants import ALIEN_IRON_DROP, BLUEPRINT_DROP_CHANCE_ALIEN
+        for sw in list(swings):
+            r_sq = sw.hit_radius * sw.hit_radius
+            for e in list(enemies):
+                if sw.already_hit(e):
+                    continue
+                if getattr(e, "hp", 0) <= 0:
+                    continue
+                dx = e.center_x - sw.center_x
+                dy = e.center_y - sw.center_y
+                if dx * dx + dy * dy > r_sq:
+                    continue
+                e.take_damage(int(sw.damage))
+                sw.mark_hit(e)
+                if getattr(e, "hp", 1) <= 0 and not getattr(
+                        e, "killed", False):
+                    # Reward + cleanup for ordinary enemies.  Bosses
+                    # have their own death pipeline (handle_boss_*)
+                    # so we just leave them for that path; spawners
+                    # have a respawn flow incompatible with
+                    # remove_from_sprite_lists, so we skip those too.
+                    if not hasattr(e, "_charging") and not hasattr(
+                            e, "killed"):
+                        _apply_kill_rewards(
+                            gv, e.center_x, e.center_y,
+                            ALIEN_IRON_DROP, bonus_iron_enemy,
+                            BLUEPRINT_DROP_CHANCE_ALIEN)
+                        e.remove_from_sprite_lists()
+    # Cull expired swings — done last so any final-frame damage
+    # has already landed.
+    for sw in list(swings):
+        if sw.expired:
+            sw.remove_from_sprite_lists()
+
+
 def update_weapons(gv: GameView, dt: float, fire: bool) -> None:
     """Tick weapon cooldowns and fire if held."""
     for w in gv._weapons:
         w.update(dt)
+
+    # Tick + cull existing melee swings BEFORE the fire check so a
+    # new swing fired this frame doesn't immediately get culled
+    # (the cull runs against age >= lifetime, and the new swing has
+    # age=0 from its constructor).
+    update_melee_swings(gv, dt)
 
     fired_any = False
     if fire:
@@ -676,18 +774,33 @@ def update_weapons(gv: GameView, dt: float, fire: bool) -> None:
         spawn_pts = gv.player.gun_spawn_points()
         gun_count = gv.player.guns
         base_idx = (gv._weapon_idx // gun_count) * gun_count
-        for gi in range(gun_count):
-            wpn = gv._weapons[base_idx + gi]
-            pt = spawn_pts[gi] if gi < len(spawn_pts) else spawn_pts[0]
-            proj = wpn.fire(pt[0], pt[1], gv.player.heading)
-            if proj is not None:
-                gv.projectile_list.append(proj)
-                fired_any = True
-                # Muzzle flash — short ring-flash at the gun barrel so
-                # every shot reads visibly regardless of projectile
-                # speed.  Re-uses the existing HitSpark primitive
-                # (0.18 s lifetime, already drawn in draw_world).
-                gv.hit_sparks.append(HitSpark(pt[0], pt[1]))
+        # Melee branch — single AOE swing per cooldown tick rather
+        # than a per-hardpoint salvo.  ``Weapon.fire`` is reused
+        # for cooldown management + sound throttle but its return
+        # value (a Projectile) is discarded; the swing sprite is
+        # spawned out-of-band from MELEE_* constants.
+        head_wpn = gv._weapons[base_idx]
+        if head_wpn.name == "Melee":
+            if head_wpn._timer <= 0.0:
+                head_wpn._timer = head_wpn.cooldown
+                if head_wpn._snd_cd <= 0.0:
+                    arcade.play_sound(head_wpn._sound, volume=0.5)
+                    head_wpn._snd_cd = head_wpn._snd_min_interval
+                fired_any = _spawn_melee_swing(gv, head_wpn._texture)
+        else:
+            for gi in range(gun_count):
+                wpn = gv._weapons[base_idx + gi]
+                pt = spawn_pts[gi] if gi < len(spawn_pts) else spawn_pts[0]
+                proj = wpn.fire(pt[0], pt[1], gv.player.heading)
+                if proj is not None:
+                    gv.projectile_list.append(proj)
+                    fired_any = True
+                    # Muzzle flash — short ring-flash at the gun
+                    # barrel so every shot reads visibly regardless
+                    # of projectile speed.  Re-uses the existing
+                    # HitSpark primitive (0.18 s lifetime, already
+                    # drawn in draw_world).
+                    gv.hit_sparks.append(HitSpark(pt[0], pt[1]))
     if fired_any:
         disable_null_field_around_player(gv)
 

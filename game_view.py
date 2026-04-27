@@ -208,6 +208,11 @@ class GameView(arcade.View):
         self._missile_list: arcade.SpriteList = arcade.SpriteList()
         self._missile_tex: arcade.Texture | None = None
         self._rear_turret_cd: float = 0.0
+        # Active energy-blade swings — a sprite list rather than a
+        # plain list so the existing draw_world hook can blit them
+        # in one batched call alongside the other projectile-class
+        # sprites.
+        self._melee_swings: arcade.SpriteList = arcade.SpriteList()
 
         # Companion drone — at most one active at a time, replaceable
         # by pressing R after switching to the other weapon class.

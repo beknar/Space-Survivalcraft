@@ -76,6 +76,16 @@ SFX_WEAPONS_DIR = os.path.join(
     _HERE, "assets", "Sci Fi Sound Effects Bundle",
     "Stormwave Audio Sci-Fi Sound Effects Bundle", "Weapons", "Energy Weapons",
 )
+# Melee swing impact SFX + sword icon for the third basic weapon.
+SFX_MELEE_SWING = os.path.join(
+    _HERE, "assets", "Sci Fi Sound Effects Bundle",
+    "Stormwave Audio Sci-Fi Sound Effects Bundle", "Impacts",
+    "Game Futuristic Impact Sound 12.wav",
+)
+MELEE_SWORD_PNG = os.path.join(
+    _HERE, "assets", "Kenney Game Assets All-in-1 3.4.0",
+    "2D assets", "Voxel Pack", "PNG", "Items", "sword_diamond.png",
+)
 # Alien-laser fire sound — same Stormwave pack, ricochet variant.
 SFX_ALIEN_LASER = os.path.join(
     _HERE, "assets", "Sci Fi Sound Effects Bundle",
@@ -245,6 +255,22 @@ BROADSIDE_COOLDOWN: float = 0.50      # seconds between shots
 BROADSIDE_DAMAGE: int = 25            # same as basic laser
 BROADSIDE_SPEED: float = 600.0        # projectile speed
 BROADSIDE_RANGE: float = 400.0        # max travel distance
+
+# Melee (energy blade) — third basic weapon, cycled with Tab.
+# Damages every enemy within ``MELEE_HIT_RADIUS`` of the swing
+# centre for a single tick per swing; the swing sprite tracks
+# the player's nose and survives ``MELEE_SWING_LIFETIME`` seconds
+# so the visual reads as a sword swing rather than a snapshot.
+MELEE_COOLDOWN: float = 0.30          # seconds between swings
+MELEE_DAMAGE: int = 40                # base HP damage per enemy per swing
+MELEE_HIT_RADIUS: float = 50.0        # px — also offset from nose
+MELEE_SWING_LIFETIME: float = 0.25    # seconds the swing sprite lives
+MELEE_SWING_ARC: float = 90.0         # degrees the texture rotates over its life
+MELEE_SCALE: float = 1.5              # texture scale multiplier
+# Bastion bonus — longer reach + extra punch when wielding the
+# energy blade.  All other ship types use the base values above.
+MELEE_BASTION_DAMAGE_BONUS: int = 15
+MELEE_BASTION_HIT_RADIUS: float = 80.0
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 6. Inventory / Quick Use

@@ -85,15 +85,32 @@ def load_shield(player_x: float, player_y: float,
 
 
 def load_weapons(gun_count: int) -> list[Weapon]:
-    """Create the weapon list (doubled for multi-gun ships)."""
+    """Create the weapon list (doubled for multi-gun ships).
+
+    Three weapon groups in cycle order: Basic Laser → Mining Beam →
+    Melee.  Each group has ``gun_count`` entries because
+    ``GameView._cycle_weapon`` advances the index by ``gun_count``;
+    keeping the per-group block sizes uniform lets the same cycle
+    math work for every group.  The melee block's per-gun entries
+    all reference the same sword texture + impact SFX, but only one
+    swing fires per cycle hit (handled in ``update_logic.update_weapons``)
+    since the energy blade is a single AOE — not a per-hardpoint
+    projectile salvo.
+    """
+    from constants import (
+        MELEE_SWORD_PNG, SFX_MELEE_SWING,
+        MELEE_COOLDOWN, MELEE_DAMAGE,
+    )
     laser_tex = arcade.load_texture(os.path.join(LASER_DIR, "laserBlue03.png"))
     mining_tex = arcade.load_texture(os.path.join(LASER_DIR, "laserGreen13.png"))
+    sword_tex = arcade.load_texture(MELEE_SWORD_PNG)
     laser_snd = arcade.load_sound(
         os.path.join(SFX_WEAPONS_DIR, "Small Laser Weapon Shot 1.wav")
     )
     mining_snd = arcade.load_sound(
         os.path.join(SFX_WEAPONS_DIR, "Sci-Fi Arc Emitter Weapon Shot 2.wav")
     )
+    melee_snd = arcade.load_sound(SFX_MELEE_SWING)
     weapons: list[Weapon] = []
     for _g in range(gun_count):
         weapons.append(Weapon(
@@ -108,6 +125,17 @@ def load_weapons(gun_count: int) -> list[Weapon]:
             cooldown=0.10, damage=10.0,
             projectile_speed=500.0, max_range=800.0,
             proj_scale=1.0, mines_rock=True,
+        ))
+    for _g in range(gun_count):
+        # Melee — projectile-style stats are placeholders; the
+        # actual swing spawn + AOE damage are handled out-of-band
+        # in update_logic.update_weapons.  Only the cooldown + name
+        # + sound are read from the Weapon object on fire.
+        weapons.append(Weapon(
+            "Melee", sword_tex, melee_snd,
+            cooldown=MELEE_COOLDOWN, damage=float(MELEE_DAMAGE),
+            projectile_speed=0.0, max_range=0.0,
+            proj_scale=1.0, mines_rock=False,
         ))
     return weapons
 

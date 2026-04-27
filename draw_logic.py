@@ -328,6 +328,11 @@ def draw_world(gv: GameView, cx: float, cy: float, hw: float, hh: float) -> None
     # Shared world entities (always drawn)
     gv.projectile_list.draw()
     gv._missile_list.draw()
+    # Active energy-blade swings — short-lived sprites anchored at
+    # the player's nose; drawn alongside the other projectile-class
+    # sprites so they sit above asteroids and below the HUD.
+    if getattr(gv, "_melee_swings", None) is not None:
+        gv._melee_swings.draw()
     # Active drone (single sprite list of length 0 or 1) — drawn before
     # the player so the player sprite reads on top of any orbit overlap.
     drone_list = getattr(gv, "_drone_list", None)
