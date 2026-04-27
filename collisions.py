@@ -735,16 +735,23 @@ def handle_parked_ship_damage(gv: GameView) -> None:
             ship.take_damage(int(proj.damage))
             if ship.hp <= 0:
                 _destroy_parked_ship(gv, ship)
-    # Player projectiles (friendly fire)
+    # Player projectiles vs parked ships.  AI-piloted ships are
+    # treated as friendlies — the player's own lasers pass straight
+    # through them (no impact spark, no damage, projectile keeps
+    # travelling).  Unmanned parked ships still take friendly fire so
+    # the player can deliberately clear an old hull when needed.
     for proj in list(gv.projectile_list):
         hits = arcade.check_for_collision_with_list(proj, gv._parked_ships)
-        if hits:
-            ship = hits[0]
-            gv.hit_sparks.append(HitSpark(proj.center_x, proj.center_y))
-            proj.remove_from_sprite_lists()
-            ship.take_damage(int(proj.damage))
-            if ship.hp <= 0:
-                _destroy_parked_ship(gv, ship)
+        if not hits:
+            continue
+        ship = hits[0]
+        if getattr(ship, "has_ai_pilot", False):
+            continue
+        gv.hit_sparks.append(HitSpark(proj.center_x, proj.center_y))
+        proj.remove_from_sprite_lists()
+        ship.take_damage(int(proj.damage))
+        if ship.hp <= 0:
+            _destroy_parked_ship(gv, ship)
     # Boss projectiles
     if gv._boss is not None:
         for proj in list(gv._boss_projectile_list):

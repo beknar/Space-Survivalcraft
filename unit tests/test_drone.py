@@ -198,6 +198,88 @@ class TestDroneFollowAttackMode:
         d._update_mode(player, target)
         assert d._mode == _BaseDrone._MODE_FOLLOW
 
+    def test_wall_between_drone_and_target_disengages(self):
+        """Line-of-sight is broken by a wall between drone and target
+        → drone returns to FOLLOW and won't fire."""
+        from sprites.drone import CombatDrone, _BaseDrone
+        d = CombatDrone(0.0, 0.0)
+        player = SimpleNamespace(center_x=0.0, center_y=0.0,
+                                  heading=0.0)
+        # Target 200 px to the east, well within DETECT_RANGE.
+        target = SimpleNamespace(center_x=200.0, center_y=0.0, hp=100)
+        # Wall sitting between drone (at x=0) and target (at x=200).
+        walls = [(80.0, -20.0, 40.0, 40.0)]
+        d._update_mode(player, target, walls)
+        assert d._mode == _BaseDrone._MODE_FOLLOW
+
+    def test_no_wall_between_drone_and_target_engages(self):
+        """Same range, no wall between → drone engages (ATTACK)."""
+        from sprites.drone import CombatDrone, _BaseDrone
+        d = CombatDrone(0.0, 0.0)
+        player = SimpleNamespace(center_x=0.0, center_y=0.0,
+                                  heading=0.0)
+        target = SimpleNamespace(center_x=200.0, center_y=0.0, hp=100)
+        # Wall placed off-axis so it doesn't intersect the drone-to-
+        # target segment.
+        walls = [(80.0, 200.0, 40.0, 40.0)]
+        d._update_mode(player, target, walls)
+        assert d._mode == _BaseDrone._MODE_ATTACK
+
+
+class TestPlayerProjectileVsAIShip:
+    def test_player_lasers_skip_ai_piloted_parked_ship(self):
+        """``handle_parked_ship_damage`` must not damage parked ships
+        whose ``has_ai_pilot`` flag is True — the player's own
+        weapons are friendly fire and should pass straight through.
+        Unmanned parked ships still take the hit so the player can
+        deliberately clear an old hull."""
+        import collisions
+        from sprites.explosion import HitSpark   # imported to verify no spark added
+
+        # Build a minimal stub gv with a parked-ship sprite list and
+        # one AI-piloted ship at (0, 0).
+        ai_ship = SimpleNamespace(
+            center_x=0.0, center_y=0.0, hp=100,
+            has_ai_pilot=True,
+            taken=[])
+        ai_ship.take_damage = lambda amt: ai_ship.taken.append(amt)
+        # Use a real arcade SpriteList so collision_with_list runs.
+        ship_list = arcade.SpriteList()
+        # Inject the stub via attribute hack: we monkeypatch the
+        # collision helper itself so we don't need actual sprites.
+        proj = SimpleNamespace(damage=10,
+                                center_x=0.0, center_y=0.0,
+                                remove_from_sprite_lists=lambda: None)
+        proj_list = [proj]
+
+        gv = SimpleNamespace(
+            _parked_ships=ship_list,
+            alien_projectile_list=[],
+            projectile_list=proj_list,
+            _boss=None,
+            _boss_projectile_list=[],
+            hit_sparks=[])
+
+        # Patch the arcade collision call to return our stub ship.
+        original = arcade.check_for_collision_with_list
+        try:
+            arcade.check_for_collision_with_list = lambda p, lst: (
+                [ai_ship] if lst is ship_list and p is proj else [])
+            # Make the parked-ships list non-empty (length check).
+            class _Patched:
+                def __len__(self):
+                    return 1
+            gv._parked_ships = _Patched()
+            collisions.handle_parked_ship_damage(gv)
+        finally:
+            arcade.check_for_collision_with_list = original
+
+        assert ai_ship.taken == [], (
+            "AI-piloted ship took player friendly fire — should be "
+            "immune.")
+        assert gv.hit_sparks == [], (
+            "No impact spark should fire on a friendly-fire pass-through")
+
 
 # ── Fire path ──────────────────────────────────────────────────────────────
 

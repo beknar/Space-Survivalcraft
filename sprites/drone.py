@@ -70,6 +70,29 @@ def _load_snd(path: str) -> arcade.Sound:
     return snd
 
 
+def _segment_crosses_any_wall(
+    ax: float, ay: float, bx: float, by: float,
+    walls: list | None,
+    samples: tuple[float, ...] = (0.1, 0.25, 0.4, 0.55, 0.7, 0.85, 1.0),
+) -> bool:
+    """Sample-and-test wall blocker check shared between the slot
+    picker (short ≤80 px legs) and the line-of-sight check (longer
+    drone-to-enemy legs up to 600 px).  ``samples`` should grow with
+    segment length — the default 7-point grid resolves down to ~30 px
+    along a 600 px segment, smaller than the maze wall thickness so
+    no diagonal can sneak through."""
+    if not walls:
+        return False
+    for t in samples:
+        x = ax + (bx - ax) * t
+        y = ay + (by - ay) * t
+        for w in walls:
+            wx, wy, ww, wh = w[0], w[1], w[2], w[3]
+            if wx <= x <= wx + ww and wy <= y <= wy + wh:
+                return True
+    return False
+
+
 def _walls_from_zone(gv) -> list | None:
     """Return the active zone's wall-rect list, or None if the zone
     doesn't have one (open zones — Zone 1, Zone 2 outside the
@@ -229,17 +252,8 @@ class _BaseDrone(arcade.Sprite):
         w, h) tuples or arcade Rects (anything with ``.x/.y/.w/.h`` or
         4-tuple unpacking).  Without walls (open zones), nothing is
         blocked."""
-        if not walls:
-            return False
-        # 4-sample segment test — short (≤80 px) so this is cheap.
-        for t in (0.4, 0.7, 1.0):
-            x = px + (sx - px) * t
-            y = py + (sy - py) * t
-            for w in walls:
-                wx, wy, ww, wh = w[0], w[1], w[2], w[3]
-                if wx <= x <= wx + ww and wy <= y <= wy + wh:
-                    return True
-        return False
+        return _segment_crosses_any_wall(px, py, sx, sy, walls,
+                                         samples=(0.4, 0.7, 1.0))
 
     def _pick_follow_slot(
         self, player, walls: list | None,
@@ -385,12 +399,16 @@ class _BaseDrone(arcade.Sprite):
             self._shield_regen_acc -= bump
             self.shields = min(self.max_shields, self.shields + bump)
 
-    def _update_mode(self, player, target) -> None:
+    def _update_mode(
+        self, player, target, walls: list | None = None,
+    ) -> None:
         """Per spec: enter ATTACK when a target sits within
-        ``DRONE_DETECT_RANGE``; return to FOLLOW once the player
-        drifts past ``DRONE_BREAK_OFF_DIST`` away (drone got out of
-        formation chasing a moving fight) or the target is gone /
-        out of detect range.
+        ``DRONE_DETECT_RANGE`` AND there is no maze wall on the
+        line of sight between drone and target.  When a wall blocks
+        line of sight, return to FOLLOW (the drone shouldn't
+        try to engage a target it can't actually shoot at — it'll
+        just grind on the wall).  Also returns to FOLLOW once the
+        player drifts past ``DRONE_BREAK_OFF_DIST`` away.
 
         Called every frame from ``update_drone`` BEFORE the follow /
         fire branches so the chosen branch matches current state."""
@@ -405,10 +423,19 @@ class _BaseDrone(arcade.Sprite):
             return
         td = math.hypot(target.center_x - self.center_x,
                         target.center_y - self.center_y)
-        if td <= DRONE_DETECT_RANGE:
-            self._mode = self._MODE_ATTACK
-        else:
+        if td > DRONE_DETECT_RANGE:
             self._mode = self._MODE_FOLLOW
+            return
+        # Line-of-sight check — if a maze wall sits between drone and
+        # target, disengage.  In open zones (walls=None) this is a
+        # no-op and the drone always engages.
+        if _segment_crosses_any_wall(
+                self.center_x, self.center_y,
+                target.center_x, target.center_y,
+                walls):
+            self._mode = self._MODE_FOLLOW
+            return
+        self._mode = self._MODE_ATTACK
 
     def has_target_lock(self) -> bool:
         """True iff the drone is currently allowed to engage targets.
@@ -519,7 +546,7 @@ class MiningDrone(_BaseDrone):
         # Mode update — target = nearest asteroid.
         target = (self._nearest_asteroid(gv) if self.has_target_lock()
                   else None)
-        self._update_mode(gv.player, target)
+        self._update_mode(gv.player, target, walls)
         if self._mode == self._MODE_FOLLOW:
             self.follow(dt, gv.player.center_x, gv.player.center_y,
                         player=gv.player, walls=walls)
@@ -590,7 +617,7 @@ class CombatDrone(_BaseDrone):
         walls = _walls_from_zone(gv)
         target = (self._nearest_enemy(gv) if self.has_target_lock()
                   else None)
-        self._update_mode(gv.player, target)
+        self._update_mode(gv.player, target, walls)
         if self._mode == self._MODE_FOLLOW:
             self.follow(dt, gv.player.center_x, gv.player.center_y,
                         player=gv.player, walls=walls)
