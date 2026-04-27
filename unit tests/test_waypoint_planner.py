@@ -152,6 +152,58 @@ class TestDoorwayWaypoint:
         assert abs(wy - (tr.y + tr.h * 0.5)) < 0.5
 
 
+class TestTargetOutsideMaze:
+    """Regression: drone wedged inside the maze + player outside it
+    (RETURN order in the wild).  Captured by telemetry 2026-04-26 —
+    drone at (2194,3142), player at (1490,3470), planner returned
+    `path: []` so the caller chased directly through the wall.
+    Fix routes the body to the maze room whose centre is closest to
+    the target, so the drone heads for the nearest exit instead of
+    grinding on the interior wall."""
+
+    def test_target_outside_routes_to_nearest_room(self, maze):
+        """Body inside the maze (east end), target outside the maze
+        (far west) — planner should route the body westward through
+        rooms toward the nearest exit, NOT return None.
+
+        Reproduces the telemetry scenario: drone at (2194,3142)
+        inside maze 1, player at (1490,3470) outside the maze ⇒ old
+        planner returned None ⇒ drone tried to fly through the
+        west wall and bounced.
+        """
+        # Body in the FAR east room so the nearest-to-target room
+        # (west) is genuinely different from the body's room.
+        from zones.maze_geometry import find_room_index
+        body_room = maze.rooms[-1]    # last room = east-most column
+        sx = body_room.x + body_room.w * 0.5
+        sy = body_room.y + body_room.h * 0.5
+        tx = maze.bounds.x - 500.0
+        ty = sy
+        assert find_room_index(tx, ty, maze.rooms) is None
+        p = WaypointPlanner(
+            maze.rooms, maze.room_graph, maze.doorways)
+        wp = p.plan(0.016, sx, sy, tx, ty)
+        assert wp is not None, (
+            "planner should produce a waypoint when target is "
+            "outside the maze and body is across the maze from the "
+            "nearest exit room")
+        assert p._path != []
+        assert p._path[0] in maze.room_graph
+
+    def test_body_outside_target_inside_falls_through(self, maze):
+        """Symmetric case — body outside the maze, target inside.
+        We don't have a sane fallback here (the body should just
+        fly straight at the target), so plan() must return None."""
+        room0 = maze.rooms[0]
+        tx = room0.x + room0.w * 0.5
+        ty = room0.y + room0.h * 0.5
+        sx = maze.bounds.x - 500.0
+        sy = ty
+        p = WaypointPlanner(
+            maze.rooms, maze.room_graph, maze.doorways)
+        assert p.plan(0.016, sx, sy, tx, ty) is None
+
+
 class TestStuckTimeout:
     def test_no_progress_for_5_seconds_triggers_give_up(self, maze):
         p = WaypointPlanner(maze.rooms, maze.room_graph)

@@ -518,10 +518,39 @@ class WaypointPlanner:
             return None
         sroom = find_room_index(sx, sy, self._rooms)
         troom = find_room_index(tx, ty, self._rooms)
+        # When the body is in a room but the target ISN'T (target sits
+        # outside any room — e.g. player is outside the entire maze
+        # while the drone is wedged inside it), substitute the room
+        # whose centre is closest to the target as the effective
+        # destination.  Without this fallback the planner returns
+        # None → caller chases directly → drone grinds against the
+        # interior wall trying to fly through it toward a player on
+        # the far side.  Telemetry from 2026-04-26 captured this
+        # exact pattern (drone at (2194,3142) inside maze 1, player
+        # at (1490,3470) outside — `path: []`, drone bouncing on the
+        # west wall).
+        if (sroom is not None and troom is None
+                and self._room_graph is not None):
+            best = None
+            best_d2 = float("inf")
+            for i, r in enumerate(self._rooms):
+                # Restrict to rooms in the body's connected component
+                # (room_graph keys cover every room, but unreachable
+                # ones from the body's component would still produce
+                # an empty A* path on the next call).  Cheap distance
+                # check — any room is fine for the proxy target.
+                cx = r.x + r.w * 0.5
+                cy = r.y + r.h * 0.5
+                d2 = (cx - tx) ** 2 + (cy - ty) ** 2
+                if d2 < best_d2:
+                    best_d2 = d2
+                    best = i
+            troom = best
         if sroom is None or troom is None or sroom == troom:
-            # Same room or one endpoint is in a wall — chase direct.
-            # Clear stuck tracker so the next inter-room plan starts
-            # with a fresh budget.
+            # Body is also outside any room (or already shares the
+            # target's room) — caller should chase directly.  Clear
+            # stuck tracker so the next inter-room plan starts with
+            # a fresh budget.
             self._anchor_x = None
             self._anchor_y = None
             self._stuck_t = 0.0
