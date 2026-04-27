@@ -665,47 +665,66 @@ def update_contrail(gv: GameView, dt: float) -> None:
     gv._contrail = [p for p in gv._contrail if not p.dead]
 
 
-def _spawn_melee_swing(gv: GameView, sword_tex) -> bool:
-    """Spawn a fresh ``MeleeSwing`` sprite at the player's nose with
-    ship-type-aware reach + damage.  Returns True iff the swing
-    was actually appended (always True at the moment — kept as a
-    return for symmetry with the ``Weapon.fire`` branch's
-    fired_any tracking)."""
-    from sprites.melee import MeleeSwing
+def _melee_blade_stats(gv: GameView) -> tuple[float, int]:
+    """Return ``(hit_radius, damage)`` for the player's current
+    ship type.  Bastion gets a longer reach + extra punch; every
+    other ship type uses the base values."""
     from constants import (
         MELEE_DAMAGE, MELEE_HIT_RADIUS,
         MELEE_BASTION_DAMAGE_BONUS, MELEE_BASTION_HIT_RADIUS,
     )
-    is_bastion = (getattr(gv, "_ship_type", "")
-                  or getattr(gv.player, "_ship_type", "")) == "Bastion"
-    hit_radius = (MELEE_BASTION_HIT_RADIUS if is_bastion
-                  else MELEE_HIT_RADIUS)
-    damage = (MELEE_DAMAGE + MELEE_BASTION_DAMAGE_BONUS
-              if is_bastion else MELEE_DAMAGE)
-    swing = MeleeSwing(
+    ship_type = (getattr(gv, "_ship_type", None)
+                 or getattr(gv.player, "_ship_type", None))
+    if ship_type == "Bastion":
+        return (MELEE_BASTION_HIT_RADIUS,
+                MELEE_DAMAGE + MELEE_BASTION_DAMAGE_BONUS)
+    return (MELEE_HIT_RADIUS, MELEE_DAMAGE)
+
+
+def _ensure_melee_blade(gv: GameView, sword_tex) -> None:
+    """Lazy-spawn the persistent melee blade in front of the
+    player.  Idempotent — already-present blade stays put.
+    Called every frame the active weapon is "Melee"."""
+    blade = getattr(gv, "_active_blade", None)
+    if blade is not None:
+        return
+    from sprites.melee import MeleeBlade
+    hit_radius, damage = _melee_blade_stats(gv)
+    blade = MeleeBlade(
         sword_tex, gv.player,
-        offset=hit_radius,           # appears AT the hit-radius distance ahead
+        offset=hit_radius,           # rests AT the hit-radius distance ahead
         damage=damage,
         hit_radius=hit_radius,
     )
-    gv._melee_swings.append(swing)
-    return True
+    gv._melee_swings.append(blade)
+    gv._active_blade = blade
 
 
-def update_melee_swings(gv: GameView, dt: float) -> None:
-    """Tick every active swing, deal AOE damage to enemies in the
-    swing's radius (each enemy hit once per swing), and cull
-    expired swings.  Cheap O(N_swings × N_enemies) per frame —
-    swings are short-lived and there's almost never more than 2 in
-    flight."""
-    swings = getattr(gv, "_melee_swings", None)
-    if not swings:
+def _remove_melee_blade(gv: GameView) -> None:
+    """Despawn the persistent blade (called when the active weapon
+    is no longer melee, e.g. player tabbed back to Basic Laser)."""
+    blade = getattr(gv, "_active_blade", None)
+    if blade is None:
         return
-    import math as _m
-    for sw in list(swings):
-        sw.update_swing(dt)
-    # AOE damage pass — iterate every active swing and check it
-    # against every enemy class the active zone exposes.
+    blade.remove_from_sprite_lists()
+    gv._active_blade = None
+
+
+def update_melee_blade(gv: GameView, dt: float) -> None:
+    """Tick the persistent blade (anchor + swing animation) and
+    deal AOE damage to enemies in range during the swing.  Each
+    enemy is damaged at most once per swing — the blade tracks
+    its hit set internally."""
+    blade = getattr(gv, "_active_blade", None)
+    if blade is None:
+        return
+    blade.update_blade(dt)
+    if not blade.is_swinging:
+        # Idle — blade is just floating in front of the ship; no
+        # damage check needed.
+        return
+    # AOE damage pass — iterate every enemy class the active zone
+    # exposes plus both bosses.
     enemies: list = list(gv.alien_list)
     zone = getattr(gv, "_zone", None)
     if zone is not None:
@@ -713,48 +732,41 @@ def update_melee_swings(gv: GameView, dt: float) -> None:
             zlist = getattr(zone, attr, None)
             if zlist is not None and zlist is not gv.alien_list:
                 enemies.extend(zlist)
-    # Bosses are zone-agnostic targets.
     if gv._boss is not None and gv._boss.hp > 0:
         enemies.append(gv._boss)
     nb = getattr(gv, "_nebula_boss", None)
     if nb is not None and nb.hp > 0:
         enemies.append(nb)
-    if enemies:
-        from collisions import _apply_kill_rewards
-        from character_data import bonus_iron_enemy
-        from constants import ALIEN_IRON_DROP, BLUEPRINT_DROP_CHANCE_ALIEN
-        for sw in list(swings):
-            r_sq = sw.hit_radius * sw.hit_radius
-            for e in list(enemies):
-                if sw.already_hit(e):
-                    continue
-                if getattr(e, "hp", 0) <= 0:
-                    continue
-                dx = e.center_x - sw.center_x
-                dy = e.center_y - sw.center_y
-                if dx * dx + dy * dy > r_sq:
-                    continue
-                e.take_damage(int(sw.damage))
-                sw.mark_hit(e)
-                if getattr(e, "hp", 1) <= 0 and not getattr(
-                        e, "killed", False):
-                    # Reward + cleanup for ordinary enemies.  Bosses
-                    # have their own death pipeline (handle_boss_*)
-                    # so we just leave them for that path; spawners
-                    # have a respawn flow incompatible with
-                    # remove_from_sprite_lists, so we skip those too.
-                    if not hasattr(e, "_charging") and not hasattr(
-                            e, "killed"):
-                        _apply_kill_rewards(
-                            gv, e.center_x, e.center_y,
-                            ALIEN_IRON_DROP, bonus_iron_enemy,
-                            BLUEPRINT_DROP_CHANCE_ALIEN)
-                        e.remove_from_sprite_lists()
-    # Cull expired swings — done last so any final-frame damage
-    # has already landed.
-    for sw in list(swings):
-        if sw.expired:
-            sw.remove_from_sprite_lists()
+    if not enemies:
+        return
+    from collisions import _apply_kill_rewards
+    from character_data import bonus_iron_enemy
+    from constants import ALIEN_IRON_DROP, BLUEPRINT_DROP_CHANCE_ALIEN
+    r_sq = blade.hit_radius * blade.hit_radius
+    for e in list(enemies):
+        if blade.already_hit(e):
+            continue
+        if getattr(e, "hp", 0) <= 0:
+            continue
+        dx = e.center_x - blade.center_x
+        dy = e.center_y - blade.center_y
+        if dx * dx + dy * dy > r_sq:
+            continue
+        e.take_damage(int(blade.damage))
+        blade.mark_hit(e)
+        if (getattr(e, "hp", 1) <= 0
+                and not getattr(e, "_charging", False)
+                and not hasattr(e, "killed")):
+            # Reward + cleanup for ordinary enemies.  Bosses
+            # have their own death pipeline (handle_boss_*) so
+            # we leave them for that path; spawners have a
+            # respawn flow incompatible with
+            # ``remove_from_sprite_lists`` so we skip those.
+            _apply_kill_rewards(
+                gv, e.center_x, e.center_y,
+                ALIEN_IRON_DROP, bonus_iron_enemy,
+                BLUEPRINT_DROP_CHANCE_ALIEN)
+            e.remove_from_sprite_lists()
 
 
 def update_weapons(gv: GameView, dt: float, fire: bool) -> None:
@@ -762,31 +774,38 @@ def update_weapons(gv: GameView, dt: float, fire: bool) -> None:
     for w in gv._weapons:
         w.update(dt)
 
-    # Tick + cull existing melee swings BEFORE the fire check so a
-    # new swing fired this frame doesn't immediately get culled
-    # (the cull runs against age >= lifetime, and the new swing has
-    # age=0 from its constructor).
-    update_melee_swings(gv, dt)
+    # Persistent melee blade lifecycle — visible whenever the
+    # melee weapon is the active weapon.  Spawned lazily when the
+    # player tabs to it, despawned when they tab away.
+    gun_count = gv.player.guns
+    base_idx = (gv._weapon_idx // gun_count) * gun_count
+    head_wpn = gv._weapons[base_idx]
+    if head_wpn.name == "Melee":
+        _ensure_melee_blade(gv, head_wpn._texture)
+    else:
+        _remove_melee_blade(gv)
 
     fired_any = False
     if fire:
         from sprites.explosion import HitSpark
         spawn_pts = gv.player.gun_spawn_points()
-        gun_count = gv.player.guns
-        base_idx = (gv._weapon_idx // gun_count) * gun_count
-        # Melee branch — single AOE swing per cooldown tick rather
-        # than a per-hardpoint salvo.  ``Weapon.fire`` is reused
-        # for cooldown management + sound throttle but its return
-        # value (a Projectile) is discarded; the swing sprite is
-        # spawned out-of-band from MELEE_* constants.
-        head_wpn = gv._weapons[base_idx]
+        # Melee branch — single swing animation per cooldown tick
+        # rather than a per-hardpoint salvo.  ``Weapon`` is reused
+        # for cooldown management + sound throttle; the persistent
+        # blade sprite is already on screen, we just trigger its
+        # swing animation.  Triggering BEFORE update_melee_blade
+        # below means the swing's AOE damage lands on the same
+        # frame as the fire press (rather than one frame later).
         if head_wpn.name == "Melee":
             if head_wpn._timer <= 0.0:
                 head_wpn._timer = head_wpn.cooldown
                 if head_wpn._snd_cd <= 0.0:
                     arcade.play_sound(head_wpn._sound, volume=0.5)
                     head_wpn._snd_cd = head_wpn._snd_min_interval
-                fired_any = _spawn_melee_swing(gv, head_wpn._texture)
+                blade = getattr(gv, "_active_blade", None)
+                if blade is not None:
+                    blade.start_swing()
+                    fired_any = True
         else:
             for gi in range(gun_count):
                 wpn = gv._weapons[base_idx + gi]
@@ -803,6 +822,11 @@ def update_weapons(gv: GameView, dt: float, fire: bool) -> None:
                     gv.hit_sparks.append(HitSpark(pt[0], pt[1]))
     if fired_any:
         disable_null_field_around_player(gv)
+    # Tick the blade AFTER the fire branch so a swing started this
+    # frame draws + damages on this same tick.  Idle ticks (when
+    # the blade isn't swinging) just re-anchor the pose to the
+    # ship's current position + heading.
+    update_melee_blade(gv, dt)
 
     # Broadside auto-fire
     if "broadside" in gv._module_slots and not gv._player_dead:

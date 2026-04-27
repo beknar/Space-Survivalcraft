@@ -1,9 +1,10 @@
-"""Energy-blade (melee) weapon — third basic weapon for every ship.
+"""Energy-blade (melee) weapon — persistent sword that swings on fire.
 
-Pin the load-weapons inventory, the spawn helper's
-ship-type-aware reach + damage, the per-frame swing tick (anchor
-to ship + lifetime), the AOE damage pass (one hit per enemy per
-swing), and the cycle order through Tab.
+Pin: load-weapons inventory + cycle, persistent blade lifecycle
+(visible when active, hidden when not), idle pose (50/80 px ahead
++ aligned with heading), swing animation triggered by fire,
+ship-type-aware reach + damage, AOE damage one-hit-per-enemy
+per swing, sword scaled to half the player ship.
 """
 from __future__ import annotations
 
@@ -29,24 +30,18 @@ class TestLoadWeaponsIncludesMelee:
     def test_melee_present_in_load_weapons_output(self):
         from world_setup import load_weapons
         weapons = load_weapons(gun_count=1)
-        names = [w.name for w in weapons]
-        assert "Melee" in names
+        assert "Melee" in [w.name for w in weapons]
 
     def test_melee_appears_after_basic_and_mining(self):
-        """Cycle order is Basic → Mining → Melee — pin the index
-        layout so Tab cycles through all three."""
         from world_setup import load_weapons
         weapons = load_weapons(gun_count=1)
-        names = [w.name for w in weapons]
-        assert names == ["Basic Laser", "Mining Beam", "Melee"]
+        assert [w.name for w in weapons] == [
+            "Basic Laser", "Mining Beam", "Melee"]
 
     def test_dual_gun_ship_has_one_melee_per_gun_block(self):
-        """Per-group block size matches gun_count so the cycle
-        math (idx += gun_count) lands cleanly on each group."""
         from world_setup import load_weapons
         weapons = load_weapons(gun_count=2)
-        names = [w.name for w in weapons]
-        assert names == [
+        assert [w.name for w in weapons] == [
             "Basic Laser", "Basic Laser",
             "Mining Beam", "Mining Beam",
             "Melee", "Melee",
@@ -69,154 +64,219 @@ class TestHUDShowsMelee:
         from game_view import GameView
         gv = GameView(faction="Earth", ship_type="Cruiser",
                        skip_music=True)
-        # Start: Basic Laser.  Cycle once → Mining Beam.  Cycle
-        # again → Melee.
         assert gv._active_weapon.name == "Basic Laser"
         gv._cycle_weapon()
         assert gv._active_weapon.name == "Mining Beam"
         gv._cycle_weapon()
         assert gv._active_weapon.name == "Melee"
-        # Cycling once more returns to Basic Laser.
         gv._cycle_weapon()
         assert gv._active_weapon.name == "Basic Laser"
 
 
-# ── Swing spawn position ──────────────────────────────────────────────────
+# ── Persistent blade lifecycle ───────────────────────────────────────────
 
 
-class TestSwingSpawnsAtNoseOffset:
-    def test_swing_appears_50_px_ahead_for_non_bastion(self):
-        from sprites.melee import MeleeSwing
-        from constants import MELEE_HIT_RADIUS, MELEE_DAMAGE
-        # Stub ship at origin facing north (heading=0).
-        ship = SimpleNamespace(
-            center_x=100.0, center_y=200.0, heading=0.0)
-        # Need a real Texture so arcade.Sprite construction works.
-        tex = arcade.make_soft_circle_texture(8, arcade.color.WHITE)
-        sw = MeleeSwing(tex, ship, offset=MELEE_HIT_RADIUS,
-                         damage=MELEE_DAMAGE,
-                         hit_radius=MELEE_HIT_RADIUS)
-        # Heading 0 = +y forward, so swing sits 50 px north of ship.
-        assert sw.center_x == pytest.approx(100.0)
-        assert sw.center_y == pytest.approx(200.0 + MELEE_HIT_RADIUS)
-
-    def test_swing_appears_80_px_ahead_for_bastion(self):
-        """Bastion gets a longer reach — swing distance from the
-        ship matches MELEE_BASTION_HIT_RADIUS."""
-        from sprites.melee import MeleeSwing
-        from constants import (MELEE_BASTION_HIT_RADIUS,
-                                MELEE_DAMAGE,
-                                MELEE_BASTION_DAMAGE_BONUS)
-        ship = SimpleNamespace(
-            center_x=0.0, center_y=0.0, heading=0.0)
-        tex = arcade.make_soft_circle_texture(8, arcade.color.WHITE)
-        sw = MeleeSwing(
-            tex, ship, offset=MELEE_BASTION_HIT_RADIUS,
-            damage=MELEE_DAMAGE + MELEE_BASTION_DAMAGE_BONUS,
-            hit_radius=MELEE_BASTION_HIT_RADIUS)
-        assert sw.center_y == pytest.approx(MELEE_BASTION_HIT_RADIUS)
-        assert sw.damage == MELEE_DAMAGE + MELEE_BASTION_DAMAGE_BONUS
-
-
-# ── Bastion bonus via _spawn_melee_swing ─────────────────────────────────
-
-
-class TestBastionBonusApplied:
-    def test_non_bastion_gets_base_damage_and_radius(self):
-        from update_logic import _spawn_melee_swing
-        from constants import MELEE_DAMAGE, MELEE_HIT_RADIUS
+class TestBladeLifecycle:
+    def test_blade_appears_when_melee_is_active(self):
+        from update_logic import update_weapons
         from game_view import GameView
         gv = GameView(faction="Earth", ship_type="Cruiser",
                        skip_music=True)
-        tex = arcade.make_soft_circle_texture(8, arcade.color.WHITE)
-        _spawn_melee_swing(gv, tex)
-        sw = gv._melee_swings[-1]
-        assert sw.damage == MELEE_DAMAGE
-        assert sw.hit_radius == MELEE_HIT_RADIUS
+        # Cycle to Melee (Basic → Mining → Melee).
+        gv._cycle_weapon(); gv._cycle_weapon()
+        update_weapons(gv, 1 / 60, fire=False)
+        assert gv._active_blade is not None
+        assert gv._active_blade in gv._melee_swings
 
-    def test_bastion_gets_bonus_damage_and_extended_radius(self):
-        from update_logic import _spawn_melee_swing
-        from constants import (MELEE_DAMAGE, MELEE_BASTION_DAMAGE_BONUS,
-                                MELEE_BASTION_HIT_RADIUS)
+    def test_blade_disappears_when_other_weapon_active(self):
+        from update_logic import update_weapons
+        from game_view import GameView
+        gv = GameView(faction="Earth", ship_type="Cruiser",
+                       skip_music=True)
+        gv._cycle_weapon(); gv._cycle_weapon()       # to Melee
+        update_weapons(gv, 1 / 60, fire=False)       # blade spawns
+        assert gv._active_blade is not None
+        gv._cycle_weapon()                            # back to Basic Laser
+        update_weapons(gv, 1 / 60, fire=False)
+        assert gv._active_blade is None
+        assert len(gv._melee_swings) == 0
+
+
+# ── Idle pose: blade in front of ship at the right offset ────────────────
+
+
+class TestBladeIdlePose:
+    def _setup_with_melee_active(self, ship_type):
+        from update_logic import update_weapons
+        from game_view import GameView
+        gv = GameView(faction="Earth", ship_type=ship_type,
+                       skip_music=True)
+        gv._cycle_weapon(); gv._cycle_weapon()
+        # Park player at a deterministic position + heading.
+        gv.player.center_x = 1000.0
+        gv.player.center_y = 2000.0
+        gv.player.heading = 0.0
+        update_weapons(gv, 1 / 60, fire=False)
+        return gv
+
+    def test_blade_50_px_ahead_for_non_bastion(self):
+        from constants import MELEE_HIT_RADIUS
+        gv = self._setup_with_melee_active("Cruiser")
+        b = gv._active_blade
+        assert b.center_x == pytest.approx(1000.0)
+        assert b.center_y == pytest.approx(2000.0 + MELEE_HIT_RADIUS)
+        assert b.hit_radius == MELEE_HIT_RADIUS
+
+    def test_blade_80_px_ahead_for_bastion(self):
+        from constants import MELEE_BASTION_HIT_RADIUS
+        gv = self._setup_with_melee_active("Bastion")
+        b = gv._active_blade
+        assert b.center_y == pytest.approx(
+            2000.0 + MELEE_BASTION_HIT_RADIUS)
+        assert b.hit_radius == MELEE_BASTION_HIT_RADIUS
+
+    def test_blade_idle_angle_matches_heading(self):
+        gv = self._setup_with_melee_active("Cruiser")
+        # Idle blade points forward (no swing rotation applied).
+        assert gv._active_blade.angle == pytest.approx(
+            gv.player.heading)
+
+
+# ── Bastion bonus ────────────────────────────────────────────────────────
+
+
+class TestBastionBonus:
+    def test_bastion_blade_carries_bonus_damage(self):
+        from update_logic import update_weapons
+        from constants import (MELEE_DAMAGE, MELEE_BASTION_DAMAGE_BONUS)
         from game_view import GameView
         gv = GameView(faction="Earth", ship_type="Bastion",
                        skip_music=True)
-        tex = arcade.make_soft_circle_texture(8, arcade.color.WHITE)
-        _spawn_melee_swing(gv, tex)
-        sw = gv._melee_swings[-1]
-        assert sw.damage == MELEE_DAMAGE + MELEE_BASTION_DAMAGE_BONUS
-        assert sw.hit_radius == MELEE_BASTION_HIT_RADIUS
+        gv._cycle_weapon(); gv._cycle_weapon()
+        update_weapons(gv, 1 / 60, fire=False)
+        assert gv._active_blade.damage == (
+            MELEE_DAMAGE + MELEE_BASTION_DAMAGE_BONUS)
 
 
-# ── AOE damage pass ──────────────────────────────────────────────────────
+# ── Swing animation triggered by fire ────────────────────────────────────
 
 
-class TestSwingDamagesEnemiesInRadius:
-    def test_enemy_inside_radius_takes_damage_once_per_swing(self):
-        from update_logic import _spawn_melee_swing, update_melee_swings
+class TestSwingTriggeredByFire:
+    def test_fire_starts_swing_animation(self):
+        from update_logic import update_weapons
+        from game_view import GameView
+        gv = GameView(faction="Earth", ship_type="Cruiser",
+                       skip_music=True)
+        gv._cycle_weapon(); gv._cycle_weapon()
+        update_weapons(gv, 1 / 60, fire=False)
+        assert gv._active_blade.is_swinging is False
+        update_weapons(gv, 1 / 60, fire=True)
+        assert gv._active_blade.is_swinging is True
+
+    def test_swing_animation_ends_after_lifetime(self):
+        from update_logic import update_weapons
+        from constants import MELEE_SWING_LIFETIME
+        from game_view import GameView
+        gv = GameView(faction="Earth", ship_type="Cruiser",
+                       skip_music=True)
+        gv._cycle_weapon(); gv._cycle_weapon()
+        update_weapons(gv, 1 / 60, fire=True)   # spawn + swing
+        # Tick past the swing lifetime.
+        update_weapons(gv, MELEE_SWING_LIFETIME + 0.05,
+                        fire=False)
+        assert gv._active_blade.is_swinging is False
+        # Blade is still on screen — only the animation ended.
+        assert gv._active_blade is not None
+
+
+# ── AOE damage during swing ──────────────────────────────────────────────
+
+
+class TestSwingDealsDamage:
+    def test_enemy_inside_radius_takes_damage_during_swing(self):
+        from update_logic import update_weapons
         from constants import MELEE_DAMAGE
         from game_view import GameView
         gv = GameView(faction="Earth", ship_type="Cruiser",
                        skip_music=True)
-        # Stub enemy 30 px ahead of the player (well inside 50 px).
-        # Use SimpleNamespace + a stub take_damage that records the
-        # hit count.  alien_list isn't used by the AOE pass for
-        # damage routing — it just iterates whatever lists the zone
-        # exposes.  Inject our enemy via the Zone-1 alien_list.
-        ship = gv.player
+        gv._cycle_weapon(); gv._cycle_weapon()
+        # Stub enemy 30 px ahead of where the blade idles (which
+        # is 50 px ahead of the ship).  So enemy at ship+80
+        # should be inside the 50 px hit radius around the blade.
         target = SimpleNamespace(
-            center_x=ship.center_x,
-            center_y=ship.center_y + 30.0,
+            center_x=gv.player.center_x,
+            center_y=gv.player.center_y + 80.0,
             hp=200, _ticks=0)
         target.take_damage = lambda dmg: setattr(
             target, "hp", target.hp - dmg) or setattr(
             target, "_ticks", target._ticks + 1)
         target.remove_from_sprite_lists = lambda: None
-        # Swap a list-like alien_list so iteration works.
         gv.alien_list = [target]
-        tex = arcade.make_soft_circle_texture(8, arcade.color.WHITE)
-        _spawn_melee_swing(gv, tex)
-        # First tick — target takes one hit.
-        update_melee_swings(gv, 0.05)
+        # Trigger a swing.
+        update_weapons(gv, 1 / 60, fire=True)
         assert target._ticks == 1
         assert target.hp == 200 - MELEE_DAMAGE
-        # Second tick (still within swing lifetime) — target NOT
-        # hit again because the swing remembers its victims.
-        update_melee_swings(gv, 0.05)
-        assert target._ticks == 1
 
-    def test_enemy_outside_radius_takes_no_damage(self):
-        from update_logic import _spawn_melee_swing, update_melee_swings
+    def test_idle_blade_does_no_damage(self):
+        from update_logic import update_weapons
         from game_view import GameView
         gv = GameView(faction="Earth", ship_type="Cruiser",
                        skip_music=True)
-        ship = gv.player
+        gv._cycle_weapon(); gv._cycle_weapon()
         target = SimpleNamespace(
-            center_x=ship.center_x + 500.0,
-            center_y=ship.center_y, hp=100)
+            center_x=gv.player.center_x,
+            center_y=gv.player.center_y + 80.0,
+            hp=200)
         target.take_damage = lambda dmg: setattr(
             target, "hp", target.hp - dmg)
         target.remove_from_sprite_lists = lambda: None
         gv.alien_list = [target]
-        tex = arcade.make_soft_circle_texture(8, arcade.color.WHITE)
-        _spawn_melee_swing(gv, tex)
-        update_melee_swings(gv, 0.05)
-        assert target.hp == 100
+        # Tick WITHOUT firing — blade idles, no damage.
+        update_weapons(gv, 1 / 60, fire=False)
+        assert target.hp == 200
 
-
-# ── Lifetime / cull ──────────────────────────────────────────────────────
-
-
-class TestSwingLifetime:
-    def test_swing_culled_after_lifetime(self):
-        from update_logic import _spawn_melee_swing, update_melee_swings
-        from constants import MELEE_SWING_LIFETIME
+    def test_enemy_hit_at_most_once_per_swing(self):
+        from update_logic import update_weapons
         from game_view import GameView
+        from constants import MELEE_DAMAGE
         gv = GameView(faction="Earth", ship_type="Cruiser",
                        skip_music=True)
-        tex = arcade.make_soft_circle_texture(8, arcade.color.WHITE)
-        _spawn_melee_swing(gv, tex)
-        assert len(gv._melee_swings) == 1
-        # Tick past the lifetime in one call so the swing expires.
-        update_melee_swings(gv, MELEE_SWING_LIFETIME + 0.05)
-        assert len(gv._melee_swings) == 0
+        gv._cycle_weapon(); gv._cycle_weapon()
+        target = SimpleNamespace(
+            center_x=gv.player.center_x,
+            center_y=gv.player.center_y + 80.0,
+            hp=500, _ticks=0)
+        target.take_damage = lambda dmg: setattr(
+            target, "hp", target.hp - dmg) or setattr(
+            target, "_ticks", target._ticks + 1)
+        target.remove_from_sprite_lists = lambda: None
+        gv.alien_list = [target]
+        # Fire once, then tick the swing across multiple frames
+        # (no further fire input).  The enemy should be hit once
+        # — not once per frame of the swing animation.
+        update_weapons(gv, 1 / 60, fire=True)
+        for _ in range(10):
+            update_weapons(gv, 1 / 60, fire=False)
+        assert target._ticks == 1
+        assert target.hp == 500 - MELEE_DAMAGE
+
+
+# ── Sword scale = half the ship ──────────────────────────────────────────
+
+
+class TestSwordHalfShipSize:
+    def test_blade_scale_is_half_of_player_ship(self):
+        """Player renders at 128 px sheet × 0.75 scale = 96 px.
+        Sword PNG is 128 px native, so scale 0.375 puts the blade
+        at exactly 48 px = half the ship's rendered size."""
+        from update_logic import update_weapons
+        from game_view import GameView
+        from constants import MELEE_SCALE
+        gv = GameView(faction="Earth", ship_type="Cruiser",
+                       skip_music=True)
+        gv._cycle_weapon(); gv._cycle_weapon()
+        update_weapons(gv, 1 / 60, fire=False)
+        # MELEE_SCALE constant pinned to 0.375.
+        assert MELEE_SCALE == pytest.approx(0.375)
+        # Blade carries the same scale.
+        assert gv._active_blade.scale_x == pytest.approx(0.375)

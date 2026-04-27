@@ -208,11 +208,14 @@ class GameView(arcade.View):
         self._missile_list: arcade.SpriteList = arcade.SpriteList()
         self._missile_tex: arcade.Texture | None = None
         self._rear_turret_cd: float = 0.0
-        # Active energy-blade swings — a sprite list rather than a
-        # plain list so the existing draw_world hook can blit them
-        # in one batched call alongside the other projectile-class
-        # sprites.
+        # Persistent energy-blade sprite — visible whenever the
+        # melee weapon is the active weapon, hidden / despawned
+        # when the player tabs back to a laser.  Stored as a
+        # SpriteList so the existing draw_world hook can blit it
+        # in one batched call; ``_active_blade`` is the singleton
+        # reference for direct mutation (start_swing etc.).
         self._melee_swings: arcade.SpriteList = arcade.SpriteList()
+        self._active_blade = None
 
         # Companion drone — at most one active at a time, replaceable
         # by pressing R after switching to the other weapon class.
