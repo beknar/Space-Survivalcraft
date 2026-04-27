@@ -306,7 +306,49 @@ class TestPlannerRoutesThroughEntrance:
         assert wp == maze.entrance_xy
 
 
-class TestStuckTimeout:
+class TestDoorwayArrival:
+    """Telemetry-pinned regression (drone_return_telemetry.log,
+    2026-04-26 20:14): drone sat exactly on the doorway midpoint
+    between rooms 1 and 2 for 27 s.  The planner kept emitting the
+    same doorway as the waypoint — distance to waypoint = 0, drone
+    refused to move.  Fix advances the path when the body is within
+    ``_DOORWAY_ARRIVAL_RADIUS`` of the current doorway."""
+
+    def test_at_doorway_path_advances_to_next_step(self, maze):
+        # Pick a 3-step path: A → B → C with B reachable from A and
+        # C reachable from B.
+        a, neighbours_a = next(
+            (i, n) for i, n in maze.room_graph.items() if len(n) >= 1)
+        b = neighbours_a[0]
+        # Find a neighbour of b that isn't a (so a 3-step path exists).
+        c = next((n for n in maze.room_graph[b] if n != a), None)
+        if c is None:
+            pytest.skip("seed-42 maze didn't produce a 3-step path "
+                         "from any starting room")
+        ra = maze.rooms[a]
+        # Place body exactly at the A↔B doorway midpoint.
+        door_ab = maze.doorways[frozenset((a, b))]
+        door_bc = maze.doorways.get(frozenset((b, c)))
+        rb = maze.rooms[b]
+        target_in_b = (rb.x + rb.w * 0.5, rb.y + rb.h * 0.5)
+        p = WaypointPlanner(
+            maze.rooms, maze.room_graph, maze.doorways)
+        # Seed the path so the planner has a known sequence.
+        p._path = [a, b, c]
+        p._path_target_room = c
+        p._replan_t = WaypointPlanner.REPLAN_INTERVAL
+        # Body sitting on the A↔B doorway → planner should advance
+        # past A and emit either the B↔C doorway or the centre of c.
+        wp = p.plan(0.016, door_ab[0], door_ab[1],
+                    target_in_b[0], target_in_b[1])
+        assert wp is not None
+        # Path must have shrunk by at least one step.
+        assert p._path[0] != a, (
+            f"path didn't advance past entered room {a}: "
+            f"path={p._path}")
+        # The new waypoint must NOT equal the doorway we just
+        # arrived at — that's the whole point of advancing.
+        assert wp != door_ab
     def test_no_progress_for_5_seconds_triggers_give_up(self, maze):
         p = WaypointPlanner(maze.rooms, maze.room_graph)
         # Pick start + target in different rooms.

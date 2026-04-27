@@ -495,6 +495,12 @@ class WaypointPlanner:
     # the live mazes, plus a few px so a drone partially clipping the
     # wall still gets matched to the room.
     _WALL_BAND_SLACK: float = 50.0
+    # When the body is within this radius of the current doorway
+    # midpoint, treat the doorway as "arrived" and advance the path.
+    # Smaller than the wall thickness so we don't advance prematurely
+    # but big enough that a body sitting exactly on the doorway's
+    # 32 px wall band is recognised.
+    _DOORWAY_ARRIVAL_RADIUS: float = 24.0
 
     def __init__(
         self,
@@ -701,7 +707,50 @@ class WaypointPlanner:
         # is laid out without carved gaps for some reason).
         edge_key = frozenset((sroom, self._path[1]))
         door = self._doorways.get(edge_key)
+        # Doorway arrival: when the body has reached the current
+        # doorway midpoint (within ``_DOORWAY_ARRIVAL_RADIUS``)
+        # advance the path so the next call emits the NEXT
+        # doorway / final room centre.  Without this step the
+        # planner re-emits the same midpoint every frame; the
+        # drone update loop sees ``dist <= 0.001``, refuses to
+        # move, and the body never crosses the wall.  Captured by
+        # telemetry 2026-04-26 20:14: drone parked at
+        # (2336, 2834) — exactly the doorway midpoint between
+        # rooms 1 and 2 — for 27 s before another order cleared.
         if door is not None:
+            ddx = sx - door[0]
+            ddy = sy - door[1]
+            if (ddx * ddx + ddy * ddy
+                    <= self._DOORWAY_ARRIVAL_RADIUS
+                       * self._DOORWAY_ARRIVAL_RADIUS):
+                # Arrived — drop the entered room so path[0]
+                # becomes the next room and recompute the
+                # waypoint.  Reset the stuck anchor since this
+                # counts as progress.
+                self._path.pop(0)
+                self._anchor_x = sx
+                self._anchor_y = sy
+                self._stuck_t = 0.0
+                if not self._path:
+                    return None
+                if len(self._path) >= 2:
+                    next_edge = frozenset(
+                        (self._path[0], self._path[1]))
+                    next_door = self._doorways.get(next_edge)
+                    if next_door is not None:
+                        return next_door
+                    nxt = self._rooms[self._path[1]]
+                    return (nxt.x + nxt.w * 0.5,
+                            nxt.y + nxt.h * 0.5)
+                # Single room left — the destination.  Emit its
+                # centre as the waypoint so the body steps off
+                # the doorway and into the room interior;
+                # otherwise the next-frame plan() call would see
+                # the body still on the wall band, snap back to
+                # the same room, and we'd loop.
+                final = self._rooms[self._path[0]]
+                return (final.x + final.w * 0.5,
+                        final.y + final.h * 0.5)
             return door
         nxt = self._rooms[self._path[1]]
         return (nxt.x + nxt.w * 0.5, nxt.y + nxt.h * 0.5)
