@@ -40,45 +40,35 @@ class TestTurretTargetsIncludeAllStarMazeEnemies:
         _enter_star_maze(gv)
         zone = gv._zone
 
-        # Capture the alien_list contents at the moment
-        # update_buildings is invoked.
+        # Drop a turret in so update_turret actually fires.  Spy
+        # on its targeting iterable to confirm the combined list
+        # is what the turret sees for selection.
+        from sprites.building import Turret, create_building
         captured: dict = {}
-        import update_logic as _ul
-        original = _ul.update_buildings
+        original_update = Turret.update_turret
 
-        def spy(gv_, dt):
-            # Capture references to all current lists for cross-check.
-            captured["len"] = len(gv_.alien_list)
-            captured["sprite_ids"] = {
-                id(s) for s in list(gv_.alien_list)
-            }
-            captured["maze_alien_ids"] = {
-                id(a) for a in zone._maze_aliens
-            }
-            captured["stalker_ids"] = {
-                id(s) for s in zone._stalkers
-            }
-            captured["z2_alien_ids"] = {
-                id(a) for a in zone._aliens
-            }
-            return original(gv_, dt)
+        def spy(self, dt, alien_list, *args, **kwargs):
+            captured["sprite_ids"] = {id(s) for s in alien_list}
+            return original_update(self, dt, alien_list, *args, **kwargs)
 
-        monkeypatch.setattr(_ul, "update_buildings", spy)
-        # Also patch through the import inside zones.star_maze.
-        import zones.star_maze as _sm
-        # No re-import needed — star_maze does
-        # ``from update_logic import update_buildings, ...``
-        # inside its update method, so a setattr on update_logic
-        # is enough.
+        from constants import WORLD_WIDTH, WORLD_HEIGHT
+        t_tex = gv._building_textures["Turret 1"]
+        gv.building_list.append(create_building(
+            "Turret 1", t_tex,
+            zone.world_width / 2, zone.world_height / 2,
+            laser_tex=gv._turret_laser_tex, scale=0.5))
+
+        monkeypatch.setattr(Turret, "update_turret", spy)
         zone.update(gv, 1 / 60)
 
-        # The captured alien_list must include EVERY sprite from
+        # The captured iterable must include EVERY sprite from
         # _maze_aliens, _stalkers, and _aliens.
-        for label, ids in (
-                ("maze aliens", captured["maze_alien_ids"]),
-                ("stalkers", captured["stalker_ids"]),
-                ("z2 aliens", captured["z2_alien_ids"])):
-            missing = ids - captured["sprite_ids"]
+        ids = captured.get("sprite_ids", set())
+        for label, src in (
+                ("maze aliens", zone._maze_aliens),
+                ("stalkers", zone._stalkers),
+                ("z2 aliens", zone._aliens)):
+            missing = {id(s) for s in src} - ids
             assert not missing, (
                 f"turret targeting list missing {label}: "
                 f"{len(missing)} sprite(s) not present")
@@ -87,64 +77,59 @@ class TestTurretTargetsIncludeAllStarMazeEnemies:
 # ── Turret damage actually lands on a stalker ─────────────────────────────
 
 
-class TestTurretTargetListIsCached:
-    """Regression: an earlier version of this fix built a fresh
-    ``arcade.SpriteList`` each frame and appended ~75 sprites
-    without ever calling ``clear()`` on the temp list.  ``append``
-    adds the SpriteList to each sprite's ``sprite_lists`` back-
-    reference tuple, so the temp list (out of scope after the
-    swap restoration) was kept alive by the contained sprites —
-    the per-sprite ``sprite_lists`` tuple grew at ~75 entries per
-    frame.  Sprite-position updates iterate ``sprite_lists`` to
-    invalidate buffers, so after ~60 s every sprite carried
-    thousands of stale refs and FPS collapsed below 20.
+class TestTurretTargetListNoLeak:
+    """Regression: previous designs of this fix used
+    ``arcade.SpriteList`` for the combined targeting list — both
+    a fresh-per-frame allocation AND a cached clear()+refill cycle
+    leak ~15 KB per call (verified 2026-04-27 in a tight-loop test
+    against arcade's allocator).  Soak runs reported 500+ MB
+    growth in 5 min because of this.
 
-    Fix: cache ONE SpriteList on the zone and ``clear()``-then-
-    refill it each frame.  ``clear()`` removes the back-reference
-    cleanly so re-adding the same sprite next frame doesn't
-    accumulate.
+    Current design: targeting iterable is a plain Python list,
+    projectile collision queries each existing zone SpriteList
+    separately (via ``_turret_extra_target_lists``).  No
+    SpriteList allocation per frame, no back-reference accumulation
+    on contained sprites.
 
-    These tests pin the cached list IS reused across ticks AND
-    that no sprite holds more than one reference to the cached
-    list at any time.
+    These tests pin the design constraints.
     """
 
-    def test_turret_target_list_object_is_stable_across_ticks(self):
+    def test_extra_target_lists_property_lists_stalkers_and_aliens(self):
         from game_view import GameView
         gv = GameView(faction="Earth", ship_type="Cruiser",
                        skip_music=True)
         _enter_star_maze(gv)
         zone = gv._zone
-        first_id = id(zone._turret_target_list)
-        for _ in range(10):
-            zone.update(gv, 1 / 60)
-        assert id(zone._turret_target_list) == first_id, (
-            "cached turret-target list got swapped — "
-            "per-frame allocation regression")
+        extras = zone._turret_extra_target_lists
+        # Identity equality with the actual zone lists — proves
+        # we're reusing the existing SpriteLists, not allocating
+        # new ones.
+        assert zone._stalkers in extras
+        assert zone._aliens in extras
 
-    def test_no_back_reference_accumulation(self):
-        """After ticking many frames, no sprite that lives in the
-        Star Maze should hold MORE THAN ONE reference to the
-        cached turret-target list.  Catches the leak that caused
-        the sub-20-FPS collapse — without the fix, every sprite
-        accumulated +1 reference per frame."""
+    def test_no_back_reference_accumulation_after_many_ticks(self):
+        """After ticking many frames, no Star Maze sprite holds
+        MORE THAN ONE back-reference to its ORIGINAL SpriteList.
+        Catches the leak that caused the soak FPS / RSS collapse
+        — without the fix, sprites accumulated ~75 stale refs
+        per frame from the per-frame combined-SpriteList rebuild.
+        """
         from game_view import GameView
         gv = GameView(faction="Earth", ship_type="Cruiser",
                        skip_music=True)
         _enter_star_maze(gv)
         zone = gv._zone
-        for _ in range(20):
+        for _ in range(60):
             zone.update(gv, 1 / 60)
-        cached = zone._turret_target_list
-        for src in (zone._maze_aliens, zone._stalkers,
-                    getattr(zone, "_aliens", None) or ()):
+        # Each sprite should be in EXACTLY ONE Star-Maze SpriteList
+        # (its native one).  Assert the count is ≤ 2 to allow for
+        # any unrelated arcade-internal list (defensive — the
+        # actual count under the fix is 1).
+        for src in (zone._maze_aliens, zone._stalkers, zone._aliens):
             for s in src:
-                count = sum(1 for sl in s.sprite_lists
-                            if sl is cached)
-                assert count <= 1, (
-                    f"sprite holds {count} refs to the cached "
-                    f"turret-target list — back-reference leak "
-                    f"regressed")
+                assert len(s.sprite_lists) <= 2, (
+                    f"sprite carries {len(s.sprite_lists)} "
+                    f"SpriteList back-refs — leak regressed")
 
 
 class TestTurretProjectileDamagesStalker:
