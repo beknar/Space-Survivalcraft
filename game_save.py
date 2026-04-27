@@ -734,10 +734,12 @@ def _serialize_active_drone(gv: GameView) -> dict | None:
     ``None`` when no drone is active so the field round-trips cleanly
     on saves made before drones existed.
 
-    Stores variant + position + HP / shield so loading restores the
-    drone in flight at the same place with the same damage state.
-    Targeting / cooldown state is intentionally not persisted — the
-    drone re-acquires on the first tick after load."""
+    Stores variant + position + HP / shield + Fleet menu state
+    (reaction + active direct order) so loading restores the drone
+    in flight at the same place with the same damage state and the
+    same standing orders.  Targeting / cooldown state is
+    intentionally not persisted — the drone re-acquires on the first
+    tick after load."""
     drone = getattr(gv, "_active_drone", None)
     if drone is None:
         return None
@@ -748,6 +750,8 @@ def _serialize_active_drone(gv: GameView) -> dict | None:
         "y": drone.center_y,
         "hp": drone.hp,
         "shields": drone.shields,
+        "reaction": getattr(drone, "_reaction", "attack"),
+        "direct_order": getattr(drone, "_direct_order", None),
     }
 
 
@@ -761,6 +765,8 @@ def _restore_active_drone(gv: GameView, data: dict | None) -> None:
     d = cls(float(data.get("x", 0.0)), float(data.get("y", 0.0)))
     d.hp = int(data.get("hp", d.hp))
     d.shields = int(data.get("shields", d.shields))
+    d._reaction = data.get("reaction", "attack")
+    d._direct_order = data.get("direct_order")
     gv._drone_list.append(d)
     gv._active_drone = d
 

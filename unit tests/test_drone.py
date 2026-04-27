@@ -584,11 +584,15 @@ class TestDroneStackAndSave:
         d.shields = 7
         gv = SimpleNamespace(_active_drone=d)
         blob = _serialize_active_drone(gv)
-        assert blob == {
-            "variant": "combat",
-            "x": 1234.0, "y": 5678.0,
-            "hp": 42, "shields": 7,
-        }
+        assert blob["variant"] == "combat"
+        assert blob["x"] == 1234.0
+        assert blob["y"] == 5678.0
+        assert blob["hp"] == 42
+        assert blob["shields"] == 7
+        # Reaction + direct order are persisted alongside HP since
+        # the Fleet menu was added; default values are fine here.
+        assert "reaction" in blob
+        assert "direct_order" in blob
         # Round-trip into a fresh gv with the sprite-list scaffolding.
         gv2 = SimpleNamespace(
             _active_drone=None,
