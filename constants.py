@@ -700,12 +700,16 @@ MINING_DRONE_SHIELD: int = 0
 COMBAT_DRONE_SHIELD: int = 25
 DRONE_MAX_SPEED: float = 450.0          # px/s
 DRONE_ROTATE_SPEED: float = 100.0       # deg/s (visual only — drones fly directly)
-# Drones target this orbit radius around the player; they ease toward
-# the rotating offset so they appear to swim alongside the ship.
-DRONE_FOLLOW_DIST: float = 160.0        # px from player
-DRONE_ORBIT_SPEED: float = 35.0         # deg/s of offset rotation
+# Drones follow the player ship in fixed lateral / rear slots (not an
+# orbit ring) — see ``sprites.drone._BaseDrone.follow``.  ``FOLLOW_DIST``
+# is how far each slot sits from the player centre; LEFT and RIGHT are
+# perpendicular to player heading, BACK is opposite.  ``ORBIT_SPEED``
+# is retained for the legacy hit-flash + shield-arc rotation only.
+DRONE_FOLLOW_DIST: float = 80.0         # px from player to follow slot
+DRONE_ORBIT_SPEED: float = 35.0         # deg/s — visuals only (shield arc)
 DRONE_FIRE_COOLDOWN: float = 0.5        # seconds between shots
 DRONE_DETECT_RANGE: float = 600.0       # px — acquire targets within
+DRONE_BREAK_OFF_DIST: float = 800.0     # px — return to FOLLOW past this
 DRONE_LASER_RANGE: float = 600.0
 DRONE_LASER_SPEED: float = 700.0
 MINING_DRONE_LASER_DAMAGE: float = 20.0  # vs asteroids

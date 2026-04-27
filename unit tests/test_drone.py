@@ -95,49 +95,108 @@ class TestDroneDamage:
         assert d.dead is True
 
 
-# ── Follow / orbit ─────────────────────────────────────────────────────────
+# ── Follow / slot picking ──────────────────────────────────────────────────
 
 class TestDroneFollow:
     def test_drone_steers_toward_player_offset(self):
         from sprites.drone import CombatDrone
         d = CombatDrone(1000.0, 1000.0)
-        d._orbit_angle = 0.0
-        # Player at (500, 500); orbit_angle 0 → offset is +x by FOLLOW_DIST
-        # → target = (500 + FOLLOW_DIST, 500).  Drone at (1000, 1000)
-        # should move toward that target.
+        # Two-arg signature defaults to LEFT slot of a heading=0 ship —
+        # target = (player_x - FOLLOW_DIST, player_y).
         d.follow(0.5, 500.0, 500.0)
-        # After half a second drone has moved at least DRONE_MAX_SPEED * 0.5
-        # toward the target, capped by remaining distance.  Both axes
+        # Drone at (1000, 1000) moving toward (420, 500) — both axes
         # should have decreased.
         assert d.center_x < 1000.0
         assert d.center_y < 1000.0
 
-    def test_step_capped_at_distance_no_overshoot(self, monkeypatch):
-        # Freeze orbit rotation so the target sits still while the
-        # drone steers — otherwise we'd be chasing a moving point.
-        from sprites import drone as drone_mod
-        monkeypatch.setattr(drone_mod, "DRONE_ORBIT_SPEED", 0.0)
+    def test_step_capped_at_distance_no_overshoot(self):
         from sprites.drone import CombatDrone
         d = CombatDrone(0.0, 0.0)
-        d._orbit_angle = 0.0
-        # Big dt → would normally fly far past the target if uncapped;
-        # the per-tick step is min(MAX_SPEED * dt, dist) so the drone
-        # arrives exactly at the target without overshooting.
+        # Big dt would normally overshoot; the per-tick step is
+        # min(MAX_SPEED * dt, dist) so the drone arrives exactly at
+        # the LEFT slot of a heading=0 player at (FOLLOW_DIST, 0):
+        # slot = (-FOLLOW_DIST, 0).
         d.follow(10.0, 0.0, 0.0)
-        assert d.center_x == pytest.approx(DRONE_FOLLOW_DIST, abs=1e-3)
+        assert d.center_x == pytest.approx(-DRONE_FOLLOW_DIST, abs=1e-3)
         assert d.center_y == pytest.approx(0.0, abs=1e-3)
 
     def test_max_speed_per_tick(self):
         from sprites.drone import CombatDrone
         d = CombatDrone(0.0, 0.0)
-        d._orbit_angle = 0.0
-        # Player far away, dt = 0.1 → drone moves DRONE_MAX_SPEED * 0.1
-        # = 45 px toward (FOLLOW_DIST + 1000, 0).
+        # Player far away → drone moves DRONE_MAX_SPEED * dt this
+        # frame regardless of slot.
         d.follow(0.1, 1000.0, 0.0)
-        # Movement magnitude should equal DRONE_MAX_SPEED * dt.
         import math
         moved = math.hypot(d.center_x, d.center_y)
         assert moved == pytest.approx(DRONE_MAX_SPEED * 0.1, abs=0.5)
+
+
+class TestDroneSlotPicking:
+    def test_default_slot_is_left_of_player(self):
+        """Heading=0 player → LEFT slot is straight west of the player."""
+        from sprites.drone import CombatDrone
+        d = CombatDrone(0.0, 0.0)
+        player = SimpleNamespace(center_x=500.0, center_y=500.0,
+                                  heading=0.0)
+        sx, sy = d._pick_follow_slot(player, walls=None)
+        assert sx == pytest.approx(500.0 - DRONE_FOLLOW_DIST)
+        assert sy == pytest.approx(500.0)
+
+    def test_left_blocked_falls_back_to_right(self):
+        """LEFT slot lands inside a wall → drone picks RIGHT instead."""
+        from sprites.drone import CombatDrone
+        d = CombatDrone(0.0, 0.0)
+        player = SimpleNamespace(center_x=500.0, center_y=500.0,
+                                  heading=0.0)
+        # Wall covering the LEFT slot at (420, 500).
+        walls = [(400.0, 480.0, 40.0, 40.0)]
+        sx, sy = d._pick_follow_slot(player, walls)
+        assert sx == pytest.approx(500.0 + DRONE_FOLLOW_DIST)
+        assert sy == pytest.approx(500.0)
+
+    def test_left_and_right_blocked_falls_back_to_back(self):
+        from sprites.drone import CombatDrone
+        d = CombatDrone(0.0, 0.0)
+        player = SimpleNamespace(center_x=500.0, center_y=500.0,
+                                  heading=0.0)
+        # Walls covering BOTH lateral slots — LEFT (420, 500) and
+        # RIGHT (580, 500).
+        walls = [(400.0, 480.0, 40.0, 40.0),
+                 (560.0, 480.0, 40.0, 40.0)]
+        sx, sy = d._pick_follow_slot(player, walls)
+        # BACK = heading=0 → directly south of player at y - FOLLOW_DIST.
+        assert sx == pytest.approx(500.0)
+        assert sy == pytest.approx(500.0 - DRONE_FOLLOW_DIST)
+
+
+class TestDroneFollowAttackMode:
+    def test_no_target_keeps_follow_mode(self):
+        from sprites.drone import CombatDrone, _BaseDrone
+        d = CombatDrone(0.0, 0.0)
+        player = SimpleNamespace(center_x=0.0, center_y=0.0)
+        d._update_mode(player, target=None)
+        assert d._mode == _BaseDrone._MODE_FOLLOW
+
+    def test_target_in_range_enters_attack(self):
+        from sprites.drone import CombatDrone, _BaseDrone
+        d = CombatDrone(0.0, 0.0)
+        player = SimpleNamespace(center_x=0.0, center_y=0.0)
+        target = SimpleNamespace(center_x=100.0, center_y=0.0, hp=100)
+        d._update_mode(player, target)
+        assert d._mode == _BaseDrone._MODE_ATTACK
+
+    def test_player_far_breaks_off_back_to_follow(self):
+        from sprites.drone import CombatDrone, _BaseDrone
+        from constants import DRONE_BREAK_OFF_DIST
+        d = CombatDrone(0.0, 0.0)
+        # Player at exactly the break-off distance + 1 px → drone
+        # must be in FOLLOW even with a target right next to it.
+        player = SimpleNamespace(
+            center_x=DRONE_BREAK_OFF_DIST + 1.0, center_y=0.0)
+        target = SimpleNamespace(center_x=50.0, center_y=0.0, hp=100)
+        d._mode = _BaseDrone._MODE_ATTACK
+        d._update_mode(player, target)
+        assert d._mode == _BaseDrone._MODE_FOLLOW
 
 
 # ── Fire path ──────────────────────────────────────────────────────────────

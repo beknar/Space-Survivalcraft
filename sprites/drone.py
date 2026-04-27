@@ -33,6 +33,7 @@ from constants import (
     DRONE_HP, MINING_DRONE_SHIELD, COMBAT_DRONE_SHIELD,
     DRONE_MAX_SPEED, DRONE_FOLLOW_DIST, DRONE_ORBIT_SPEED,
     DRONE_FIRE_COOLDOWN, DRONE_DETECT_RANGE,
+    DRONE_BREAK_OFF_DIST,
     DRONE_LASER_RANGE, DRONE_LASER_SPEED,
     MINING_DRONE_LASER_DAMAGE, COMBAT_DRONE_LASER_DAMAGE,
     DRONE_SCALE, DRONE_RADIUS,
@@ -69,10 +70,43 @@ def _load_snd(path: str) -> arcade.Sound:
     return snd
 
 
+def _walls_from_zone(gv) -> list | None:
+    """Return the active zone's wall-rect list, or None if the zone
+    doesn't have one (open zones — Zone 1, Zone 2 outside the
+    nebula).  Star Maze stores a list of named-tuple ``Rect``s with
+    ``.x/.y/.w/.h``; the slot-block test indexes them positionally,
+    so any 4-tuple-like sequence works."""
+    zone = getattr(gv, "_zone", None)
+    if zone is None:
+        return None
+    return getattr(zone, "_walls", None)
+
+
 class _BaseDrone(arcade.Sprite):
-    """Common follow / orbit / damage / shield state for both drones."""
+    """Common follow / attack / damage / shield state for both drones.
+
+    Mode machine (per spec, 2026-04-26):
+
+      * ``_MODE_FOLLOW`` (default) — drone trails the player at one of
+        three fixed slots: LEFT (perpendicular-left of heading), RIGHT
+        (perpendicular-right), BACK (opposite heading).  Picks LEFT
+        first, falls back to RIGHT or BACK if its preferred slot is
+        blocked by maze geometry.
+
+      * ``_MODE_ATTACK`` — entered when a target is detected within
+        ``DRONE_DETECT_RANGE``.  The drone holds station and fires
+        instead of trying to keep up with the player.  Switches back
+        to FOLLOW when the player drifts past ``DRONE_BREAK_OFF_DIST``
+        away or the target dies / leaves range.
+    """
 
     _LABEL: str = "Drone"
+
+    _MODE_FOLLOW = 0
+    _MODE_ATTACK = 1
+    _SLOT_LEFT = 0
+    _SLOT_RIGHT = 1
+    _SLOT_BACK = 2
 
     def __init__(
         self,
@@ -94,11 +128,16 @@ class _BaseDrone(arcade.Sprite):
         self.shields: int = shield
         self.max_shields: int = shield
         self.radius: float = DRONE_RADIUS
-        # Per-instance offset angle so the drone hangs on a specific
-        # quadrant relative to the player; the angle ticks via
-        # ``DRONE_ORBIT_SPEED`` so it visibly orbits when the player
-        # is stationary.
+        # Legacy field kept for save-compat / shield-arc rotation.
+        # The follow logic no longer uses orbit motion (slot-based now).
         self._orbit_angle: float = random.uniform(0.0, 360.0)
+        # FOLLOW vs ATTACK state.  Drone defaults to FOLLOW; flips to
+        # ATTACK when a target appears in range and the player is
+        # within DRONE_BREAK_OFF_DIST.
+        self._mode: int = self._MODE_FOLLOW
+        # Last picked follow slot — sticky so the drone doesn't ping-
+        # pong between LEFT and RIGHT every frame when both are clear.
+        self._slot: int = self._SLOT_LEFT
         self._fire_cd: float = 0.0
         self._hit_timer: float = 0.0
         self._shield_angle: float = 0.0
@@ -159,44 +198,123 @@ class _BaseDrone(arcade.Sprite):
 
     # ── Per-frame update ─────────────────────────────────────────────
 
-    def follow(self, dt: float, player_x: float, player_y: float) -> None:
-        """Steer toward the rotating offset position around the
-        player; projectile-style straight-line motion (no inertia).
-        Speed-capped at ``DRONE_MAX_SPEED``.
+    def _slot_position(
+        self, slot: int, player_x: float, player_y: float,
+        player_heading: float,
+    ) -> tuple[float, float]:
+        """Return the world-space (x, y) of one of the three follow
+        slots relative to the player, oriented to player's heading.
 
-        If a maze WaypointPlanner is attached and the player sits in
-        a different maze room than the drone, route via the planner
-        — head toward the next room's centre instead of the orbit
-        offset, which would otherwise sit on the far side of a wall
-        and produce the "drone grinding into the wall corner"
-        regression.  When the planner gives up (5 s of no movement
-        toward the player), freeze + stop firing for its COOLDOWN
-        window via ``_target_cooldown`` so the drone doesn't keep
-        re-grinding the same path.
+        Heading convention is CW-positive compass (sin, cos forward) —
+        same as PlayerShip.  LEFT = perpendicular-left of heading,
+        RIGHT = perpendicular-right, BACK = opposite-forward.
         """
-        self._orbit_angle = (self._orbit_angle + DRONE_ORBIT_SPEED * dt) % 360.0
-        rad = math.radians(self._orbit_angle)
-        target_x = player_x + math.cos(rad) * DRONE_FOLLOW_DIST
-        target_y = player_y + math.sin(rad) * DRONE_FOLLOW_DIST
+        rad = math.radians(player_heading)
+        s, c = math.sin(rad), math.cos(rad)
+        d = DRONE_FOLLOW_DIST
+        if slot == self._SLOT_LEFT:
+            return (player_x - c * d, player_y + s * d)
+        if slot == self._SLOT_RIGHT:
+            return (player_x + c * d, player_y - s * d)
+        # BACK
+        return (player_x - s * d, player_y - c * d)
 
+    def _slot_blocked(
+        self, sx: float, sy: float,
+        px: float, py: float,
+        walls: list | None,
+    ) -> bool:
+        """True if the segment from (px, py) → (sx, sy) crosses any
+        maze wall AABB.  ``walls`` is the active zone's list of (x, y,
+        w, h) tuples or arcade Rects (anything with ``.x/.y/.w/.h`` or
+        4-tuple unpacking).  Without walls (open zones), nothing is
+        blocked."""
+        if not walls:
+            return False
+        # 4-sample segment test — short (≤80 px) so this is cheap.
+        for t in (0.4, 0.7, 1.0):
+            x = px + (sx - px) * t
+            y = py + (sy - py) * t
+            for w in walls:
+                wx, wy, ww, wh = w[0], w[1], w[2], w[3]
+                if wx <= x <= wx + ww and wy <= y <= wy + wh:
+                    return True
+        return False
+
+    def _pick_follow_slot(
+        self, player, walls: list | None,
+    ) -> tuple[float, float]:
+        """Return the (x, y) of the highest-priority unblocked slot.
+
+        Priority order: LEFT → RIGHT → BACK.  Sticky preference: if
+        the previously chosen slot is still unblocked we keep it, so
+        the drone doesn't jitter between LEFT and RIGHT every frame
+        in open space.  All blocked → fall back to BACK (the drone
+        will sit there even if it overlaps a wall; the post-move
+        push-out in update_logic.update_drone scoots it free).
+        """
+        px, py = player.center_x, player.center_y
+        ph = getattr(player, "heading", 0.0)
+        order = [self._slot, self._SLOT_LEFT, self._SLOT_RIGHT,
+                 self._SLOT_BACK]
+        seen: set[int] = set()
+        for slot in order:
+            if slot in seen:
+                continue
+            seen.add(slot)
+            sx, sy = self._slot_position(slot, px, py, ph)
+            if not self._slot_blocked(sx, sy, px, py, walls):
+                self._slot = slot
+                return sx, sy
+        # All blocked — last-resort BACK, even if it sits in a wall.
+        self._slot = self._SLOT_BACK
+        return self._slot_position(self._SLOT_BACK, px, py, ph)
+
+    def follow(
+        self, dt: float, player_x: float, player_y: float,
+        player=None, walls: list | None = None,
+    ) -> None:
+        """Steer toward a fixed slot beside / behind the player.
+
+        Slot selection (per spec): LEFT side of player first; if a
+        maze wall blocks, switch to RIGHT; if both are blocked, fall
+        back to BACK.  When the maze WaypointPlanner is attached and
+        the player sits in a different room than the drone, route
+        through the room graph instead of straight at the slot — a
+        slot that's behind a wall would otherwise grind the drone
+        against geometry forever.
+
+        ``player`` provides the heading; if omitted we treat the
+        player as facing north (heading=0) so the legacy two-arg
+        signature stays usable from tests / save-restore paths.
+        """
         # Pathfinding override — the planner returns either a room-
         # centre waypoint to head toward, or None (same room / no
-        # path needed / cooling down).
+        # path needed / cooling down).  Runs BEFORE slot picking so
+        # we navigate to the correct room first, then settle into the
+        # slot once we share a room with the player.
         wp = self._follow_planner.plan(
             dt, self.center_x, self.center_y, player_x, player_y)
         if self._follow_planner.gave_up():
             # Pathfinding gave up — freeze + disable firing for the
-            # cooldown window so the drone stops grinding.  Patrol
-            # behaviour for a drone is "do nothing for a beat" — it's
-            # an escort, not a wandering AI.
+            # cooldown window so the drone stops grinding.
             self._target_cooldown = self._follow_planner.COOLDOWN
             self._routing_to_waypoint = False
             return
+
         if wp is not None:
             target_x, target_y = wp
             self._routing_to_waypoint = True
         else:
+            # Inside the player's room (or open zone): slot up.
             self._routing_to_waypoint = False
+            if player is not None:
+                target_x, target_y = self._pick_follow_slot(player, walls)
+            else:
+                # Legacy 2-arg call (tests, save-restore): default to
+                # LEFT slot of a heading=0 ship — directly west.
+                target_x = player_x - DRONE_FOLLOW_DIST
+                target_y = player_y
 
         dx = target_x - self.center_x
         dy = target_y - self.center_y
@@ -266,6 +384,31 @@ class _BaseDrone(arcade.Sprite):
             bump = int(self._shield_regen_acc)
             self._shield_regen_acc -= bump
             self.shields = min(self.max_shields, self.shields + bump)
+
+    def _update_mode(self, player, target) -> None:
+        """Per spec: enter ATTACK when a target sits within
+        ``DRONE_DETECT_RANGE``; return to FOLLOW once the player
+        drifts past ``DRONE_BREAK_OFF_DIST`` away (drone got out of
+        formation chasing a moving fight) or the target is gone /
+        out of detect range.
+
+        Called every frame from ``update_drone`` BEFORE the follow /
+        fire branches so the chosen branch matches current state."""
+        d_to_player = math.hypot(self.center_x - player.center_x,
+                                 self.center_y - player.center_y)
+        # Far from the player → break off and re-form.
+        if d_to_player > DRONE_BREAK_OFF_DIST:
+            self._mode = self._MODE_FOLLOW
+            return
+        if target is None:
+            self._mode = self._MODE_FOLLOW
+            return
+        td = math.hypot(target.center_x - self.center_x,
+                        target.center_y - self.center_y)
+        if td <= DRONE_DETECT_RANGE:
+            self._mode = self._MODE_ATTACK
+        else:
+            self._mode = self._MODE_FOLLOW
 
     def has_target_lock(self) -> bool:
         """True iff the drone is currently allowed to engage targets.
@@ -363,14 +506,28 @@ class MiningDrone(_BaseDrone):
     ) -> Projectile | None:
         """Advance follow + fire + pickup-vacuum logic.  Returns a
         Projectile (or ``None``) for the caller to append to
-        ``gv.projectile_list``."""
-        self.follow(dt, gv.player.center_x, gv.player.center_y)
+        ``gv.projectile_list``.
+
+        Mode transitions: with an asteroid in mining range, switch to
+        ATTACK and mine; otherwise FOLLOW player at one of the three
+        side / back slots.  Mining drones break off if the player
+        drifts past ``DRONE_BREAK_OFF_DIST`` so the drone doesn't get
+        stranded chasing rocks while the player flies away."""
         self.update_visuals(dt)
         self.regen_shields(dt, gv.player)
+        walls = _walls_from_zone(gv)
+        # Mode update — target = nearest asteroid.
+        target = (self._nearest_asteroid(gv) if self.has_target_lock()
+                  else None)
+        self._update_mode(gv.player, target)
+        if self._mode == self._MODE_FOLLOW:
+            self.follow(dt, gv.player.center_x, gv.player.center_y,
+                        player=gv.player, walls=walls)
+        # else: hold position while attacking (no follow movement)
         # Vacuum any iron / blueprint pickup within reach by flagging
         # it as flying — the standard pickup loop in game_view's
         # on_update already pulls it toward the player and credits
-        # the inventory on contact.
+        # the inventory on contact.  Runs in both modes.
         for plist in (gv.iron_pickup_list, gv.blueprint_pickup_list):
             for p in plist:
                 if getattr(p, "_flying", True):
@@ -379,17 +536,10 @@ class MiningDrone(_BaseDrone):
                               p.center_y - self.center_y
                               ) <= MINING_DRONE_PICKUP_RADIUS:
                     p._flying = True
-        # Find the nearest static asteroid in the active zone — only
-        # while the stuck-cooldown is clear (otherwise the drone is
-        # in follow-only mode for 5 s after grinding on an
-        # unreachable target).
-        if not self.has_target_lock():
+        if self._mode != self._MODE_ATTACK or target is None:
             return None
-        target = self._nearest_asteroid(gv)
         # Stuck check: same target with no HP drop for 5 s → bail.
         if self._track_stuck_progress(dt, target):
-            return None
-        if target is None:
             return None
         return self._aim_and_fire(target.center_x, target.center_y)
 
@@ -435,16 +585,20 @@ class CombatDrone(_BaseDrone):
     def update_drone(
         self, dt: float, gv: "GameView",
     ) -> Projectile | None:
-        self.follow(dt, gv.player.center_x, gv.player.center_y)
         self.update_visuals(dt)
         self.regen_shields(dt, gv.player)
-        if not self.has_target_lock():
+        walls = _walls_from_zone(gv)
+        target = (self._nearest_enemy(gv) if self.has_target_lock()
+                  else None)
+        self._update_mode(gv.player, target)
+        if self._mode == self._MODE_FOLLOW:
+            self.follow(dt, gv.player.center_x, gv.player.center_y,
+                        player=gv.player, walls=walls)
+        # else: hold station and engage
+        if self._mode != self._MODE_ATTACK or target is None:
             return None
-        target = self._nearest_enemy(gv)
         # Stuck check: same target with no HP drop for 5 s → bail.
         if self._track_stuck_progress(dt, target):
-            return None
-        if target is None:
             return None
         return self._aim_and_fire(target.center_x, target.center_y)
 
