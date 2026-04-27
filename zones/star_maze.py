@@ -856,15 +856,42 @@ class StarMazeZone(ZoneState):
         # same way they do in MAIN.  Without this, building HP bars
         # don't update, turrets don't acquire targets, and the AI
         # Pilot's "fire into turret_projectile_list" path has no
-        # damage handler running at the receiving end.  Swap in the
-        # zone alien lists so turrets target the right enemies.
+        # damage handler running at the receiving end.  Swap in a
+        # combined list of every hostile sprite the Star Maze
+        # exposes — maze aliens AND stalkers AND Z2-style aliens
+        # AND live (non-killed) spawners — so station turrets and
+        # missile arrays target the full Star Maze enemy
+        # population, not just the maze aliens.  ``alien_list``
+        # only needs iteration + attribute reads inside
+        # ``update_buildings`` (turret + missile array targeting),
+        # so a plain Python list is safe.
         from update_logic import (
             update_buildings, _update_parked_ships,
         )
         from collisions import handle_parked_ship_damage
         _saved_alien = gv.alien_list
         _saved_aproj = gv.alien_projectile_list
-        gv.alien_list = self._maze_aliens
+        # Build a fresh SpriteList containing every mobile hostile
+        # the Star Maze exposes — maze aliens AND stalkers AND
+        # Z2-style aliens — so station turrets and missile arrays
+        # acquire and damage the full enemy population, not just
+        # the maze aliens.  ``handle_turret_projectile_hits``
+        # uses ``arcade.check_for_collision_with_list`` which
+        # requires a real SpriteList, so a plain ``list`` won't
+        # work.  ``use_spatial_hash=False`` because we throw
+        # this list away after one frame; the hash rebuild cost
+        # would dwarf the savings.  Spawners are deliberately
+        # excluded — they have a ``killed`` flag + respawn flow
+        # that's incompatible with the collision handler's
+        # ``remove_from_sprite_lists()`` call after ``hp <= 0``.
+        targets = arcade.SpriteList(use_spatial_hash=False)
+        for a in self._maze_aliens:
+            targets.append(a)
+        for a in (getattr(self, "_aliens", None) or ()):
+            targets.append(a)
+        for st in (getattr(self, "_stalkers", None) or ()):
+            targets.append(st)
+        gv.alien_list = targets
         gv.alien_projectile_list = self._maze_projectiles
         update_buildings(gv, dt)
         gv.alien_list = _saved_alien
