@@ -204,6 +204,108 @@ class TestTargetOutsideMaze:
         assert p.plan(0.016, sx, sy, tx, ty) is None
 
 
+class TestMazeEntrance:
+    def test_layout_records_entrance(self, maze):
+        """generate_maze populates entrance_room + entrance_xy."""
+        assert 0 <= maze.entrance_room < len(maze.rooms)
+        ex, ey = maze.entrance_xy
+        # Entrance midpoint must lie on the maze's outer boundary.
+        b = maze.bounds
+        on_boundary = (
+            abs(ex - b.x) < 32 or abs(ex - (b.x + b.w)) < 32
+            or abs(ey - b.y) < 32 or abs(ey - (b.y + b.h)) < 32)
+        assert on_boundary, (
+            f"entrance_xy={maze.entrance_xy} not on maze boundary "
+            f"{maze.bounds}")
+
+
+class TestPlannerWallBandFallback:
+    """Telemetry-pinned regression (drone_return_telemetry.log,
+    2026-04-26 20:03): drone wedged at x=2185 inside maze 1's west
+    outer wall (which spans 2154→2186) — find_room_index returned
+    None, planner returned None, drone bounced on the wall.  Fix
+    snaps the body's source room to the nearest room when the body
+    is within wall_thickness slack of one."""
+
+    def test_body_in_wall_band_snaps_to_nearest_room(self, maze):
+        from zones.maze_geometry import (
+            find_room_index, WaypointPlanner)
+        room0 = maze.rooms[0]
+        # Place body 1 px outside the room's west edge — inside the
+        # outer wall, ``find_room_index`` returns None.
+        sx = room0.x - 1.0
+        sy = room0.y + room0.h * 0.5
+        assert find_room_index(sx, sy, maze.rooms) is None
+        # Target in any other room so a non-trivial route exists.
+        target_idx = next(
+            i for i in range(len(maze.rooms))
+            if i != 0 and i in maze.room_graph[0])
+        tr = maze.rooms[target_idx]
+        tx = tr.x + tr.w * 0.5
+        ty = tr.y + tr.h * 0.5
+        p = WaypointPlanner(
+            maze.rooms, maze.room_graph, maze.doorways)
+        wp = p.plan(0.016, sx, sy, tx, ty)
+        assert wp is not None, (
+            "planner should snap a wall-band body to the nearest "
+            "room and emit a waypoint, not return None")
+
+
+class TestPlannerRoutesThroughEntrance:
+    """When the target sits outside the maze entirely, the planner
+    must route the body to the maze entrance — the geographically
+    nearest room is often a sealed dead-end."""
+
+    def test_target_outside_routes_to_entrance_room(self, maze):
+        from zones.maze_geometry import WaypointPlanner
+        # Build the per-room exit lookup the live caller wires up.
+        room_to_exit = {i: maze.entrance_room
+                        for i in range(len(maze.rooms))}
+        exit_xy = {i: maze.entrance_xy
+                   for i in range(len(maze.rooms))}
+        # Pick a body room that's NOT the entrance and target far
+        # outside the maze.
+        body_idx = next(
+            i for i in range(len(maze.rooms))
+            if i != maze.entrance_room)
+        br = maze.rooms[body_idx]
+        sx = br.x + br.w * 0.5
+        sy = br.y + br.h * 0.5
+        tx = maze.bounds.x - 800.0
+        ty = sy
+        p = WaypointPlanner(
+            maze.rooms, maze.room_graph, maze.doorways,
+            room_to_exit, exit_xy)
+        # Force a plan + walk the path; the path must end at the
+        # entrance room (not whatever room is geographically
+        # closest to the off-the-map target).
+        p.plan(0.016, sx, sy, tx, ty)
+        assert p._path != []
+        assert p._path[-1] == maze.entrance_room
+
+    def test_body_at_entrance_with_target_outside_emits_exit_xy(self, maze):
+        """When the body has reached the entrance room the planner
+        emits the entrance gap midpoint as the waypoint, so the
+        drone crosses the outer wall instead of bouncing on it."""
+        from zones.maze_geometry import WaypointPlanner
+        room_to_exit = {i: maze.entrance_room
+                        for i in range(len(maze.rooms))}
+        exit_xy = {i: maze.entrance_xy
+                   for i in range(len(maze.rooms))}
+        er = maze.rooms[maze.entrance_room]
+        sx = er.x + er.w * 0.5
+        sy = er.y + er.h * 0.5
+        # Target outside the maze.
+        tx = maze.bounds.x - 800.0
+        ty = sy
+        p = WaypointPlanner(
+            maze.rooms, maze.room_graph, maze.doorways,
+            room_to_exit, exit_xy)
+        wp = p.plan(0.016, sx, sy, tx, ty)
+        assert wp is not None
+        assert wp == maze.entrance_xy
+
+
 class TestStuckTimeout:
     def test_no_progress_for_5_seconds_triggers_give_up(self, maze):
         p = WaypointPlanner(maze.rooms, maze.room_graph)

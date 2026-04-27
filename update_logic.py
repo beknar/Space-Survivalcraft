@@ -1422,18 +1422,23 @@ def update_drone(gv: GameView, dt: float) -> None:
     rooms = None
     room_graph = None
     doorways = None
+    room_to_exit_room = None
+    exit_xy_by_room = None
     if zone is not None:
         # Star Maze stores the per-maze layouts in ``self._mazes``;
-        # combine all rooms + graphs + doorways into single lists/
-        # dicts so the drone's planner can reach any maze the player
-        # wanders into.  Doorway keys remap with the same offset as
-        # the room graph so the (a, b) frozenset still references the
-        # correct two rooms after stitching.
+        # combine all rooms + graphs + doorways + exit info into
+        # single lists/dicts so the drone's planner can reach any
+        # maze the player wanders into.  Doorway and exit-room keys
+        # remap with the same offset as the room graph so the
+        # frozenset / int references still point at the right rooms
+        # after stitching.
         mazes = getattr(zone, "_mazes", None)
         if mazes:
             rooms = []
             room_graph = {}
             doorways = {}
+            room_to_exit_room = {}
+            exit_xy_by_room = {}
             offset = 0
             for m in mazes:
                 rooms.extend(m.rooms)
@@ -1443,8 +1448,17 @@ def update_drone(gv: GameView, dt: float) -> None:
                         getattr(m, "doorways", None) or {}).items():
                     a, b = tuple(edge_key)
                     doorways[frozenset((a + offset, b + offset))] = midpoint
+                # Every room in this maze maps to its single exit
+                # room; the exit gap midpoint is shared across them.
+                exit_room = getattr(m, "entrance_room", 0) + offset
+                exit_xy = getattr(m, "entrance_xy", (0.0, 0.0))
+                for k in m.room_graph:
+                    room_to_exit_room[k + offset] = exit_room
+                    exit_xy_by_room[k + offset] = exit_xy
                 offset += len(m.rooms)
-    drone.attach_maze_planner(rooms, room_graph, doorways)
+    drone.attach_maze_planner(
+        rooms, room_graph, doorways,
+        room_to_exit_room, exit_xy_by_room)
     # Snapshot pre-move position so the post-move wall containment
     # can revert a tunnel-through (segment crosses a wall) instead
     # of pushing the drone out the FAR side of the wall it just

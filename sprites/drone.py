@@ -466,6 +466,8 @@ class _BaseDrone(arcade.Sprite):
         rooms,
         room_graph,
         doorways=None,
+        room_to_exit_room=None,
+        exit_xy_by_room=None,
     ) -> None:
         """Swap in a fresh WaypointPlanner for the supplied maze
         geometry — used by ``update_logic.update_drone`` when the
@@ -476,13 +478,20 @@ class _BaseDrone(arcade.Sprite):
 
         ``doorways`` is the per-edge midpoint table from MazeLayout;
         without it the planner falls back to room-centre steering
-        (which clips wall corners and can wedge the drone)."""
+        (which clips wall corners and can wedge the drone).
+
+        ``room_to_exit_room`` + ``exit_xy_by_room`` route the drone
+        through the maze entrance when the target sits outside any
+        room (otherwise the geographically-nearest room may be
+        sealed off from the target's side and the drone never
+        actually escapes the maze)."""
         gid = id(rooms) ^ id(room_graph)
         if gid == self._follow_planner_geom_id:
             return
         from zones.maze_geometry import WaypointPlanner
-        self._follow_planner = WaypointPlanner(rooms, room_graph,
-                                                doorways)
+        self._follow_planner = WaypointPlanner(
+            rooms, room_graph, doorways,
+            room_to_exit_room, exit_xy_by_room)
         self._follow_planner_geom_id = gid
 
     def update_visuals(self, dt: float) -> None:

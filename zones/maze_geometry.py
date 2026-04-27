@@ -63,6 +63,17 @@ class MazeLayout(NamedTuple):
     # between two room centres that may clip a wall corner and
     # wedge the drone forever.
     doorways: dict[frozenset[int], tuple[float, float]] = {}
+    # Maze entrance — the single outer-wall cell that's carved out
+    # so the player can fly in.  ``entrance_room`` is the room
+    # adjacent to that gap, ``entrance_xy`` is the world-space
+    # midpoint of the gap itself.  Used by ``WaypointPlanner`` to
+    # route a body trying to reach a target outside the maze: the
+    # ONLY way out is through the entrance, so when the target
+    # sits outside any room the planner heads for the entrance
+    # room first (instead of the geographically nearest room,
+    # which would dump the drone into a sealed dead end).
+    entrance_room: int = 0
+    entrance_xy: tuple[float, float] = (0.0, 0.0)
 
 
 def _add_outer_wall_with_gap(
@@ -261,11 +272,41 @@ def generate_maze(
         dy = origin_y + wall_thick + r * step + half_room
         doorways[frozenset((a, b))] = (dx, dy)
 
+    # Resolve the entrance room + world-space gap midpoint from the
+    # randomly-chosen ``entrance_side`` / ``entrance_cell``.  Same
+    # geometry the outer-wall builder used to carve the gap.
+    if entrance_side == "N":
+        entrance_room = _idx(entrance_cell, rows - 1)
+        entrance_xy = (
+            origin_x + wall_thick + entrance_cell * step + half_room,
+            origin_y + total_h - half_wall,
+        )
+    elif entrance_side == "S":
+        entrance_room = _idx(entrance_cell, 0)
+        entrance_xy = (
+            origin_x + wall_thick + entrance_cell * step + half_room,
+            origin_y + half_wall,
+        )
+    elif entrance_side == "E":
+        entrance_room = _idx(cols - 1, entrance_cell)
+        entrance_xy = (
+            origin_x + total_w - half_wall,
+            origin_y + wall_thick + entrance_cell * step + half_room,
+        )
+    else:  # "W"
+        entrance_room = _idx(0, entrance_cell)
+        entrance_xy = (
+            origin_x + half_wall,
+            origin_y + wall_thick + entrance_cell * step + half_room,
+        )
+
     return MazeLayout(
         rooms=rooms, walls=walls,
         spawner=spawner_xy, bounds=bounds,
         room_graph=room_graph, rows=rows, cols=cols,
         doorways=doorways,
+        entrance_room=entrance_room,
+        entrance_xy=entrance_xy,
     )
 
 
@@ -449,11 +490,19 @@ class WaypointPlanner:
     STUCK_DIST: float = 30.0        # px the body must move within FAIL_TIMEOUT
     REPLAN_INTERVAL: float = 0.5    # A* recompute cadence
 
+    # Slack used when the body's centre is outside every room AABB
+    # but inside the wall-thickness band of one — wall_thick is 32 in
+    # the live mazes, plus a few px so a drone partially clipping the
+    # wall still gets matched to the room.
+    _WALL_BAND_SLACK: float = 50.0
+
     def __init__(
         self,
         rooms: list[Rect] | None,
         room_graph: dict[int, list[int]] | None,
         doorways: dict[frozenset[int], tuple[float, float]] | None = None,
+        room_to_exit_room: dict[int, int] | None = None,
+        exit_xy_by_room: dict[int, tuple[float, float]] | None = None,
     ) -> None:
         self._rooms = rooms
         self._room_graph = room_graph
@@ -464,6 +513,14 @@ class WaypointPlanner:
         # ``None`` keeps the legacy room-centre behaviour for
         # callers that haven't passed it yet.
         self._doorways = doorways or {}
+        # Optional: maze-exit routing.  Given a room index, what's
+        # the entrance room of that room's maze?  And what's the
+        # world-space midpoint of the entrance gap?  Used when the
+        # target is outside every room — the body must first reach
+        # the entrance to get out, the geographically-nearest room
+        # might be sealed off from the target's side.
+        self._room_to_exit_room = room_to_exit_room or {}
+        self._exit_xy_by_room = exit_xy_by_room or {}
         self._path: list[int] = []
         self._path_target_room: int | None = None
         self._replan_t: float = 0.0
@@ -518,34 +575,62 @@ class WaypointPlanner:
             return None
         sroom = find_room_index(sx, sy, self._rooms)
         troom = find_room_index(tx, ty, self._rooms)
-        # When the body is in a room but the target ISN'T (target sits
-        # outside any room — e.g. player is outside the entire maze
-        # while the drone is wedged inside it), substitute the room
-        # whose centre is closest to the target as the effective
-        # destination.  Without this fallback the planner returns
-        # None → caller chases directly → drone grinds against the
-        # interior wall trying to fly through it toward a player on
-        # the far side.  Telemetry from 2026-04-26 captured this
-        # exact pattern (drone at (2194,3142) inside maze 1, player
-        # at (1490,3470) outside — `path: []`, drone bouncing on the
-        # west wall).
+        # Body-side fallback: when the body is inside the wall-
+        # thickness band of a room (push-out hasn't shoved it
+        # interior-side yet) ``find_room_index`` returns None even
+        # though the body is geometrically inside the maze.  Snap
+        # to the nearest room IF the body is within
+        # ``_WALL_BAND_SLACK`` of one — otherwise we'd route a
+        # body sitting in open space into the maze for no reason.
+        # Captured by telemetry 2026-04-26 20:03: drone wedged at
+        # x=2185 inside maze 1's west outer wall (spans 2154→2186),
+        # `path: []` every frame.
+        if sroom is None and self._rooms:
+            best, best_d2 = self._nearest_room_to_point(sx, sy)
+            if best is not None and best_d2 <= (
+                    self._WALL_BAND_SLACK * self._WALL_BAND_SLACK):
+                sroom = best
+        # Target-side fallback: target sits outside every room
+        # (e.g. player is in open space outside the maze while the
+        # drone is inside).
+        #
+        #   * If we know the exit room for the body's maze → route
+        #     there.  The geographically-nearest room is often a
+        #     sealed dead-end; only the entrance room actually
+        #     connects to the outside.  Once the drone reaches the
+        #     entrance room, ``sroom == troom`` and the next branch
+        #     hands back the entrance gap midpoint as the waypoint.
+        #
+        #   * Otherwise (no exit table provided — legacy callers)
+        #     fall back to the geographically-nearest room so the
+        #     planner still produces SOME waypoint.
         if (sroom is not None and troom is None
                 and self._room_graph is not None):
-            best = None
-            best_d2 = float("inf")
-            for i, r in enumerate(self._rooms):
-                # Restrict to rooms in the body's connected component
-                # (room_graph keys cover every room, but unreachable
-                # ones from the body's component would still produce
-                # an empty A* path on the next call).  Cheap distance
-                # check — any room is fine for the proxy target.
-                cx = r.x + r.w * 0.5
-                cy = r.y + r.h * 0.5
-                d2 = (cx - tx) ** 2 + (cy - ty) ** 2
-                if d2 < best_d2:
-                    best_d2 = d2
-                    best = i
-            troom = best
+            exit_room = self._room_to_exit_room.get(sroom)
+            if exit_room is not None:
+                troom = exit_room
+            else:
+                best = None
+                best_d2 = float("inf")
+                for i, r in enumerate(self._rooms):
+                    cx = r.x + r.w * 0.5
+                    cy = r.y + r.h * 0.5
+                    d2 = (cx - tx) ** 2 + (cy - ty) ** 2
+                    if d2 < best_d2:
+                        best_d2 = d2
+                        best = i
+                troom = best
+        # Body is in the entrance room and target sits outside the
+        # maze — direct waypoint to the entrance gap so the drone
+        # actually crosses the outer wall instead of bouncing on it.
+        if (sroom is not None
+                and find_room_index(tx, ty, self._rooms) is None
+                and self._room_to_exit_room.get(sroom) == sroom):
+            self._anchor_x = None
+            self._anchor_y = None
+            self._stuck_t = 0.0
+            return self._exit_xy_by_room.get(
+                sroom, (tx, ty))
         if sroom is None or troom is None or sroom == troom:
             # Body is also outside any room (or already shares the
             # target's room) — caller should chase directly.  Clear
@@ -620,6 +705,27 @@ class WaypointPlanner:
             return door
         nxt = self._rooms[self._path[1]]
         return (nxt.x + nxt.w * 0.5, nxt.y + nxt.h * 0.5)
+
+    def _nearest_room_to_point(
+        self, x: float, y: float,
+    ) -> tuple[int | None, float]:
+        """Return ``(room_index, squared_distance)`` for the room whose
+        AABB sits closest to (x, y).  Distance is point-to-AABB
+        (zero when the point is inside the AABB).  Used by the
+        wall-band substitution to recover a sensible source room
+        when the body's centre falls inside a wall thickness gap."""
+        if not self._rooms:
+            return (None, float("inf"))
+        best = None
+        best_d2 = float("inf")
+        for i, r in enumerate(self._rooms):
+            qx = max(r.x, min(x, r.x + r.w))
+            qy = max(r.y, min(y, r.y + r.h))
+            d2 = (x - qx) ** 2 + (y - qy) ** 2
+            if d2 < best_d2:
+                best_d2 = d2
+                best = i
+        return (best, best_d2)
 
     def _fail(self) -> None:
         """Trigger a give-up event — used by both the unreachable-
