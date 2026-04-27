@@ -26,6 +26,7 @@ _HELP_LINES = [
     ("WASD x2", "Misty Step (ability)"),
     ("R", "Deploy / swap drone"),
     ("Shift+R", "Recall drone (refund)"),
+    ("Y", "Fleet Control (drone orders)"),
     ("ESC", "Menu"),
 ]
 _GAMEPAD_LINES = [
@@ -44,6 +45,11 @@ _DRONE_LINES = [
     "Other drone already out: R swaps",
     "  (refunds 1 of old, consumes 1 of new)",
     "Shift+R: recall drone (refunds 1 charge)",
+    "Y: open Fleet Control menu",
+    "  RETURN  — A* back to ship, ignore enemies",
+    "  ATTACK  — engage every detected enemy",
+    "  FOLLOW ONLY  — passive escort (no fire)",
+    "  ATTACK ONLY — default; engage in detect range",
     "Craft both at Adv. Crafter: 200 iron + 100 copper / 5",
     "Hover the drone for HP / shield readout",
 ]

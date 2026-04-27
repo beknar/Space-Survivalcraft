@@ -698,6 +698,7 @@ def draw_ui(gv: GameView) -> None:
         or gv._build_menu.open
         or gv._station_inv.open
         or gv._qwi_menu.open
+        or gv._fleet_menu.open
         or gv._station_info.open
         or gv._ship_stats.open
         or gv._dialogue.open
@@ -789,6 +790,7 @@ def draw_ui(gv: GameView) -> None:
     gv._craft_menu.draw(gv._station_inv.total_iron)
     gv._trade_menu.draw()
     gv._qwi_menu.draw()
+    gv._fleet_menu.draw()
     gv._dialogue.draw()
     # Full-screen map last so it sits on top of every other overlay.
     gv._map_overlay.draw(gv)

@@ -226,6 +226,24 @@ class _BaseDrone(arcade.Sprite):
         # Last picked follow slot — sticky so the drone doesn't ping-
         # pong between LEFT and RIGHT every frame when both are clear.
         self._slot: int = self._SLOT_LEFT
+        # Fleet-control overrides (set by the Fleet menu via
+        # ``apply_fleet_order`` in combat_helpers).
+        #
+        # ``_reaction``: persistent default reaction.
+        #   * "attack" (default) — engage targets when in detect range;
+        #                          identical to the original autonomy.
+        #   * "follow" — never enter ATTACK; drone is a passive escort.
+        # ``_direct_order``: one-shot override that supersedes the
+        # reaction until cleared.
+        #   * None — no direct order.
+        #   * "return" — force RETURN_HOME until the drone is back
+        #                inside _RETURN_HOME_EXIT_DIST, then auto-
+        #                clear so the reaction takes over again.
+        #   * "attack" — force ATTACK on every detected enemy and
+        #                ignore the >800 px break-off so the drone
+        #                roams to engage.
+        self._reaction: str = "attack"
+        self._direct_order: str | None = None
         self._fire_cd: float = 0.0
         self._hit_timer: float = 0.0
         self._shield_angle: float = 0.0
@@ -512,33 +530,65 @@ class _BaseDrone(arcade.Sprite):
     def _update_mode(
         self, player, target, walls: list | None = None,
     ) -> None:
-        """Per spec: enter ATTACK when a target sits within
-        ``DRONE_DETECT_RANGE`` AND there is no maze wall on the
-        line of sight between drone and target.  When a wall blocks
-        line of sight, return to FOLLOW (the drone shouldn't
-        try to engage a target it can't actually shoot at — it'll
-        just grind on the wall).  When the player drifts past
-        ``DRONE_BREAK_OFF_DIST`` away, switch to RETURN_HOME — A*
-        path-find back to the player while ignoring every enemy
-        until the drone has closed the gap.
+        """Pick the per-frame mode.  Resolution order:
+
+          1. Direct "return" order — force RETURN_HOME until the
+             drone is back inside _RETURN_HOME_EXIT_DIST, then
+             auto-clear the order so the reaction takes over.
+          2. Direct "attack" order — force ATTACK on the supplied
+             target whenever any target is in range.  Ignores the
+             usual 800 px break-off so the drone roams to engage.
+          3. RETURN_HOME hysteresis — once entered, hold until back
+             inside the close-range threshold.
+          4. Distance check — past 800 px → RETURN_HOME.
+          5. Reaction filter — "follow" reaction never enters
+             ATTACK; "attack" reaction (the default) preserves the
+             original autonomy.
+          6. Line-of-sight filter — drop to FOLLOW when a wall
+             blocks the shot.
 
         Called every frame from ``update_drone`` BEFORE the follow /
         fire branches so the chosen branch matches current state."""
         d_to_player = math.hypot(self.center_x - player.center_x,
                                  self.center_y - player.center_y)
-        # Far from the player → enter / stay in RETURN_HOME.  Hysteresis:
-        # once we've entered RETURN_HOME we hold it until the drone is
-        # back inside ``_RETURN_HOME_EXIT_DIST`` (600 px), so a drone
-        # making slow progress at ~800 px doesn't flicker the mode
-        # every frame.
+
+        # 1. Direct RETURN order — overrides everything else.
+        if self._direct_order == "return":
+            if d_to_player <= self._RETURN_HOME_EXIT_DIST:
+                # Made it home — clear the order and fall through to
+                # normal logic so reactions take over again.
+                self._direct_order = None
+            else:
+                self._mode = self._MODE_RETURN_HOME
+                return
+
+        # 2. Direct ATTACK order — engage anything in detect range,
+        # ignore the 800 px break-off.
+        if self._direct_order == "attack":
+            if target is not None:
+                td = math.hypot(target.center_x - self.center_x,
+                                target.center_y - self.center_y)
+                if td <= DRONE_DETECT_RANGE:
+                    # No LOS check here — direct attack roams via A*
+                    # through walls (handled in update_drone via the
+                    # WaypointPlanner, not the slot picker).
+                    self._mode = self._MODE_ATTACK
+                    return
+            # No target in range — fall through to follow.
+
+        # 3 + 4. RETURN_HOME hysteresis / break-off.
         if self._mode == self._MODE_RETURN_HOME:
             if d_to_player > self._RETURN_HOME_EXIT_DIST:
                 return
-            # Close enough — drop back to normal follow / attack
-            # logic below.
         elif d_to_player > DRONE_BREAK_OFF_DIST:
             self._mode = self._MODE_RETURN_HOME
             return
+
+        # 5. Reaction filter.
+        if self._reaction == "follow":
+            self._mode = self._MODE_FOLLOW
+            return
+
         if target is None:
             self._mode = self._MODE_FOLLOW
             return
@@ -547,9 +597,7 @@ class _BaseDrone(arcade.Sprite):
         if td > DRONE_DETECT_RANGE:
             self._mode = self._MODE_FOLLOW
             return
-        # Line-of-sight check — if a maze wall sits between drone and
-        # target, disengage.  In open zones (walls=None) this is a
-        # no-op and the drone always engages.
+        # 6. Line-of-sight check.
         if _segment_crosses_any_wall(
                 self.center_x, self.center_y,
                 target.center_x, target.center_y,

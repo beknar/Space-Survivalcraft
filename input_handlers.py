@@ -44,6 +44,9 @@ def handle_key_press(gv: GameView, key: int, modifiers: int) -> None:
             gv._qwi_menu.open = False
             gv._active_qwi = None
             return
+        if gv._fleet_menu.open:
+            gv._fleet_menu.open = False
+            return
         if gv._station_inv.open:
             gv._station_inv.open = False
             return
@@ -149,6 +152,20 @@ def handle_key_press(gv: GameView, key: int, modifiers: int) -> None:
             recall_drone(gv)
         else:
             deploy_drone(gv)
+    elif key == arcade.key.Y:
+        # Fleet Control overlay — toggle on/off.  Suppressed while
+        # other modals are open so it doesn't stack on top of (or
+        # under) them in unintended ways.
+        if (not gv._escape_menu.open
+                and not gv._player_dead
+                and not gv._build_menu.open
+                and not gv._station_inv.open
+                and not gv._craft_menu.open
+                and not gv._trade_menu.open
+                and not gv._qwi_menu.open
+                and not gv._dialogue.open
+                and not gv._map_overlay.open):
+            gv._fleet_menu.toggle()
     elif key in (arcade.key.W, arcade.key.A, arcade.key.S, arcade.key.D):
         _try_misty_step(gv, key)
 
@@ -387,6 +404,13 @@ def handle_mouse_press(gv: GameView, x: int, y: int, button: int, modifiers: int
             x, y, inventory=gv.inventory, station_inv=gv._station_inv)
         if action is not None:
             apply_trade_action(gv, action)
+        return
+    # Fleet menu click — apply the selected drone order.
+    if gv._fleet_menu.open:
+        action = gv._fleet_menu.on_mouse_press(x, y)
+        if action is not None:
+            from combat_helpers import apply_fleet_order
+            gv._fleet_menu.set_status(apply_fleet_order(gv, action))
         return
     # QWI menu click — the "SUMMON NEBULA BOSS" button.
     if gv._qwi_menu.open:
@@ -977,6 +1001,8 @@ def handle_mouse_motion(gv: GameView, x: int, y: int, dx: int, dy: int) -> None:
         gv._craft_menu.on_mouse_motion(x, y)
     if gv._qwi_menu.open:
         gv._qwi_menu.on_mouse_motion(x, y)
+    if gv._fleet_menu.open:
+        gv._fleet_menu.on_mouse_motion(x, y)
     # Ghost sprite follows cursor
     if gv._ghost_sprite is not None and gv._placing_building is not None:
         wx = gv.world_cam.position[0] - gv.window.width / 2 + x

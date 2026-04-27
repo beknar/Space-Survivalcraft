@@ -559,6 +559,11 @@ class GameView(arcade.View):
             os.path.join(os.path.dirname(os.path.abspath(__file__)),
                          "assets", "ai generated", "space station.PNG"))
 
+        # Fleet Control overlay (hotkey ``Y``).  Issues orders to
+        # the currently-deployed drone.
+        from fleet_menu import FleetMenu
+        self._fleet_menu = FleetMenu()
+
         # Quantum Wave Integrator click-menu overlay + Nebula boss state.
         from qwi_menu import QWIMenu
         self._qwi_menu = QWIMenu()

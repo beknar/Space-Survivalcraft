@@ -108,6 +108,50 @@ def _drone_item_key_for(drone) -> str:
             else "combat_drone")
 
 
+_FLEET_ORDER_LABELS: dict[str, str] = {
+    "return": "Order: RETURN",
+    "attack": "Order: ATTACK",
+    "follow_only": "Reaction: FOLLOW ONLY",
+    "attack_only": "Reaction: ATTACK ONLY",
+}
+
+
+def apply_fleet_order(gv: GameView, order: str) -> str:
+    """Apply a Fleet menu button click to the active drone.
+
+    ``order`` is one of the ``FleetMenu.BTN_*`` values:
+
+      * ``"return"`` — direct order: drone breaks off and A*-paths
+        back to the player.  Auto-clears once the drone is close.
+      * ``"attack"`` — direct order: drone forces ATTACK on every
+        detected enemy until cleared (replaced by another order or
+        manually overridden).
+      * ``"follow_only"`` — reaction: drone never engages, even
+        with targets in range.
+      * ``"attack_only"`` — reaction: original autonomy (engages
+        targets in range).
+
+    Returns a short status string for the caller to flash on the
+    menu (e.g. "Order: RETURN" or "No drone deployed").
+    """
+    drone = getattr(gv, "_active_drone", None)
+    if drone is None:
+        return "No drone deployed"
+    if order in ("return", "attack"):
+        drone._direct_order = order
+    elif order == "follow_only":
+        drone._reaction = "follow"
+        # Clear any direct order so the new reaction takes effect
+        # immediately rather than after the order auto-clears.
+        drone._direct_order = None
+    elif order == "attack_only":
+        drone._reaction = "attack"
+        drone._direct_order = None
+    else:
+        return f"Unknown order: {order}"
+    return _FLEET_ORDER_LABELS.get(order, "Order applied")
+
+
 def recall_drone(gv: GameView) -> None:
     """Stash the active drone back into the player's inventory
     without deploying anything new.  Used by the dedicated "put
