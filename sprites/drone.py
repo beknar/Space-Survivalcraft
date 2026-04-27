@@ -342,12 +342,6 @@ class _BaseDrone(arcade.Sprite):
         # not to fire across a wall (heading would face the waypoint,
         # not the enemy).
         self._routing_to_waypoint: bool = False
-        # Most-recent steering target (waypoint OR slot position)
-        # captured each frame for the telemetry recorder.  Drone
-        # behaviour bugs are easier to triage when the log shows
-        # what the drone was *trying* to aim at, not just where it
-        # ended up.
-        self._last_steer_target: tuple[float, float] | None = None
         # Shield regen accumulator (fractional shield points carry
         # across frames; integer ``shields`` is bumped when ≥ 1.0).
         self._shield_regen_acc: float = 0.0
@@ -478,7 +472,6 @@ class _BaseDrone(arcade.Sprite):
                 # LEFT slot of a heading=0 ship — directly west.
                 target_x = player_x - DRONE_FOLLOW_DIST
                 target_y = player_y
-        self._last_steer_target = (target_x, target_y)
 
         # Un-stick nudge for FOLLOW too (mostly fires when the
         # planner is routing through doorways and the drone wedges
@@ -760,7 +753,6 @@ class _BaseDrone(arcade.Sprite):
         else:
             # Same room or no path — head straight for the player.
             target_x, target_y = player_x, player_y
-        self._last_steer_target = (target_x, target_y)
         # Un-stick nudge: when the drone hasn't moved much in 0.5 s
         # while RETURN_HOME wants it to, slide perpendicular for a
         # single frame to pop free of wall corners.  Catches cases
@@ -999,10 +991,6 @@ class MiningDrone(_BaseDrone):
             # rock if push-out from a previous frame left an overlap.
             self._apply_asteroid_pushout(asteroids)
         self._vacuum_pickups(gv)
-        # Per-frame snapshot for the drone-behaviour telemetry log.
-        # No-op when the recorder isn't active.
-        import drone_telemetry as _tel
-        _tel.record_frame(self, gv)
         if self._mode != self._MODE_ATTACK or target is None:
             return None
         # Stuck check: same target with no HP drop for 5 s → bail.
@@ -1084,10 +1072,6 @@ class CombatDrone(_BaseDrone):
         # just because the drone happens to be the combat variant
         # rather than the mining one.
         self._vacuum_pickups(gv)
-        # Per-frame snapshot for the drone-behaviour telemetry log.
-        # No-op when the recorder isn't active.
-        import drone_telemetry as _tel
-        _tel.record_frame(self, gv)
         if self._mode != self._MODE_ATTACK or target is None:
             return None
         # Stuck check: same target with no HP drop for 5 s → bail.

@@ -1558,8 +1558,6 @@ def update_drone(gv: GameView, dt: float) -> None:
         spawn_explosion(gv, drone.center_x, drone.center_y)
         drone.remove_from_sprite_lists()
         gv._active_drone = None
-        import drone_telemetry as _tel
-        _tel.stop(reason="drone destroyed")
 
 
 # ═══ Missiles / death blossom / VFX cleanup ═════════════════════════════
