@@ -195,6 +195,15 @@ class _BaseDrone(arcade.Sprite):
     # RETURN_HOME until it's reeled back inside this radius — keeps
     # the mode flag from oscillating at exactly the break-off line.
     _RETURN_HOME_EXIT_DIST = 600.0
+    # A direct RETURN order is stickier than the autonomous RETURN_HOME:
+    # it stays active until the drone is BOTH near the player AND has
+    # clear line of sight.  Auto-clearing on distance alone leaves a
+    # wall-wedged drone stranded at, say, 400 px (well below the 600
+    # px hysteresis) because the order vanishes the first frame the
+    # mode machine looks — without ever giving the planner a chance
+    # to route around the wall.  ``2 * DRONE_FOLLOW_DIST`` is the
+    # nearest follow slot's radius, doubled for slack.
+    _DIRECT_RETURN_CLEAR_DIST = 2.0 * DRONE_FOLLOW_DIST
     # Un-stick nudge thresholds.  Anchor-vs-now movement under
     # ``_NUDGE_DIST`` over ``_NUDGE_TIME`` seconds while the drone
     # should be moving (FOLLOW with off-slot delta or RETURN_HOME)
@@ -665,16 +674,25 @@ class _BaseDrone(arcade.Sprite):
         d_to_player = math.hypot(self.center_x - player.center_x,
                                  self.center_y - player.center_y)
 
-        # 1. Direct RETURN order — overrides everything else.
+        # 1. Direct RETURN order — overrides everything else.  Clears
+        # only when the drone is BOTH near the player AND has clear
+        # line of sight; otherwise it keeps trying to route home.
+        # Distance alone isn't enough: a drone wedged behind a wall
+        # 400 px from the player would otherwise auto-clear on the
+        # first tick (the autonomous RETURN_HOME hysteresis is 600
+        # px) without the planner ever getting to run.
         if self._direct_order == "return":
-            if d_to_player <= self._RETURN_HOME_EXIT_DIST:
-                # Made it home — clear the order and fall through to
+            los_clear = not _segment_crosses_any_wall(
+                self.center_x, self.center_y,
+                player.center_x, player.center_y, walls)
+            close = d_to_player <= self._DIRECT_RETURN_CLEAR_DIST
+            if los_clear and close:
+                # Reunited — clear the order and fall through to
                 # normal logic so reactions take over again.
                 self._direct_order = None
-                # Stop the RETURN telemetry session — we've reunited.
                 import drone_telemetry as _tel
-                _tel.stop(reason="return order auto-cleared "
-                          "(drone within EXIT_DIST)")
+                _tel.stop(reason=(
+                    "return order auto-cleared (close + LOS clear)"))
             else:
                 self._mode = self._MODE_RETURN_HOME
                 return

@@ -140,17 +140,51 @@ class TestModeMachineHonoursFleetOrders:
         d._update_mode(player, target, walls=None)
         assert d._mode == _BaseDrone._MODE_RETURN_HOME
 
-    def test_direct_return_auto_clears_when_player_close(self):
-        """Once the drone is back inside the close-range threshold
-        the RETURN order auto-clears so the drone resumes its normal
-        reaction."""
+    def test_direct_return_auto_clears_when_close_and_los_clear(self):
+        """RETURN auto-clears when the drone is BOTH close (≤
+        ``_DIRECT_RETURN_CLEAR_DIST``) AND has line-of-sight to the
+        player."""
         d = self._drone_at(0.0, 0.0)
         d._direct_order = "return"
-        # Player sits inside the EXIT distance.
+        # Player ~100 px away, no walls — both conditions met.
         player = SimpleNamespace(center_x=100.0, center_y=0.0,
                                   heading=0.0)
         d._update_mode(player, target=None, walls=None)
         assert d._direct_order is None
+
+    def test_direct_return_holds_when_los_blocked(self):
+        """Telemetry-pinned regression (drone_return_telemetry.log,
+        2026-04-26 19:57): drone wedged 383 px from player behind a
+        wall.  RETURN auto-cleared on the first tick because the
+        old code only checked distance, leaving the drone stranded.
+        Now the order MUST stick when a wall blocks LOS — even
+        when the drone is well inside the close-range threshold."""
+        from sprites.drone import _BaseDrone
+        d = self._drone_at(0.0, 0.0)
+        d._direct_order = "return"
+        # Player 100 px east, wall sits between them.
+        player = SimpleNamespace(center_x=100.0, center_y=0.0,
+                                  heading=0.0)
+        walls = [(40.0, -20.0, 20.0, 40.0)]
+        d._update_mode(player, target=None, walls=walls)
+        assert d._direct_order == "return"
+        assert d._mode == _BaseDrone._MODE_RETURN_HOME
+
+    def test_direct_return_holds_when_close_but_past_clear_dist(self):
+        """RETURN stays active while the drone is past the
+        close-range cutoff (2 * DRONE_FOLLOW_DIST), even with LOS
+        clear — the order is deliberately stickier than the
+        autonomous RETURN_HOME hysteresis."""
+        from sprites.drone import _BaseDrone
+        d = self._drone_at(0.0, 0.0)
+        d._direct_order = "return"
+        # 400 px is past 2 * DRONE_FOLLOW_DIST (160) but inside the
+        # autonomous 600-px hysteresis.  Order must persist.
+        player = SimpleNamespace(center_x=400.0, center_y=0.0,
+                                  heading=0.0)
+        d._update_mode(player, target=None, walls=None)
+        assert d._direct_order == "return"
+        assert d._mode == _BaseDrone._MODE_RETURN_HOME
 
     def test_direct_attack_ignores_break_off_distance(self):
         """ATTACK order keeps the drone engaging even when the
