@@ -425,6 +425,19 @@ def handle_mouse_press(gv: GameView, x: int, y: int, button: int, modifiers: int
                 gv._qwi_menu.set_status(
                     "Not enough iron (need 100).")
         return
+    # Inventory has visual priority over the world — when its
+    # panel is open and the click lands inside the panel rect, the
+    # inventory absorbs the click before any world-click dispatch
+    # so a station building (crafter / trade station / Home
+    # Station) sitting under the cursor in world space doesn't
+    # also fire.  Cell clicks become drag/split via
+    # ``inventory.on_mouse_press``; non-cell clicks inside the
+    # panel (border / consolidate-button / drag-cancel zone) are
+    # still considered "consumed" so the world doesn't see them.
+    if (gv.inventory.open
+            and gv.inventory._panel_contains(x, y)):
+        gv.inventory.on_mouse_press(x, y, button=button)
+        return
     # World clicks (parked ships, trade station, buildings)
     if not gv._build_menu.open and not gv._player_dead:
         if _try_start_building_move(gv, x, y):

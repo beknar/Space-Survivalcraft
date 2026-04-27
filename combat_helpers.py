@@ -195,7 +195,18 @@ def deploy_drone(gv: GameView) -> None:
     active = getattr(gv, "_active_drone", None)
     if active is not None:
         if type(active).__name__ == desired_cls_name:
-            return  # same variant — no-op, no consume
+            # Same variant — surface a clear error message rather
+            # than silently swallowing the keypress.  The player
+            # likely expected the second R press to deploy a
+            # second drone (it doesn't — only one drone allowed
+            # at a time) or to be a free swap (it isn't, since
+            # it's the same type).
+            label = ("Mining Drone" if desired_cls_name == "MiningDrone"
+                     else "Combat Drone")
+            flash_game_msg(
+                gv,
+                f"{label} already deployed", 1.5)
+            return
         # Different variant — refund it first (back into inventory),
         # then fall through to the standard deploy path so the new
         # variant is spawned + consumed cleanly.
