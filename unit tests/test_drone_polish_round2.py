@@ -159,6 +159,69 @@ class TestParkedShipModuleDropType:
 # ── Homing missiles target stalkers ───────────────────────────────────────
 
 
+class TestPlayerDeathModuleDropType:
+    """Player death now drops equipped modules as ready-to-equip
+    pickups (``mod_<key>``), NOT blueprints (``bp_<key>``).  Same
+    fix as the parked-ship destruction path.
+
+    The "BP" prefix in the inventory display + the red-dot
+    overlay are both gated on ``it.startswith("bp_")`` /
+    ``_item_names[f"bp_{key}"]``, so flipping the item_type to
+    ``mod_<key>`` automatically clears both.
+    """
+
+    def test_dropped_module_pickup_has_mod_item_type(self):
+        from combat_helpers import _drop_player_loadout
+        from game_view import GameView
+        gv = GameView(faction="Earth", ship_type="Cruiser",
+                       skip_music=True)
+        # Equip a module so the death drop has something to scatter.
+        gv._module_slots = ["armor_plate", None, None, None]
+        before = len(gv.blueprint_pickup_list)
+        _drop_player_loadout(gv, gv.player.center_x, gv.player.center_y)
+        new_drops = list(gv.blueprint_pickup_list)[before:]
+        # One module slot was set → exactly one drop.
+        assert len(new_drops) == 1
+        assert new_drops[0].item_type == "mod_armor_plate", (
+            f"got {new_drops[0].item_type!r} — modules dropped on "
+            f"player death must be ready-to-equip "
+            f"(``mod_<key>``), not blueprints with the BP prefix "
+            f"+ red dot")
+
+    def test_module_drop_does_not_trigger_red_dot_in_inventory(self):
+        """When the respawned player picks up the dropped module
+        and ``inventory.add_item`` adds it, the cell holds
+        ``mod_<key>`` — the inventory render's red-dot guard
+        (``it.startswith("bp_")``) does NOT fire on this key."""
+        from game_view import GameView
+        gv = GameView(faction="Earth", ship_type="Cruiser",
+                       skip_music=True)
+        gv.inventory.add_item("mod_armor_plate", 1)
+        # The cell should hold "mod_armor_plate", which fails the
+        # startswith("bp_") guard so no red-dot marker is emitted.
+        any_bp = any(
+            it.startswith("bp_")
+            for (it, _ct) in gv.inventory._items.values())
+        assert any_bp is False
+
+    def test_module_drop_displays_without_bp_prefix(self):
+        """``_item_names`` registration:
+            ``bp_<key>`` → "BP <label>"
+            ``mod_<key>`` → "<label>" (no BP prefix)
+        Pin both so the player-death drop's label is the clean one.
+        """
+        from game_view import GameView
+        gv = GameView(faction="Earth", ship_type="Cruiser",
+                       skip_music=True)
+        names = gv.inventory._item_names
+        # The mod_ variant is registered without a BP prefix.
+        assert names["mod_armor_plate"] == "Armor Plate"
+        # And the bp_ variant DOES carry the BP prefix — pinning
+        # this confirms we'd be displaying the wrong label if the
+        # drop had used the bp_ key.
+        assert names["bp_armor_plate"].startswith("BP ")
+
+
 class TestMissilesTargetStalkers:
     def test_stalkers_added_to_target_list(self):
         """The target collection in ``update_missiles`` should

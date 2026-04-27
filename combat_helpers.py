@@ -330,8 +330,15 @@ def _drop_player_loadout(gv: GameView, x: float, y: float) -> None:
     for mod in module_drops:
         ix, iy = positions[pi]; pi += 1
         tex = bp_icons.get(mod, gv._blueprint_tex)
-        gv.blueprint_pickup_list.append(
-            BlueprintPickup(tex, ix, iy, module_type=mod))
+        bp = BlueprintPickup(tex, ix, iy, module_type=mod)
+        # Modules dropped by the player on death are already-
+        # installed instances — they should land in the
+        # respawned ship's inventory as ready-to-equip modules
+        # (``mod_<key>``), NOT blueprints (``bp_<key>``) tagged
+        # with the red-dot overlay that require re-crafting.
+        # Mirrors the same fix applied to ``_destroy_parked_ship``.
+        bp.item_type = f"mod_{mod}"
+        gv.blueprint_pickup_list.append(bp)
 
 
 def _send_bosses_home(gv: GameView) -> None:
