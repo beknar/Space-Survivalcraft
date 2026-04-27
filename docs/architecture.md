@@ -166,6 +166,202 @@ collisions.py
 - **Station shield** --- `update_logic.update_station_shield` spawns a faction-tinted `ShieldSprite` (alpha 15 fill) centred on the Home Station whenever a Shield Generator exists. Scale = `2 * (station_outer_radius + STATION_SHIELD_PADDING) / SHIELD_FRAME_W`. `collisions._station_shield_absorbs` intercepts alien and boss projectiles inside the disk, bleeds `proj.damage` from `_station_shield_hp`, flashes the sprite, and consumes the projectile before building collision runs. `draw_logic._draw_station_shield` renders the sprite list and then layers a solid 3 px `draw_circle_outline` at the shield radius on top (alpha 200 / 255 on hit-flash) plus a faint inner glow ring, so the border dominates the visual while the interior stays readable. Persisted via `station_shield_hp` and `station_shield_max_hp` — restore re-materialises the sprite on the next update tick as long as the Shield Generator is still present.
 - **ShieldSprite alpha parameter** --- `sprites/shield.py`'s constructor takes an optional `alpha` (default 200) that becomes `_base_alpha`. The ship shield and the AI-pilot yellow bubble use 200 (full opacity); the station shield passes `alpha=15`. `hit_flash` spikes to `min(255, base_alpha + 55)` and decays back to the base.
 
+## Drone Pathfinding
+
+Both companion drones (`MiningDrone` + `CombatDrone`) and the
+Star Maze enemies (`MazeAlien`) share a single A* pathfinder
+over the maze's room-adjacency graph: `WaypointPlanner` in
+`zones/maze_geometry.py`.  It is a stateful per-body object —
+each drone or alien owns one — and produces one steering
+waypoint per frame.  The planner is a no-op outside the Star
+Maze (constructed with `rooms=None` / `room_graph=None`).
+
+### MazeLayout — the data the planner consumes
+
+`zones/maze_geometry.MazeLayout` is the per-maze artefact
+emitted by `generate_maze()`.  Every field below is read by
+`WaypointPlanner`:
+
+| Field | Type | Used for |
+|---|---|---|
+| `rooms` | `list[Rect]` | `find_room_index`, AABB membership, room-centre fallback waypoint |
+| `walls` | `list[Rect]` | Drone slot blocking, maze-alien collision, segment LOS tests |
+| `room_graph` | `dict[int, list[int]]` | A* adjacency over carved doorways |
+| `doorways` | `dict[frozenset[int], (x, y)]` | Per-edge gap midpoint — the actual steering target between two rooms |
+| `entrance_room` | `int` | The single room adjacent to the carved outer-wall gap |
+| `entrance_xy` | `(x, y)` | World-space midpoint of the outer-wall gap |
+| `entrance_xy_outer` | `(x, y)` | A point `2 * wall_thick` past the gap along the outward normal — the "step out into open space" steering target |
+
+Star Maze hosts `STAR_MAZE_COUNT` (4) mazes.
+`update_logic.update_drone` stitches the per-maze tables into a
+single unified rooms / room_graph / doorways /
+`room_to_exit_room` / `exit_xy_by_room` /
+`exit_outer_xy_by_room` set, with each maze's room indices
+offset so frozenset / int references stay stable across the
+combined graph.
+
+### `WaypointPlanner.plan()` — per-frame resolution order
+
+Called once per frame with the body's current `(sx, sy)` and the
+target's `(tx, ty)`.  Returns either a `(wx, wy)` waypoint to
+steer toward or `None` (caller falls back to direct chase).
+
+1. **Cooldown bleed** — if the planner is in its post-failure
+   cooldown (`_cooldown_t > 0`), tick the timer and return
+   `None`.  RETURN_HOME wipes this cooldown each frame so the
+   freeze never strands a drone trying to come home.
+2. **No-op shortcut** — return `None` immediately when the
+   planner has no rooms / graph (caller is outside the Star
+   Maze).
+3. **Wall-band snap** — `find_room_index(sx, sy)` returns
+   `None` when the body sits in the wall thickness band.  If
+   the closest room AABB is within `_WALL_BAND_SLACK` (50 px,
+   slightly more than the 32 px wall thickness), substitute
+   that room as the source.  Without this, drones partially
+   clipped into a wall would be misclassified as "outside the
+   maze" and routed past the edge.
+4. **Target-outside fallback** — if the body has a source room
+   but the target's room is `None` (player roamed outside the
+   maze), substitute `troom = room_to_exit_room[sroom]` (the
+   entrance room of the body's own maze).  The
+   geographically-nearest room is often a sealed dead-end; only
+   the entrance has an outer opening.  Legacy callers without
+   the exit table fall back to the closest room by AABB
+   distance.
+5. **Body-at-entrance gate** — if the body is in the entrance
+   room AND target is outside the maze, emit
+   `exit_outer_xy_by_room[sroom]` as the waypoint.  A fixed
+   point past the gap means the same waypoint regardless of
+   body position, so the body steers continuously through the
+   gap into open space.  The earlier "switch to player when
+   close to gap" design produced single-frame oscillation.
+6. **Body-outside-target-inside entry** — symmetric case: when
+   the body is outside every room (and not close enough for the
+   wall-band snap to grab it) but the target is inside one, emit
+   `exit_xy_by_room[troom]` so the drone heads for the entrance
+   gap.  Once it crosses the gap the body's source room snaps
+   to the entrance and the rest of the path runs normally.
+7. **Same-room early return** — when source and target rooms
+   match, return `None` and let the caller chase directly.
+   Resets the stuck tracker so the next inter-room plan starts
+   with a fresh budget.
+8. **A* re-plan** — recompute the path on a `REPLAN_INTERVAL`
+   (0.5 s) cadence, on target-room change, or whenever the
+   cached path doesn't start in the current source room.
+   `astar_room_path` is a plain list-based open set (≤25 rooms
+   per maze; `heapq` overhead loses to linear scan at this
+   size).
+9. **Path trim** — drop already-passed entries until
+   `path[0] == sroom`.  Returns `None` when the trimmed path
+   has fewer than two entries (body is in the destination
+   room).
+10. **Stuck-progress tracker** — anchor on first call, then
+    measure displacement.  `STUCK_DIST` (30 px) of motion
+    within `FAIL_TIMEOUT` (5 s) counts as progress and resets
+    the anchor.  No motion for the full window calls
+    `_fail()`, which sets the cooldown for `COOLDOWN` (5 s)
+    and latches `gave_up()` for one read.
+11. **Doorway-arrival path advance** — if the body sits within
+    `_DOORWAY_ARRIVAL_RADIUS` (24 px) of the current
+    `path[0] ↔ path[1]` doorway midpoint, pop `path[0]` so the
+    next call's source is the room we just entered; emit the
+    next doorway, or — if only one room remains — its centre
+    so the body steps off the wall band into the room
+    interior.  Without this, drones parked exactly on a
+    doorway midpoint stalled forever (`dist <= 0.001` early-
+    return in the drone update loop).
+12. **Doorway-aware waypoint** — return the `path[0] ↔ path[1]`
+    doorway midpoint.  The doorway sits in the carved gap by
+    construction, so straight-line steering from anywhere in
+    the current room reaches it without clipping a wall corner.
+    Falls back to the next room's centre when no doorway entry
+    exists (legacy callers without a doorway table).
+
+### Drone integration — `sprites/drone._BaseDrone`
+
+Per-frame flow inside `update_drone(dt, gv)`:
+
+1. `update_visuals(dt)` + `regen_shields(dt, player)`.
+2. `walls = _walls_from_zone(gv)` — current zone's wall list
+   (None outside the Star Maze).
+3. Pick a target candidate (nearest asteroid for mining drone,
+   nearest enemy for combat drone — combat drone gives maze
+   spawners priority).
+4. `_update_mode(player, target, walls)` resolves the mode in
+   this order: **direct RETURN order** (forces RETURN_HOME
+   until close + LOS clear) → **direct ATTACK order** (forces
+   ATTACK while a target is in range, ignores 800 px break-off)
+   → **autonomous RETURN_HOME** at >800 px with hysteresis
+   exit at 600 px → **reaction filter** (`"follow"` reaction
+   never enters ATTACK) → **distance + LOS check** (ATTACK iff
+   target ≤600 px AND no wall on the segment).
+5. Branch on the new mode:
+   - `RETURN_HOME` → `_run_return_home`: clear the planner's
+     cooldown, call `plan()`, steer toward the waypoint (or
+     directly at the player if the planner returned `None`),
+     ignore enemies entirely, run the un-stick nudge.
+   - `FOLLOW` → `follow()`: call `plan()` first to handle
+     maze routing; if no waypoint, fall back to the slot
+     picker (LEFT default → RIGHT → BACK based on the
+     segment-blocked check against `walls`).  Run the un-stick
+     nudge after.
+   - `ATTACK` → hold station, run `_aim_and_fire(target)` with
+     `_track_stuck_progress` to abandon targets the drone
+     can't actually reach (5 s of unchanged target HP →
+     `_target_cooldown` freeze).
+
+`update_logic.update_drone` calls
+`drone.attach_maze_planner(rooms, room_graph, doorways,
+room_to_exit_room, exit_xy_by_room, exit_outer_xy_by_room)`
+each frame.  An identity check on the room/graph ids skips the
+allocation when the geometry hasn't changed (every frame inside
+a single zone), so the per-frame cost is one dict lookup +
+one comparison.
+
+### Safety nets
+
+The planner is correct in steady state; the safety nets cover
+edge cases (pixel-perfect alignment glitches, weird diagonal
+geometry, brief simulator perturbations from push-out):
+
+- **Un-stick nudge** (`_BaseDrone._try_unstick_nudge`) — tracks
+  per-frame movement; if the drone hasn't moved more than
+  10 px in 0.5 s while it should be steering toward a target,
+  slides perpendicular to the steering vector for one frame.
+  Direction alternates each fire so a corner that blocks the
+  right slide gets a left slide on the next attempt.  Hooked
+  from both `follow()` and `_run_return_home()`.
+- **RETURN_HOME cooldown wipe** — `_run_return_home` resets
+  `_follow_planner._cooldown_t = 0` every frame so the
+  planner's 5-s give-up freeze never strands a drone trying to
+  come back to the player.
+- **Direct RETURN clear-on-LOS** — the direct RETURN order
+  auto-clears only when the drone is BOTH close to the player
+  (within `_DIRECT_RETURN_CLEAR_DIST = 2 * DRONE_FOLLOW_DIST`
+  = 160 px) AND has clear line of sight.  Distance alone
+  isn't enough — a drone wedged behind a wall at 400 px would
+  otherwise lose its order on the first tick.
+
+### Where to look in tests
+
+- `unit tests/test_waypoint_planner.py` — pins every `plan()`
+  branch above (no-op cases, doorway-aware waypoint emission,
+  wall-band snap, target-outside routing, entrance routing
+  both directions, exit-via-outer-point, doorway-arrival path
+  advance, no-progress give-up, stuck-timer reset on real
+  movement).
+- `unit tests/test_drone.py` — slot picker fallback chain,
+  mode machine resolution, friendly-fire skip on AI-piloted
+  parked ships, LOS disengage, save round-trip including
+  reactions + direct orders, hover tooltip text builder,
+  stuck-status surfaces in the tooltip.
+- `unit tests/test_fleet_menu.py` — Fleet Control button ids,
+  `apply_fleet_order` mutations, mode machine respects
+  reactions + direct orders.
+- `unit tests/integration/test_drone_wall_containment.py` —
+  end-to-end against a real Star Maze GameView: drone never
+  tunnels through a wall, push-out scoops it free of overlaps.
+
 ## View Flow
 
 ```
