@@ -130,5 +130,10 @@ class HelpMode(MenuMode):
             self.ctx.set_mode("main")
 
     def on_key_press(self, key: int, modifiers: int = 0) -> None:
-        if key == arcade.key.ESCAPE:
+        # ESC, Tab, Enter, Space all return to the main menu since
+        # Help has only a single Back button.
+        if key in (arcade.key.ESCAPE, arcade.key.TAB,
+                   arcade.key.RETURN, arcade.key.ENTER,
+                   arcade.key.NUM_ENTER, arcade.key.SPACE):
+            self.ctx.play_click()
             self.ctx.set_mode("main")

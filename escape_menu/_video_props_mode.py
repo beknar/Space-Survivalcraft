@@ -68,6 +68,50 @@ class VideoPropsMode(MenuMode):
                 if self.ctx.resolution_fn: self.ctx.resolution_fn(w, h, mode)
                 return
 
+    def __init__(self, ctx) -> None:  # type: ignore[override]
+        super().__init__(ctx)
+        # 0 = windowed, 1 = fullscreen, 2 = borderless, 3 = back
+        self._focus_idx: int = -1
+
     def on_key_press(self, key: int, modifiers: int = 0) -> None:
         if key == arcade.key.ESCAPE:
             self.ctx.set_mode("main")
+            return
+        # Left / Right arrows cycle the resolution preset.
+        if key in (arcade.key.LEFT, arcade.key.A):
+            self.ctx.res_idx = (
+                self.ctx.res_idx - 1) % len(RESOLUTION_PRESETS)
+            self.ctx.play_click()
+            return
+        if key in (arcade.key.RIGHT, arcade.key.D):
+            self.ctx.res_idx = (
+                self.ctx.res_idx + 1) % len(RESOLUTION_PRESETS)
+            self.ctx.play_click()
+            return
+        # Tab / Up-Down arrows navigate the apply buttons + back.
+        n = 4
+        cur = self._focus_idx
+        if key in (arcade.key.TAB, arcade.key.DOWN, arcade.key.S):
+            shift = bool(modifiers & arcade.key.MOD_SHIFT)
+            step = -1 if (key == arcade.key.TAB and shift) else 1
+            self._focus_idx = (
+                (cur + step) % n if cur >= 0
+                else (0 if step > 0 else n - 1))
+            self.ctx.play_click()
+            return
+        if key == arcade.key.UP:
+            self._focus_idx = (cur - 1) % n if cur >= 0 else n - 1
+            self.ctx.play_click()
+            return
+        if key in (arcade.key.RETURN, arcade.key.ENTER,
+                   arcade.key.NUM_ENTER, arcade.key.SPACE):
+            if cur < 0:
+                self._focus_idx = 0; cur = 0
+            self.ctx.play_click()
+            if cur == 3:
+                self.ctx.set_mode("main"); return
+            mode = ("windowed", "fullscreen", "borderless")[cur]
+            w, h = RESOLUTION_PRESETS[self.ctx.res_idx]
+            if self.ctx.resolution_fn:
+                self.ctx.resolution_fn(w, h, mode)
+            return

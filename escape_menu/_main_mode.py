@@ -92,6 +92,14 @@ class MainMode(MenuMode):
         self.ctx.play_click()
         idx = btn_at(x, y, self._btn_rects)
         if idx < 0: return
+        self._activate(idx)
+
+    def _activate(self, idx: int) -> None:
+        """Run the action bound to button ``idx``.  Shared between
+        on_mouse_press and on_key_press so keyboard activation
+        (Enter / Space) and mouse click reach the same code path."""
+        if idx < 0 or idx >= len(_BUTTONS):
+            return
         key = _BUTTONS[idx][0]
         actions = {
             "resume": lambda: self.ctx.close_menu(),
@@ -102,7 +110,8 @@ class MainMode(MenuMode):
             "songs": lambda: self.ctx.set_mode("songs"),
             "main_menu": lambda: (self.ctx.close_menu(), self.ctx.main_menu_fn()),
         }
-        if key in actions: actions[key]()
+        if key in actions:
+            actions[key]()
 
     def on_mouse_release(self, x: int, y: int) -> None:
         self._dragging = ""
@@ -122,5 +131,40 @@ class MainMode(MenuMode):
         else: audio.sfx_volume = frac
 
     def on_key_press(self, key: int, modifiers: int = 0) -> None:
+        # ESC: close the menu (preserved).
         if key == arcade.key.ESCAPE:
             self.ctx.close_menu()
+            return
+        # Tab / Down / S: focus next button (wraps).
+        # Shift+Tab / Up / W: focus previous (wraps).
+        n = len(_BUTTONS)
+        if n == 0:
+            return
+        cur = self.ctx.hover_idx
+        if key in (arcade.key.TAB, arcade.key.DOWN, arcade.key.S):
+            shift = bool(modifiers & arcade.key.MOD_SHIFT)
+            step = -1 if (key == arcade.key.TAB and shift) else 1
+            self.ctx.hover_idx = (
+                (cur + step) % n if cur >= 0
+                else (0 if step > 0 else n - 1)
+            )
+            self.ctx.play_click()
+            return
+        if key in (arcade.key.UP, arcade.key.W):
+            self.ctx.hover_idx = (
+                (cur - 1) % n if cur >= 0 else n - 1
+            )
+            self.ctx.play_click()
+            return
+        # Enter / Space / NUMPAD_ENTER: activate the focused button.
+        if key in (arcade.key.RETURN, arcade.key.ENTER,
+                   arcade.key.NUM_ENTER, arcade.key.SPACE):
+            if cur < 0:
+                # Nothing focused yet — adopt the first button so a
+                # blind Enter still does something predictable
+                # (Resume is index 0).
+                self.ctx.hover_idx = 0
+                cur = 0
+            self.ctx.play_click()
+            self._activate(cur)
+            return

@@ -247,6 +247,43 @@ class SaveLoadMode(MenuMode):
                 self._naming_text = self._slots[self._naming_slot]["name"]
                 self._sub = "naming"; self._cursor_visible = True; self._cursor_timer = 0.0
             return
+        # Tab / arrow navigation across save slots + Back button.
+        # Slots are 0..SAVE_SLOT_COUNT-1; hover_idx == 100 means
+        # the Back button is focused.
+        if self._sub in ("save", "load"):
+            n_slots = SAVE_SLOT_COUNT
+            cur = self.ctx.hover_idx
+            BACK = 100
+            if key in (arcade.key.TAB, arcade.key.DOWN, arcade.key.S):
+                shift = bool(modifiers & arcade.key.MOD_SHIFT)
+                if key == arcade.key.TAB and shift:
+                    self.ctx.hover_idx = self._cycle_slot(cur, -1, n_slots, BACK)
+                else:
+                    self.ctx.hover_idx = self._cycle_slot(cur, 1, n_slots, BACK)
+                return
+            if key in (arcade.key.UP, arcade.key.W):
+                self.ctx.hover_idx = self._cycle_slot(cur, -1, n_slots, BACK)
+                return
+            if key in (arcade.key.RETURN, arcade.key.ENTER,
+                       arcade.key.NUM_ENTER, arcade.key.SPACE):
+                if cur == BACK:
+                    self.ctx.set_mode("main"); return
+                if cur < 0:
+                    cur = 0; self.ctx.hover_idx = 0
+                if 0 <= cur < n_slots:
+                    if self._sub == "save":
+                        self._naming_slot = cur
+                        if self._slots[cur]["exists"]:
+                            self._sub = "confirm"
+                        else:
+                            self._naming_text = ""; self._sub = "naming"
+                            self._cursor_visible = True; self._cursor_timer = 0.0
+                    elif self._sub == "load" and self._slots[cur]["exists"]:
+                        self.ctx.load_fn(cur)
+                        self.ctx.flash_status(
+                            f"Loaded: {self._slots[cur]['name']}")
+                        self.ctx.set_mode("main")
+                return
         if self._sub == "load":
             if key == arcade.key.DELETE:
                 # Delete the currently hovered slot
@@ -269,6 +306,16 @@ class SaveLoadMode(MenuMode):
         else:
             if key == arcade.key.ESCAPE:
                 self.ctx.set_mode("main")
+
+    @staticmethod
+    def _cycle_slot(cur: int, step: int, n_slots: int, back_id: int) -> int:
+        """Cycle focus through ``n_slots`` save slots + a single
+        back button (id ``back_id``).  Wraps at both ends."""
+        order = list(range(n_slots)) + [back_id]
+        if cur not in order:
+            return order[0] if step > 0 else order[-1]
+        i = order.index(cur)
+        return order[(i + step) % len(order)]
 
     def on_text(self, text: str) -> None:
         if self._sub == "naming":
