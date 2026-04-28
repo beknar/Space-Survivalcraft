@@ -87,10 +87,15 @@ except ImportError as e:
 import bot_play
 from bot_play import (
     BotState, _wait, click_game, gx, gy,
-    WINDOW_X, WINDOW_Y, WINDOW_W, WINDOW_H,
     patch_settings_for_video, launch_game, find_and_position_window,
     click_play_now, random_selection, load_random_music_video,
 )
+# NOTE: WINDOW_X / Y / W / H are NOT imported by name here — they're
+# updated at runtime by ``find_and_position_window`` via ``global``,
+# and ``from bot_play import WINDOW_X`` would freeze the OLD value
+# in this module's namespace.  Always read them as
+# ``bot_play.WINDOW_X`` etc. so the post-positioning values
+# propagate.
 
 
 # ── IO directory ──────────────────────────────────────────────────────────
@@ -115,8 +120,11 @@ def _ensure_io_dir() -> None:
 
 def take_snapshot(snapshot_id: int) -> Path:
     """Capture the game window (region: WINDOW_X..+W, WINDOW_Y..+H)
-    and save under ``bot_io/snapshot_<id>.png``."""
-    region = (WINDOW_X, WINDOW_Y, WINDOW_W, WINDOW_H)
+    and save under ``bot_io/snapshot_<id>.png``.  Reads window
+    coords live from ``bot_play`` so post-positioning updates
+    propagate."""
+    region = (bot_play.WINDOW_X, bot_play.WINDOW_Y,
+              bot_play.WINDOW_W, bot_play.WINDOW_H)
     img = pyautogui.screenshot(region=region)
     path = BOT_IO_DIR / f"snapshot_{snapshot_id:04d}.png"
     img.save(path)
@@ -305,6 +313,7 @@ def main() -> None:
     print("Hotkeys: Ctrl+Shift+P pause | Ctrl+Shift+R fresh-shot | Ctrl+Shift+Q quit")
     print(f"IO dir : {BOT_IO_DIR}")
     print("=" * 60)
+    bot_play.set_dpi_awareness()
     listener = threading.Thread(
         target=bot_play._hotkey_listener, daemon=True)
     listener.start()

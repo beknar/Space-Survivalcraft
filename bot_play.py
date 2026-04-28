@@ -88,6 +88,37 @@ pyautogui.FAILSAFE = True          # move mouse to corner to abort
 pyautogui.PAUSE = 0.02
 
 
+# ── DPI awareness (Windows) ───────────────────────────────────────────────
+
+def set_dpi_awareness() -> None:
+    """On Windows with display scaling != 100 %, ``pygetwindow``
+    reports / sets logical pixels while ``pyautogui`` operates in
+    physical pixels.  That mismatch makes the bot's screenshots,
+    clicks, and window-positioning land on the wrong area of the
+    screen — observed end-to-end as "the bot screenshots the
+    desktop and clicks miss the game window".
+
+    Calling ``SetProcessDpiAwareness(2)`` (PROCESS_PER_MONITOR_DPI_AWARE)
+    flips this process into physical-pixel mode for both libraries,
+    so every coordinate uses the same units.
+
+    Idempotent + no-op on non-Windows.
+    """
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+        # 2 = PROCESS_PER_MONITOR_DPI_AWARE.  Falls back to the older
+        # SetProcessDPIAware() if shcore isn't available (pre-Win 8.1).
+        try:
+            ctypes.windll.shcore.SetProcessDpiAwareness(2)
+        except (AttributeError, OSError):
+            ctypes.windll.user32.SetProcessDPIAware()
+        print("[bot] DPI awareness set: physical-pixel coords")
+    except Exception as e:
+        print(f"[bot] WARN: SetProcessDpiAwareness failed: {e}")
+
+
 # ── Hotkey state machine ──────────────────────────────────────────────────
 
 class BotState:
@@ -156,28 +187,89 @@ def launch_game() -> subprocess.Popen:
 
 
 def find_and_position_window(timeout_s: float = 30.0) -> bool:
-    """Locate the game window by title and move it to a known origin.
-    Returns True on success."""
+    """Locate the game window by title, move it to a known origin,
+    then **read back** its actual position + size and update the
+    module-level ``WINDOW_X / WINDOW_Y / WINDOW_W / WINDOW_H``
+    globals so every subsequent click and screenshot uses the
+    real coordinates (not the request).  This catches:
+
+      * DPI scaling making moveTo land on a different physical pixel.
+      * Windows snapping the window to a monitor edge / taskbar.
+      * The arcade view choosing a different size than 1280x800
+        because of resolution presets in settings.json.
+
+    Also runs a probe screenshot + uniformity check: if the captured
+    region is mostly the same colour, the game window is almost
+    certainly NOT at the captured location.  Returns False so the
+    bot can bail out cleanly instead of writing 100 desktop snapshots.
+    """
+    global WINDOW_X, WINDOW_Y, WINDOW_W, WINDOW_H
     title_substr = "Call of Orion"
     deadline = time.time() + timeout_s
+    target = None
     while time.time() < deadline:
         if BotState.stop:
             return False
         for w in gw.getAllWindows():
             if title_substr.lower() in (w.title or "").lower():
-                try:
-                    w.activate()
-                    w.moveTo(WINDOW_X, WINDOW_Y)
-                    print(f"[bot] window found + positioned: {w.title!r}")
-                    time.sleep(0.4)
-                    return True
-                except Exception as e:
-                    print(f"[bot] window positioning warn: {e}")
-                    time.sleep(0.5)
-                    return True
+                target = w
+                break
+        if target is not None:
+            break
         time.sleep(0.3)
-    print("[bot] ERROR: game window did not appear in 30 s")
-    return False
+    if target is None:
+        print("[bot] ERROR: game window did not appear in 30 s")
+        return False
+
+    try:
+        target.activate()
+        target.moveTo(WINDOW_X, WINDOW_Y)
+        time.sleep(0.5)            # let Windows settle the move
+        # Read back actual position + size.
+        actual_x, actual_y = int(target.left), int(target.top)
+        actual_w, actual_h = int(target.width), int(target.height)
+        print(f"[bot] window {target.title!r} positioned at "
+              f"({actual_x},{actual_y}) size {actual_w}x{actual_h}")
+        WINDOW_X, WINDOW_Y = actual_x, actual_y
+        WINDOW_W, WINDOW_H = actual_w, actual_h
+    except Exception as e:
+        print(f"[bot] window positioning warn: {e}")
+
+    # Probe the captured region — if it's nearly-uniform, we're
+    # almost certainly screenshotting the desktop, not the game.
+    if not _probe_screenshot_looks_like_game():
+        print("[bot] ERROR: probe screenshot looks uniform — coords "
+              "still wrong.  Run with the game window visible on the "
+              "primary monitor and try again.")
+        return False
+    return True
+
+
+def _probe_screenshot_looks_like_game(min_unique_colors: int = 200) -> bool:
+    """Take a screenshot of the configured game-window region and
+    count distinct colours.  The game (HUD + starfield + UI) easily
+    produces 1000+ unique colours; the desktop in any region of a
+    typical wallpaper produces far fewer in the tested area.  Below
+    the threshold → probably not the game.
+    """
+    try:
+        region = (WINDOW_X, WINDOW_Y, WINDOW_W, WINDOW_H)
+        img = pyautogui.screenshot(region=region)
+        # Sample every 10th pixel along each axis to keep the count cheap.
+        thumb = img.resize((img.width // 10, img.height // 10))
+        colors = thumb.getcolors(maxcolors=thumb.width * thumb.height)
+        if colors is None:
+            # Pillow returns None when the unique-color count exceeds
+            # ``maxcolors``; we asked for the max possible, so this
+            # only happens for highly varied images = definitely a game.
+            return True
+        n_unique = len(colors)
+        print(f"[bot] probe screenshot: {n_unique} unique colours "
+              f"(threshold {min_unique_colors})")
+        return n_unique >= min_unique_colors
+    except Exception as e:
+        print(f"[bot] probe failed (assume OK): {e}")
+        return True
 
 
 # ── Coordinate helpers (game window → screen) ─────────────────────────────
@@ -421,6 +513,7 @@ def main() -> None:
     print("Call of Orion auto-play bot")
     print("Hotkeys: Ctrl+Shift+P pause | Ctrl+Shift+R restart | Ctrl+Shift+Q quit")
     print("=" * 60)
+    set_dpi_awareness()
     listener = threading.Thread(target=_hotkey_listener, daemon=True)
     listener.start()
     while not BotState.stop:
