@@ -442,11 +442,20 @@ def load_random_music_video() -> None:
 
     Video-mode keyboard focus is -1 on entry; a single Enter
     selects file index 0 (the first .mp4)."""
-    if not YVIDEOS_DIR.exists() or not any(YVIDEOS_DIR.glob("*.mp4")):
+    files = sorted(YVIDEOS_DIR.glob("*.mp4")) if YVIDEOS_DIR.exists() else []
+    if not files:
         print("[bot] no .mp4 in yvideos -- skipping music-video load")
         return
+    # Pick a random file from the first 15 in the list (or fewer if
+    # there aren't that many).  ``target_idx`` is the row's
+    # zero-based position in the video-mode file list, which
+    # matches Tab presses 1:1 (first Tab from focus=-1 lands on
+    # idx 0, second on idx 1, etc).
+    pool = min(15, len(files))
+    target_idx = random.randint(0, pool - 1)
+    print(f"[bot] loading music video #{target_idx} of first "
+          f"{pool} via Esc -> Tab/Enter chain")
 
-    print("[bot] loading music video via Esc -> Tab/Enter chain")
     # Open escape menu.
     pyautogui.press("escape")
     if not _wait(0.6): return
@@ -466,14 +475,22 @@ def load_random_music_video() -> None:
     pyautogui.press("enter")
     if not _wait(0.5): return
 
-    # Video mode: bare Enter focuses + activates the first file.
+    # Video mode: ``target_idx + 1`` Tabs to focus the chosen file.
+    for _ in range(target_idx + 1):
+        pyautogui.press("tab")
+        if not _wait(0.05): return
     pyautogui.press("enter")
     if not _wait(0.4): return
 
-    # Out of menus -- two ESCs to dismiss songs + main.
-    pyautogui.press("escape")
-    _wait(0.3)
-    pyautogui.press("escape")
+    # Back to game: ESC out of video + songs to land on main, then
+    # Enter to activate Resume.  In main mode, focus_idx defaults
+    # to -1 after ``set_mode``; bare Enter focuses + activates the
+    # first button which is Resume (closes the escape menu).
+    pyautogui.press("escape")     # video -> songs
+    if not _wait(0.3): return
+    pyautogui.press("escape")     # songs -> main
+    if not _wait(0.3): return
+    pyautogui.press("enter")      # activate Resume -> back to game
     _wait(0.3)
     print("[bot] music video load attempted")
 
