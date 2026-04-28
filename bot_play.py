@@ -424,43 +424,53 @@ def _menu_btn_center(btn_idx: int) -> tuple[float, float]:
 
 
 def load_random_music_video() -> None:
-    """ESC -> click Songs -> click Video -> click first .mp4 -> ESC out.
+    """ESC -> Tab to Songs -> Enter -> Tab to Music Videos -> Enter ->
+    Enter on first file -> ESC out.
 
-    Songs is button index 5, then in songs mode there's a "Video"
-    button at the same approximate position.  This is fragile -- if
-    the bot misses, just hit Ctrl+Shift+R."""
+    Uses the keyboard navigation added to the escape-menu modes
+    (commits a34b61b + 13b6aae) so coord math + window-pos
+    fragility are eliminated -- every press is a deterministic
+    pyautogui keystroke that the menu's on_key_press handler
+    consumes.
+
+    Main-mode button order (per ``escape_menu/_main_mode._BUTTONS``):
+        0=Resume, 1=Save, 2=Load, 3=Video Properties,
+        4=Help,   5=Songs, 6=Main Menu
+
+    Songs-mode focus order (per ``_songs_mode._activate_focus``):
+        0=Stop Song, 1=Other Song, 2=Music Videos, 3=Back
+
+    Video-mode keyboard focus is -1 on entry; a single Enter
+    selects file index 0 (the first .mp4)."""
     if not YVIDEOS_DIR.exists() or not any(YVIDEOS_DIR.glob("*.mp4")):
         print("[bot] no .mp4 in yvideos -- skipping music-video load")
         return
 
-    print("[bot] loading music video via Esc -> Songs -> Video")
+    print("[bot] loading music video via Esc -> Tab/Enter chain")
+    # Open escape menu.
     pyautogui.press("escape")
     if not _wait(0.6): return
 
-    # Click "Songs" -- main-mode button index 5.
-    sx, sy = _menu_btn_center(5)
-    click_game(sx, sy)
-    if not _wait(0.6): return
+    # Main mode: Tab from focus=-1 lands on idx 0 (Resume), so 6
+    # Tabs total to reach Songs (idx 5).
+    for _ in range(6):
+        pyautogui.press("tab")
+        if not _wait(0.05): return
+    pyautogui.press("enter")
+    if not _wait(0.4): return
 
-    # Songs mode has a "Video" sub-button.  Position varies between
-    # arcade builds -- we click roughly where the first action button
-    # is in songs mode (top centre of the menu panel).  All coords
-    # below are arcade-LOGICAL; click_game scales to physical.
-    px = (LOGICAL_W - _MENU_W) // 2
-    py = (LOGICAL_H - _MENU_H) // 2
-    # First songs-mode action button: usually near top -- try a couple
-    # of likely positions and accept the one that triggers a transition.
-    click_game(px + _MENU_W / 2, py + _MENU_H - 110)
+    # Songs mode: 3 Tabs lands on Music Videos (idx 2).
+    for _ in range(3):
+        pyautogui.press("tab")
+        if not _wait(0.05): return
+    pyautogui.press("enter")
     if not _wait(0.5): return
 
-    # In Video mode the file list starts at dir_y - 40, item height 28.
-    # Click the first item.
-    dir_y = py + _MENU_H - 70
-    list_y = dir_y - 40
-    click_game(px + _MENU_W / 2, list_y + 14)
-    if not _wait(0.6): return
+    # Video mode: bare Enter focuses + activates the first file.
+    pyautogui.press("enter")
+    if not _wait(0.4): return
 
-    # Out of menus.
+    # Out of menus -- two ESCs to dismiss songs + main.
     pyautogui.press("escape")
     _wait(0.3)
     pyautogui.press("escape")
