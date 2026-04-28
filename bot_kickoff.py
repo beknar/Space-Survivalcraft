@@ -79,7 +79,11 @@ def main() -> None:
     if not find_and_position_window():
         print("[kickoff] window not found; aborting")
         return
-    if not _wait(1.5):
+    # Linger at the splash for 5 seconds so the user can see
+    # which run this is + the music has time to start before we
+    # auto-click into the game.
+    print("[kickoff] pausing 5s at splash before continuing")
+    if not _wait(5.0):
         return
     click_play_now()
     if not _wait(2.0):
