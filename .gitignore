@@ -15,3 +15,4 @@ config.json
 *.dll
 yvideos/
 .claude/
+bot_io/
