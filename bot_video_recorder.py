@@ -126,7 +126,35 @@ def _full_rect(target) -> tuple[int, int, int, int] | None:
 # ── ffmpeg launcher ───────────────────────────────────────────────────────
 
 def _ffmpeg_path() -> str | None:
-    return shutil.which("ffmpeg")
+    """Find the ffmpeg binary.  Tries PATH first, then a couple
+    of well-known winget install locations on Windows so a fresh
+    install works in the current shell without waiting for the
+    PATH update to propagate."""
+    p = shutil.which("ffmpeg")
+    if p:
+        return p
+    if sys.platform != "win32":
+        return None
+    candidates: list[Path] = []
+    local_appdata = os.environ.get("LOCALAPPDATA")
+    if local_appdata:
+        winget_root = Path(local_appdata) / "Microsoft" / "WinGet" / "Packages"
+        if winget_root.exists():
+            # Gyan.FFmpeg drops binaries into a versioned dir like
+            # ``Gyan.FFmpeg_<source>\ffmpeg-<ver>-full_build\bin\``.
+            candidates.extend(
+                winget_root.glob(
+                    "Gyan.FFmpeg*/ffmpeg-*/bin/ffmpeg.exe"))
+            candidates.extend(
+                winget_root.glob(
+                    "Gyan.FFmpeg*/bin/ffmpeg.exe"))
+    program_files = os.environ.get("ProgramFiles")
+    if program_files:
+        candidates.append(Path(program_files) / "ffmpeg" / "bin" / "ffmpeg.exe")
+    for c in candidates:
+        if c.exists():
+            return str(c)
+    return None
 
 
 def _output_path() -> Path:
