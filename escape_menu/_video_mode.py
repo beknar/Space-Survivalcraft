@@ -14,12 +14,20 @@ from escape_menu._ui import draw_panel, draw_back_button, back_button_hit
 
 class VideoMode(MenuMode):
 
+    # Visible-list window size, kept here so keyboard scroll
+    # logic and the draw loop agree without magic numbers.
+    _MAX_VIS: int = 8
+
     def __init__(self, ctx: MenuContext) -> None:
         super().__init__(ctx)
         self._files: list[str] = []
         self._scroll: int = 0
         self._editing_dir: bool = False
         self._dir_text: str = audio.video_dir
+        # Keyboard focus across the file list + Stop + Back.
+        # 0..len(files)-1 = a file row; len(files) = Stop Video;
+        # len(files)+1 = Back.  -1 = nothing focused (mouse mode).
+        self._focus_idx: int = -1
         # Pre-built text objects (avoids per-frame font regen / bold toggling)
         self._t_dir = arcade.Text("", 0, 0, arcade.color.WHITE, 10)
         self._t_items: list[arcade.Text] = [
@@ -75,8 +83,13 @@ class VideoMode(MenuMode):
                     idx = self._scroll + i
                     fname = self._files[idx]; iy = list_y - i * item_h
                     sel = (fname == audio.video_file)
+                    focused = (self._focus_idx == idx)
                     fill = (50, 70, 100, 220) if sel else (30, 30, 50, 180)
                     arcade.draw_rect_filled(arcade.LBWH(px + 10, iy, MENU_W - 20, item_h - 2), fill)
+                    if focused:
+                        arcade.draw_rect_outline(
+                            arcade.LBWH(px + 10, iy, MENU_W - 20, item_h - 2),
+                            arcade.color.CYAN, border_width=2)
                     dn = fname if len(fname) <= 28 else fname[:25] + "..."
                     item = self._t_sel_items[i] if sel else self._t_items[i]
                     item.text = dn
@@ -86,10 +99,21 @@ class VideoMode(MenuMode):
         # Stop Video button
         stop_y = py + 50; abx = px + (MENU_W - MENU_BTN_W) // 2
         from escape_menu._ui import draw_button
+        n_files = len(self._files)
+        stop_focused = (self._focus_idx == n_files)
         draw_button((abx, stop_y, MENU_BTN_W, MENU_BTN_H),
                     self.ctx.t_back, label="Stop Video",
-                    fill=(60, 30, 30, 220), outline=(180, 60, 60))
+                    fill=(60, 30, 30, 220),
+                    outline=arcade.color.CYAN if stop_focused else (180, 60, 60))
         draw_back_button(px, py, self.ctx.t_back)
+        # Highlight the back button if it's the keyboard focus.
+        # Geometry mirrors escape_menu._ui.draw_back_button.
+        if self._focus_idx == n_files + 1:
+            bx = px + (MENU_W - MENU_BTN_W) // 2
+            by = py + 12
+            arcade.draw_rect_outline(
+                arcade.LBWH(bx, by, MENU_BTN_W, 35),
+                arcade.color.CYAN, border_width=2)
 
     def on_mouse_press(self, x: int, y: int) -> None:
         px, py = self.ctx.recalc()
@@ -121,16 +145,101 @@ class VideoMode(MenuMode):
         self._files = scan_video_dir(audio.video_dir)
         self._scroll = 0
 
+    def _focus_count(self) -> int:
+        """Total focusable items: file rows + Stop + Back."""
+        return len(self._files) + 2
+
+    def _back_idx(self) -> int:
+        return len(self._files) + 1
+
+    def _stop_idx(self) -> int:
+        return len(self._files)
+
+    def _ensure_focus_visible(self) -> None:
+        """Scroll the file list so the keyboard-focused row is on
+        screen.  No-op if focus is on Stop / Back."""
+        n = len(self._files)
+        if not (0 <= self._focus_idx < n):
+            return
+        if self._focus_idx < self._scroll:
+            self._scroll = self._focus_idx
+        elif self._focus_idx >= self._scroll + self._MAX_VIS:
+            self._scroll = self._focus_idx - self._MAX_VIS + 1
+        # Clamp.
+        max_scroll = max(0, n - self._MAX_VIS)
+        self._scroll = max(0, min(max_scroll, self._scroll))
+
+    def _activate_focus(self) -> None:
+        cur = self._focus_idx
+        if cur == self._back_idx():
+            self._editing_dir = False
+            self.ctx.set_mode("songs")
+            return
+        if cur == self._stop_idx():
+            if self.ctx.video_stop_fn and audio.video_file:
+                self.ctx.video_stop_fn()
+                audio.video_file = ""
+            return
+        if 0 <= cur < len(self._files):
+            fname = self._files[cur]
+            audio.video_file = fname
+            if self.ctx.video_play_fn:
+                self.ctx.video_play_fn(
+                    os.path.join(audio.video_dir, fname))
+
     def on_key_press(self, key: int, modifiers: int = 0) -> None:
-        if key == arcade.key.ESCAPE:
-            self._editing_dir = False; self.ctx.set_mode("songs")
-        elif self._editing_dir:
+        # Editing the directory text field absorbs all printable
+        # input; only ESC + RETURN + BACKSPACE escape it.
+        if self._editing_dir:
+            if key == arcade.key.ESCAPE:
+                self._editing_dir = False
+                return
             if key == arcade.key.BACKSPACE:
                 self._dir_text = self._dir_text[:-1]
                 self._commit_dir()
-            elif key in (arcade.key.RETURN, arcade.key.ENTER):
+                return
+            if key in (arcade.key.RETURN, arcade.key.ENTER,
+                       arcade.key.NUM_ENTER):
                 self._commit_dir()
                 self._editing_dir = False
+                return
+            return
+        # ESC: leave the menu (preserved).
+        if key == arcade.key.ESCAPE:
+            self.ctx.set_mode("songs")
+            return
+        n = self._focus_count()
+        if n == 0:
+            return
+        cur = self._focus_idx
+        # Tab / Down / S: focus next (wraps).
+        if key in (arcade.key.TAB, arcade.key.DOWN, arcade.key.S):
+            shift = bool(modifiers & arcade.key.MOD_SHIFT)
+            step = -1 if (key == arcade.key.TAB and shift) else 1
+            self._focus_idx = (
+                (cur + step) % n if cur >= 0
+                else (0 if step > 0 else n - 1))
+            self._ensure_focus_visible()
+            self.ctx.play_click()
+            return
+        if key in (arcade.key.UP, arcade.key.W):
+            self._focus_idx = (cur - 1) % n if cur >= 0 else n - 1
+            self._ensure_focus_visible()
+            self.ctx.play_click()
+            return
+        # Enter / Space / Numpad-Enter: activate focused.
+        if key in (arcade.key.RETURN, arcade.key.ENTER,
+                   arcade.key.NUM_ENTER, arcade.key.SPACE):
+            if cur < 0:
+                # Bare Enter on first open -> focus first file (or Stop
+                # when no files exist) so a "blind tap" still does
+                # something predictable.
+                self._focus_idx = 0
+                self._ensure_focus_visible()
+                cur = 0
+            self.ctx.play_click()
+            self._activate_focus()
+            return
 
     def on_text(self, text: str) -> None:
         if self._editing_dir:
