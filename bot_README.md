@@ -70,6 +70,7 @@ State is exposed under `state.assist` for inspection.
 ### Intent vocabulary
 
 ```
+{"type": "auto"}            // default — three-priority cascade
 {"type": "idle"}
 {"type": "goto", "x": 3200, "y": 4000, "radius": 80}
 {"type": "mine_nearest"}
@@ -78,6 +79,20 @@ State is exposed under `state.assist` for inspection.
 {"type": "retreat_to_station"}
 {"type": "cycle_weapon", "to": "Mining Beam"}
 ```
+
+`auto` is the default the bot starts in.  Per-tick priority
+cascade (re-evaluated every frame):
+
+  1. **Under attack** — alien within `ENGAGE_RANGE` (800 px):
+     pick Energy Blade (< 100 px) or Basic Laser, close to
+     ~380 px stand-off, hold space.  In-process combat assist
+     handles the aim + fire.
+  2. **Shields not full + safe**: idle (let regen finish).
+  3. **Shields full + safe + asteroids known**: mine the
+     nearest asteroid.
+  4. **No asteroids visible** (very rare): outward spiral
+     search around the current anchor with the Mining Beam
+     held.  Re-anchors after radius >= 3000 px.
 
 Unknown types are logged + autopilot falls back to `idle`.
 

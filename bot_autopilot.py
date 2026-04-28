@@ -176,6 +176,8 @@ def execute_intent(state: dict) -> None:
     itype = intent.get("type", "idle")
     if itype == "idle":
         _do_idle()
+    elif itype == "auto":
+        _do_auto(state, p)
     elif itype == "goto":
         _do_goto(state, p, intent.get("x", p.get("x", 0)),
                  intent.get("y", p.get("y", 0)),
@@ -198,6 +200,106 @@ def execute_intent(state: dict) -> None:
 
 def _do_idle() -> None:
     KeyState.release_all()
+
+
+# ── Auto-mode state machine ───────────────────────────────────────────────
+#
+#  Priority cascade per tick (re-evaluated every frame, no hysteresis
+#  beyond what the goto/mine helpers already provide):
+#
+#    1. Under attack (alien within ENGAGE_RANGE)
+#         -> close to fire range, combat assist auto-aims + auto-fires
+#    2. Shields not full + safe
+#         -> idle (let regen finish)
+#    3. Shields full + safe + asteroids known
+#         -> mine the nearest asteroid
+#    4. No asteroids visible (rare)
+#         -> spiral search outward from current position
+#
+#  Step 1 cooperates with the in-process combat-assist hook
+#  (bot_combat_assist.py): the assist owns aim + fire, the
+#  autopilot owns thrust to keep the threat in fire range.
+
+_spiral_state: dict = {
+    "anchor": None,   # (x, y) start of the current spiral
+    "angle": 0.0,     # radians
+    "radius": 100.0,  # px
+}
+
+
+def _do_auto(state: dict, p: dict) -> None:
+    aliens = state.get("aliens", []) or []
+    px, py = p.get("x", 0.0), p.get("y", 0.0)
+    threat, threat_dist = nearest(aliens, px, py)
+
+    # Priority 1: under attack -> engage.
+    if threat is not None and threat_dist < ENGAGE_RANGE_PX:
+        _spiral_reset()                  # break spiral so mine resumes from here
+        if threat_dist < MELEE_RANGE_PX:
+            _ensure_weapon(state, "Melee")
+        else:
+            _ensure_weapon(state, "Basic Laser")
+        # Stay just outside alien stand-off (~300 px) to keep the
+        # threat in laser range without colliding.  Combat assist
+        # snaps heading + fires; autopilot just maintains distance.
+        _do_goto(state, p, threat["x"], threat["y"],
+                 stop_radius=380.0)
+        # Hold space too, in case the assist is disabled.
+        KeyState.hold("space", threat_dist < FIRE_RANGE_PX)
+        return
+
+    # Priority 2: shields not full + safe -> idle for regen.
+    sh = int(p.get("shields", 0))
+    sh_max = int(p.get("max_shields", 1))
+    if sh < sh_max:
+        _spiral_reset()
+        _do_idle()
+        return
+
+    # Priority 3 & 4: full shields, safe -> mine.
+    asteroids = state.get("asteroids", []) or []
+    if asteroids:
+        _spiral_reset()
+        _do_mine_nearest(state, p)
+        return
+
+    # Priority 4 fallback: spiral search.  Should only fire when
+    # the entire zone has been mined out, which is rare in normal
+    # play but documented in the spec.
+    _do_spiral_search(state, p)
+
+
+def _spiral_reset() -> None:
+    _spiral_state["anchor"] = None
+    _spiral_state["angle"] = 0.0
+    _spiral_state["radius"] = 100.0
+
+
+def _do_spiral_search(state: dict, p: dict) -> None:
+    """Drive the ship in an outward spiral around the position
+    where the spiral started, sweeping the field for any asteroid
+    that became reachable.  Re-anchors if the spiral has run for
+    too long without finding anything."""
+    px, py = p.get("x", 0.0), p.get("y", 0.0)
+    if _spiral_state["anchor"] is None:
+        _spiral_state["anchor"] = (px, py)
+        _spiral_state["angle"] = 0.0
+        _spiral_state["radius"] = 100.0
+    ax, ay = _spiral_state["anchor"]
+    r = _spiral_state["radius"]
+    a = _spiral_state["angle"]
+    tx = ax + math.cos(a) * r
+    ty = ay + math.sin(a) * r
+    _ensure_weapon(state, "Mining Beam")
+    _do_goto(state, p, tx, ty, stop_radius=120.0)
+    # Mining beam fires while moving, in case we drift past an
+    # asteroid we couldn't see in state (e.g. extraction lag).
+    KeyState.hold("space", True)
+    # Advance the spiral incrementally each tick.
+    _spiral_state["angle"] = (a + math.radians(8.0)) % (2 * math.pi)
+    _spiral_state["radius"] = min(r + 1.5, 3000.0)
+    if _spiral_state["radius"] >= 3000.0:
+        _spiral_reset()
 
 
 def _do_goto(state: dict, p: dict, tx: float, ty: float,

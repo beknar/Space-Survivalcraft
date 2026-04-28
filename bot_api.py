@@ -53,7 +53,7 @@ from typing import Any
 # Set by ``start_api`` from main / GameView.  Kept module-global
 # so the handler can reach it without per-request injection.
 _gv_ref: Any | None = None
-_intent: dict = {"type": "idle"}
+_intent: dict = {"type": "auto"}
 _intent_lock = threading.Lock()
 _started_at: float = 0.0
 API_VERSION = "1.0"
@@ -252,6 +252,38 @@ class _Handler(BaseHTTPRequestHandler):
             with _intent_lock:
                 _intent = body
             self._send_json(200, {"ok": True, "intent": body})
+            return
+        if self.path == "/build":
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                raw = self.rfile.read(length) if length else b""
+                body = json.loads(raw.decode("utf-8") or "{}")
+            except Exception as e:
+                self._send_json(400, {"error": f"bad JSON: {e}"})
+                return
+            if _gv_ref is None:
+                self._send_json(503, {"error": "game not ready"})
+                return
+            try:
+                import building_manager as bm
+                bt = body.get("type", "Home Station")
+                # Place near the player.  ``offset`` is the px in
+                # the +X direction relative to the player; default
+                # 200 px is outside the ship's collision radius
+                # but still close enough that it counts as adjacent.
+                offset = float(body.get("offset", 200.0))
+                gv = _gv_ref
+                wx = gv.player.center_x + offset
+                wy = gv.player.center_y
+                bm.enter_placement_mode(gv, bt)
+                bm.place_building(gv, wx, wy)
+                self._send_json(200, {
+                    "ok": True, "type": bt,
+                    "placed_at": {"x": wx, "y": wy},
+                    "buildings_now": len(gv.building_list),
+                })
+            except Exception as e:
+                self._send_json(500, {"error": f"build failed: {e}"})
             return
         if self.path == "/assist":
             try:
