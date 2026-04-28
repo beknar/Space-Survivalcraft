@@ -87,10 +87,15 @@ cascade (re-evaluated every frame):
      pick Energy Blade (< 100 px) or Basic Laser, close to
      ~380 px stand-off, hold space.  In-process combat assist
      handles the aim + fire.
-  2. **Shields not full + safe**: idle (let regen finish).
-  3. **Shields full + safe + asteroids known**: mine the
+  2. **Pickups in range** — iron or blueprint drops within
+     `GATHER_RANGE_PX` (1500 px): fly to the nearest one
+     (blueprints preferred on tie) until the magnet at ~60 px
+     pulls it in.  Catches loot from a finished alien fight
+     before idling, plus stray iron drops from earlier mining.
+  3. **Shields not full + safe**: idle (let regen finish).
+  4. **Shields full + safe + asteroids known**: mine the
      nearest asteroid.
-  4. **No asteroids visible** (very rare): outward spiral
+  5. **No asteroids visible** (very rare): outward spiral
      search around the current anchor with the Mining Beam
      held.  Re-anchors after radius >= 3000 px.
 

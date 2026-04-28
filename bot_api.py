@@ -131,6 +131,29 @@ def _list_summary(lst, max_items: int = 100) -> list[dict]:
     return out
 
 
+def _pickup_summary(sprite) -> dict:
+    """Like _sprite_summary but also captures the pickup's
+    ``amount`` and ``item_type`` so the bot can prioritise."""
+    return {
+        "x": _safe(lambda: float(sprite.center_x), 0.0),
+        "y": _safe(lambda: float(sprite.center_y), 0.0),
+        "amount": _safe(lambda: int(getattr(sprite, "amount", 1)), 1),
+        "item_type": _safe(lambda: str(getattr(sprite, "item_type", "")), ""),
+        "type": type(sprite).__name__,
+    }
+
+
+def _pickup_list(lst, max_items: int = 200) -> list[dict]:
+    if lst is None:
+        return []
+    out = []
+    for i, sp in enumerate(lst):
+        if i >= max_items:
+            break
+        out.append(_pickup_summary(sp))
+    return out
+
+
 def _boss_state(gv) -> dict | None:
     boss = getattr(gv, "_boss", None)
     if boss is None or not getattr(boss, "alive", True):
@@ -195,6 +218,8 @@ def get_state(gv) -> dict:
         "asteroids": _list_summary(_safe(lambda: gv.asteroid_list)),
         "aliens": _list_summary(_safe(lambda: gv.alien_list)),
         "buildings": _list_summary(_safe(lambda: gv.building_list)),
+        "iron_pickups": _pickup_list(_safe(lambda: gv.iron_pickup_list)),
+        "blueprint_pickups": _pickup_list(_safe(lambda: gv.blueprint_pickup_list)),
         "intent": dict(_intent),
         "assist": assist_state,
     }

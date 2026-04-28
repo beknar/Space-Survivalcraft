@@ -209,16 +209,24 @@ def _do_idle() -> None:
 #
 #    1. Under attack (alien within ENGAGE_RANGE)
 #         -> close to fire range, combat assist auto-aims + auto-fires
-#    2. Shields not full + safe
+#    2. Pickups within GATHER_RANGE_PX
+#         -> collect them (loot drops from kills + asteroid mines).
+#         Runs whenever a kill / mine has dropped iron or blueprints
+#         within reach, so loot from a finished alien fight gets
+#         scooped before the bot moves on.
+#    3. Shields not full + safe
 #         -> idle (let regen finish)
-#    3. Shields full + safe + asteroids known
+#    4. Shields full + safe + asteroids known
 #         -> mine the nearest asteroid
-#    4. No asteroids visible (rare)
+#    5. No asteroids visible (rare)
 #         -> spiral search outward from current position
 #
 #  Step 1 cooperates with the in-process combat-assist hook
 #  (bot_combat_assist.py): the assist owns aim + fire, the
 #  autopilot owns thrust to keep the threat in fire range.
+
+GATHER_RANGE_PX: float = 1500.0   # how far the bot will detour for loot
+PICKUP_STOP_RADIUS: float = 60.0  # close enough for the magnet to engage
 
 _spiral_state: dict = {
     "anchor": None,   # (x, y) start of the current spiral
@@ -248,7 +256,24 @@ def _do_auto(state: dict, p: dict) -> None:
         KeyState.hold("space", threat_dist < FIRE_RANGE_PX)
         return
 
-    # Priority 2: shields not full + safe -> idle for regen.
+    # Priority 2: pickups in range -> gather.  Runs once the
+    # threat has been cleared, so the iron + blueprints dropped
+    # by a destroyed attacker get collected before the bot
+    # idles or returns to mining.  Also catches the iron drops
+    # from asteroid mines that didn't auto-magnet because the
+    # bot had already drifted too far.
+    pickup, pdist = _nearest_pickup(state, px, py)
+    if pickup is not None and pdist < GATHER_RANGE_PX:
+        # Mining Beam doesn't help here, but it doesn't hurt --
+        # holding fire while flying may catch any new asteroid
+        # the bot drifts past.  Still, switch off space so we
+        # don't waste shots if Basic Laser is the active weapon.
+        KeyState.hold("space", False)
+        _do_goto(state, p, pickup["x"], pickup["y"],
+                 stop_radius=PICKUP_STOP_RADIUS)
+        return
+
+    # Priority 3: shields not full + safe -> idle for regen.
     sh = int(p.get("shields", 0))
     sh_max = int(p.get("max_shields", 1))
     if sh < sh_max:
@@ -256,17 +281,28 @@ def _do_auto(state: dict, p: dict) -> None:
         _do_idle()
         return
 
-    # Priority 3 & 4: full shields, safe -> mine.
+    # Priority 4 & 5: full shields, safe -> mine.
     asteroids = state.get("asteroids", []) or []
     if asteroids:
         _spiral_reset()
         _do_mine_nearest(state, p)
         return
 
-    # Priority 4 fallback: spiral search.  Should only fire when
+    # Priority 5 fallback: spiral search.  Should only fire when
     # the entire zone has been mined out, which is rare in normal
     # play but documented in the spec.
     _do_spiral_search(state, p)
+
+
+def _nearest_pickup(state: dict, px: float, py: float
+                    ) -> tuple[dict | None, float]:
+    """Return the nearest iron + blueprint pickup combined.
+    Blueprints are slightly preferred (worth more than 10 iron)
+    so they get pulled in first when a tie."""
+    iron = state.get("iron_pickups", []) or []
+    bps = state.get("blueprint_pickups", []) or []
+    candidates = list(bps) + list(iron)   # blueprints first
+    return nearest(candidates, px, py)
 
 
 def _spiral_reset() -> None:
