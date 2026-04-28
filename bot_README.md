@@ -92,7 +92,9 @@ cascade (re-evaluated every frame):
      (blueprints preferred on tie) until the magnet at ~60 px
      pulls it in.  Catches loot from a finished alien fight
      before idling, plus stray iron drops from earlier mining.
-  3. **Shields not full + safe**: idle (let regen finish).
+  3. **Shields below 50 % + safe**: idle until shields recover
+     to at least 50 % of max (gives enough buffer to take the
+     next mining trip without dying to a stray alien).
   4. **Shields full + safe + asteroids known**: mine the
      nearest asteroid.
   5. **No asteroids visible** (very rare): outward spiral
@@ -162,6 +164,30 @@ For `bot_supervised`, also:
 
 * `Ctrl+Shift+R`  abort current snapshot wait, take fresh shot
 
+## Video recording
+
+`bot_video_recorder.py` captures the game window to
+`bot_io/BOTVIDEO-<YYYY-MM-DD-HH-MM-SS>.mp4` via `ffmpeg`'s
+`gdigrab`.  Auto-launched by `bot_kickoff.py` (detached, so it
+survives kickoff exit), waits for the game window to appear,
+records at 30 fps with libx264/ultrafast/yuv420p +
+`+faststart`, and self-stops when the game window disappears
+for >5 s -- which cleanly finalises the MP4.
+
+Manual control:
+
+```
+python bot_video_recorder.py     # foreground, exits with game
+```
+
+Hotkey:
+
+* `Ctrl+Shift+Q`  stop + finalise the MP4 immediately.
+
+Requires `ffmpeg` on `PATH`
+(<https://www.gyan.dev/ffmpeg/builds/> on Windows).  No-op
+with a clear error message if ffmpeg is missing.
+
 ## Dependencies
 
 ```
@@ -169,7 +195,8 @@ pip install pyautogui pygetwindow pynput pillow
 ```
 
 `bot_api.py` and `bot_strategy_helper.py` use only the standard
-library (`http.server`, `urllib`).
+library (`http.server`, `urllib`).  `bot_video_recorder.py`
+shells out to `ffmpeg`.
 
 ## Implementation notes
 

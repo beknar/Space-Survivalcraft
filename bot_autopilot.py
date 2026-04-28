@@ -278,10 +278,13 @@ def _do_auto(state: dict, p: dict) -> None:
                  stop_radius=PICKUP_STOP_RADIUS)
         return
 
-    # Priority 3: shields not full + safe -> idle for regen.
+    # Priority 3: shields below 50 % + safe -> idle for regen.
+    # We don't wait for full shields any more -- 50 % is enough
+    # buffer to take the next mining trip and pop a stray alien.
     sh = int(p.get("shields", 0))
     sh_max = int(p.get("max_shields", 1))
-    if sh < sh_max:
+    SHIELD_RECOVER_THRESHOLD: float = 0.5
+    if sh < sh_max * SHIELD_RECOVER_THRESHOLD:
         _spiral_reset()
         _do_idle()
         return

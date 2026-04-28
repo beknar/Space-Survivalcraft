@@ -36,6 +36,31 @@ from bot_play import (
 )
 
 
+def _start_video_recorder() -> None:
+    """Spawn ``bot_video_recorder.py`` detached so it survives
+    kickoff's exit.  The recorder waits for the game window to
+    appear, captures it to bot_io/BOTVIDEO-<...>.mp4, and self-
+    terminates when the game window goes away.  No-op on errors."""
+    log_path = PROJECT_ROOT / "bot_io" / "recorder_stdout.log"
+    log_path.parent.mkdir(exist_ok=True)
+    try:
+        log_fh = open(log_path, "w", encoding="utf-8")
+        creationflags = 0
+        if sys.platform == "win32":
+            creationflags = 0x00000008 | 0x00000200  # DETACHED + NEW_PG
+        subprocess.Popen(
+            [sys.executable, "bot_video_recorder.py"],
+            cwd=str(PROJECT_ROOT),
+            stdin=subprocess.DEVNULL,
+            stdout=log_fh,
+            stderr=subprocess.STDOUT,
+            creationflags=creationflags,
+        )
+        print(f"[kickoff] video recorder started, log -> {log_path.name}")
+    except Exception as e:
+        print(f"[kickoff] video recorder launch failed (non-fatal): {e}")
+
+
 def main() -> None:
     print("=" * 60)
     print("Call of Orion -- bot kickoff")
@@ -49,16 +74,38 @@ def main() -> None:
     env = dict(os.environ)
     env["COO_BOT_API"] = "1"
     creationflags = 0
+    stdio: dict = {}
     if sys.platform == "win32":
-        # CREATE_NEW_PROCESS_GROUP so the game survives the parent's exit.
-        creationflags = 0x00000200    # CREATE_NEW_PROCESS_GROUP
+        # DETACHED_PROCESS (0x8) | CREATE_NEW_PROCESS_GROUP (0x200)
+        # so the game survives the parent's exit AND has its stdio
+        # detached.  Without DETACHED_PROCESS, a child print() to
+        # a closed parent stdout will SIGPIPE the game.
+        creationflags = 0x00000008 | 0x00000200
+        # Redirect stdio to a log file so we can debug crashes after
+        # the parent exits.
+        log_path = PROJECT_ROOT / "bot_io" / "game_stdout.log"
+        log_path.parent.mkdir(exist_ok=True)
+        log_fh = open(log_path, "w", encoding="utf-8")
+        stdio = {
+            "stdin": subprocess.DEVNULL,
+            "stdout": log_fh,
+            "stderr": subprocess.STDOUT,
+        }
+        print(f"[kickoff] game stdout -> {log_path}")
     proc = subprocess.Popen(
         [sys.executable, "main.py"],
         cwd=str(PROJECT_ROOT),
         env=env,
         creationflags=creationflags,
+        **stdio,
     )
     print(f"[kickoff] launched game pid={proc.pid}")
+
+    # Auto-start the video recorder in a detached process so the
+    # whole run is captured to bot_io/BOTVIDEO-...mp4.  The
+    # recorder polls for the game window and self-stops when the
+    # game closes, so no explicit shutdown is needed.
+    _start_video_recorder()
 
     if not find_and_position_window():
         print("[kickoff] window not found; aborting")
