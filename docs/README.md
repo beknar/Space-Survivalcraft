@@ -50,6 +50,10 @@ Welcome to the full documentation for **Call of Orion**, a top-down space surviv
 
 - Kenney All-in-1: https://kenney.itch.io/kenney-game-assets
 
+### Weapons / Effects
+
+- Light saber game assets (melee weapon sprites): https://willisthehy.itch.io/light-saber-game-assets
+
 ## Zone 2 (The Nebula)
 
 Zone 2 is the second biome, accessed through warp zones that appear when the Double Star boss is defeated. It features copper asteroids, toxic gas clouds, wandering magnetic asteroids, and 4 new alien types. Ranged aliens orbit the player at ~300 px standoff distance instead of charging, while the Rammer alien still charges directly. Wandering asteroids bounce off the player on contact with full knockback physics. Gas areas are shown on the minimap as proportionally-sized green octagonal outlines. In warp zones, gas hazards are always visible on the minimap regardless of fog of war. See [Features](features.md) and [Statistics](statistics.md) for full details.
