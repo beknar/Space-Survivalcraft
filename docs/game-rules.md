@@ -1,5 +1,7 @@
 # Call of Orion — Game Rules & Reference
 
+# Introduction
+
 ## Overview
 
 **Call of Orion** (working title: *Space Survivalcraft*) is a top-down space survival game built with Python and the Arcade framework. Players pilot a customisable spaceship through a vast star field, mine asteroids for resources, fight alien enemies, and manage a cargo inventory. The game features Newtonian physics, multiple ship classes, a weapon system, and a full save/load system.
@@ -25,6 +27,8 @@
 
 ---
 
+# World
+
 ## The Battlefield
 
 | Property | Value |
@@ -38,6 +42,31 @@
 | Player start position | World centre (3,200, 3,200) |
 
 ---
+
+## 13. Fog of War
+
+The world starts fully hidden. As the player travels, areas are revealed in a circle around the ship.
+
+| Property | Value |
+|---|---|
+| Reveal diameter | 800 px (400 px radius) |
+| Grid cell size | 50 px |
+| Grid dimensions | 128 x 128 cells (covers the full 6,400 x 6,400 world) |
+| Persistence | Fog state is saved/loaded with game state |
+
+### Behaviour
+
+- All objects (asteroids, aliens, pickups, buildings) are **hidden on the mini-map** until the player's ship has travelled within 400 px of the cell containing them.
+- Unrevealed areas are rendered as a **grey fog overlay** (60, 60, 80, alpha 200) on the mini-map; revealed areas show the dark starfield background with visible objects.
+- Fog is drawn using horizontal run-length spans for efficiency (consecutive unrevealed cells in a row are batched into a single rectangle).
+- Once a cell is revealed, it remains revealed permanently for that session (and across saves).
+- The player's own position and heading are always shown on the mini-map regardless of fog.
+- Each frame, cells within `FOG_REVEAL_RADIUS` (400 px) of the player's position are marked as revealed.
+- Fog is stored as a 128 x 128 boolean grid; each cell covers a 50 x 50 px area of the world.
+
+---
+
+# Player
 
 ## Factions
 
@@ -107,6 +136,65 @@ All incoming damage is routed through shields first. Overflow damage carries int
 
 ---
 
+## Inventory
+
+- 5 x 5 grid (25 slots)
+- Toggled with I (keyboard) or Y (gamepad)
+- Modal overlay; does **not** pause gameplay
+- All items (iron, repair packs, etc.) stored as `(type, count)` tuples per cell — items stack within a single cell
+- Iron and repair packs display with their respective icons + count badge
+
+### Drag & Drop
+- Left-click an occupied cell to pick up; drag to a new cell to move
+- Dropping on a cell with the same item type merges (stacks) the counts
+- Dropping on a cell with a different item type swaps the two items
+- Source cell highlighted yellow; drop target highlighted blue
+- Dropping inside the panel but outside the grid returns item to source
+- Dropping **outside** the panel ejects the item into the game world
+- Dragging a repair pack onto a Quick Use slot assigns it to that slot
+
+### Ejection
+- Items spawn 60 px from the ship's hull edge in a random direction
+- Placed safely outside the 40 px auto-pickup zone to prevent immediate re-collection
+- Ejected items despawn after 600 seconds (10 minutes)
+
+---
+
+## Controls
+
+### Keyboard
+
+| Action | Keys |
+|---|---|
+| Rotate left | Left Arrow / A |
+| Rotate right | Right Arrow / D |
+| Thrust forward | Up Arrow / W |
+| Brake / reverse | Down Arrow / S |
+| Fire active weapon | Space (hold for auto-fire) |
+| Cycle weapon | Tab |
+| Open/close inventory | I |
+| Toggle FPS display | F |
+| Quick Use item | 1-5 (or click the slot) |
+| Open/close build menu | B |
+| Station info panel | T (when near station) |
+| Escape menu | Escape |
+
+### Xbox 360 Gamepad
+
+| Action | Input |
+|---|---|
+| Rotate | Left stick horizontal |
+| Thrust / Brake | Left stick vertical |
+| Fire | A button (hold for auto-fire) |
+| Cycle weapon | Right bumper (RB) |
+| Open/close inventory | Y button |
+
+Gamepad dead zone: 0.15
+
+---
+
+# Combat
+
 ## Weapons
 
 All ships start with both weapons. The Thunderbolt has 2 guns, so it gets 2x Basic Laser and 2x Mining Beam. Weapons are cycled with Tab (keyboard) or RB (gamepad).
@@ -127,6 +215,127 @@ All ships start with both weapons. The Thunderbolt has 2 guns, so it gets 2x Bas
 - Dual-gun ships fire from two laterally-offset hardpoints (10 px left/right of nose axis)
 
 ---
+
+## Collision Rules
+
+### Player vs Asteroid
+- Push-out along collision normal (no interpenetration)
+- Velocity bounce with 0.55 restitution (only when moving toward asteroid)
+- 5 damage per collision (shields first, then HP)
+- 0.5 s invincibility cooldown prevents per-frame damage stacking
+- Triggers camera shake (8 px amplitude, 0.25 s) and bump sound
+
+### Player vs Alien Ship
+- 50/50 push-apart along collision normal
+- Velocity bounce using relative velocity (0.65 restitution)
+- 5 damage to player (shields first, then HP)
+- Alien gets orange bump flash
+- Player collision cooldown: 0.5 s; alien collision cooldown: 0.40 s
+
+### Alien vs Asteroid
+- Alien pushed fully away from static asteroid
+- Velocity reflected off asteroid normal
+- Orange bump flash on alien
+
+### Alien vs Alien
+- O(n^2) pair check
+- 50/50 push-apart
+- Equal-mass velocity exchange
+- Both get orange bump flash
+
+### Player Projectile vs Asteroid (Mining Beam only)
+- HitSpark effect at impact point
+- 10 damage per hit
+- Asteroid shake + orange-red tint flash
+- On asteroid destruction: explosion + iron pickup spawn
+
+### Player Projectile vs Alien (Basic Laser only)
+- HitSpark effect at impact point
+- 25 damage per hit
+- Camera shake
+- Red tint flash on alien (0.15 s)
+- On alien destruction: explosion + sound + drops 5 iron ore
+
+### Alien Laser vs Player
+- 10 damage per hit (shields first, then HP)
+- Camera shake + bump sound
+- Bolt removed on contact
+
+### Player vs Station Building
+- Push-out along collision normal (no interpenetration)
+- Velocity component toward building zeroed (no bounce, restitution = 0)
+- **No damage**, no collision cooldown, no sound, no camera shake
+- Player can touch the station without harm but cannot pass through
+
+### Alien vs Station Building
+- Alien pushed away from building
+- Velocity reflected off building normal
+- Orange bump flash on alien
+
+### Alien Laser vs Station Building
+- HitSpark at impact point
+- Building takes laser damage (10 per hit)
+- On building destruction: explosion + iron drop (equal to build cost) + port cleanup
+- If Home Station destroyed: all modules disabled (greyed out)
+
+### Turret Projectile vs Alien
+- HitSpark at impact point
+- 10 damage per hit
+- On alien destruction: explosion + sound + drops 5 iron ore
+
+---
+
+## Damage & Death
+
+### Damage Flow
+1. All damage routes through shields first
+2. Shields absorb up to their remaining value; overflow carries into HP
+3. Shield visual flashes bright on absorption
+4. When hull (HP) takes direct damage, fire sparks emit from the ship
+
+### Fire Sparks
+- 12 particles per burst
+- Fly outward in random directions at 60-180 px/s
+- Transition from bright yellow to dark red over 0.35 s
+- Particle size: 2-5 px radius, shrinking over lifetime
+
+### Player Death
+When HP reaches 0:
+1. Large explosion (2.5x scale, orange-tinted) at ship position
+2. 5 additional fire spark bursts
+3. Explosion sound plays
+4. Ship and shield become invisible
+5. Thruster sound stops
+6. After 1.5 s delay, death screen appears
+
+### Death Screen
+- Title: "SHIP DESTROYED"
+- Quote: 'As the Elder Gamer says "git gud"'
+- Three buttons: **Load Game**, **Main Menu**, **Exit Game**
+- Gameplay is frozen; explosions and fire sparks still animate during the 1.5 s delay
+
+---
+
+## Visual Effects
+
+### Explosions
+- 9 frames, 140 x 140 px each, played at 15 fps
+- Used for asteroid destruction (1.0x scale) and player death (2.5x scale, orange-tinted)
+
+### Hit Sparks
+- Expanding ring + fading bright core
+- Duration: 0.18 s, max radius: 28 px
+- Ring colour: (255, 200, 80) with fading alpha
+- Core colour: (255, 255, 180) shrinking with time
+
+### Camera Shake
+- Duration: 0.25 s, amplitude: 8 px
+- Fades linearly to zero
+- Triggered by: hull collisions, alien hits on player, player hits on aliens
+
+---
+
+# Game Objects
 
 ## Game Objects
 
@@ -255,444 +464,7 @@ Alien ships use avoidance steering in both PATROL and PURSUE states:
 
 ---
 
-## Collision Rules
-
-### Player vs Asteroid
-- Push-out along collision normal (no interpenetration)
-- Velocity bounce with 0.55 restitution (only when moving toward asteroid)
-- 5 damage per collision (shields first, then HP)
-- 0.5 s invincibility cooldown prevents per-frame damage stacking
-- Triggers camera shake (8 px amplitude, 0.25 s) and bump sound
-
-### Player vs Alien Ship
-- 50/50 push-apart along collision normal
-- Velocity bounce using relative velocity (0.65 restitution)
-- 5 damage to player (shields first, then HP)
-- Alien gets orange bump flash
-- Player collision cooldown: 0.5 s; alien collision cooldown: 0.40 s
-
-### Alien vs Asteroid
-- Alien pushed fully away from static asteroid
-- Velocity reflected off asteroid normal
-- Orange bump flash on alien
-
-### Alien vs Alien
-- O(n^2) pair check
-- 50/50 push-apart
-- Equal-mass velocity exchange
-- Both get orange bump flash
-
-### Player Projectile vs Asteroid (Mining Beam only)
-- HitSpark effect at impact point
-- 10 damage per hit
-- Asteroid shake + orange-red tint flash
-- On asteroid destruction: explosion + iron pickup spawn
-
-### Player Projectile vs Alien (Basic Laser only)
-- HitSpark effect at impact point
-- 25 damage per hit
-- Camera shake
-- Red tint flash on alien (0.15 s)
-- On alien destruction: explosion + sound + drops 5 iron ore
-
-### Alien Laser vs Player
-- 10 damage per hit (shields first, then HP)
-- Camera shake + bump sound
-- Bolt removed on contact
-
-### Player vs Station Building
-- Push-out along collision normal (no interpenetration)
-- Velocity component toward building zeroed (no bounce, restitution = 0)
-- **No damage**, no collision cooldown, no sound, no camera shake
-- Player can touch the station without harm but cannot pass through
-
-### Alien vs Station Building
-- Alien pushed away from building
-- Velocity reflected off building normal
-- Orange bump flash on alien
-
-### Alien Laser vs Station Building
-- HitSpark at impact point
-- Building takes laser damage (10 per hit)
-- On building destruction: explosion + iron drop (equal to build cost) + port cleanup
-- If Home Station destroyed: all modules disabled (greyed out)
-
-### Turret Projectile vs Alien
-- HitSpark at impact point
-- 10 damage per hit
-- On alien destruction: explosion + sound + drops 5 iron ore
-
----
-
-## Damage & Death
-
-### Damage Flow
-1. All damage routes through shields first
-2. Shields absorb up to their remaining value; overflow carries into HP
-3. Shield visual flashes bright on absorption
-4. When hull (HP) takes direct damage, fire sparks emit from the ship
-
-### Fire Sparks
-- 12 particles per burst
-- Fly outward in random directions at 60-180 px/s
-- Transition from bright yellow to dark red over 0.35 s
-- Particle size: 2-5 px radius, shrinking over lifetime
-
-### Player Death
-When HP reaches 0:
-1. Large explosion (2.5x scale, orange-tinted) at ship position
-2. 5 additional fire spark bursts
-3. Explosion sound plays
-4. Ship and shield become invisible
-5. Thruster sound stops
-6. After 1.5 s delay, death screen appears
-
-### Death Screen
-- Title: "SHIP DESTROYED"
-- Quote: 'As the Elder Gamer says "git gud"'
-- Three buttons: **Load Game**, **Main Menu**, **Exit Game**
-- Gameplay is frozen; explosions and fire sparks still animate during the 1.5 s delay
-
----
-
-## Visual Effects
-
-### Explosions
-- 9 frames, 140 x 140 px each, played at 15 fps
-- Used for asteroid destruction (1.0x scale) and player death (2.5x scale, orange-tinted)
-
-### Hit Sparks
-- Expanding ring + fading bright core
-- Duration: 0.18 s, max radius: 28 px
-- Ring colour: (255, 200, 80) with fading alpha
-- Core colour: (255, 255, 180) shrinking with time
-
-### Camera Shake
-- Duration: 0.25 s, amplitude: 8 px
-- Fades linearly to zero
-- Triggered by: hull collisions, alien hits on player, player hits on aliens
-
----
-
-## Controls
-
-### Keyboard
-
-| Action | Keys |
-|---|---|
-| Rotate left | Left Arrow / A |
-| Rotate right | Right Arrow / D |
-| Thrust forward | Up Arrow / W |
-| Brake / reverse | Down Arrow / S |
-| Fire active weapon | Space (hold for auto-fire) |
-| Cycle weapon | Tab |
-| Open/close inventory | I |
-| Toggle FPS display | F |
-| Quick Use item | 1-5 (or click the slot) |
-| Open/close build menu | B |
-| Station info panel | T (when near station) |
-| Escape menu | Escape |
-
-### Xbox 360 Gamepad
-
-| Action | Input |
-|---|---|
-| Rotate | Left stick horizontal |
-| Thrust / Brake | Left stick vertical |
-| Fire | A button (hold for auto-fire) |
-| Cycle weapon | Right bumper (RB) |
-| Open/close inventory | Y button |
-
-Gamepad dead zone: 0.15
-
----
-
-## Inventory
-
-- 5 x 5 grid (25 slots)
-- Toggled with I (keyboard) or Y (gamepad)
-- Modal overlay; does **not** pause gameplay
-- All items (iron, repair packs, etc.) stored as `(type, count)` tuples per cell — items stack within a single cell
-- Iron and repair packs display with their respective icons + count badge
-
-### Drag & Drop
-- Left-click an occupied cell to pick up; drag to a new cell to move
-- Dropping on a cell with the same item type merges (stacks) the counts
-- Dropping on a cell with a different item type swaps the two items
-- Source cell highlighted yellow; drop target highlighted blue
-- Dropping inside the panel but outside the grid returns item to source
-- Dropping **outside** the panel ejects the item into the game world
-- Dragging a repair pack onto a Quick Use slot assigns it to that slot
-
-### Ejection
-- Items spawn 60 px from the ship's hull edge in a random direction
-- Placed safely outside the 40 px auto-pickup zone to prevent immediate re-collection
-- Ejected items despawn after 600 seconds (10 minutes)
-
----
-
-## HUD Status Panel
-
-The left-side panel (213 px wide) displays:
-
-| Element | Description |
-|---|---|
-| HP bar | Green > orange > red as HP falls; numerical value below |
-| Shield bar | Cyan bar; numerical value below |
-| Iron count | Current iron ore in inventory |
-| Asteroid count | Number of iron asteroids remaining in the world |
-| Alien count | Number of alien ships remaining in the world |
-| Active weapon | Name of the selected weapon group |
-| Faction / Ship type | Current faction and ship labels |
-| Now Playing | Current music track name + equalizer visualizer |
-| FPS counter | Smoothed exponential moving average (toggle with F) |
-| Mini-map | Full world overview (193 x 193 px) |
-
-### Equalizer Visualizer
-
-When background music is playing (and no video is active), a 16-bar equalizer animation is displayed below the track name in the status panel.
-
-| Property | Value |
-|---|---|
-| Bar count | 16 |
-| Bar width | 8 px, gap 3 px |
-| Max bar height | 40 px |
-| Colour palette | 8 colours (cyan → blue → purple → magenta → red → orange → yellow), interpolated per bar |
-| Cascade | Colours sweep left-to-right or right-to-left, reversing direction randomly every 2-5 s |
-| Animation | Each bar oscillates at its own random frequency/phase; fast rise, slow fall smoothing |
-| Volume response | Bar heights scale with the music volume setting |
-
-### Mini-map Legend
-- **Grey dots** — asteroids
-- **Orange dots** — iron pickups
-- **Red dots** — alien ships
-- **Green circles with outline** — gas areas (proportional to world radius)
-- **Yellow square** — trading station
-- **Large red dot** — boss
-- **Purple dot** — wormhole
-- **Cyan dots** — station buildings
-- **White dot + cyan heading line** — player ship
-
----
-
-## Screens & Navigation
-
-### Splash Screen (Title)
-- Displays "CALL OF ORION" with subtitle "A Space Survival Saga"
-- Background music with track name at bottom (only plays if `autoplay_ost` is ON in config)
-- Decorative starfield (procedural, fixed seed)
-- **Buttons:** Play Now, Load Game, Options, Exit Game
-- ESC exits the application
-
-### Options Screen
-- Music Volume slider (0-100%)
-- Sound Effects Volume slider (0-100%)
-- **Resolution selector**: left/right arrows cycling through presets (1280x800, 1366x768, 1600x900, 1920x1080, 2560x1440, 3840x2160)
-- **Display modes**: Windowed, Fullscreen, Borderless Windowed (toggleable)
-- **Buttons:** Main Menu, Help, Config, Exit Game
-- **Config** button opens a configuration panel with: music volume slider, SFX volume slider, video directory text field, autoplay OST on/off toggle, and Save Config button
-- Save Config writes all settings (volumes, video dir, autoplay OST, FPS toggle) to `config.json`
-- Settings are loaded from `config.json` on startup
-- All UI elements dynamically positioned using actual window pixel dimensions
-
-### Selection Screen
-- Phase 1: Choose faction (Left/Right or A/D to browse, Enter/Space to confirm)
-- Phase 2: Choose ship type (same controls)
-- ESC goes back
-- UI sounds on navigation and confirmation
-- Preview images: 128 px source upscaled 1.5x to 192 px using nearest-neighbour resampling
-
-### Escape Menu (In-Game)
-- Toggled with ESC (if inventory is open, first ESC closes inventory)
-- Semi-transparent dark overlay with centred panel (320 x 480 px)
-- Gameplay **continues** while the escape menu is open (does not pause)
-- **Audio sliders:** Music and SFX volume sliders (220 px wide) at the top of the panel, directly draggable with percentage display
-- **Buttons:** Resume, Save Game, Load Game, Video Properties, Help, Songs, Main Menu
-- 10 save slots with naming overlay (max 24 characters, blinking cursor)
-- Save slot detail line shows: faction, ship type, HP, shields, and module count (when > 0)
-- Status feedback messages displayed for 2 seconds
-- **Video Properties** opens a sub-mode with resolution selector (left/right preset arrows) plus display mode buttons: Apply Windowed, Apply Fullscreen, Borderless Windowed
-- **Help** button shows keyboard and gamepad controls in a sub-mode panel
-- **Songs** button opens a sub-mode with two sections:
-  - **OST Songs**: Stop Song (stops current music and any video) and Other Song (stops video, plays random OST track)
-  - **Music Videos**: opens the video browser (requires fullscreen). Configure video directory, browse files (scrollable with scrollbar), play/stop video. Starting a video stops OST music and equalizer
-- Resolution changes preserve the current audio/video state — no spurious OST playback is triggered
-- Returning to Main Menu stops any playing video
-- ESC in sub-menus returns to parent; ESC in main menu closes overlay
-
----
-
-## 14. Video Player
-
-Players can configure a directory containing video files to play in place of the background music. The video frame is displayed as a small square in the HUD status panel.
-
-| Property | Value |
-|---|---|
-| Supported formats | MP4, AVI, WMV, M4V, 3GP, ASF, MKV, WebM, MOV, FLV, OGV |
-| Decoder | FFmpeg (required — bundled DLLs in project root; WMF cannot provide video textures) |
-| Display location | Status panel, above the mini-map, 16:9 aspect ratio |
-| Availability | Fullscreen or borderless mode required; Video button shows error in windowed mode |
-| FFmpeg DLLs | `avcodec-62.dll`, `avformat-62.dll`, `avutil-60.dll`, `swresample-6.dll`, `swscale-9.dll`, `avfilter-11.dll`, `avdevice-62.dll` (gitignored, ~220 MB) |
-| Performance | Video frame cached + downscaled to 200 px wide; PIL conversion only on new video frame (~24-30/s); old GL textures removed from default atlas to prevent VRAM accumulation; volume zeroed + sources drained + player.delete() on stop |
-| Clock patch | `main.py` patches pyglet's `Clock.call_scheduled_functions` to handle FFmpeg scheduling conflicts with Arcade |
-
-### Configuration
-
-- Open the Escape Menu (ESC) and click **Video**
-- Click the directory path bar to type a folder path, then press Enter
-- Available video files in the directory are listed below (scrollable with mouse wheel; scrollbar shown when list exceeds 8 items)
-- Click a video file to start playback (replaces background music)
-- Click **Stop Video** to stop playback (only acts when video is playing; does not auto-start music)
-- Video loops automatically when it reaches the end
-- Volume is controlled by the Music volume slider
-- FFmpeg DLLs must be in the project root directory for video to work
-- If FFmpeg is not available, the UI shows an error message
-- Changing resolution preserves video playback state (video restarts automatically)
-- Changing resolution does not trigger background music if no music was playing
-
----
-
-## 15. Persistent Configuration
-
-Settings are saved to `config.json` in the project root and loaded on startup.
-
-### Stored Settings
-| Setting | Description |
-|---|---|
-| `music_volume` | Music volume (0.0–1.0) |
-| `sfx_volume` | Sound effects volume (0.0–1.0) |
-| `video_dir` | Video file directory path |
-| `show_fps` | FPS counter visibility (true/false) |
-| `autoplay_ost` | Whether OST music plays automatically on game start (true/false) |
-
-### Access
-- **Options screen** → Config button → panel with volume sliders, video dir, autoplay OST toggle, and Save Config
-- **ESC menu** → Config button → sub-mode with sliders, directory text field, FPS toggle, and Save Config button
-- Settings are applied immediately when changed; Save Config writes them to disk
-- `config.json` is gitignored (user-specific)
-
----
-
-## Save System
-
-- 10 save slots stored as JSON files in `saves/` directory
-- File naming: `save_slot_01.json` through `save_slot_10.json`
-
-### Saved Data
-- Save name (player-chosen label)
-- Faction and ship type
-- Player state: position, heading, velocity, HP, shields, shield accumulator
-- Active weapon index
-- Cargo inventory items: cell positions with (type, count) tuples (iron, repair packs, etc.)
-- All surviving asteroids: position, HP
-- All surviving aliens: position, HP, velocity, heading, AI state, home position
-- All iron pickups: position, amount
-- All station buildings: type, position, HP, angle, disabled state
-- Respawn timers: asteroid and alien respawn countdown progress
-- Fog of war grid: 128 x 128 boolean grid of revealed cells
-- Station inventory: all items with cell positions and counts (iron stored as regular items)
-
-### Save Slot Display
-Each slot shows:
-- Slot number and save name (or "Empty")
-- Detail line: faction, ship type, HP, shields, module count (when > 0)
-
----
-
-## Music System
-
-Background music plays continuously across all screens.
-
-### Track Sources
-- **Vol 1:** Action Loop and Ambient Loop WAV files (~30 tracks)
-- **Vol 2:** Loop WAV files in subdirectories (10 tracks)
-
-### Playback
-- Tracks are shuffled on each playlist creation
-- Auto-advances when a track finishes
-- Loaded sounds cached at module level for instant screen transitions
-- Volume controlled by global AudioSettings singleton (default: 0.35)
-
----
-
-## Audio Settings
-
-| Setting | Default | Range |
-|---|---|---|
-| Music volume | 0.35 (35%) | 0.0 - 1.0 |
-| SFX volume | 0.60 (60%) | 0.0 - 1.0 |
-
-Stored in memory via the `AudioSettings` singleton in `settings.py`. Not persisted to disk.
-
----
-
-## Asset Paths
-
-### Graphical Assets
-
-| Asset | Path |
-|---|---|
-| Starfield background | `assets/SBS - Seamless Space Backgrounds - Large 1024x1024/Large 1024x1024/Starfields/Starfield_01-1024x1024.png` |
-| Faction 1 (Earth) ships | `assets/256Spaceships/faction_1_ships_128x128.png` |
-| Faction 2 (Colonial) ships | `assets/256Spaceships/faction_2_ships_128x128.png` |
-| Faction 5 (Heavy World) ships | `assets/256Spaceships/faction_5_ships_128x128.png` |
-| Faction 7 (Ascended) ships | `assets/256Spaceships/faction_7_ships_128x128.png` |
-| Legacy player sprite | `assets/ShmupAssets_V1/shmup_player.png` |
-| Basic Laser projectile | `assets/kenney space combat assets/Space Shooter Redux/PNG/Lasers/laserBlue03.png` |
-| Mining Beam projectile | `assets/kenney space combat assets/Space Shooter Redux/PNG/Lasers/laserGreen13.png` |
-| Iron Asteroid | `assets/Pixel Art Space/Asteroid.png` (64 x 64 px) |
-| Iron ore pickup icon | `assets/kenney space combat assets/Voxel Pack/PNG/Items/ore_ironAlt.png` |
-| Explosion sprite sheet | `assets/gamedevmarket assets/asteroids crusher/Explosions/PNG/explosion.png` (9 frames, 140 x 140 px each) |
-| Shield sprite sheet | `assets/gamedevmarket assets/asteroids crusher/Weapons/PNG/shield_frames.png` (6 frames, 3 cols x 2 rows, 280 x 280 px each) |
-| Small Alien ship | `assets/gamedevmarket assets/alien spaceship creation kit/png/Ship.png` (PIL crop: x=364, y=305, w=461, h=510) |
-| Alien laser bolt | `assets/gamedevmarket assets/alien spaceship creation kit/png/Effects.png` (PIL crop: x=4299, y=82, w=60, h=228; rotated 90 deg CCW) |
-| Boss monster sprite sheet | `assets/256Spacemonsters/faction_6_monsters_128x128.png` (8x8 grid, 128x128 frames; random first-column row) |
-| Repair Pack icon | `assets/gamedevmarket assets/alien spaceship creation kit/png/items.png` (PIL crop: 198, 0, 396, 198) |
-| Shield Recharge icon | `assets/kenney space combat assets/Space Shooter Redux/PNG/Power-ups/powerupBlue_bolt.png` |
-| Blueprint pickup | `assets/kenney space combat assets/Simple Space/PNG/Retina/satellite_D.png` |
-| Trading station | `assets/ai generated/space station.PNG` |
-| Ship module icons | `assets/gamedevmarket assets/alien spaceship creation kit/png/Separate/Items/` (Blank.png, Energy.png, Shield.png, Freeze.png, Nuke.png, Poison.png) |
-| Building sprites | `assets/kenney space combat assets/Space Shooter Extension/PNG/Sprites X2/Building/` (spaceBuilding_003 through _024) |
-| Character portraits | `characters/portraits/` (Debra1-4.png, Ellie1-4.png, Tara1-4.png) |
-| Character videos | `characters/` (Debra.mp4, Ellie.mp4, Tara.mp4) |
-| Wormhole texture | Procedurally generated (PIL: blue gaseous cloud with red spirals, 128x128 px) |
-
-### Sound Effects
-
-| Sound | Path |
-|---|---|
-| Basic Laser fire | `assets/Sci Fi Sound Effects Bundle/Stormwave Audio Sci-Fi Sound Effects Bundle/Weapons/Energy Weapons/Small Laser Weapon Shot 1.wav` |
-| Mining Beam fire | `assets/Sci Fi Sound Effects Bundle/Stormwave Audio Sci-Fi Sound Effects Bundle/Weapons/Energy Weapons/Sci-Fi Arc Emitter Weapon Shot 2.wav` |
-| Explosion | `assets/Sci Fi Sound Effects Bundle/Stormwave Audio Sci-Fi Sound Effects Bundle/Weapons/Explosions/Sci-Fi Deep Explosion 1.wav` |
-| Hull collision bump | `assets/Sci Fi Sound Effects Bundle/Stormwave Audio Sci-Fi Sound Effects Bundle/Biomechanical/Game Biomechanical Impact Sound 1.wav` |
-| Thruster engine loop | `assets/Sci Fi Sound Effects Bundle/Stormwave Audio Sci-Fi Sound Effects Bundle/Vehicles/Sci-Fi Spaceship Engine Loop 1.wav` |
-| UI click / confirm | `assets/Sci Fi Sound Effects Bundle/Stormwave Audio Sci-Fi Sound Effects Bundle/Interface/Other Interface/Sci-Fi Interface Simple Notification 2.wav` |
-| UI navigation ping | `assets/Sci Fi Sound Effects Bundle/Stormwave Audio Sci-Fi Sound Effects Bundle/Interface/Other Interface/Sci-Fi Interface Simple Notification 1.wav` |
-| Escape menu click | `assets/Sci Fi Sound Effects Bundle/Stormwave Audio Sci-Fi Sound Effects Bundle/Interface/Other Interface/Sci-Fi Spaceship Interface Mechanical Switch 1.wav` |
-| Victory (boss kill) | `assets/Sci Fi Sound Effects Bundle/Stormwave Audio Sci-Fi Sound Effects Bundle/Interface/Other Interface/Game Futuristic Item Collection 1.wav` |
-| Turret laser fire | `assets/Sci Fi Sound Effects Bundle/Stormwave Audio Sci-Fi Sound Effects Bundle/Weapons/Energy Weapons/Small Laser Weapon Shot 1.wav` (shared with Basic Laser) |
-
-### Music
-
-| Pack | Directory | Pattern |
-|---|---|---|
-| Vol 1 | `assets/Space and Science Fiction Music Pack Vol 1/Space Science Fiction Music Pack/audio/` | `*[Action Loop].wav`, `*[Ambient Loop].wav` |
-| Vol 2 | `assets/Space and Science Fiction Music Pack Vol 2/Space_Science_Fiction_MusicPackVol.2/Music/` | `*/*_loop.wav` (in subdirectories) |
-
-### Primitive-Drawn Effects (No Asset Files)
-
-| Effect | Description |
-|---|---|
-| Hit Spark | Expanding ring (gold) + shrinking core (bright yellow); drawn with `arcade.draw_circle_filled` and `arcade.draw_circle_outline` |
-| Fire Spark | 12 particles flying outward, yellow-to-red colour transition; drawn with `arcade.draw_circle_filled` |
-| Engine Contrail | Fading, shrinking coloured particles behind ship; drawn with `arcade.draw_circle_filled` |
-| Mini-map | Coloured dots for objects + heading line; drawn with arcade primitives |
-| HUD bars | HP and shield bars; drawn with `arcade.draw_rect_filled` |
-| Consumable glow | Brief coloured circle around ship on item use (red for Repair Pack, blue for Shield Recharge); drawn with `arcade.draw_circle_filled` |
-| Boss HP bar | Top-of-screen HP/shield bar with phase label; drawn with `arcade.draw_rect_filled` |
-| Boss announcement | Large pulsing text with dark overlay band; drawn with `arcade.Text` + `arcade.draw_rect_filled` |
-
----
+# Stations & Buildings
 
 ## 12. Building System — Space Station
 
@@ -858,28 +630,276 @@ Buildings appear as **cyan dots** (2.5 px radius) on the mini-map.
 
 ---
 
-## 13. Fog of War
+# UI & Screens
 
-The world starts fully hidden. As the player travels, areas are revealed in a circle around the ship.
+## HUD Status Panel
+
+The left-side panel (213 px wide) displays:
+
+| Element | Description |
+|---|---|
+| HP bar | Green > orange > red as HP falls; numerical value below |
+| Shield bar | Cyan bar; numerical value below |
+| Iron count | Current iron ore in inventory |
+| Asteroid count | Number of iron asteroids remaining in the world |
+| Alien count | Number of alien ships remaining in the world |
+| Active weapon | Name of the selected weapon group |
+| Faction / Ship type | Current faction and ship labels |
+| Now Playing | Current music track name + equalizer visualizer |
+| FPS counter | Smoothed exponential moving average (toggle with F) |
+| Mini-map | Full world overview (193 x 193 px) |
+
+### Equalizer Visualizer
+
+When background music is playing (and no video is active), a 16-bar equalizer animation is displayed below the track name in the status panel.
 
 | Property | Value |
 |---|---|
-| Reveal diameter | 800 px (400 px radius) |
-| Grid cell size | 50 px |
-| Grid dimensions | 128 x 128 cells (covers the full 6,400 x 6,400 world) |
-| Persistence | Fog state is saved/loaded with game state |
+| Bar count | 16 |
+| Bar width | 8 px, gap 3 px |
+| Max bar height | 40 px |
+| Colour palette | 8 colours (cyan → blue → purple → magenta → red → orange → yellow), interpolated per bar |
+| Cascade | Colours sweep left-to-right or right-to-left, reversing direction randomly every 2-5 s |
+| Animation | Each bar oscillates at its own random frequency/phase; fast rise, slow fall smoothing |
+| Volume response | Bar heights scale with the music volume setting |
 
-### Behaviour
-
-- All objects (asteroids, aliens, pickups, buildings) are **hidden on the mini-map** until the player's ship has travelled within 400 px of the cell containing them.
-- Unrevealed areas are rendered as a **grey fog overlay** (60, 60, 80, alpha 200) on the mini-map; revealed areas show the dark starfield background with visible objects.
-- Fog is drawn using horizontal run-length spans for efficiency (consecutive unrevealed cells in a row are batched into a single rectangle).
-- Once a cell is revealed, it remains revealed permanently for that session (and across saves).
-- The player's own position and heading are always shown on the mini-map regardless of fog.
-- Each frame, cells within `FOG_REVEAL_RADIUS` (400 px) of the player's position are marked as revealed.
-- Fog is stored as a 128 x 128 boolean grid; each cell covers a 50 x 50 px area of the world.
+### Mini-map Legend
+- **Grey dots** — asteroids
+- **Orange dots** — iron pickups
+- **Red dots** — alien ships
+- **Green circles with outline** — gas areas (proportional to world radius)
+- **Yellow square** — trading station
+- **Large red dot** — boss
+- **Purple dot** — wormhole
+- **Cyan dots** — station buildings
+- **White dot + cyan heading line** — player ship
 
 ---
+
+## Screens & Navigation
+
+### Splash Screen (Title)
+- Displays "CALL OF ORION" with subtitle "A Space Survival Saga"
+- Background music with track name at bottom (only plays if `autoplay_ost` is ON in config)
+- Decorative starfield (procedural, fixed seed)
+- **Buttons:** Play Now, Load Game, Options, Exit Game
+- ESC exits the application
+
+### Options Screen
+- Music Volume slider (0-100%)
+- Sound Effects Volume slider (0-100%)
+- **Resolution selector**: left/right arrows cycling through presets (1280x800, 1366x768, 1600x900, 1920x1080, 2560x1440, 3840x2160)
+- **Display modes**: Windowed, Fullscreen, Borderless Windowed (toggleable)
+- **Buttons:** Main Menu, Help, Config, Exit Game
+- **Config** button opens a configuration panel with: music volume slider, SFX volume slider, video directory text field, autoplay OST on/off toggle, and Save Config button
+- Save Config writes all settings (volumes, video dir, autoplay OST, FPS toggle) to `config.json`
+- Settings are loaded from `config.json` on startup
+- All UI elements dynamically positioned using actual window pixel dimensions
+
+### Selection Screen
+- Phase 1: Choose faction (Left/Right or A/D to browse, Enter/Space to confirm)
+- Phase 2: Choose ship type (same controls)
+- ESC goes back
+- UI sounds on navigation and confirmation
+- Preview images: 128 px source upscaled 1.5x to 192 px using nearest-neighbour resampling
+
+### Escape Menu (In-Game)
+- Toggled with ESC (if inventory is open, first ESC closes inventory)
+- Semi-transparent dark overlay with centred panel (320 x 480 px)
+- Gameplay **continues** while the escape menu is open (does not pause)
+- **Audio sliders:** Music and SFX volume sliders (220 px wide) at the top of the panel, directly draggable with percentage display
+- **Buttons:** Resume, Save Game, Load Game, Video Properties, Help, Songs, Main Menu
+- 10 save slots with naming overlay (max 24 characters, blinking cursor)
+- Save slot detail line shows: faction, ship type, HP, shields, and module count (when > 0)
+- Status feedback messages displayed for 2 seconds
+- **Video Properties** opens a sub-mode with resolution selector (left/right preset arrows) plus display mode buttons: Apply Windowed, Apply Fullscreen, Borderless Windowed
+- **Help** button shows keyboard and gamepad controls in a sub-mode panel
+- **Songs** button opens a sub-mode with two sections:
+  - **OST Songs**: Stop Song (stops current music and any video) and Other Song (stops video, plays random OST track)
+  - **Music Videos**: opens the video browser (requires fullscreen). Configure video directory, browse files (scrollable with scrollbar), play/stop video. Starting a video stops OST music and equalizer
+- Resolution changes preserve the current audio/video state — no spurious OST playback is triggered
+- Returning to Main Menu stops any playing video
+- ESC in sub-menus returns to parent; ESC in main menu closes overlay
+
+---
+
+# Systems
+
+## Save System
+
+- 10 save slots stored as JSON files in `saves/` directory
+- File naming: `save_slot_01.json` through `save_slot_10.json`
+
+### Saved Data
+- Save name (player-chosen label)
+- Faction and ship type
+- Player state: position, heading, velocity, HP, shields, shield accumulator
+- Active weapon index
+- Cargo inventory items: cell positions with (type, count) tuples (iron, repair packs, etc.)
+- All surviving asteroids: position, HP
+- All surviving aliens: position, HP, velocity, heading, AI state, home position
+- All iron pickups: position, amount
+- All station buildings: type, position, HP, angle, disabled state
+- Respawn timers: asteroid and alien respawn countdown progress
+- Fog of war grid: 128 x 128 boolean grid of revealed cells
+- Station inventory: all items with cell positions and counts (iron stored as regular items)
+
+### Save Slot Display
+Each slot shows:
+- Slot number and save name (or "Empty")
+- Detail line: faction, ship type, HP, shields, module count (when > 0)
+
+---
+
+## 15. Persistent Configuration
+
+Settings are saved to `config.json` in the project root and loaded on startup.
+
+### Stored Settings
+| Setting | Description |
+|---|---|
+| `music_volume` | Music volume (0.0–1.0) |
+| `sfx_volume` | Sound effects volume (0.0–1.0) |
+| `video_dir` | Video file directory path |
+| `show_fps` | FPS counter visibility (true/false) |
+| `autoplay_ost` | Whether OST music plays automatically on game start (true/false) |
+
+### Access
+- **Options screen** → Config button → panel with volume sliders, video dir, autoplay OST toggle, and Save Config
+- **ESC menu** → Config button → sub-mode with sliders, directory text field, FPS toggle, and Save Config button
+- Settings are applied immediately when changed; Save Config writes them to disk
+- `config.json` is gitignored (user-specific)
+
+---
+
+## Music System
+
+Background music plays continuously across all screens.
+
+### Track Sources
+- **Vol 1:** Action Loop and Ambient Loop WAV files (~30 tracks)
+- **Vol 2:** Loop WAV files in subdirectories (10 tracks)
+
+### Playback
+- Tracks are shuffled on each playlist creation
+- Auto-advances when a track finishes
+- Loaded sounds cached at module level for instant screen transitions
+- Volume controlled by global AudioSettings singleton (default: 0.35)
+
+---
+
+## Audio Settings
+
+| Setting | Default | Range |
+|---|---|---|
+| Music volume | 0.35 (35%) | 0.0 - 1.0 |
+| SFX volume | 0.60 (60%) | 0.0 - 1.0 |
+
+Stored in memory via the `AudioSettings` singleton in `settings.py`. Not persisted to disk.
+
+---
+
+## 14. Video Player
+
+Players can configure a directory containing video files to play in place of the background music. The video frame is displayed as a small square in the HUD status panel.
+
+| Property | Value |
+|---|---|
+| Supported formats | MP4, AVI, WMV, M4V, 3GP, ASF, MKV, WebM, MOV, FLV, OGV |
+| Decoder | FFmpeg (required — bundled DLLs in project root; WMF cannot provide video textures) |
+| Display location | Status panel, above the mini-map, 16:9 aspect ratio |
+| Availability | Fullscreen or borderless mode required; Video button shows error in windowed mode |
+| FFmpeg DLLs | `avcodec-62.dll`, `avformat-62.dll`, `avutil-60.dll`, `swresample-6.dll`, `swscale-9.dll`, `avfilter-11.dll`, `avdevice-62.dll` (gitignored, ~220 MB) |
+| Performance | Video frame cached + downscaled to 200 px wide; PIL conversion only on new video frame (~24-30/s); old GL textures removed from default atlas to prevent VRAM accumulation; volume zeroed + sources drained + player.delete() on stop |
+| Clock patch | `main.py` patches pyglet's `Clock.call_scheduled_functions` to handle FFmpeg scheduling conflicts with Arcade |
+
+### Configuration
+
+- Open the Escape Menu (ESC) and click **Video**
+- Click the directory path bar to type a folder path, then press Enter
+- Available video files in the directory are listed below (scrollable with mouse wheel; scrollbar shown when list exceeds 8 items)
+- Click a video file to start playback (replaces background music)
+- Click **Stop Video** to stop playback (only acts when video is playing; does not auto-start music)
+- Video loops automatically when it reaches the end
+- Volume is controlled by the Music volume slider
+- FFmpeg DLLs must be in the project root directory for video to work
+- If FFmpeg is not available, the UI shows an error message
+- Changing resolution preserves video playback state (video restarts automatically)
+- Changing resolution does not trigger background music if no music was playing
+
+---
+
+# Asset Reference
+
+## Asset Paths
+
+### Graphical Assets
+
+| Asset | Path |
+|---|---|
+| Starfield background | `assets/SBS - Seamless Space Backgrounds - Large 1024x1024/Large 1024x1024/Starfields/Starfield_01-1024x1024.png` |
+| Faction 1 (Earth) ships | `assets/256Spaceships/faction_1_ships_128x128.png` |
+| Faction 2 (Colonial) ships | `assets/256Spaceships/faction_2_ships_128x128.png` |
+| Faction 5 (Heavy World) ships | `assets/256Spaceships/faction_5_ships_128x128.png` |
+| Faction 7 (Ascended) ships | `assets/256Spaceships/faction_7_ships_128x128.png` |
+| Legacy player sprite | `assets/ShmupAssets_V1/shmup_player.png` |
+| Basic Laser projectile | `assets/kenney space combat assets/Space Shooter Redux/PNG/Lasers/laserBlue03.png` |
+| Mining Beam projectile | `assets/kenney space combat assets/Space Shooter Redux/PNG/Lasers/laserGreen13.png` |
+| Iron Asteroid | `assets/Pixel Art Space/Asteroid.png` (64 x 64 px) |
+| Iron ore pickup icon | `assets/kenney space combat assets/Voxel Pack/PNG/Items/ore_ironAlt.png` |
+| Explosion sprite sheet | `assets/gamedevmarket assets/asteroids crusher/Explosions/PNG/explosion.png` (9 frames, 140 x 140 px each) |
+| Shield sprite sheet | `assets/gamedevmarket assets/asteroids crusher/Weapons/PNG/shield_frames.png` (6 frames, 3 cols x 2 rows, 280 x 280 px each) |
+| Small Alien ship | `assets/gamedevmarket assets/alien spaceship creation kit/png/Ship.png` (PIL crop: x=364, y=305, w=461, h=510) |
+| Alien laser bolt | `assets/gamedevmarket assets/alien spaceship creation kit/png/Effects.png` (PIL crop: x=4299, y=82, w=60, h=228; rotated 90 deg CCW) |
+| Boss monster sprite sheet | `assets/256Spacemonsters/faction_6_monsters_128x128.png` (8x8 grid, 128x128 frames; random first-column row) |
+| Repair Pack icon | `assets/gamedevmarket assets/alien spaceship creation kit/png/items.png` (PIL crop: 198, 0, 396, 198) |
+| Shield Recharge icon | `assets/kenney space combat assets/Space Shooter Redux/PNG/Power-ups/powerupBlue_bolt.png` |
+| Blueprint pickup | `assets/kenney space combat assets/Simple Space/PNG/Retina/satellite_D.png` |
+| Trading station | `assets/ai generated/space station.PNG` |
+| Ship module icons | `assets/gamedevmarket assets/alien spaceship creation kit/png/Separate/Items/` (Blank.png, Energy.png, Shield.png, Freeze.png, Nuke.png, Poison.png) |
+| Building sprites | `assets/kenney space combat assets/Space Shooter Extension/PNG/Sprites X2/Building/` (spaceBuilding_003 through _024) |
+| Character portraits | `characters/portraits/` (Debra1-4.png, Ellie1-4.png, Tara1-4.png) |
+| Character videos | `characters/` (Debra.mp4, Ellie.mp4, Tara.mp4) |
+| Wormhole texture | Procedurally generated (PIL: blue gaseous cloud with red spirals, 128x128 px) |
+
+### Sound Effects
+
+| Sound | Path |
+|---|---|
+| Basic Laser fire | `assets/Sci Fi Sound Effects Bundle/Stormwave Audio Sci-Fi Sound Effects Bundle/Weapons/Energy Weapons/Small Laser Weapon Shot 1.wav` |
+| Mining Beam fire | `assets/Sci Fi Sound Effects Bundle/Stormwave Audio Sci-Fi Sound Effects Bundle/Weapons/Energy Weapons/Sci-Fi Arc Emitter Weapon Shot 2.wav` |
+| Explosion | `assets/Sci Fi Sound Effects Bundle/Stormwave Audio Sci-Fi Sound Effects Bundle/Weapons/Explosions/Sci-Fi Deep Explosion 1.wav` |
+| Hull collision bump | `assets/Sci Fi Sound Effects Bundle/Stormwave Audio Sci-Fi Sound Effects Bundle/Biomechanical/Game Biomechanical Impact Sound 1.wav` |
+| Thruster engine loop | `assets/Sci Fi Sound Effects Bundle/Stormwave Audio Sci-Fi Sound Effects Bundle/Vehicles/Sci-Fi Spaceship Engine Loop 1.wav` |
+| UI click / confirm | `assets/Sci Fi Sound Effects Bundle/Stormwave Audio Sci-Fi Sound Effects Bundle/Interface/Other Interface/Sci-Fi Interface Simple Notification 2.wav` |
+| UI navigation ping | `assets/Sci Fi Sound Effects Bundle/Stormwave Audio Sci-Fi Sound Effects Bundle/Interface/Other Interface/Sci-Fi Interface Simple Notification 1.wav` |
+| Escape menu click | `assets/Sci Fi Sound Effects Bundle/Stormwave Audio Sci-Fi Sound Effects Bundle/Interface/Other Interface/Sci-Fi Spaceship Interface Mechanical Switch 1.wav` |
+| Victory (boss kill) | `assets/Sci Fi Sound Effects Bundle/Stormwave Audio Sci-Fi Sound Effects Bundle/Interface/Other Interface/Game Futuristic Item Collection 1.wav` |
+| Turret laser fire | `assets/Sci Fi Sound Effects Bundle/Stormwave Audio Sci-Fi Sound Effects Bundle/Weapons/Energy Weapons/Small Laser Weapon Shot 1.wav` (shared with Basic Laser) |
+
+### Music
+
+| Pack | Directory | Pattern |
+|---|---|---|
+| Vol 1 | `assets/Space and Science Fiction Music Pack Vol 1/Space Science Fiction Music Pack/audio/` | `*[Action Loop].wav`, `*[Ambient Loop].wav` |
+| Vol 2 | `assets/Space and Science Fiction Music Pack Vol 2/Space_Science_Fiction_MusicPackVol.2/Music/` | `*/*_loop.wav` (in subdirectories) |
+
+### Primitive-Drawn Effects (No Asset Files)
+
+| Effect | Description |
+|---|---|
+| Hit Spark | Expanding ring (gold) + shrinking core (bright yellow); drawn with `arcade.draw_circle_filled` and `arcade.draw_circle_outline` |
+| Fire Spark | 12 particles flying outward, yellow-to-red colour transition; drawn with `arcade.draw_circle_filled` |
+| Engine Contrail | Fading, shrinking coloured particles behind ship; drawn with `arcade.draw_circle_filled` |
+| Mini-map | Coloured dots for objects + heading line; drawn with arcade primitives |
+| HUD bars | HP and shield bars; drawn with `arcade.draw_rect_filled` |
+| Consumable glow | Brief coloured circle around ship on item use (red for Repair Pack, blue for Shield Recharge); drawn with `arcade.draw_circle_filled` |
+| Boss HP bar | Top-of-screen HP/shield bar with phase label; drawn with `arcade.draw_rect_filled` |
+| Boss announcement | Large pulsing text with dark overlay band; drawn with `arcade.Text` + `arcade.draw_rect_filled` |
+
+---
+
+# Advanced Systems
 
 ## 14. Advanced Systems (added after the initial spec)
 

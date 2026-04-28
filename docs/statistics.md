@@ -1,5 +1,7 @@
 # Call of Orion --- Game Statistics
 
+# World
+
 ## The Battlefield
 
 | Property | Value |
@@ -14,6 +16,21 @@
 | Player start position | World centre (3,200, 3,200) |
 
 ---
+
+## Warp Zone Dimensions
+
+| Property | Value |
+|---|---|
+| Zone size | 3,200 x 6,400 px |
+| Variants | 3 each per theme (12 total): Zone-1 originals (`WARP_*`), Nebula post-boss (`NEBULA_WARP_*`, 2× danger scalar, top exit → Star Maze), Star-Maze (`MAZE_WARP_*`, return to Star Maze) |
+| Entry | Bottom (from the originating zone) |
+| Exit forward | Top (Zone 2 → Star Maze for `NEBULA_WARP_*`; back to home zone for the rest) |
+| Safe return | Bottom exit back to originating zone |
+| Red wall damage | Drains shields on contact |
+
+---
+
+# Ships
 
 ## Ship Types
 
@@ -38,6 +55,22 @@ All ships start at world centre. Ships rendered at 0.75x scale (96 px in-game). 
 | Thunderbolt | Purple (200, 120, 255) | Dark Purple (60, 20, 100) |
 
 ---
+
+## Parked Ship Stats
+
+Parked ships inherit HP and shields from `SHIP_TYPES[ship_type]` + level bonuses (`SHIP_LEVEL_HP_BONUS = 25`, `SHIP_LEVEL_SHIELD_BONUS = 25` per level above 1). Shields absorb damage first, overflow hits HP. On destruction, all cargo drops as pickups and equipped modules drop as blueprint pickups.
+
+| Attribute | Source |
+|---|---|
+| HP | `SHIP_TYPES[ship_type]["hp"] + (level - 1) * 25` |
+| Shields | `SHIP_TYPES[ship_type]["shields"] + (level - 1) * 25` |
+| Switch range | 300 px (same as `STATION_INFO_RANGE`) |
+| Click radius | 40 px |
+| Minimap marker | Teal dot, size 6 |
+
+---
+
+# Combat & Weapons
 
 ## Weapons
 
@@ -85,6 +118,34 @@ The Energy Blade is a persistent lightsabre sprite that lives in front of the sh
 
 ---
 
+## Homing Missile Stats
+
+| Property | Value |
+|---|---|
+| Damage | 50 |
+| Tracking | Homing AI (nearest enemy) |
+| Type | Consumable ammunition |
+| Crafted at | Advanced Crafter |
+
+---
+
+## Special Ability Meter
+
+| Property | Value |
+|---|---|
+| Maximum | 100 |
+| Regen rate | 5 pts/s |
+| Misty Step cost | 20 |
+| Force Wall cost | 30 |
+| Force Wall cooldown | 2 s |
+| Force Wall length | 400 px |
+| Force Wall lifetime | 20 s |
+| Long-press-to-move threshold | 0.4 s (`MOVE_LONG_PRESS_TIME`) |
+
+---
+
+# Resources & Inventory
+
 ## Iron Asteroids
 
 | Property | Value |
@@ -97,6 +158,30 @@ The Energy Blade is a persistent lightsabre sprite that lives in front of the sh
 | Respawn interval | 60 s |
 
 ---
+
+## Zone 2 Asteroids
+
+| Type | Count | HP | Yield | Notes |
+|---|---|---|---|---|
+| Iron Asteroid | 75 | 100 | 10 iron | Same as Zone 1 |
+| Double Iron Asteroid | 15 | 200 | 20 iron | Tougher, double yield |
+| Copper Asteroid | 75 | 100 | 10 copper | New resource type |
+
+---
+
+## Item Stack Limits
+
+| Item | Max Stack |
+|---|---|
+| Iron | 999 |
+| Copper | 999 |
+| Repair Pack | 99 |
+| Missile | 500 |
+| Blueprints/Modules | 10 |
+
+---
+
+# Enemies & Bosses
 
 ## Small Alien Ships
 
@@ -130,6 +215,17 @@ The Energy Blade is a persistent lightsabre sprite that lives in front of the sh
 | Range | 500 px |
 | Speed | 650 px/s |
 | Cooldown | 1.5 s |
+
+---
+
+## Zone 2 Aliens
+
+|  | Type | HP | Shields | Speed | XP Reward | Special |
+|:---:|---|---|---|---|---|---|
+| ![Shielded](images/enemies/shielded.png) | Shielded Alien | 50 | 50 | 120 px/s | 50 | Extra shield durability; orbits at range |
+| ![Fast](images/enemies/fast.png)         | Fast Alien     | 50 |  0 | 160 px/s | 60 | High speed; flips orbit direction unpredictably |
+| ![Gunner](images/enemies/gunner.png)     | Gunner Alien   | 50 |  0 | 120 px/s | 70 | 2 guns, double firepower; orbits at range |
+| ![Rammer](images/enemies/rammer.png)     | Rammer Alien   | 100 | 50 | 120 px/s | 80 | Charges directly toward player (no guns) |
 
 ---
 
@@ -242,143 +338,7 @@ The Energy Blade is a persistent lightsabre sprite that lives in front of the sh
 
 ---
 
-## Null Fields
-
-| Property | Value |
-|---|---|
-| Count per non-warp zone | 30 (`NULL_FIELD_COUNT`) |
-| Diameter range | 128 – 256 px (`NULL_FIELD_SIZE_MIN/MAX`) |
-| Disable timer after firing inside | 10 s (`NULL_FIELD_DISABLE_S`) |
-| Visual cluster | 28 dots (`NULL_FIELD_DOT_COUNT`) |
-| Effect | While inside, AI targeting treats the player as invisible (`gv._player_cloaked`) |
-| Persistence | Saved + listed in T-menu "Other Zones" |
-
----
-
-## Slipspaces
-
-| Property | Value |
-|---|---|
-| Count per non-warp zone | 15 (`SLIPSPACE_COUNT`) |
-| Display size | 160 px (`SLIPSPACE_DISPLAY_SIZE`) |
-| Collision radius | 60 px (`SLIPSPACE_RADIUS`) — smaller than display so the player has to fly into the visual |
-| Rotation speed | 90 deg/s |
-| World-edge margin | 200 px |
-| Behaviour | Paired teleport; conserves player velocity |
-| Persistence | Saved + minimap-marked |
-
----
-
-## Warp Zone Dimensions
-
-| Property | Value |
-|---|---|
-| Zone size | 3,200 x 6,400 px |
-| Variants | 3 each per theme (12 total): Zone-1 originals (`WARP_*`), Nebula post-boss (`NEBULA_WARP_*`, 2× danger scalar, top exit → Star Maze), Star-Maze (`MAZE_WARP_*`, return to Star Maze) |
-| Entry | Bottom (from the originating zone) |
-| Exit forward | Top (Zone 2 → Star Maze for `NEBULA_WARP_*`; back to home zone for the rest) |
-| Safe return | Bottom exit back to originating zone |
-| Red wall damage | Drains shields on contact |
-
----
-
-## Zone 2 Asteroids
-
-| Type | Count | HP | Yield | Notes |
-|---|---|---|---|---|
-| Iron Asteroid | 75 | 100 | 10 iron | Same as Zone 1 |
-| Double Iron Asteroid | 15 | 200 | 20 iron | Tougher, double yield |
-| Copper Asteroid | 75 | 100 | 10 copper | New resource type |
-
----
-
-## Zone 2 Aliens
-
-|  | Type | HP | Shields | Speed | XP Reward | Special |
-|:---:|---|---|---|---|---|---|
-| ![Shielded](images/enemies/shielded.png) | Shielded Alien | 50 | 50 | 120 px/s | 50 | Extra shield durability; orbits at range |
-| ![Fast](images/enemies/fast.png)         | Fast Alien     | 50 |  0 | 160 px/s | 60 | High speed; flips orbit direction unpredictably |
-| ![Gunner](images/enemies/gunner.png)     | Gunner Alien   | 50 |  0 | 120 px/s | 70 | 2 guns, double firepower; orbits at range |
-| ![Rammer](images/enemies/rammer.png)     | Rammer Alien   | 100 | 50 | 120 px/s | 80 | Charges directly toward player (no guns) |
-
----
-
-## Homing Missile Stats
-
-| Property | Value |
-|---|---|
-| Damage | 50 |
-| Tracking | Homing AI (nearest enemy) |
-| Type | Consumable ammunition |
-| Crafted at | Advanced Crafter |
-
----
-
-## Special Ability Meter
-
-| Property | Value |
-|---|---|
-| Maximum | 100 |
-| Regen rate | 5 pts/s |
-| Misty Step cost | 20 |
-| Force Wall cost | 30 |
-| Force Wall cooldown | 2 s |
-| Force Wall length | 400 px |
-| Force Wall lifetime | 20 s |
-| Long-press-to-move threshold | 0.4 s (`MOVE_LONG_PRESS_TIME`) |
-
----
-
-## AI Pilot Module
-
-| Property | Value |
-|---|---|
-| Craft cost | 800 iron + 400 copper (Advanced Crafter) |
-| Patrol radius (leash) | 400 px (`AI_PILOT_PATROL_RADIUS`) |
-| Orbit radius | 360 px (90 % of leash; `AI_PILOT_ORBIT_RADIUS_RATIO`) |
-| Detect / engage range | 600 px (`AI_PILOT_DETECT_RANGE`) |
-| Movement speed | 140 px/s (`AI_PILOT_SPEED`) |
-| Fire cooldown | 0.5 s (`AI_PILOT_FIRE_COOLDOWN`) |
-| Laser damage | 10 (`AI_PILOT_LASER_DAMAGE`) |
-| Laser speed | 650 px/s (`AI_PILOT_LASER_SPEED`) |
-| Laser range | 700 px (`AI_PILOT_LASER_RANGE`) |
-| "At base" threshold | 100 px (`AI_PILOT_HOME_ARRIVAL_DIST`) |
-| Shield tint | `(255, 220, 80)` yellow (`ShieldSprite`, alpha 200) |
-| Shield regen | 0.5× the ship type's base `shield_regen` |
-
----
-
-## Station Shield
-
-| Property | Value |
-|---|---|
-| Spawn trigger | First Shield Generator placed + Home Station present |
-| HP | 100 (`STATION_SHIELD_HP`) |
-| Radius formula | `station_outer_radius(home) + STATION_SHIELD_PADDING` |
-| Padding | 80 px (`STATION_SHIELD_PADDING`) |
-| Station outer radius | max building `hypot(dx,dy) + BUILDING_RADIUS` |
-| Damage absorb | `collisions._station_shield_absorbs` (alien laser + boss projectile) |
-| Interior alpha | 15 (`ShieldSprite` fill; nearly invisible) |
-| Border | 3 px faction-tint `draw_circle_outline`, alpha 200 idle, 255 on hit-flash |
-| Inner glow ring | 2 px ring 4 px inside border at 1/3 border alpha |
-| Persistence | `station_shield_hp` + `station_shield_max_hp` serialised |
-
----
-
-## Double Star Refugee (story NPC)
-
-| Property | Value |
-|---|---|
-| Spawn trigger | First Shield Generator built while in Zone 2 |
-| Approach speed | 140 px/s (`NPC_REFUGEE_APPROACH_SPEED`) |
-| Parking spot | `(home.x + station_outer_radius + 120, home.y)` |
-| Parking hold distance | 24 px |
-| Player interact range | 320 px (`NPC_REFUGEE_INTERACT_DIST`) |
-| Label | "Double Star Refugee" |
-| Damage | None — NPC is invulnerable |
-| Dialogue keys | 1-4 choose, SPACE/ENTER advance, ESC close |
-
----
+# Stations & Buildings
 
 ## Station Buildings
 
@@ -451,6 +411,92 @@ trade panel.
 
 ---
 
+# Allies & Defences
+
+## AI Pilot Module
+
+| Property | Value |
+|---|---|
+| Craft cost | 800 iron + 400 copper (Advanced Crafter) |
+| Patrol radius (leash) | 400 px (`AI_PILOT_PATROL_RADIUS`) |
+| Orbit radius | 360 px (90 % of leash; `AI_PILOT_ORBIT_RADIUS_RATIO`) |
+| Detect / engage range | 600 px (`AI_PILOT_DETECT_RANGE`) |
+| Movement speed | 140 px/s (`AI_PILOT_SPEED`) |
+| Fire cooldown | 0.5 s (`AI_PILOT_FIRE_COOLDOWN`) |
+| Laser damage | 10 (`AI_PILOT_LASER_DAMAGE`) |
+| Laser speed | 650 px/s (`AI_PILOT_LASER_SPEED`) |
+| Laser range | 700 px (`AI_PILOT_LASER_RANGE`) |
+| "At base" threshold | 100 px (`AI_PILOT_HOME_ARRIVAL_DIST`) |
+| Shield tint | `(255, 220, 80)` yellow (`ShieldSprite`, alpha 200) |
+| Shield regen | 0.5× the ship type's base `shield_regen` |
+
+---
+
+## Station Shield
+
+| Property | Value |
+|---|---|
+| Spawn trigger | First Shield Generator placed + Home Station present |
+| HP | 100 (`STATION_SHIELD_HP`) |
+| Radius formula | `station_outer_radius(home) + STATION_SHIELD_PADDING` |
+| Padding | 80 px (`STATION_SHIELD_PADDING`) |
+| Station outer radius | max building `hypot(dx,dy) + BUILDING_RADIUS` |
+| Damage absorb | `collisions._station_shield_absorbs` (alien laser + boss projectile) |
+| Interior alpha | 15 (`ShieldSprite` fill; nearly invisible) |
+| Border | 3 px faction-tint `draw_circle_outline`, alpha 200 idle, 255 on hit-flash |
+| Inner glow ring | 2 px ring 4 px inside border at 1/3 border alpha |
+| Persistence | `station_shield_hp` + `station_shield_max_hp` serialised |
+
+---
+
+# World Hazards
+
+## Null Fields
+
+| Property | Value |
+|---|---|
+| Count per non-warp zone | 30 (`NULL_FIELD_COUNT`) |
+| Diameter range | 128 – 256 px (`NULL_FIELD_SIZE_MIN/MAX`) |
+| Disable timer after firing inside | 10 s (`NULL_FIELD_DISABLE_S`) |
+| Visual cluster | 28 dots (`NULL_FIELD_DOT_COUNT`) |
+| Effect | While inside, AI targeting treats the player as invisible (`gv._player_cloaked`) |
+| Persistence | Saved + listed in T-menu "Other Zones" |
+
+---
+
+## Slipspaces
+
+| Property | Value |
+|---|---|
+| Count per non-warp zone | 15 (`SLIPSPACE_COUNT`) |
+| Display size | 160 px (`SLIPSPACE_DISPLAY_SIZE`) |
+| Collision radius | 60 px (`SLIPSPACE_RADIUS`) — smaller than display so the player has to fly into the visual |
+| Rotation speed | 90 deg/s |
+| World-edge margin | 200 px |
+| Behaviour | Paired teleport; conserves player velocity |
+| Persistence | Saved + minimap-marked |
+
+---
+
+# Story
+
+## Double Star Refugee (story NPC)
+
+| Property | Value |
+|---|---|
+| Spawn trigger | First Shield Generator built while in Zone 2 |
+| Approach speed | 140 px/s (`NPC_REFUGEE_APPROACH_SPEED`) |
+| Parking spot | `(home.x + station_outer_radius + 120, home.y)` |
+| Parking hold distance | 24 px |
+| Player interact range | 320 px (`NPC_REFUGEE_INTERACT_DIST`) |
+| Label | "Double Star Refugee" |
+| Damage | None — NPC is invulnerable |
+| Dialogue keys | 1-4 choose, SPACE/ENTER advance, ESC close |
+
+---
+
+# Game Systems
+
 ## Fog of War
 
 | Property | Value |
@@ -459,6 +505,14 @@ trade panel.
 | Grid cell size | 50 px |
 | Grid dimensions | 128 x 128 cells |
 | Persistence | Saved/loaded with game state |
+
+---
+
+## Character Progression
+
+- XP thresholds: 0, 100, 300, 600, 1000, 2500, 3600, 4700, 5800, 7000
+- XP hard-capped at 7,000 (max level 10)
+- XP earned: 10 per asteroid, 25 per alien kill, 500 for boss defeat
 
 ---
 
@@ -489,14 +543,6 @@ trade panel.
 
 ---
 
-## Character Progression
-
-- XP thresholds: 0, 100, 300, 600, 1000, 2500, 3600, 4700, 5800, 7000
-- XP hard-capped at 7,000 (max level 10)
-- XP earned: 10 per asteroid, 25 per alien kill, 500 for boss defeat
-
----
-
 ## Persistent Configuration
 
 Settings stored in `config.json` (gitignored):
@@ -509,20 +555,6 @@ Settings stored in `config.json` (gitignored):
 | `show_fps` | FPS counter visibility | false |
 | `autoplay_ost` | Auto-play OST on game start | true |
 | `simulate_all_zones` | Tick inactive zones in background | false |
-
----
-
-## Parked Ship Stats
-
-Parked ships inherit HP and shields from `SHIP_TYPES[ship_type]` + level bonuses (`SHIP_LEVEL_HP_BONUS = 25`, `SHIP_LEVEL_SHIELD_BONUS = 25` per level above 1). Shields absorb damage first, overflow hits HP. On destruction, all cargo drops as pickups and equipped modules drop as blueprint pickups.
-
-| Attribute | Source |
-|---|---|
-| HP | `SHIP_TYPES[ship_type]["hp"] + (level - 1) * 25` |
-| Shields | `SHIP_TYPES[ship_type]["shields"] + (level - 1) * 25` |
-| Switch range | 300 px (same as `STATION_INFO_RANGE`) |
-| Click radius | 40 px |
-| Minimap marker | Teal dot, size 6 |
 
 ---
 
@@ -542,15 +574,3 @@ Parked ships inherit HP and shields from `SHIP_TYPES[ship_type]` + level bonuses
 | Alien aggro reset | Every alien across active + Zone 1 stash + Zone 2 stash + Star Maze flipped to `_STATE_PATROL` with fresh patrol target |
 | Last-visited tracker | `gv._last_station_pos`, `gv._last_station_zone` — set when player clicks a Home Station |
 | Post-respawn grace window | 1.0 s `player._collision_cd` |
-
----
-
-## Item Stack Limits
-
-| Item | Max Stack |
-|---|---|
-| Iron | 999 |
-| Copper | 999 |
-| Repair Pack | 99 |
-| Missile | 500 |
-| Blueprints/Modules | 10 |

@@ -1,5 +1,7 @@
 # Call of Orion --- Game Rules & Mechanics
 
+# Collisions & Projectiles
+
 ## Collision Rules
 
 All circle-vs-circle collisions in the game share two physics primitives in `collisions.py`:
@@ -92,6 +94,8 @@ The handlers below describe the per-pair `push_a` / `push_b` weights, restitutio
 
 ---
 
+# Damage, Death & Respawn
+
 ## Damage Flow
 
 1. All damage routes through shields first
@@ -115,6 +119,18 @@ When HP reaches 0:
 9. The legacy death screen (Load Game / Main Menu / Exit Game) is no longer triggered by death; it remains available via the escape menu
 
 ---
+
+## Respawn Rules
+
+- Asteroids and aliens respawn every 60 s (one per cycle)
+- Will not spawn within 300 px of any player building
+- Must be at least 400 px from world centre, 100 px from edges
+- Respawn effect: HitSpark flash + bump sound
+- Boss does not respawn once defeated
+
+---
+
+# AI Behaviour
 
 ## Alien AI Behaviour
 
@@ -169,6 +185,8 @@ Triggered when player enters 500 px, or player weapon fires within 160 px (4x sh
 
 ---
 
+# Stations & Buildings
+
 ## Building Placement Rules
 
 - **Home Station** must be built first; all other modules require it
@@ -197,15 +215,7 @@ Triggered when player enters 500 px, or player weapon fires within 160 px (4x sh
 
 ---
 
-## Respawn Rules
-
-- Asteroids and aliens respawn every 60 s (one per cycle)
-- Will not spawn within 300 px of any player building
-- Must be at least 400 px from world centre, 100 px from edges
-- Respawn effect: HitSpark flash + bump sound
-- Boss does not respawn once defeated
-
----
+# World & Zones
 
 ## Fog of War
 
@@ -229,6 +239,17 @@ Triggered when player enters 500 px, or player weapon fires within 160 px (4x sh
 - Player position and inventory are preserved across zone transitions
 - Buildings placed in Zone 2 are preserved when travelling through warp zones and back
 - Gas hazards in the Gas Cloud warp zone are always visible on the minimap regardless of fog of war
+
+---
+
+## Background Zone Simulation
+
+- Optional "Simulate All Zones" toggle in Config (disabled by default)
+- When enabled, inactive zones are ticked every frame while the player is in a different zone
+- Respawn timers advance; asteroids and aliens are replenished
+- Aliens revert to PATROL state and wander toward patrol waypoints
+- No player interaction, sounds, or visual effects --- purely simulation
+- Station Info panel (T key) shows live entity counts from inactive zones
 
 ---
 
@@ -295,17 +316,6 @@ Triggered when player enters 500 px, or player weapon fires within 160 px (4x sh
 
 ---
 
-## Background Zone Simulation
-
-- Optional "Simulate All Zones" toggle in Config (disabled by default)
-- When enabled, inactive zones are ticked every frame while the player is in a different zone
-- Respawn timers advance; asteroids and aliens are replenished
-- Aliens revert to PATROL state and wander toward patrol waypoints
-- No player interaction, sounds, or visual effects --- purely simulation
-- Station Info panel (T key) shows live entity counts from inactive zones
-
----
-
 ## Zone 2 Hazard Rules
 
 ### Toxic Gas Clouds
@@ -346,6 +356,8 @@ Triggered when player enters 500 px, or player weapon fires within 160 px (4x sh
 - Collision deals 5 damage (same as standard alien collision)
 
 ---
+
+# Player Abilities
 
 ## Special Ability Meter Mechanics
 
@@ -398,6 +410,8 @@ Triggered when player enters 500 px, or player weapon fires within 160 px (4x sh
 
 ---
 
+# Modules & Defences
+
 ## AI Pilot Module
 
 - Craftable at the Advanced Crafter for 800 iron + 400 copper
@@ -446,6 +460,8 @@ Triggered when player enters 500 px, or player weapon fires within 160 px (4x sh
   serialised; restore re-materialises the sprite on the next
   `update_station_shield` tick as long as a Shield Generator is
   still present
+
+# Story
 
 ## Story Encounter — Double Star Refugee
 

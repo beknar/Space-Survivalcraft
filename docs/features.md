@@ -1,5 +1,7 @@
 # Call of Orion --- Features
 
+# Setup & Player
+
 ## Faction & Ship Selection
 
 - Choose from 4 factions: **Earth**, **Colonial**, **Heavy World**, and **Ascended**
@@ -41,6 +43,8 @@ chooses the stats. All five types are available under every faction.
 - **Sideslip**: Q slips left, E slips right (perpendicular to heading)
 - Keyboard and Xbox 360 gamepad support
 
+# Combat
+
 ## Combat
 
 - **Basic Laser** --- high-damage weapon for fighting enemies
@@ -52,6 +56,63 @@ chooses the stats. All five types are available under every faction.
 - Shield system absorbs damage before HP; regenerates over time
 - Animated energy shield bubble with hit-flash visual feedback
 - Faction-specific shield colour tints
+
+## Special Ability Meter
+
+- Maximum capacity of 100 ability points
+- Regenerates at 5 points per second
+- Powers the advanced modules (Misty Step, Force Wall, Death Blossom)
+
+## Advanced Modules
+
+- **Misty Step** --- double-tap WASD to teleport 100 px in that direction; costs 20 ability points
+- **Force Wall** --- press G to deploy a 400 px shimmering barrier behind the ship; costs 30 ability points. Blocks enemy lasers and boss projectiles on contact; aliens steer around the wall and cannot cross it (any movement that would cut through the wall is reverted)
+- **Death Blossom** --- press X to fire all homing missiles in a radial burst
+- **Rear Turret** --- while the module is installed, holding fire auto-fires a broadside-class shot backward (opposite of heading) once every 0.5 s. 25 damage, 600 px/s, 400 px range. Crafts at the Advanced Crafter (200 iron)
+
+## Homing Missiles
+
+- Consumable ammunition with homing AI that tracks the nearest enemy
+- Deals 50 damage per missile on impact
+- Craftable at the Advanced Crafter
+
+# Mining, Inventory & Resources
+
+## Mining & Resources
+
+- 75 iron asteroids scattered across the world
+- Mining Beam only --- Basic Laser has no effect on asteroids
+- Asteroids spin, shake on hit, and explode with animated effects
+- Iron pickups fly toward the player when nearby
+- Asteroids respawn on a timer
+
+## Inventory System
+
+- 5x5 cargo hold grid toggled with I key or gamepad Y button
+- Drag-and-drop with stacking, swapping, and world ejection
+- **Right-click any cell to split a stack in half** (extras go to the cursor for placement)
+- Iron and repair packs display with dedicated icons and count badges
+- **Blueprint cells display a red dot overlay** until the recipe is unlocked at a crafter
+- **Consolidate** button merges stacks (respects max stack limits)
+- Ejected items despawn after 10 minutes
+
+## Quick Use Bar
+
+- 10 slots (1--9, 0) for fast item access
+- Assign by dragging from inventory; use by pressing number keys
+- Rearrange by dragging between slots; unassign by dragging out
+
+## Ship Module System
+
+- 4 module slots displayed above the quick-use bar
+- 12 module types: Armor Plate, Engine Booster, Shield Booster, Shield Enhancer, Damage Absorber, Broadside Module, Misty Step, Force Wall, Death Blossom, Missile Rack, Ability Capacitor, Hull Reinforcement
+- Blueprint drops from aliens (50%) and asteroids (25%)
+- Craft modules at the Basic Crafter after depositing blueprints
+- Drag-to-equip with module slot management
+- **Ship Stats panel** (C key, 380x520) shows stats with module modifications and all character benefits up to level 10
+- **Character Bio panel** (360x520) alongside Ship Stats with random portrait and backstory
+
+# Enemies & Bosses
 
 ## Enemies --- Small Alien Ships
 
@@ -74,14 +135,6 @@ chooses the stats. All five types are available under every faction.
 - Drops 200 iron and 500 XP on defeat; does not respawn once defeated
 - Full save/load support; appears as a large red marker on the minimap
 
-## Warp Zones
-
-- 4 warp zone types: **Meteor**, **Lightning**, **Gas**, and **Enemy Spawner**
-- Appear after the boss is defeated, providing access to Zone 2
-- Red walls line the warp zone boundaries and drain shields on contact
-- Bottom exit provides a safe return to Zone 1
-- Top exit transitions the player into Zone 2 (The Nebula)
-
 ## Boss 2 --- Nebula Boss
 
 - Triggered by building a **Quantum Wave Integrator** (QWI) in Zone 2 (cost: 1000 iron + 2000 copper)
@@ -92,6 +145,8 @@ chooses the stats. All five types are available under every faction.
 - Routes around force walls instead of grinding on them; rams through asteroids and drops loot identical to standard alien kills along the way
 - **Reward**: 3000 iron + 1000 copper (no XP)
 - Click the QWI within 300 px to open the **QWI summon menu** to resummon (100 iron per summon) once the boss is defeated
+
+# Zones & World
 
 ## Zone 2 --- The Nebula
 
@@ -118,6 +173,14 @@ chooses the stats. All five types are available under every faction.
 - Misty Step **rejects teleports** whose path crosses a maze wall (samples every 16 px along the segment)
 - Star Maze has its own corner wormholes that chain on to deeper `MAZE_WARP_*` warp variants
 
+## Warp Zones
+
+- 4 warp zone types: **Meteor**, **Lightning**, **Gas**, and **Enemy Spawner**
+- Appear after the boss is defeated, providing access to Zone 2
+- Red walls line the warp zone boundaries and drain shields on contact
+- Bottom exit provides a safe return to Zone 1
+- Top exit transitions the player into Zone 2 (The Nebula)
+
 ## Null Fields
 
 - 30 stealth patches per non-warp zone (`NULL_FIELD_COUNT`) hide the player from enemies — while inside, AI targeting treats the player as invisible (`gv._player_cloaked` flag)
@@ -134,6 +197,12 @@ chooses the stats. All five types are available under every faction.
 - Rotates at 90 deg/s; minimap-marked
 - Persisted in save/load
 
+## Fog of War
+
+- World starts fully hidden; revealed as the player explores
+- 800 px diameter reveal around the ship
+- Grey fog overlay on mini-map; persists across save/load
+
 ## Full-Screen Map (`M` key)
 
 - Press `M` to open a full-screen zoomed-out map of the active zone
@@ -141,52 +210,7 @@ chooses the stats. All five types are available under every faction.
 - Press `M` or ESC to close
 - Cannot be opened while dead or while the escape menu is open
 
-## Advanced Modules
-
-- **Misty Step** --- double-tap WASD to teleport 100 px in that direction; costs 20 ability points
-- **Force Wall** --- press G to deploy a 400 px shimmering barrier behind the ship; costs 30 ability points. Blocks enemy lasers and boss projectiles on contact; aliens steer around the wall and cannot cross it (any movement that would cut through the wall is reverted)
-- **Death Blossom** --- press X to fire all homing missiles in a radial burst
-- **Rear Turret** --- while the module is installed, holding fire auto-fires a broadside-class shot backward (opposite of heading) once every 0.5 s. 25 damage, 600 px/s, 400 px range. Crafts at the Advanced Crafter (200 iron)
-
-## Homing Missiles
-
-- Consumable ammunition with homing AI that tracks the nearest enemy
-- Deals 50 damage per missile on impact
-- Craftable at the Advanced Crafter
-
-## Special Ability Meter
-
-- Maximum capacity of 100 ability points
-- Regenerates at 5 points per second
-- Powers the advanced modules (Misty Step, Force Wall, Death Blossom)
-
-## Mining & Resources
-
-- 75 iron asteroids scattered across the world
-- Mining Beam only --- Basic Laser has no effect on asteroids
-- Asteroids spin, shake on hit, and explode with animated effects
-- Iron pickups fly toward the player when nearby
-- Asteroids respawn on a timer
-
-## Inventory System
-
-- 5x5 cargo hold grid toggled with I key or gamepad Y button
-- Drag-and-drop with stacking, swapping, and world ejection
-- **Right-click any cell to split a stack in half** (extras go to the cursor for placement)
-- Iron and repair packs display with dedicated icons and count badges
-- **Blueprint cells display a red dot overlay** until the recipe is unlocked at a crafter
-- **Consolidate** button merges stacks (respects max stack limits)
-- Ejected items despawn after 10 minutes
-
-## Ship Module System
-
-- 4 module slots displayed above the quick-use bar
-- 12 module types: Armor Plate, Engine Booster, Shield Booster, Shield Enhancer, Damage Absorber, Broadside Module, Misty Step, Force Wall, Death Blossom, Missile Rack, Ability Capacitor, Hull Reinforcement
-- Blueprint drops from aliens (50%) and asteroids (25%)
-- Craft modules at the Basic Crafter after depositing blueprints
-- Drag-to-equip with module slot management
-- **Ship Stats panel** (C key, 380x520) shows stats with module modifications and all character benefits up to level 10
-- **Character Bio panel** (360x520) alongside Ship Stats with random portrait and backstory
+# Allies & Multi-Ship
 
 ## Multi-Ship System
 
@@ -331,6 +355,8 @@ restored on load. The drone re-acquires targets on the first tick
 post-load (targeting / cooldown state is intentionally not
 persisted).
 
+# Station
+
 ## Space Station Building System
 
 - Build menu (B key) with iron cost from ship + station inventory
@@ -375,6 +401,8 @@ persisted).
 - HP + max-HP persist through save/load; the sprite respawns on next
   tick once the Shield Generator still exists
 
+# Story
+
 ## Story Encounter --- Double Star Refugee
 
 - Building a **Shield Generator** in the Nebula zone triggers the arrival
@@ -408,11 +436,7 @@ persisted).
 - Conversation state (met, quest flags, ship position) persists through
   save/load
 
-## Quick Use Bar
-
-- 10 slots (1--9, 0) for fast item access
-- Assign by dragging from inventory; use by pressing number keys
-- Rearrange by dragging between slots; unassign by dragging out
+# Save/Load & Death
 
 ## Save/Load System
 
@@ -420,6 +444,19 @@ persisted).
 - Save slots display faction, ship type, character, HP, shields, module count
 - Overwrite warning and delete support (DEL key)
 - Quick-use, module slots, boss state, and fog of war all persist
+
+## Death & Respawn
+
+- Dramatic destruction sequence with explosion and fire sparks (1.5 s death animation)
+- **Auto-respawn** after the death animation — no Game Over screen in normal play
+- **Drops** — every cargo stack, every equipped module (as blueprints), and every quick-use consumable lands at the death site as world pickups, scattered on a ring so they read individually instead of stacking into a single blob
+- **Soft respawn** — if the player has visited a Home Station and one still stands, the ship reappears there with **50 % HP and 50 % shields**. Inventory, modules, level, XP are preserved
+- **Hard reset** — if no Home Station exists anywhere (Zone 1, Zone 2, Star Maze), the player respawns as a fresh L1 ship at Zone 1 world centre with **25 % HP and 0 shields**. Ship type + faction are preserved; everything else (level, XP, ability meter, module slots) rolls back to first-game defaults
+- **Bosses retreat** — both the Double Star and Nebula bosses flip to "patrol home" mode and fly back to the coordinates where they originally spawned. The flag clears the first frame the respawned player re-enters priority range, so re-engagement is automatic
+- **Aliens forget the player** — every alien (across all zones, including stashed lists from inactive zones) reverts to PATROL state and picks a new patrol waypoint. If they detect the respawned ship, normal aggro runs through the standard state machine
+- The "last visited station" is recorded whenever the player clicks a Home Station to open the station inventory
+
+# UI & Audio/Visual
 
 ## HUD & Mini-Map
 
@@ -429,11 +466,15 @@ persisted).
 - Gas hazards in warp zones always visible on minimap regardless of fog of war
 - **Station Info** (T key) --- building HP, module capacity, zone-specific entity counts, plus an "Other Zones" panel showing live stats from every inactive main zone (Double Star, Nebula, Star Maze)
 
-## Fog of War
+## Escape Menu
 
-- World starts fully hidden; revealed as the player explores
-- 800 px diameter reveal around the ship
-- Grey fog overlay on mini-map; persists across save/load
+- Resume, Save/Load, Video Properties, Help, Songs, Main Menu
+- Music/SFX volume sliders, resolution selector
+- 10 save slots with naming overlay
+- **Video Properties** --- resolution selector + character picker for the HUD video portrait
+- **Songs** --- Stop Song, Other Song (random OST track), Music Videos (opens video browser)
+- **Help** --- keyboard and gamepad controls display
+- **Config** --- FPS toggle, Simulate All Zones toggle, volume sliders, video directory, autoplay OST toggle, Save Config
 
 ## Character Video Player
 
@@ -460,27 +501,6 @@ persisted).
 - Changing resolution preserves video playback state (video restarts automatically)
 - Performance optimised: video frame cached and downscaled to 200 px wide; old GL textures removed from atlas to prevent VRAM accumulation
 - `main.py` patches pyglet's clock to handle FFmpeg scheduling conflicts with Arcade
-
-## Escape Menu
-
-- Resume, Save/Load, Video Properties, Help, Songs, Main Menu
-- Music/SFX volume sliders, resolution selector
-- 10 save slots with naming overlay
-- **Video Properties** --- resolution selector + character picker for the HUD video portrait
-- **Songs** --- Stop Song, Other Song (random OST track), Music Videos (opens video browser)
-- **Help** --- keyboard and gamepad controls display
-- **Config** --- FPS toggle, Simulate All Zones toggle, volume sliders, video directory, autoplay OST toggle, Save Config
-
-## Death & Respawn
-
-- Dramatic destruction sequence with explosion and fire sparks (1.5 s death animation)
-- **Auto-respawn** after the death animation — no Game Over screen in normal play
-- **Drops** — every cargo stack, every equipped module (as blueprints), and every quick-use consumable lands at the death site as world pickups, scattered on a ring so they read individually instead of stacking into a single blob
-- **Soft respawn** — if the player has visited a Home Station and one still stands, the ship reappears there with **50 % HP and 50 % shields**. Inventory, modules, level, XP are preserved
-- **Hard reset** — if no Home Station exists anywhere (Zone 1, Zone 2, Star Maze), the player respawns as a fresh L1 ship at Zone 1 world centre with **25 % HP and 0 shields**. Ship type + faction are preserved; everything else (level, XP, ability meter, module slots) rolls back to first-game defaults
-- **Bosses retreat** — both the Double Star and Nebula bosses flip to "patrol home" mode and fly back to the coordinates where they originally spawned. The flag clears the first frame the respawned player re-enters priority range, so re-engagement is automatic
-- **Aliens forget the player** — every alien (across all zones, including stashed lists from inactive zones) reverts to PATROL state and picks a new patrol waypoint. If they detect the respawned ship, normal aggro runs through the standard state machine
-- The "last visited station" is recorded whenever the player clicks a Home Station to open the station inventory
 
 ## Audio
 

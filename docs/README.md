@@ -12,7 +12,9 @@ Welcome to the full documentation for **Call of Orion**, a top-down space surviv
 - [Architecture](architecture.md) --- Codebase structure, module extraction pattern, and dependency graph
 - [Game Rules Reference](game-rules.md) --- Comprehensive game rules document with asset paths and technical details
 
-## Asset Sources
+# Asset Sources
+
+## Sprites
 
 ### 32x32 Sprites
 
@@ -23,14 +25,16 @@ Welcome to the full documentation for **Call of Orion**, a top-down space surviv
 - Shmup sprites: https://jestan.itch.io/shmupv1
 - Pixel planets: https://wyvarth.itch.io/pixel-planets
 
-### Unknown Size Sprites
+### Unknown Size Sprites (top-down ships)
 
 - Top-down alien spaceship: https://pzuh.itch.io/top-down-alien-spaceship
 - Top-down space shooter 1: https://pzuh.itch.io/top-down-space-shooter-1
 - Top-down space shooter 2: https://pzuh.itch.io/top-down-space-shooter-2
 - Top-down sci-fi dungeon tileset (maru-98): https://maru-98.itch.io/top-down-sci-fi-dungeon-tileset-2d-pixel-art-game-assets
 
-### Backgrounds & Planets
+## Backgrounds & Planets
+
+### Currently Used
 
 - Seamless space backgrounds: https://screamingbrainstudios.itch.io/seamless-space-backgrounds
 - Planet pack: https://screamingbrainstudios.itch.io/planetpack
@@ -46,6 +50,8 @@ Welcome to the full documentation for **Call of Orion**, a top-down space surviv
 - Planet surface backgrounds: https://screamingbrainstudios.itch.io/planet-surface-backgrounds
 - Planet surface backgrounds 2: https://screamingbrainstudios.itch.io/planet-surface-backgrounds-2
 
+## General & Weapons
+
 ### General Game Assets
 
 - Kenney All-in-1: https://kenney.itch.io/kenney-game-assets
@@ -53,6 +59,22 @@ Welcome to the full documentation for **Call of Orion**, a top-down space surviv
 ### Weapons / Effects
 
 - Light saber game assets (melee weapon sprites): https://willisthehy.itch.io/light-saber-game-assets
+
+## Music & Sound Effects Licensing
+
+- Bought from Humble Bundle
+  - https://www.humblebundle.com/software/game-audio-collection-1800-music-tracks-65000-sound-effects-software
+- https://gamedevmarket.net/terms-conditions#pro-licence
+- Sci Fi Fantasy Music
+  - https://gamedevmarket.net/asset/sci-fi-fantasy-music-bundle
+- Sci Fi Sound Effects Bundle
+  - https://gamedevmarket.net/asset/sci-fi-sound-effects-bundle-2
+- Space and Science Fiction Music Pack Vol 1
+  - https://gamedevmarket.net/asset/space-science-fiction-music-pack
+- Space and Science Fiction Music Pack Vol 2
+  - https://gamedevmarket.net/asset/space-science-fiction-music-pack-vol-2
+
+# Game Systems
 
 ## Zone 2 (The Nebula)
 
@@ -75,6 +97,8 @@ The **Quantum Wave Integrator** (QWI) is a Zone-2 building (1000 iron + 2000 cop
 ## Multi-Ship System
 
 Upgrading a ship via "Advanced Ship" in the build menu now places the new ship in the world (placement mode with ghost ship texture) rather than swapping textures in-place. The old ship persists as a `ParkedShip` sprite with its own HP, shields, cargo inventory, and module slots. Players click a parked ship within range to switch control --- inventory, modules, weapons, and ability meter all swap. Parked ships take damage from any source (aliens, boss, player weapons) and drop cargo as pickups on destruction. They appear on the minimap as teal dots and are stashed/restored during zone transitions.
+
+# Engineering
 
 ## Cross-Zone Save/Load
 
@@ -120,6 +144,8 @@ Several large optimizations target the Nebula zone, which can populate hundreds 
 - **Turret target caching** --- turrets cache their nearest target and rescan only 4x/second, eliminating per-frame O(turrets x aliens) scans.
 - **Distance-based alien AI culling** --- Zone 2 aliens far from the viewport get cheap position-only updates instead of full AI with obstacle avoidance.
 - **Direct Zone 2 sprite-list draws** --- `Zone2.draw_world` calls `SpriteList.draw()` on each entity list directly; the previous per-frame visibility-list rebuild has been removed (the dead `_draw_visible` helper and `_vis_draw` SpriteList have been deleted). Static VBOs upload once.
+
+# Development & Testing
 
 ## Tooling
 
@@ -167,17 +193,3 @@ Grand total: ~1215 tests (906 fast + ~309 integration). Real music-video tests l
 Tests use PIL-generated dummy textures so no game assets are required. Fast tests need no Arcade window. `pytest` and `psutil` (for soak tests) are needed beyond the game's regular dependencies.
 
 See [Architecture](architecture.md) for the full dependency graph.
-
-### Music and Sound Effects Licensing
-
-- Bought from Humble Bundle
-  - https://www.humblebundle.com/software/game-audio-collection-1800-music-tracks-65000-sound-effects-software
-- https://gamedevmarket.net/terms-conditions#pro-licence
-- Sci Fi Fantasy Music
-  - https://gamedevmarket.net/asset/sci-fi-fantasy-music-bundle
-- Sci Fi Sound Effects Bundle
-  - https://gamedevmarket.net/asset/sci-fi-sound-effects-bundle-2
-- Space and Science Fiction Music Pack Vol 1
-  - https://gamedevmarket.net/asset/space-science-fiction-music-pack
-- Space and Science Fiction Music Pack Vol 2
-  - https://gamedevmarket.net/asset/space-science-fiction-music-pack-vol-2
