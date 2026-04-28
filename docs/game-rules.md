@@ -13,7 +13,7 @@
 - **Faction & ship selection** — choose from 4 factions and 5 ship types, each with unique stats
 - **Newtonian flight model** — thrust, braking, velocity damping, and speed caps
 - **Energy shields** — absorb damage before hull HP; regenerate over time
-- **Two weapon types** — Basic Laser (combat) and Mining Beam (resource gathering)
+- **Three weapon types** — Basic Laser (combat), Mining Beam (resource gathering), and Energy Blade (per-faction lightsabre melee, -75° → +75° swing arc, 80 px AOE)
 - **Asteroid mining** — destroy iron asteroids to collect ore
 - **5 x 5 cargo inventory** — drag-and-drop grid with item ejection into the game world
 - **Enemy AI** — alien scout ships that patrol, detect, pursue, and fire
@@ -197,22 +197,24 @@ Gamepad dead zone: 0.15
 
 ## Weapons
 
-All ships start with both weapons. The Thunderbolt has 2 guns, so it gets 2x Basic Laser and 2x Mining Beam. Weapons are cycled with Tab (keyboard) or RB (gamepad).
+All ships start with three weapons. The Thunderbolt has 2 guns, so it gets 2x Basic Laser, 2x Mining Beam, and 2x Energy Blade. Weapons are cycled with Tab (keyboard) or RB (gamepad) in the order **Basic Laser → Mining Beam → Energy Blade**.
 
 ### Weapon Statistics
 
-| Weapon | Damage | Cooldown | Speed | Range | Targets | Auto-fire |
+| Weapon | Damage | Cooldown | Speed / AOE | Range | Targets | Auto-fire |
 |---|---|---|---|---|---|---|
 | **Basic Laser** | 25 | 0.30 s | 900 px/s | 1,200 px | Alien ships only | Yes (hold Space/A) |
 | **Mining Beam** | 10 | 0.10 s | 500 px/s | 800 px | Asteroids only | Yes (hold Space/A) |
+| **Energy Blade (Melee)** | 40 (55 Bastion) | 0.30 s | 80 px AOE (110 px Bastion); pivot 80 px ahead of nose | One-hit per enemy per swing | Alien ships + bosses | Yes (hold Space/A) |
 
 ### Weapon Behaviour
 
 - **Basic Laser** deals damage only to alien ships; passes through asteroids with no effect
 - **Mining Beam** deals damage only to asteroids; passes through aliens with no effect
+- **Energy Blade** is a per-faction lightsabre (Earth → Sabers-06, Colonial → Sabers-05, Heavy World → Sabers-02, Ascended → Sabers-03; from [willisthehy.itch.io/light-saber-game-assets](https://willisthehy.itch.io/light-saber-game-assets)) — a persistent sprite that lives in front of the ship's nose while the melee weapon is active. On fire it runs a 0.25 s swing animation arcing **-75° → +75°** from the ship's heading (150° total, `MELEE_SWING_ARC = 150.0`). The blade pivots around its handle (fixed at `ship.center + 80 px * forward`) so the tip traces an arc; AOE damage is dealt once per enemy per swing inside `MELEE_HIT_RADIUS` (80 px / 110 px Bastion). Bastion gets `+15` damage on top of the 40 base
 - Projectiles despawn when they exceed their max range or leave the world boundary
 - Sound is throttled to a minimum 0.15 s interval to prevent audio stutter from rapid fire
-- Dual-gun ships fire from two laterally-offset hardpoints (10 px left/right of nose axis)
+- Dual-gun ships fire from two laterally-offset hardpoints (10 px left/right of nose axis); Thunderbolt's two melee swings still resolve as a single AOE (only one swing fires per cycle hit)
 
 ---
 
