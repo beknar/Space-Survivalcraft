@@ -61,6 +61,11 @@ except ImportError as e:
     print("    pip install pyautogui pynput")
     sys.exit(1)
 
+try:
+    import pygetwindow as gw
+except ImportError:
+    gw = None
+
 
 API_BASE = "http://127.0.0.1:8765"
 POLL_HZ = 10.0
@@ -453,6 +458,30 @@ def _ensure_weapon(state: dict, want: str) -> None:
 
 # ── Main loop ─────────────────────────────────────────────────────────────
 
+def _ensure_game_focused() -> None:
+    """Activate the game window so pyautogui keystrokes reach
+    it.  No-op on non-Windows or if pygetwindow isn't installed.
+    Called periodically from main()."""
+    if gw is None:
+        return
+    try:
+        for w in gw.getAllWindows():
+            if "Call of Orion" in (w.title or ""):
+                # Skip if already active to avoid focus thrash.
+                try:
+                    if hasattr(w, "isActive") and w.isActive:
+                        return
+                except Exception:
+                    pass
+                try:
+                    w.activate()
+                except Exception:
+                    pass
+                return
+    except Exception:
+        pass
+
+
 def main() -> None:
     print("=" * 60)
     print("Call of Orion -- autopilot")
@@ -464,12 +493,21 @@ def main() -> None:
     pyautogui.PAUSE = 0.0
     period = 1.0 / POLL_HZ
     last_warn = 0.0
+    last_focus = 0.0
+    # Activate the game once at startup so the very first
+    # keystroke lands in the game window.
+    _ensure_game_focused()
     while not State.stop:
         if State.paused:
             KeyState.release_all()
             time.sleep(0.1)
             continue
         t0 = time.time()
+        # Re-activate the game window every ~2 s so keystrokes
+        # keep reaching it even if the user clicks elsewhere.
+        if t0 - last_focus > 2.0:
+            _ensure_game_focused()
+            last_focus = t0
         state = fetch_state()
         if state is None:
             if time.time() - last_warn > 5.0:
