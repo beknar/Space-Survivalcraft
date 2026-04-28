@@ -61,6 +61,7 @@ Space Survivalcraft/
 │   ├── null_field.py, slipspace.py
 │   ├── drone.py             # MiningDrone + CombatDrone + WaypointPlanner client
 │   ├── parked_ship.py       # multi-ship + AI pilot
+│   ├── melee.py             # MeleeBlade — persistent lightsabre + swing AOE
 │   └── npc_ship.py          # RefugeeNPCShip (story encounter)
 └── zones/                   # ZoneID, MainZone, Zone2, StarMazeZone,
                              # warp zones (Zone-1 / Nebula / Maze
@@ -218,6 +219,22 @@ DFS-carved.  `MazeLayout` carries `rooms`, `walls`, `room_graph`,
 (A*-routed via `WaypointPlanner`).  Outside the mazes the zone
 hosts Nebula content via `nebula_shared.populate_nebula_content`.
 
+Hostile sprites live across three SpriteLists: `_maze_aliens`
+(swapped into `gv.alien_list` during update), `_stalkers`, and
+`_aliens` (Z2-style).  `StarMazeZone._turret_extra_target_lists`
+returns `(_stalkers, _aliens)` so turrets + projectile collision
+see *every* enemy without per-frame SpriteList allocation.
+`update_logic.update_buildings` builds a plain Python list
+(`list(gv.alien_list) + extras`) per frame for turret AI
+selection; `collisions.handle_turret_projectile_hits` iterates
+`(gv.alien_list, *extras)` and calls
+`arcade.check_for_collision_with_list` on each.  The earlier
+cached-SpriteList design leaked ~15 KB per frame
+(`SpriteList.clear()+append()` accumulates back-references in
+each sprite's `sprite_lists` tuple) and tanked soak runs to
+~568 MB growth in 5 min — pinned at no-leak by
+`unit tests/test_star_maze_turret_targets.py`.
+
 ### Nebula Boss + QWI
 
 `sprites/nebula_boss.py` is a separate boss for Zone 2 / Star
@@ -226,6 +243,31 @@ Wave Integrator"]` triggers it; clicking the QWI within
 `QWI_PLACE_RADIUS` opens `qwi_menu.QWIMenu` (100 iron per
 resummon).  Reward: 3000 iron + 1000 copper.  Turrets, missile
 arrays, and AI-piloted parked ships all damage the Nebula boss.
+
+### Melee weapon (per-faction lightsabre)
+
+Third weapon group cycled by Tab.  `world_setup.load_weapons(
+gun_count, faction=None)` reads `MELEE_SWORD_PNG_BY_FACTION`
+(Earth → Sabers-06, Colonial → Sabers-05, Heavy World →
+Sabers-02, Ascended → Sabers-03; assets from
+https://willisthehy.itch.io/light-saber-game-assets) and falls
+back to `MELEE_SWORD_PNG` when faction is unknown.  Caller sites
+that recreate the weapon list (`game_view._init_weapons_and_audio`,
+`combat_helpers._restore_player`, `combat_helpers.add_xp`,
+`ship_manager.switch_to_ship`) all pass `gv._faction`.
+
+`MeleeBlade` (in `sprites/melee.py`) is a persistent sprite —
+visible while the melee weapon is the active group, hidden
+otherwise.  The pivot (handle) is fixed at
+`ship.center + MELEE_HIT_RADIUS * forward`; each frame the
+sprite centre slides forward by `height/2 * tip_dir` so the
+handle stays glued to the pivot and the tip arcs through the
+swing animation.  Swing animates -75° → +75° relative to
+heading (`MELEE_SWING_ARC = 150.0`) over
+`MELEE_SWING_LIFETIME` (0.25 s); AOE damage one-hit per enemy
+per swing inside `hit_radius` (80 px base / 110 px Bastion).
+Lightsabre PNG is drawn vertically so
+`MELEE_TEX_ANGLE_OFFSET = 0.0` — no diagonal compensation.
 
 ### Multi-ship + AI Pilot
 

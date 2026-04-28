@@ -41,10 +41,13 @@ All ships start at world centre. Ships rendered at 0.75x scale (96 px in-game). 
 
 ## Weapons
 
-| Weapon | Damage | Cooldown | Speed | Range | Targets |
+| Weapon | Damage | Cooldown | Speed / AOE | Range | Targets |
 |---|---|---|---|---|---|
 | **Basic Laser** | 25 | 0.30 s | 900 px/s | 1,200 px | Alien ships only |
 | **Mining Beam** | 10 | 0.10 s | 500 px/s | 800 px | Asteroids only |
+| **Energy Blade (Melee)** | 40 (55 Bastion) | 0.30 s | 80 px AOE (110 px Bastion) — pivot 80 px ahead of nose | one-hit per enemy per swing | Alien ships + bosses |
+
+The Energy Blade is a persistent lightsabre sprite that lives in front of the ship's nose while the melee weapon is active. On fire it runs a 0.25 s swing animation arcing **-75° → +75°** from the ship's heading (150° total, `MELEE_SWING_ARC = 150.0`). The blade rotates around its handle (pivot fixed at `ship.center + 80 px * forward`) so the tip traces an arc; AOE damage is dealt once per enemy per swing inside `MELEE_HIT_RADIUS`. Each faction renders its own sabre colour (Earth → red, Colonial / Heavy World / Ascended → variants from [willisthehy.itch.io/light-saber-game-assets](https://willisthehy.itch.io/light-saber-game-assets)).
 
 ### Broadside Module
 

@@ -7,7 +7,7 @@ A top-down space survival game built with Python and the Arcade framework. Pilot
 - **4 factions** and **5 ship types** with unique stats and contrail colours
 - **3 playable characters** (Debra, Ellie, Tara) with 10-level progression trees
 - **Newtonian flight model** with thrust, inertia, sideslip, and gamepad support
-- **Combat** with Basic Laser, Mining Beam, and ship module weapons (broadside lasers)
+- **Combat** with Basic Laser, Mining Beam, **Energy Blade (per-faction lightsabre melee, -75° → +75° swing arc, 80 px AOE)**, and ship module weapons (broadside lasers)
 - **Boss encounter** --- 3-phase Double Star boss with 2,000 HP, spread shots, and charge attacks (also routes around force walls)
 - **12 warp zones** --- meteor, lightning, gas cloud, and enemy spawner transitions in three flavours: original Zone-1 access (post-boss), `NEBULA_WARP_*` post-Nebula-boss variants (2× danger, route to the Star Maze), and `MAZE_WARP_*` Star-Maze variants (return to the maze)
 - **Zone 2 (Nebula)** --- second biome with copper, gas hazards, magnetic asteroids, and 4 new alien types

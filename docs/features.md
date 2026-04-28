@@ -45,6 +45,7 @@ chooses the stats. All five types are available under every faction.
 
 - **Basic Laser** --- high-damage weapon for fighting enemies
 - **Mining Beam** --- rapid-fire tool for harvesting asteroids
+- **Energy Blade (Melee)** --- third weapon group: a persistent lightsabre that rests in front of the ship's nose while the melee weapon is active and swings on fire (-75° → +75° arc, 80 px AOE reach, 40 base dmg / 55 for Bastion). Each faction gets its own sabre colour: Earth (Sabers-06), Colonial (Sabers-05), Heavy World (Sabers-02), Ascended (Sabers-03)
 - Dual-gun ships fire from two laterally-offset hardpoints simultaneously
 - Weapon cycling with Tab key or gamepad right bumper
 - Camera shake and hit sparks on weapon impacts

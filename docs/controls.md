@@ -11,7 +11,7 @@
 | Sideslip left | Q |
 | Sideslip right | E |
 | Fire active weapon | Space (hold for auto-fire) |
-| Cycle weapon | Tab |
+| Cycle weapon (Basic Laser → Mining Beam → Energy Blade) | Tab |
 | Open/close inventory | I |
 | Quick Use item | 1--9, 0 (or click the slot) |
 | Open/close build menu | B |
