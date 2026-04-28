@@ -50,6 +50,28 @@ Gamepad dead zone: 0.15
 
 ## Menu Navigation
 
+All overlay menus accept the same keyboard navigation pattern.
+Mouse continues to work everywhere it always did:
+
+| Key | Action |
+|---|---|
+| `Tab` / `↓` / `S` | focus next button (wraps) |
+| `Shift+Tab` / `↑` / `W` | focus previous (wraps) |
+| `Enter` / `Space` / `Numpad-Enter` | activate focused button |
+| `←` / `→` (Video Properties only) | cycle resolution preset |
+| `Esc` | back / close (cascades through overlays) |
+
+Bare `Enter` on first open of any menu activates the default button:
+
+* **Splash** -- Play Now (idx 0)
+* **Escape menu** -- Resume (idx 0)
+* **Music Videos picker** -- the first `.mp4`
+
+Per-screen specifics:
+
+- **Splash menu**: Play Now / Load Game / Options / Exit Game.
+  In Load Game, the same Tab/Enter pattern walks the save slots
+  + Back button.
 - **Selection screen**: Left/Right or A/D to browse factions and ships, Enter/Space to confirm, ESC to go back
 - **Escape menu**: ESC opens/closes; ESC in sub-menus returns to parent
 - **Build menu**: B to open/close; mouse wheel rotates buildings during placement; ESC cancels placement

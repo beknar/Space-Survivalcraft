@@ -1,12 +1,24 @@
 # Space Survivalcraft — Dev Reference
 
-**Call of Orion** is a top-down Newtonian space survival game built on
-Python 3.12 + Arcade 3.3.3.  Three main zones (Zone 1 / Nebula /
-Star Maze), 12 themed warp zones, two bosses, modular station,
-companion drones, multi-ship + AI Pilot, story NPC + dialogue.
+**Call of Orion**: top-down Newtonian space survival on
+Python 3.12 + Arcade 3.3.3.  Three main zones (Zone 1 / Nebula
+/ Star Maze), 12 themed warp zones, two bosses, modular
+station, companion drones, multi-ship + AI Pilot, story NPC
++ dialogue, per-faction lightsabre melee.
 
-See `README.md` for the player-facing feature list, `docs/` for
-gameplay systems / rules / stats / controls, `ROADMAP.md` for the
+For everything detailed see `docs/`:
+
+| Doc | What's in it |
+|---|---|
+| `docs/features.md` | Player-facing feature list |
+| `docs/statistics.md` | Tuned numbers (HP, dmg, speeds, costs) |
+| `docs/rules.md` | Collision + damage + AI + Star Maze rules |
+| `docs/controls.md` | Keyboard / mouse / gamepad / menu nav |
+| `docs/architecture.md` | Module map, design patterns, dependency graph |
+| `docs/bot.md` | Bot stack (API, autopilot, combat assist) |
+| `docs/lore.md` | Factions, characters, story |
+
+`README.md` is the player-facing intro.  `ROADMAP.md` is the
 chronology.
 
 ## Running
@@ -15,41 +27,48 @@ chronology.
 venv\Scripts\activate.bat        # Windows CMD
 source venv/Scripts/activate     # Git Bash
 python main.py
-python -m pytest "unit tests/" -v
-python -m pytest "unit tests/integration/" -v
+python -m pytest "unit tests/"                  # fast suite
+python -m pytest "unit tests/integration/"      # slow suite (real arcade window)
 ```
 
-## File structure (cheat sheet)
+`pytest.ini` excludes `integration/` from default runs.  Tests
+share an `arcade_window` autouse fixture in
+`unit tests/conftest.py` (module-scoped).
+
+## File map
 
 ```
 Space Survivalcraft/
-├── main.py                  # entry point; patches pyglet clock
-├── constants.py             # tuned values + asset paths (sections 1–16)
+├── main.py                  # entry point
+├── constants.py             # tuned values + asset paths
 ├── settings.py              # global audio/video/config singleton
-├── game_view.py             # thin dispatcher
+├── game_view.py             # GameView -- thin dispatcher
+├── update_logic.py          # per-frame update phases
+├── draw_logic.py            # per-frame draw phases
+├── input_handlers.py        # keyboard + mouse routing
+├── collisions.py            # every collision handler
 ├── combat_helpers.py        # damage / spawn / XP / boss / drone / fleet
 ├── building_manager.py      # building placement + trade station
 ├── ship_manager.py          # ship upgrade / place / switch
-├── draw_logic.py            # draw_world / draw_ui / compute_world_stats
-├── update_logic.py          # per-frame update phases
-├── input_handlers.py        # keyboard + mouse routing
-├── game_save.py             # save/load + _restore_sprite_list helper
-├── collisions.py            # every collision handler
 ├── world_setup.py           # asset loading + asteroid/alien population
-├── qwi_menu.py              # Quantum Wave Integrator overlay
-├── fleet_menu.py            # Fleet Control overlay (Y key)
-├── map_overlay.py           # full-screen map (M key)
-├── dialogue_overlay.py      # NPC conversation overlay
-├── dialogue/                # Debra/Ellie/Tara refugee trees
-├── hud.py, hud_minimap.py, hud_equalizer.py
-├── base_inventory.py, inventory.py (5×5), station_inventory.py (10×10)
-├── escape_menu/             # escape menu package
-├── build_menu.py, craft_menu.py, trade_menu.py
-├── station_info.py, ship_stats.py, death_screen.py
+├── game_save.py             # save/load + codec-pair docblock
+├── game_music.py            # OST + music-video playback
+├── video_player.py          # ffmpeg-backed video decoder
 ├── character_data.py        # XP / level / per-character bonuses
-├── video_player.py, game_music.py
-├── menu_scroll.py           # shared ScrollState for build + craft menus
-├── specs.py                 # frozen-dataclass enemy / drone stat bundles
+│
+├── hud.py + hud_minimap.py + hud_equalizer.py
+├── base_inventory.py + inventory.py (5x5) + station_inventory.py (10x10)
+├── build_menu.py + craft_menu.py + trade_menu.py + qwi_menu.py
+├── fleet_menu.py + map_overlay.py + station_info.py + ship_stats.py
+├── escape_menu/             # main / save / load / video / songs / help / config / video_props
+├── dialogue_overlay.py + dialogue/   # Debra / Ellie / Tara refugee trees
+├── splash_view.py + selection_view.py + options_view.py + death_screen.py
+│
+├── menu_scroll.py           # shared ScrollState (build + craft)
+├── ui_helpers.py            # draw_button / draw_load_slot
+├── specs.py                 # frozen-dataclass enemy / drone stats
+├── constants_paths.py       # asset-path-only re-exports
+│
 ├── sprites/
 │   ├── player.py, boss.py, nebula_boss.py
 │   ├── alien.py, zone2_aliens.py, alien_ai.py (PatrolPursueMixin)
@@ -61,280 +80,71 @@ Space Survivalcraft/
 │   ├── null_field.py, slipspace.py
 │   ├── drone.py             # MiningDrone + CombatDrone + WaypointPlanner client
 │   ├── parked_ship.py       # multi-ship + AI pilot
-│   ├── melee.py             # MeleeBlade — persistent lightsabre + swing AOE
-│   └── npc_ship.py          # RefugeeNPCShip (story encounter)
-└── zones/                   # ZoneID, MainZone, Zone2, StarMazeZone,
-                             # warp zones (Zone-1 / Nebula / Maze
-                             # variants), maze_geometry (rooms + A*
-                             # + WaypointPlanner), nebula_shared
+│   ├── melee.py             # MeleeBlade -- per-faction lightsabre
+│   └── npc_ship.py          # RefugeeNPCShip
+│
+├── zones/                   # MainZone, Zone2, StarMazeZone, warp variants
+│   ├── maze_geometry.py     # rooms + A* + WaypointPlanner
+│   └── nebula_shared.py     # content shared by Zone 2 + Star Maze
+│
+└── bot_*.py                 # bot stack -- see docs/bot.md
 ```
 
 ## Tests
 
-- **Fast** (`unit tests/`, ~1150 tests, ~25 s) — physics, AI, inventory,
-  modules, AI Pilot, refugee/dialogue trees, station shield, Star Maze
-  (geometry, A* pathing + WaypointPlanner contract, MazeAlien /
-  MazeSpawner stats + save round-trip), companion drones (slot pick,
-  mode machine, LOS disengage, spawner priority, stack 100 + save),
-  Fleet Control menu, Nebula boss + QWI, null fields, slipspaces,
-  force wall, gas area, nebula_shared helpers, ship_manager, dialogue
-  overlay lifecycle, save restore, CPU microbenchmarks.
-- **Integration** (`unit tests/integration/`, ~378 tests) — real
-  GameView flows, full-frame FPS, drone wall containment, GPU render,
-  resolution scaling, soak (5 min each, scaffold in
-  `unit tests/integration/_soak_base.py`).
-- `pytest.ini` excludes `integration/` from default runs.  Real
-  music-video tests look in `./yvideos/*.mp4` (gitignored).
+Roughly 1335 fast + 470 integration.  See `docs/architecture.md`
+for the testing-infrastructure details (soak scaffold,
+performance threshold patterns, etc).
 
-## Load-bearing patterns
+## Load-bearing patterns (one-liners — full detail in `docs/architecture.md`)
 
-### Module extraction + thin dispatcher
-
-Extracted modules live next to `game_view.py` and follow:
-
-```python
-from typing import TYPE_CHECKING
-if TYPE_CHECKING:
-    from game_view import GameView
-
-def work(gv: GameView, ...): ...
-```
-
-`GameView` holds shared state + one-line delegates so external callers
-(`collisions.py`, `game_save.py`, tests) stay stable when code moves.
-
-### Zone state machine
-
-`zones/` owns Zone 1 (`MainZone`), Zone 2 (`Zone2`, the Nebula),
-Zone 3 (`StarMazeZone`), and three flavours of four-themed warp
-zones (Zone-1 originals, `NEBULA_WARP_*`, `MAZE_WARP_*`).
-`instance.zone_id` distinguishes the variant inside `setup`.
-
-Each `ZoneState` has `setup / teardown / update / draw /
-background_update`.  Zone 2 + Star Maze stash buildings + parked
-ships in `_building_stash` so warp-zone round trips don't wipe them.
-`StarMazeZone` delegates Nebula-style content (asteroids, gas,
-wanderers, Z2 aliens, null fields, slipspaces) to
-`zones/nebula_shared.py`.  Star Maze geometry (rooms, walls,
-room_graph + doorways + entrance, A* helper, WaypointPlanner) lives
-in `zones/maze_geometry.py`.  Shared sprite lists swap to the active
-zone's versions during update.
-
-### HUD / overlay draw pattern
-
-Every dense overlay (`hud.py`, `build_menu.py`, `craft_menu.py`,
-`trade_menu.py`) uses the same triplet: rect fills via a pooled
-`arcade.SpriteList`, per-row `arcade.Text` pools attached to a
-shared `pyglet.graphics.Batch`, and guarded `.text` / `.x` / `.y`
-/ `.color` setters that compare-before-write to dodge pyglet's
-layout rebuild.
-
-### Modal-video gate
-
-`draw_logic.draw_ui` computes `menu_open` as the OR of every modal
-(escape, craft, trade, build, station-inv, qwi, fleet, station-info,
-ship-stats, dialogue, map).  While `menu_open`, the character +
-music video `draw_in_hud` calls are skipped — the blit + pixel
-readback are the expensive parts.
-
-### GC + sound cleanup cadence
-
-`update_logic.update_preamble`:
-
-- **Every 5 s**: `_cleanup_finished_sounds` (pyglet Player drain) +
-  `gc.collect(0)`.  Cleanup scales per-tick deletes with backlog
-  (4 / 12 / 32) AND `_tracked_play_sound` hard-caps the tracking
-  list at 200 entries with synchronous oldest-eviction — without
-  the cap, dead Players accumulated faster than cleanup could
-  drain and combat soaks collapsed from 178 → 2 FPS.
-- **Every 60 s**: `gc.collect(1)` (gen-1 sweep).  Replaces the old
-  120-s gen-2 pass that produced 50 ms spikes.
-
-### Input contracts
-
-- `handle_mouse_press` short-circuits through overlays: death
-  screen, dialogue, escape, destroy mode, placement, build, station
-  inv, craft, trade, qwi, fleet, then world clicks.
-- `_handle_world_click` order: refugee NPC → parked ship → trade
-  station → Home Station → Basic / Advanced Crafter → QWI.
-- `ESC` cascade: trade → craft → qwi → fleet → station inv →
-  station info → ship stats → map → moving / destroy / placement
-  / build / inv → escape menu toggle.
-- Hotkeys: `M` map, `R` deploy drone (variant from active weapon),
-  `Shift+R` recall drone (refunds 1 charge), `Y` Fleet Control.
-  Long-press LMB on Turret / Missile Array enters move mode,
-  clamped to `TURRET_FREE_PLACE_RADIUS` of the Home Station.
-
-### Drone mode machine + maze pathfinding
-
-`sprites/drone._BaseDrone` carries `_mode` (FOLLOW / ATTACK /
-RETURN_HOME), `_reaction` ("attack" / "follow"), and `_direct_order`
-(None / "return" / "attack").  `_update_mode` runs orders →
-RETURN_HOME hysteresis → reaction → distance / LOS checks each
-frame.  Slot picker (LEFT default, RIGHT / BACK fallback) reads
-the active zone's wall list via `_walls_from_zone`.
-
-`zones/maze_geometry.WaypointPlanner` is the shared per-body
-pathfinder over the room graph: doorway-midpoint waypoints,
-wall-band snap (50 px slack), doorway-arrival path advance,
-target-outside → route via `entrance_room`, exit branch emits
-`entrance_xy_outer` (a fixed point past the gap, kills the
-oscillation), entry branch emits `entrance_xy` for body-outside
-+ target-inside.  5 s no-progress timer fires `gave_up()`;
-RETURN_HOME wipes the planner cooldown each frame so it never
-freezes.  An un-stick perpendicular nudge in `_BaseDrone` slides
-the body sideways for one frame after 0.5 s of no displacement
-as the safety net.
-
-### Fleet Control menu
-
-`fleet_menu.FleetMenu` (Y key) is a four-button modal — RETURN,
-ATTACK (direct orders), FOLLOW ONLY, ATTACK ONLY (reactions).
-Buttons return string ids consumed by
-`combat_helpers.apply_fleet_order`, which mutates the active
-drone's `_reaction` / `_direct_order`.  Direct orders override
-reactions until cleared (RETURN clears only on close + LOS,
-ATTACK persists until replaced).  Reactions + standing orders
-round-trip through `_serialize_active_drone` /
-`_restore_active_drone` in `game_save.py`.
-
-### Force wall
-
-`sprites/force_wall.py` exposes `closest_point`,
-`blocks_point(px, py, radius)`, and `segment_crosses(ax, ay, bx,
-by)`.  Aliens delegate avoidance to
-`sprites/alien_ai.compute_avoidance`; any move that would cross a
-wall reverts to pre-move.  The Nebula boss also routes around
-walls via the same primitives.
-
-### Star Maze
-
-`zones/star_maze.py` runs a 12000×12000 zone with `STAR_MAZE_COUNT`
-(4) maze structures via `STAR_MAZE_CENTERS`.  Each maze is a 5×5
-room grid (300 px interior, 32 px walls), recursive-backtracker
-DFS-carved.  `MazeLayout` carries `rooms`, `walls`, `room_graph`,
-`doorways` (per-edge midpoints), `entrance_room` + `entrance_xy`
-+ `entrance_xy_outer`.  Each room hosts a `MazeSpawner` (kill =
-1000 iron + 100 XP, respawn 90 s) that drips `MazeAlien` enemies
-(A*-routed via `WaypointPlanner`).  Outside the mazes the zone
-hosts Nebula content via `nebula_shared.populate_nebula_content`.
-
-Hostile sprites live across three SpriteLists: `_maze_aliens`
-(swapped into `gv.alien_list` during update), `_stalkers`, and
-`_aliens` (Z2-style).  `StarMazeZone._turret_extra_target_lists`
-returns `(_stalkers, _aliens)` so turrets + projectile collision
-see *every* enemy without per-frame SpriteList allocation.
-`update_logic.update_buildings` builds a plain Python list
-(`list(gv.alien_list) + extras`) per frame for turret AI
-selection; `collisions.handle_turret_projectile_hits` iterates
-`(gv.alien_list, *extras)` and calls
-`arcade.check_for_collision_with_list` on each.  The earlier
-cached-SpriteList design leaked ~15 KB per frame
-(`SpriteList.clear()+append()` accumulates back-references in
-each sprite's `sprite_lists` tuple) and tanked soak runs to
-~568 MB growth in 5 min — pinned at no-leak by
-`unit tests/test_star_maze_turret_targets.py`.
-
-### Nebula Boss + QWI
-
-`sprites/nebula_boss.py` is a separate boss for Zone 2 / Star
-Maze with gas-cloud + cone attacks.  `BUILDING_TYPES["Quantum
-Wave Integrator"]` triggers it; clicking the QWI within
-`QWI_PLACE_RADIUS` opens `qwi_menu.QWIMenu` (100 iron per
-resummon).  Reward: 3000 iron + 1000 copper.  Turrets, missile
-arrays, and AI-piloted parked ships all damage the Nebula boss.
-
-### Melee weapon (per-faction lightsabre)
-
-Third weapon group cycled by Tab.  `world_setup.load_weapons(
-gun_count, faction=None)` reads `MELEE_SWORD_PNG_BY_FACTION`
-(Earth → Sabers-06, Colonial → Sabers-05, Heavy World →
-Sabers-02, Ascended → Sabers-03; assets from
-https://willisthehy.itch.io/light-saber-game-assets) and falls
-back to `MELEE_SWORD_PNG` when faction is unknown.  Caller sites
-that recreate the weapon list (`game_view._init_weapons_and_audio`,
-`combat_helpers._restore_player`, `combat_helpers.add_xp`,
-`ship_manager.switch_to_ship`) all pass `gv._faction`.
-
-`MeleeBlade` (in `sprites/melee.py`) is a persistent sprite —
-visible while the melee weapon is the active group, hidden
-otherwise.  The pivot (handle) is fixed at
-`ship.center + MELEE_HIT_RADIUS * forward`; each frame the
-sprite centre slides forward by `height/2 * tip_dir` so the
-handle stays glued to the pivot and the tip arcs through the
-swing animation.  Swing animates -75° → +75° relative to
-heading (`MELEE_SWING_ARC = 150.0`) over
-`MELEE_SWING_LIFETIME` (0.25 s); AOE damage one-hit per enemy
-per swing inside `hit_radius` (80 px base / 110 px Bastion).
-Lightsabre PNG is drawn vertically so
-`MELEE_TEX_ANGLE_OFFSET = 0.0` — no diagonal compensation.
-
-### Multi-ship + AI Pilot
-
-`ParkedShip` stores faction / type / level, HP / shields,
-`cargo_items`, `module_slots`.  `ship_manager._place_new_ship`
-builds one from the current player on upgrade;
-`ship_manager.switch_to_ship` swaps inventory / modules / weapons /
-ability meter.  `collisions.handle_parked_ship_damage` routes
-every projectile type — but skips player projectiles when
-`has_ai_pilot` is True (friendly-fire immunity).  Parked ships
-stash with zones and serialize fully.
-
-Installing `ai_pilot` flips `ParkedShip.has_ai_pilot` on; the
-parked ship orbits the station until it sees a target, then
-flips to pursuit.  Shots route to `gv.turret_projectile_list`.
-
-### Station shield + AI yellow shield
-
-`update_logic.update_station_shield` spawns a faction-tinted
-`ShieldSprite` over the Home Station while a `Shield Generator`
-exists.  `collisions._station_shield_absorbs` bleeds
-`proj.damage` off `gv._station_shield_hp` for any alien + boss
-projectile inside the disk.  AI-piloted parked ships attach
-their own yellow `ShieldSprite` lazily (alpha 200) and regen at
-0.5× the ship's base rate.
-
-### Respawn on death
-
-`combat_helpers.trigger_player_death` no longer ends the game —
-drops every cargo stack + module + quick-use consumable at the
-death site, flags both bosses to retreat, resets every alien
-across every zone to PATROL.  After the 1.5 s death animation
-`combat_helpers.respawn_player` does either soft (last visited
-Home Station, 50 % HP / 50 % shields, inventory preserved) or
-hard (fresh L1 ship at Zone 1 centre, 25 % HP / 0 shields,
-progression rolled back).  Legacy `DeathScreen` no longer
-triggers.
-
-### Saves
-
-`game_save.save_to_dict` + `load_game`.  Zone 1 / Zone 2 / Star
-Maze state saved independently (even when the player is in
-another zone via the stash).  Active drone, parked ships, fog of
-war, boss state, trade credits + station position, refugee NPC,
-quest flags, station shield HP all persisted.  A codec-pair
-documentation block at the top of `game_save.py` lists each
-serialize / restore pair so field drift is caught at review time.
-
-### Shared refactor helpers
-
-- `collisions._hit_player_on_cooldown(gv, damage, volume,
-  cooldown, shake)` consolidates the cooldown + damage + sound +
-  shake pattern.
-- `sprites/alien_ai.py` owns `pick_patrol_target`,
-  `compute_avoidance`, `segment_crosses_any_wall`, plus
-  `PatrolPursueMixin` adopted by every "small ship" enemy.
-- `menu_scroll.ScrollState` shared between build + craft menus.
-- `escape_menu/_ui.draw_button(...)` centralises button drawing.
-- `constants_paths.py` re-exports just the asset-path constants.
-- `unit tests/integration/_soak_base.py` hosts `run_soak` plus the
-  `SOAK_DURATION_S` / `MIN_FPS` / `MAX_MEMORY_GROWTH_MB`
-  thresholds.
-- `specs.py` bundles drone / stalker / maze-alien stats as frozen
-  dataclasses for one canonical source.
+* **Module extraction + thin dispatcher** -- `GameView` holds
+  state + one-line delegates; helpers live next to it and take
+  `gv` as first arg with `if TYPE_CHECKING` import.
+* **Zone state machine** -- each `ZoneState` exposes
+  `setup / teardown / update / draw / background_update`.
+  Zone 2 + Star Maze stash buildings + parked ships in
+  `_building_stash` so warp-zone round trips don't wipe them.
+  `StarMazeZone` delegates Nebula content to
+  `zones/nebula_shared.py`.  Geometry in `zones/maze_geometry.py`.
+* **HUD / overlay draw triplet** -- pooled rect SpriteList +
+  `arcade.Text` pool on shared `pyglet.graphics.Batch` +
+  guarded compare-before-write setters.
+* **Modal-video gate** -- `draw_logic.draw_ui` skips video
+  blits while any modal is open (the blit + readback are the
+  expensive part).
+* **GC + sound cleanup cadence** -- 5 s `gc.collect(0)` +
+  `_cleanup_finished_sounds` (with 200-entry tracking cap),
+  60 s gen-1 sweep.  Soak FPS collapsed without the cap.
+* **Drone mode machine + maze pathfinding** --
+  `_BaseDrone._mode` (FOLLOW / ATTACK / RETURN_HOME) +
+  `_reaction` + `_direct_order`.  `WaypointPlanner` in
+  `zones/maze_geometry.py` is the per-body A* + safety nets.
+* **Star Maze multi-list turret targeting** --
+  `StarMazeZone._turret_extra_target_lists` exposes
+  `(_stalkers, _aliens)` so turrets see every enemy without
+  per-frame SpriteList allocation (the previous cached-list
+  design leaked ~15 KB / frame and tanked soaks; pinned by
+  `test_star_maze_turret_targets.py`).
+* **Per-faction lightsabre melee** --
+  `MELEE_SWORD_PNG_BY_FACTION` chooses the sprite;
+  `world_setup.load_weapons(gun_count, faction=...)` threads
+  the choice; `MeleeBlade` in `sprites/melee.py` swings -75°
+  -> +75° around a fixed handle pivot.
+* **Multi-ship + AI Pilot** -- `ParkedShip` stores faction /
+  type / level / HP / shields / cargo / modules.
+  `ship_manager.switch_to_ship` swaps everything.  AI Pilot
+  module flips `has_ai_pilot` so the parked ship orbits and
+  fires through `gv.turret_projectile_list` (friendly-fire
+  immune).
+* **Bot stack** -- `bot_api.py` exposes `/state` + `/intent`;
+  `bot_combat_assist.py` monkey-patches `update_weapons` for
+  reflex aim + fire; `bot_autopilot.py` polls /state at 10 Hz
+  and dispatches keystrokes.  `bot_kickoff.py` wires it all
+  up.  Full guide: `docs/bot.md`.
 
 ## Asset sources
 
-See `docs/README.md` (Asset Sources) for the full licensed-pack
-list.  All asset files live under `assets/` (gitignored), plus
-`characters/*.mp4` (gitignored) and `yvideos/*.mp4` (gitignored).
+See `docs/README.md` (Asset Sources) for the licensed-pack list.
+All `assets/`, `characters/*.mp4`, `yvideos/*.mp4`, and
+`bot_io/` are gitignored.

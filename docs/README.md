@@ -10,6 +10,7 @@ Welcome to the full documentation for **Call of Orion**, a top-down space surviv
 - [Rules & Mechanics](rules.md) --- Collision rules, damage flow, AI behaviour, building placement, respawn logic
 - [Lore & Characters](lore.md) --- Factions, character backstories, progression, and the Double-Star War
 - [Architecture](architecture.md) --- Codebase structure, module extraction pattern, and dependency graph
+- [Bot stack](bot.md) --- API + autopilot + combat assist for hands-off play
 - [Game Rules Reference](game-rules.md) --- Comprehensive game rules document with asset paths and technical details
 
 # Asset Sources
