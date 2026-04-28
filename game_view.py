@@ -161,6 +161,13 @@ class GameView(arcade.View):
         self._init_video_and_menus()
         self._init_zones()
 
+        # Optional bot API — only starts when COO_BOT_API is set.
+        try:
+            import bot_api
+            bot_api.maybe_start_from_env(self)
+        except Exception as e:
+            print(f"[bot_api] failed to start: {e}")
+
     # ── Init helpers ──────────────────────────────────────────────────────
 
     def _init_player_and_camera(self, faction: Optional[str]) -> None:
