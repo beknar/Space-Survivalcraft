@@ -1,4 +1,4 @@
-"""Supervised auto-play bot — Claude is the loop.
+"""Supervised auto-play bot -- Claude is the loop.
 
 Companion to ``bot_play.py``.  Where ``bot_play.py`` runs an
 autonomous strategy in pure code, this script delegates the
@@ -20,7 +20,7 @@ The bot loop:
   3. Update ``bot_io/status.json`` with the current id, phase,
      and timestamp.
   4. Wait for ``bot_io/command_<id>.json`` to appear (or for
-     ``DEFAULT_DECISION_TIMEOUT_S`` to elapse — in which case
+     ``DEFAULT_DECISION_TIMEOUT_S`` to elapse -- in which case
      the bot just takes another snapshot).
   5. Execute every action in the command file in order.
   6. Loop.
@@ -51,7 +51,7 @@ Command schema (``command_<id>.json``):
       "screenshot_after_s": 2.0          // optional, default 2.0
     }
 
-Hotkeys (same as bot_play.py — global):
+Hotkeys (same as bot_play.py -- global):
 
     Ctrl+Shift+P  pause / resume
     Ctrl+Shift+R  abort current snapshot wait + take fresh shot
@@ -74,6 +74,14 @@ import threading
 import time
 from pathlib import Path
 
+# UTF-8 stdout so unicode arrows in log messages don't crash on
+# Windows' cp1252 console.
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
+
 try:
     import pyautogui
     from pynput import keyboard
@@ -90,7 +98,7 @@ from bot_play import (
     patch_settings_for_video, launch_game, find_and_position_window,
     click_play_now, random_selection, load_random_music_video,
 )
-# NOTE: WINDOW_X / Y / W / H are NOT imported by name here — they're
+# NOTE: WINDOW_X / Y / W / H are NOT imported by name here -- they're
 # updated at runtime by ``find_and_position_window`` via ``global``,
 # and ``from bot_play import WINDOW_X`` would freeze the OLD value
 # in this module's namespace.  Always read them as
@@ -165,12 +173,12 @@ def wait_for_command(snapshot_id: int,
             try:
                 data = json.loads(cmd_path.read_text())
             except json.JSONDecodeError:
-                # File still being written — wait a beat.
+                # File still being written -- wait a beat.
                 time.sleep(0.1)
                 continue
             if data.get("snapshot_id") == snapshot_id:
                 return data
-            # Mismatched id (probably stale) — ignore + keep waiting.
+            # Mismatched id (probably stale) -- ignore + keep waiting.
             time.sleep(0.2)
             continue
         time.sleep(0.2)
@@ -222,7 +230,7 @@ def execute_actions(actions: list[dict]) -> None:
             elif atype == "type":
                 pyautogui.typewrite(act["text"], interval=0.02)
             elif atype == "note":
-                # Logging hook for Claude — surfaced in stdout so the
+                # Logging hook for Claude -- surfaced in stdout so the
                 # operator can correlate decisions with timestamps.
                 print(f"[bot] note: {act.get('text', '')}")
             else:
@@ -253,7 +261,7 @@ def supervised_loop(max_iterations: int = 10000) -> None:
             if not _wait(next_screenshot_after_s):
                 if BotState.stop:
                     return
-                # Restart hotkey only — drop into a fresh snapshot.
+                # Restart hotkey only -- drop into a fresh snapshot.
                 BotState.restart = False
 
         snap_path = take_snapshot(snapshot_id)
@@ -263,7 +271,7 @@ def supervised_loop(max_iterations: int = 10000) -> None:
 
         cmd = wait_for_command(snapshot_id)
         if cmd is None:
-            # Timeout / interrupt — treat as a no-op tick and move on.
+            # Timeout / interrupt -- treat as a no-op tick and move on.
             next_screenshot_after_s = DEFAULT_SCREENSHOT_AFTER_S
             snapshot_id += 1
             continue
@@ -309,7 +317,7 @@ def run_session() -> None:
 
 def main() -> None:
     print("=" * 60)
-    print("Call of Orion — supervised auto-play bot")
+    print("Call of Orion -- supervised auto-play bot")
     print("Hotkeys: Ctrl+Shift+P pause | Ctrl+Shift+R fresh-shot | Ctrl+Shift+Q quit")
     print(f"IO dir : {BOT_IO_DIR}")
     print("=" * 60)

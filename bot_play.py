@@ -13,7 +13,7 @@ The bot will:
      math is stable.
   4. Click "Play Now" on the splash, pick a random faction / ship /
      character via arrow keys + Enter.
-  5. Open Escape → Songs → Video and load a random ``.mp4`` from
+  5. Open Escape -> Songs -> Video and load a random ``.mp4`` from
      ``./yvideos``.
   6. Loop a survival routine: thrust + fire + cycle weapons + open
      the build menu periodically + drop a placeholder building
@@ -23,11 +23,11 @@ The bot will:
      in-game milestones) and switch to a more aggressive flight
      pattern when the boss appears.
 
-Hotkeys (global — work even when the game window has focus):
+Hotkeys (global -- work even when the game window has focus):
 
-    Ctrl+Shift+P  →  pause / resume the bot
-    Ctrl+Shift+R  →  restart the bot from phase 0
-    Ctrl+Shift+Q  →  stop the bot AND kill the game subprocess
+    Ctrl+Shift+P  ->  pause / resume the bot
+    Ctrl+Shift+R  ->  restart the bot from phase 0
+    Ctrl+Shift+Q  ->  stop the bot AND kill the game subprocess
 
 Dependencies (install in your venv):
 
@@ -42,7 +42,7 @@ Notes:
     targets relative to this origin.  If the game window resizes
     itself or you move it, run with Ctrl+Shift+R to restart.
   * Python's GIL plus pynput's keyboard listener mean you can use
-    the hotkeys even when the bot is blocked in a sleep — the
+    the hotkeys even when the bot is blocked in a sleep -- the
     listener thread sets a flag the main loop polls.
 """
 from __future__ import annotations
@@ -55,6 +55,14 @@ import sys
 import threading
 import time
 from pathlib import Path
+
+# Reconfigure stdout to UTF-8 so the various unicode arrows used in
+# log messages don't crash the bot on Windows' default cp1252 console.
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
 
 try:
     import pyautogui
@@ -69,10 +77,19 @@ except ImportError as e:
 # ── Tuning ────────────────────────────────────────────────────────────────
 
 SLOW_MULT: float = 1.0          # bump to 1.5 / 2.0 on slow machines
-WINDOW_X: int = 100             # top-left of the game window in screen coords
+WINDOW_X: int = 100             # top-left of the game window CLIENT area in PHYSICAL pixels
 WINDOW_Y: int = 50
-WINDOW_W: int = 1280            # arcade default — must match settings.json
-WINDOW_H: int = 800
+WINDOW_W: int = 1280            # game window CLIENT width in PHYSICAL pixels
+WINDOW_H: int = 800             # game window CLIENT height in PHYSICAL pixels
+
+# The game renders against an arcade-logical 1280x800 coordinate
+# system regardless of how Windows DPI scaling stretches the
+# rendered output.  Clicks computed from splash_view.py /
+# escape_menu/_main_mode.py constants are LOGICAL; they need to
+# be scaled by ``WINDOW_W / LOGICAL_W`` to land on the right
+# physical pixel after positioning + Windows scaling.
+LOGICAL_W: int = 1280
+LOGICAL_H: int = 800
 
 YVIDEOS_DIR = Path(__file__).resolve().parent / "yvideos"
 SETTINGS_JSON = Path(__file__).resolve().parent / "settings.json"
@@ -95,7 +112,7 @@ def set_dpi_awareness() -> None:
     reports / sets logical pixels while ``pyautogui`` operates in
     physical pixels.  That mismatch makes the bot's screenshots,
     clicks, and window-positioning land on the wrong area of the
-    screen — observed end-to-end as "the bot screenshots the
+    screen -- observed end-to-end as "the bot screenshots the
     desktop and clicks miss the game window".
 
     Calling ``SetProcessDpiAwareness(2)`` (PROCESS_PER_MONITOR_DPI_AWARE)
@@ -160,9 +177,9 @@ def _wait(seconds: float) -> bool:
 
 def patch_settings_for_video() -> None:
     """Set ``audio.video_dir`` to the absolute path of yvideos so the
-    Escape → Songs → Video menu picks it up on game start."""
+    Escape -> Songs -> Video menu picks it up on game start."""
     if not YVIDEOS_DIR.exists():
-        print(f"[bot] WARN: {YVIDEOS_DIR} does not exist — skipping "
+        print(f"[bot] WARN: {YVIDEOS_DIR} does not exist -- skipping "
               "video patch.  Bot will continue without a music video.")
         return
     data: dict = {}
@@ -225,24 +242,72 @@ def find_and_position_window(timeout_s: float = 30.0) -> bool:
         target.activate()
         target.moveTo(WINDOW_X, WINDOW_Y)
         time.sleep(0.5)            # let Windows settle the move
-        # Read back actual position + size.
-        actual_x, actual_y = int(target.left), int(target.top)
-        actual_w, actual_h = int(target.width), int(target.height)
-        print(f"[bot] window {target.title!r} positioned at "
-              f"({actual_x},{actual_y}) size {actual_w}x{actual_h}")
+        # Prefer the Win32 CLIENT rect (excludes title bar + borders)
+        # so click coords land inside the actual game viewport, not
+        # on the chrome.  Fall back to pygetwindow's full-window rect
+        # on non-Windows.
+        client = _get_client_rect_via_win32(target)
+        if client is not None:
+            actual_x, actual_y, actual_w, actual_h = client
+            print(f"[bot] window {target.title!r} CLIENT rect: "
+                  f"({actual_x},{actual_y}) size {actual_w}x{actual_h}")
+        else:
+            actual_x, actual_y = int(target.left), int(target.top)
+            actual_w, actual_h = int(target.width), int(target.height)
+            print(f"[bot] window {target.title!r} (full rect) "
+                  f"({actual_x},{actual_y}) size {actual_w}x{actual_h}")
         WINDOW_X, WINDOW_Y = actual_x, actual_y
         WINDOW_W, WINDOW_H = actual_w, actual_h
     except Exception as e:
+        # SetForegroundWindow on Windows often returns success-as-error
+        # ("The operation completed successfully") via pygetwindow's
+        # WindowsError translation.  Don't treat this as fatal -- the
+        # window is usually positioned correctly anyway, and we still
+        # try the client rect probe below.
         print(f"[bot] window positioning warn: {e}")
+        client = _get_client_rect_via_win32(target)
+        if client is not None:
+            WINDOW_X, WINDOW_Y, WINDOW_W, WINDOW_H = client
+            print(f"[bot] window CLIENT rect (post-warn): "
+                  f"({WINDOW_X},{WINDOW_Y}) size {WINDOW_W}x{WINDOW_H}")
 
-    # Probe the captured region — if it's nearly-uniform, we're
+    # Probe the captured region -- if it's nearly-uniform, we're
     # almost certainly screenshotting the desktop, not the game.
     if not _probe_screenshot_looks_like_game():
-        print("[bot] ERROR: probe screenshot looks uniform — coords "
+        print("[bot] ERROR: probe screenshot looks uniform -- coords "
               "still wrong.  Run with the game window visible on the "
               "primary monitor and try again.")
         return False
     return True
+
+
+def _get_client_rect_via_win32(target) -> tuple[int, int, int, int] | None:
+    """Return (left, top, width, height) of the window's CLIENT
+    area in physical screen pixels using Win32 GetClientRect +
+    ClientToScreen.  None on non-Windows or on failure."""
+    if sys.platform != "win32":
+        return None
+    try:
+        import ctypes
+        from ctypes import wintypes
+        hwnd = getattr(target, "_hWnd", None) or getattr(
+            target, "hWnd", None)
+        if hwnd is None:
+            return None
+        rect = wintypes.RECT()
+        if not ctypes.windll.user32.GetClientRect(
+                hwnd, ctypes.byref(rect)):
+            return None
+        pt = wintypes.POINT(rect.left, rect.top)
+        if not ctypes.windll.user32.ClientToScreen(
+                hwnd, ctypes.byref(pt)):
+            return None
+        return (pt.x, pt.y,
+                rect.right - rect.left,
+                rect.bottom - rect.top)
+    except Exception as e:
+        print(f"[bot] client-rect probe failed: {e}")
+        return None
 
 
 def _probe_screenshot_looks_like_game(min_unique_colors: int = 200) -> bool:
@@ -250,7 +315,7 @@ def _probe_screenshot_looks_like_game(min_unique_colors: int = 200) -> bool:
     count distinct colours.  The game (HUD + starfield + UI) easily
     produces 1000+ unique colours; the desktop in any region of a
     typical wallpaper produces far fewer in the tested area.  Below
-    the threshold → probably not the game.
+    the threshold -> probably not the game.
     """
     try:
         region = (WINDOW_X, WINDOW_Y, WINDOW_W, WINDOW_H)
@@ -272,16 +337,21 @@ def _probe_screenshot_looks_like_game(min_unique_colors: int = 200) -> bool:
         return True
 
 
-# ── Coordinate helpers (game window → screen) ─────────────────────────────
+# ── Coordinate helpers (game window -> screen) ─────────────────────────────
 
 def gx(arcade_x: float) -> int:
-    """Game-X (arcade, from left) → screen-X."""
-    return WINDOW_X + int(arcade_x)
+    """Game-X (arcade-logical, 0..LOGICAL_W) -> physical screen-X.
+    Scales by the actual client-area width to handle Windows DPI."""
+    scale = WINDOW_W / LOGICAL_W
+    return WINDOW_X + int(arcade_x * scale)
 
 
 def gy(arcade_y: float) -> int:
-    """Game-Y (arcade, from BOTTOM) → screen-Y (pyautogui, from TOP)."""
-    return WINDOW_Y + (WINDOW_H - int(arcade_y))
+    """Game-Y (arcade-logical, 0..LOGICAL_H, from BOTTOM) ->
+    physical screen-Y (pyautogui, from TOP).  Scales by the
+    actual client-area height to handle Windows DPI."""
+    scale = WINDOW_H / LOGICAL_H
+    return WINDOW_Y + int((LOGICAL_H - arcade_y) * scale)
 
 
 def click_game(arcade_x: float, arcade_y: float, dur: float = 0.05) -> None:
@@ -294,8 +364,10 @@ def click_game(arcade_x: float, arcade_y: float, dur: float = 0.05) -> None:
 
 def click_play_now() -> None:
     """Splash buttons stack centred at sh/2 - 20, going down.  Index 0
-    is "Play Now"."""
-    sw, sh = WINDOW_W, WINDOW_H
+    is "Play Now".  Coords below are in arcade-LOGICAL units
+    (1280x800); ``click_game`` -> ``gx/gy`` scales them to the
+    actual physical client-area pixel."""
+    sw, sh = LOGICAL_W, LOGICAL_H
     top_y = sh // 2 - 20
     bx = (sw - _BTN_W) // 2
     by = top_y - 0 * (_BTN_H + _BTN_GAP)
@@ -316,22 +388,23 @@ def random_selection() -> None:
                      ("ship", n_ships),
                      ("character", n_characters)):
         steps = random.randint(0, n - 1)
-        print(f"[bot] selection: {label} → +{steps}")
+        print(f"[bot] selection: {label} -> +{steps}")
         for _ in range(steps):
             pyautogui.press("right")
             if not _wait(0.10): return
         pyautogui.press("enter")
         if not _wait(0.5): return
-    print("[bot] selection complete — entering game")
+    print("[bot] selection complete -- entering game")
 
 
-# ── Escape menu → Songs → Video ───────────────────────────────────────────
+# ── Escape menu -> Songs -> Video ───────────────────────────────────────────
 
 def _menu_btn_center(btn_idx: int) -> tuple[float, float]:
-    """Return the arcade-coord centre of escape-menu button ``btn_idx``
-    (matches MainMode._recalc)."""
-    px = (WINDOW_W - _MENU_W) // 2
-    py = (WINDOW_H - _MENU_H) // 2
+    """Return the arcade-LOGICAL-coord centre of escape-menu
+    button ``btn_idx`` (matches MainMode._recalc).  ``click_game``
+    will scale to physical via gx/gy."""
+    px = (LOGICAL_W - _MENU_W) // 2
+    py = (LOGICAL_H - _MENU_H) // 2
     bx = px + (_MENU_W - _MENU_BTN_W) // 2
     first_by = py + _MENU_H - 200 - _MENU_BTN_H
     by = first_by - btn_idx * (_MENU_BTN_H + _MENU_BTN_GAP)
@@ -339,30 +412,31 @@ def _menu_btn_center(btn_idx: int) -> tuple[float, float]:
 
 
 def load_random_music_video() -> None:
-    """ESC → click Songs → click Video → click first .mp4 → ESC out.
+    """ESC -> click Songs -> click Video -> click first .mp4 -> ESC out.
 
     Songs is button index 5, then in songs mode there's a "Video"
-    button at the same approximate position.  This is fragile — if
+    button at the same approximate position.  This is fragile -- if
     the bot misses, just hit Ctrl+Shift+R."""
     if not YVIDEOS_DIR.exists() or not any(YVIDEOS_DIR.glob("*.mp4")):
-        print("[bot] no .mp4 in yvideos — skipping music-video load")
+        print("[bot] no .mp4 in yvideos -- skipping music-video load")
         return
 
-    print("[bot] loading music video via Esc → Songs → Video")
+    print("[bot] loading music video via Esc -> Songs -> Video")
     pyautogui.press("escape")
     if not _wait(0.6): return
 
-    # Click "Songs" — main-mode button index 5.
+    # Click "Songs" -- main-mode button index 5.
     sx, sy = _menu_btn_center(5)
     click_game(sx, sy)
     if not _wait(0.6): return
 
     # Songs mode has a "Video" sub-button.  Position varies between
-    # arcade builds — we click roughly where the first action button
-    # is in songs mode (top centre of the menu panel).
-    px = (WINDOW_W - _MENU_W) // 2
-    py = (WINDOW_H - _MENU_H) // 2
-    # First songs-mode action button: usually near top — try a couple
+    # arcade builds -- we click roughly where the first action button
+    # is in songs mode (top centre of the menu panel).  All coords
+    # below are arcade-LOGICAL; click_game scales to physical.
+    px = (LOGICAL_W - _MENU_W) // 2
+    py = (LOGICAL_H - _MENU_H) // 2
+    # First songs-mode action button: usually near top -- try a couple
     # of likely positions and accept the one that triggers a transition.
     click_game(px + _MENU_W / 2, py + _MENU_H - 110)
     if not _wait(0.5): return
@@ -420,7 +494,7 @@ def survival_loop(duration_s: float = 600.0) -> None:
                 pyautogui.press("tab")
                 last_cycle = time.time()
                 cycle_idx = (cycle_idx + 1) % 3
-                print(f"[bot] cycled weapon → idx {cycle_idx}")
+                print(f"[bot] cycled weapon -> idx {cycle_idx}")
 
             # Every ~30 s, try to drop a building near the start.
             if time.time() - last_build > 30.0:
@@ -455,20 +529,20 @@ def survival_loop(duration_s: float = 600.0) -> None:
 
 def _try_build_action() -> None:
     """Open the build menu, click around the centre to drop whatever
-    building is highlighted, then close the menu.  Best-effort — many
+    building is highlighted, then close the menu.  Best-effort -- many
     presses will be no-ops because the bot has no resources yet."""
     print("[bot] attempting build action")
     pyautogui.press("b")
     if not _wait(0.4): return
-    # Click a build-menu row (build menu width 280, height 420 — just
-    # click somewhere in its rough centre).
+    # Click a build-menu row (build menu width 280, height 420 -- just
+    # click somewhere in its rough centre).  Arcade-LOGICAL coords.
     bm_w, bm_h = 280, 420
-    px = (WINDOW_W - bm_w) // 2
-    py = (WINDOW_H - bm_h) // 2 + 60
+    px = (LOGICAL_W - bm_w) // 2
+    py = (LOGICAL_H - bm_h) // 2 + 60
     click_game(px + bm_w / 2, py + 20)
     if not _wait(0.4): return
-    # In placement mode — click in the world to drop it.
-    click_game(WINDOW_W / 2 + 80, WINDOW_H / 2 + 80)
+    # In placement mode -- click in the world to drop it.
+    click_game(LOGICAL_W / 2 + 80, LOGICAL_H / 2 + 80)
     if not _wait(0.3): return
     # Belt-and-braces: ESC out of any open menu.
     pyautogui.press("escape")
@@ -478,7 +552,7 @@ def _try_build_action() -> None:
 # ── Top-level orchestration ───────────────────────────────────────────────
 
 def run_session() -> None:
-    """One full bot session: launch → splash → selection → in-game."""
+    """One full bot session: launch -> splash -> selection -> in-game."""
     BotState.restart = False
 
     patch_settings_for_video()
@@ -524,7 +598,7 @@ def main() -> None:
             print("[bot] restarting in 2 s...")
             time.sleep(2)
             continue
-        # Session finished without restart/stop — exit.
+        # Session finished without restart/stop -- exit.
         break
     print("[bot] done")
 
