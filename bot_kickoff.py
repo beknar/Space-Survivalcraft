@@ -68,7 +68,8 @@ def main() -> None:
     click_play_now()
     if not _wait(2.0):
         return
-    random_selection()
+    # Earth (0) + Aegis (2); character left random.
+    random_selection(faction_idx=0, ship_idx=2)
     if not _wait(3.0):
         return
     load_random_music_video()

@@ -48,6 +48,23 @@ def set_intent(intent: dict) -> dict | None:
         return None
 
 
+def set_assist(enabled: bool) -> dict | None:
+    """Toggle the in-process combat-assist defence layer."""
+    body = json.dumps({"enabled": bool(enabled)}).encode("utf-8")
+    req = Request(
+        f"{API_BASE}/assist",
+        data=body,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urlopen(req, timeout=1.0) as r:
+            return json.loads(r.read().decode("utf-8"))
+    except Exception as e:
+        print(f"[helper] post failed: {e}", file=sys.stderr)
+        return None
+
+
 def summary(state: dict | None = None) -> str:
     """Compact one-screen text summary of the current state.
     Designed for Claude to read in a single bash response."""
@@ -98,8 +115,15 @@ def cli() -> None:
         result = set_intent(payload)
         print(json.dumps(result, indent=2) if result else "<failed>")
         return
+    if args[0] == "assist":
+        if len(args) < 2 or args[1] not in ("on", "off"):
+            print("usage: assist on|off", file=sys.stderr)
+            sys.exit(1)
+        result = set_assist(args[1] == "on")
+        print(json.dumps(result, indent=2) if result else "<failed>")
+        return
     print(f"unknown command: {args[0]!r}", file=sys.stderr)
-    print("commands: state | raw | set_intent <json>", file=sys.stderr)
+    print("commands: state | raw | set_intent <json> | assist on|off", file=sys.stderr)
     sys.exit(1)
 
 

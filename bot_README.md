@@ -44,6 +44,29 @@ python bot_strategy_helper.py state
 python bot_strategy_helper.py set_intent "{\"type\": \"mine_nearest\"}"
 ```
 
+### In-process combat assist
+
+When `COO_BOT_API=1` is set, `bot_combat_assist.install(gv)` is
+called automatically.  This monkey-patches `update_logic.update_weapons`
+so each frame:
+
+* The nearest hostile inside `DETECT_RANGE` (800 px) is found.
+* `gv.player.heading` is snapped to face it.
+* The active weapon is set to **Energy Blade** (< 100 px) or
+  **Basic Laser** (otherwise).
+* `fire=True` is forced for the underlying `update_weapons`.
+
+Movement, abilities, and inventory are untouched -- the
+strategist + autopilot still drive everything else.  Toggle at
+runtime:
+
+```
+python bot_strategy_helper.py assist off
+python bot_strategy_helper.py assist on
+```
+
+State is exposed under `state.assist` for inspection.
+
 ### Intent vocabulary
 
 ```

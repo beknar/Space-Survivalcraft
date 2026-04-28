@@ -176,6 +176,12 @@ def get_state(gv) -> dict:
     """Build the full state snapshot.  Errors in any single
     extractor are caught + replaced with empty defaults so a
     transient missing-attr never breaks the API."""
+    assist_state = {}
+    try:
+        import bot_combat_assist
+        assist_state = bot_combat_assist.get_state()
+    except Exception:
+        pass
     return {
         "ts": time.time(),
         "uptime_s": time.time() - _started_at,
@@ -190,6 +196,7 @@ def get_state(gv) -> dict:
         "aliens": _list_summary(_safe(lambda: gv.alien_list)),
         "buildings": _list_summary(_safe(lambda: gv.building_list)),
         "intent": dict(_intent),
+        "assist": assist_state,
     }
 
 
@@ -230,23 +237,39 @@ class _Handler(BaseHTTPRequestHandler):
         self._send_json(404, {"error": "unknown path"})
 
     def do_POST(self):
-        if self.path != "/intent":
-            self._send_json(404, {"error": "unknown path"})
+        if self.path == "/intent":
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                raw = self.rfile.read(length) if length else b""
+                body = json.loads(raw.decode("utf-8") or "{}")
+            except Exception as e:
+                self._send_json(400, {"error": f"bad JSON: {e}"})
+                return
+            if not isinstance(body, dict) or "type" not in body:
+                self._send_json(400, {"error": "intent must be a dict with 'type'"})
+                return
+            global _intent
+            with _intent_lock:
+                _intent = body
+            self._send_json(200, {"ok": True, "intent": body})
             return
-        try:
-            length = int(self.headers.get("Content-Length", "0"))
-            raw = self.rfile.read(length) if length else b""
-            body = json.loads(raw.decode("utf-8") or "{}")
-        except Exception as e:
-            self._send_json(400, {"error": f"bad JSON: {e}"})
+        if self.path == "/assist":
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                raw = self.rfile.read(length) if length else b""
+                body = json.loads(raw.decode("utf-8") or "{}")
+            except Exception as e:
+                self._send_json(400, {"error": f"bad JSON: {e}"})
+                return
+            try:
+                import bot_combat_assist
+                state = bot_combat_assist.set_enabled(
+                    bool(body.get("enabled", True)))
+                self._send_json(200, {"ok": True, "assist": state})
+            except Exception as e:
+                self._send_json(500, {"error": f"assist toggle failed: {e}"})
             return
-        if not isinstance(body, dict) or "type" not in body:
-            self._send_json(400, {"error": "intent must be a dict with 'type'"})
-            return
-        global _intent
-        with _intent_lock:
-            _intent = body
-        self._send_json(200, {"ok": True, "intent": body})
+        self._send_json(404, {"error": "unknown path"})
 
 
 # ── Server lifecycle ──────────────────────────────────────────────────────
@@ -283,6 +306,13 @@ def stop_api() -> None:
 def maybe_start_from_env(gv) -> None:
     """Convenience hook — start the API iff ``COO_BOT_API`` is
     truthy in the environment.  Lets the same main.py work
-    with and without the bot."""
+    with and without the bot.  Also installs the in-process
+    combat-assist hook so the player ship auto-aims + fires
+    on the nearest threat each frame."""
     if os.environ.get("COO_BOT_API", "").strip() not in ("", "0", "false"):
         start_api(gv)
+        try:
+            import bot_combat_assist
+            bot_combat_assist.install(gv)
+        except Exception as e:
+            print(f"[bot_api] combat assist install failed: {e}")

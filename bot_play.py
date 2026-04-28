@@ -377,17 +377,29 @@ def click_play_now() -> None:
 
 # ── Selection screen ──────────────────────────────────────────────────────
 
-def random_selection() -> None:
-    """Selection screen accepts LEFT/RIGHT + ENTER per phase.  Pick a
-    random index in each of the three phases (faction, ship, character)
-    by tapping RIGHT N times then ENTER."""
+def random_selection(faction_idx: int | None = None,
+                     ship_idx: int | None = None,
+                     character_idx: int | None = None) -> None:
+    """Selection screen accepts LEFT/RIGHT + ENTER per phase.  Each
+    phase index defaults to a uniform random choice; pass an int
+    to pin that phase deterministically.  Index conventions:
+
+      faction:    0=Earth, 1=Colonial, 2=Heavy World, 3=Ascended
+      ship:       0=Cruiser, 1=Bastion, 2=Aegis, 3=Striker, 4=Thunderbolt
+      character:  0..2 (Debra / Ellie / Tara — order matches
+                  ``character_data.CHARACTERS``)
+    """
     n_factions = 4
     n_ships = 5
     n_characters = 3
-    for label, n in (("faction", n_factions),
-                     ("ship", n_ships),
-                     ("character", n_characters)):
-        steps = random.randint(0, n - 1)
+    plan = [
+        ("faction",   faction_idx,   n_factions),
+        ("ship",      ship_idx,      n_ships),
+        ("character", character_idx, n_characters),
+    ]
+    for label, fixed, n in plan:
+        steps = fixed if fixed is not None else random.randint(0, n - 1)
+        steps = max(0, min(n - 1, steps))
         print(f"[bot] selection: {label} -> +{steps}")
         for _ in range(steps):
             pyautogui.press("right")
