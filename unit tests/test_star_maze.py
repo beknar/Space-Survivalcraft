@@ -39,13 +39,6 @@ from zones.maze_geometry import (
 )
 
 
-@pytest.fixture(scope="module", autouse=True)
-def _arcade_window():
-    w = arcade.Window(800, 600, visible=False)
-    yield w
-    w.close()
-
-
 # ── Spec-pinning: stat values must match user spec exactly ───────
 
 class TestMazeAlienStats:

@@ -27,14 +27,6 @@ from PIL import Image as PILImage
 import arcade
 
 
-@pytest.fixture(scope="module", autouse=True)
-def _arcade_window():
-    """Create a hidden window so HUD/CraftMenu/TradeMenu can initialize."""
-    w = arcade.Window(800, 600, visible=False)
-    yield w
-    w.close()
-
-
 # ═══════════════════════════════════════════════════════════════════════════
 #  Ship level cap + upgrade_ship behavior
 # ═══════════════════════════════════════════════════════════════════════════

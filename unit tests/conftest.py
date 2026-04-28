@@ -13,19 +13,26 @@ from PIL import Image as PILImage
 import arcade
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture(scope="module", autouse=True)
 def arcade_window():
-    """Module-scoped hidden arcade.Window — opt-in shared fixture
-    for tests that construct Sprites, Textures, or anything else
-    that needs a live OpenGL context.
+    """Module-scoped, autouse hidden ``arcade.Window`` shared by
+    every unit test module that needs a live OpenGL context.
 
-    Test files that previously declared their own
-    ``_arcade_window`` autouse fixture can switch to this one by
-    adding ``pytestmark = pytest.mark.usefixtures("arcade_window")``
-    at the module level (or accepting it as a parameter on a
-    single test).  Module-scoped construction means the window is
-    shared across every test in the file, same as the inline
-    fixtures it replaces.
+    A live GL context is required to construct Sprites, Textures,
+    ``arcade.Text`` labels, or anything else pyglet defers layout
+    for.  Roughly two dozen modules previously each declared their
+    own identical ``_arcade_window`` autouse fixture — this single
+    autouse fixture replaces them all.
+
+    Module scope (rather than session) is deliberate: a small
+    number of tests (e.g. ``test_refactor_helpers``) construct
+    short-lived auxiliary Windows.  Pyglet maintains a single
+    "current" Window pointer, so when those auxiliary Windows
+    close they leave ``arcade.get_window()`` returning ``None``
+    — which breaks any later test that constructs a ``BuildMenu``
+    or other widget reading ``arcade.get_window()`` at init time.
+    Module scope means each test module gets a fresh Window, so
+    the "current" pointer is restored at module boundaries.
     """
     w = arcade.Window(800, 600, visible=False)
     yield w

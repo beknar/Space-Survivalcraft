@@ -13,13 +13,6 @@ import arcade
 import pytest
 
 
-@pytest.fixture(scope="module", autouse=True)
-def _arcade_window():
-    w = arcade.Window(800, 600, visible=False)
-    yield w
-    w.close()
-
-
 def _build_in_star_maze():
     """Spin up a GameView, jump to the Star Maze, drop a Home
     Station + a Turret in the maze, and return both the gv and

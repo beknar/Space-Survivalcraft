@@ -12,13 +12,6 @@ import arcade
 import pytest
 
 
-@pytest.fixture(scope="module", autouse=True)
-def _arcade_window():
-    w = arcade.Window(800, 600, visible=False)
-    yield w
-    w.close()
-
-
 # ── _make_blueprint_red_dot_variant ──────────────────────────────────────
 
 class TestRedDotVariantHelper:

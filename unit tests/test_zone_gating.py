@@ -20,16 +20,6 @@ from zones import ZoneID
 from build_menu import BuildMenu, _visible_menu_order, _MENU_ORDER
 
 
-@pytest.fixture(scope="module", autouse=True)
-def _arcade_window():
-    """Hidden window so ``BuildMenu`` / ``CraftMenu`` can create their
-    ``arcade.Text`` labels (pyglet defers layout to first access, which
-    requires a live GL window)."""
-    w = arcade.Window(800, 600, visible=False)
-    yield w
-    w.close()
-
-
 # ── Module-level constant sanity ──────────────────────────────────────────
 
 class TestGatedSetsSanity:
