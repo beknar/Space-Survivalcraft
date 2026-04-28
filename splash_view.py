@@ -323,8 +323,16 @@ class SplashView(arcade.View):
 
         if self._hover_idx < 0:
             return
+        self._activate_menu(self._hover_idx)
+
+    def _activate_menu(self, idx: int) -> None:
+        """Run the action for menu button ``idx``.  Shared between
+        on_mouse_press and on_key_press so keyboard activation
+        (Enter / Space) takes the same path as a mouse click."""
+        if idx < 0 or idx >= len(_BTN_LABELS):
+            return
         arcade.play_sound(self._click_snd, volume=audio.sfx_volume)
-        label = _BTN_LABELS[self._hover_idx]
+        label = _BTN_LABELS[idx]
         if label == "Play Now":
             self._stop_music()
             from selection_view import SelectionView
@@ -385,9 +393,88 @@ class SplashView(arcade.View):
 
     def on_key_press(self, key: int, modifiers: int) -> None:
         if self._show_load:
-            if key == arcade.key.ESCAPE:
-                self._show_load = False
-                self._load_hover = -1
+            self._handle_load_keypress(key, modifiers)
             return
+        # ESC at the splash exits the game.
         if key == arcade.key.ESCAPE:
             arcade.exit()
+            return
+        n = len(_BTN_LABELS)
+        if n == 0:
+            return
+        cur = self._hover_idx
+        # Tab / Down / S: focus next button (wraps).
+        # Shift+Tab / Up / W: focus previous (wraps).
+        if key in (arcade.key.TAB, arcade.key.DOWN, arcade.key.S):
+            shift = bool(modifiers & arcade.key.MOD_SHIFT)
+            step = -1 if (key == arcade.key.TAB and shift) else 1
+            self._hover_idx = (
+                (cur + step) % n if cur >= 0
+                else (0 if step > 0 else n - 1))
+            arcade.play_sound(self._click_snd,
+                              volume=audio.sfx_volume * 0.5)
+            return
+        if key in (arcade.key.UP, arcade.key.W):
+            self._hover_idx = (cur - 1) % n if cur >= 0 else n - 1
+            arcade.play_sound(self._click_snd,
+                              volume=audio.sfx_volume * 0.5)
+            return
+        # Enter / Space / Numpad-Enter: activate focused button.
+        if key in (arcade.key.RETURN, arcade.key.ENTER,
+                   arcade.key.NUM_ENTER, arcade.key.SPACE):
+            if cur < 0:
+                # Bare Enter on first open -> Play Now (idx 0) so a
+                # blind tap takes the user into the game.
+                self._hover_idx = 0
+                cur = 0
+            self._activate_menu(cur)
+            return
+
+    def _handle_load_keypress(self, key: int, modifiers: int) -> None:
+        """Tab / arrow / Enter handling for the Load Game sub-screen.
+        Slot list + a Back button.  ``_load_hover == 100`` is the
+        Back button; 0..N-1 are slot indices."""
+        if key == arcade.key.ESCAPE:
+            self._show_load = False
+            self._load_hover = -1
+            return
+        n_slots = SAVE_SLOT_COUNT
+        BACK = 100
+        order = list(range(n_slots)) + [BACK]
+        cur = self._load_hover
+        if key in (arcade.key.TAB, arcade.key.DOWN, arcade.key.S):
+            shift = bool(modifiers & arcade.key.MOD_SHIFT)
+            step = -1 if (key == arcade.key.TAB and shift) else 1
+            if cur not in order:
+                self._load_hover = order[0] if step > 0 else order[-1]
+            else:
+                self._load_hover = order[
+                    (order.index(cur) + step) % len(order)]
+            arcade.play_sound(self._click_snd,
+                              volume=audio.sfx_volume * 0.5)
+            return
+        if key in (arcade.key.UP, arcade.key.W):
+            if cur not in order:
+                self._load_hover = order[-1]
+            else:
+                self._load_hover = order[
+                    (order.index(cur) - 1) % len(order)]
+            arcade.play_sound(self._click_snd,
+                              volume=audio.sfx_volume * 0.5)
+            return
+        if key in (arcade.key.RETURN, arcade.key.ENTER,
+                   arcade.key.NUM_ENTER, arcade.key.SPACE):
+            if cur == BACK:
+                arcade.play_sound(self._click_snd,
+                                  volume=audio.sfx_volume)
+                self._show_load = False
+                self._load_hover = -1
+                return
+            if 0 <= cur < n_slots:
+                if cur < len(self._load_slots) and \
+                        self._load_slots[cur]["exists"]:
+                    arcade.play_sound(self._click_snd,
+                                      volume=audio.sfx_volume)
+                    self._stop_music()
+                    self._do_load(cur)
+            return
