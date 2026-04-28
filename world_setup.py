@@ -84,7 +84,7 @@ def load_shield(player_x: float, player_y: float,
     return sprite, slist
 
 
-def load_weapons(gun_count: int) -> list[Weapon]:
+def load_weapons(gun_count: int, faction: str | None = None) -> list[Weapon]:
     """Create the weapon list (doubled for multi-gun ships).
 
     Three weapon groups in cycle order: Basic Laser → Mining Beam →
@@ -96,14 +96,19 @@ def load_weapons(gun_count: int) -> list[Weapon]:
     swing fires per cycle hit (handled in ``update_logic.update_weapons``)
     since the energy blade is a single AOE — not a per-hardpoint
     projectile salvo.
+
+    ``faction`` selects the lightsabre sprite for the melee weapon
+    (one PNG per faction).  ``None`` falls back to
+    ``MELEE_SWORD_PNG``.
     """
     from constants import (
-        MELEE_SWORD_PNG, SFX_MELEE_SWING,
+        MELEE_SWORD_PNG, MELEE_SWORD_PNG_BY_FACTION, SFX_MELEE_SWING,
         MELEE_COOLDOWN, MELEE_DAMAGE,
     )
     laser_tex = arcade.load_texture(os.path.join(LASER_DIR, "laserBlue03.png"))
     mining_tex = arcade.load_texture(os.path.join(LASER_DIR, "laserGreen13.png"))
-    sword_tex = arcade.load_texture(MELEE_SWORD_PNG)
+    sword_path = MELEE_SWORD_PNG_BY_FACTION.get(faction, MELEE_SWORD_PNG)
+    sword_tex = arcade.load_texture(sword_path)
     laser_snd = arcade.load_sound(
         os.path.join(SFX_WEAPONS_DIR, "Small Laser Weapon Shot 1.wav")
     )

@@ -265,7 +265,8 @@ class GameView(arcade.View):
     def _init_weapons_and_audio(self) -> None:
         """Player weapons + all sound effects (explosion, bump, missile,
         misty step, force wall, victory)."""
-        self._weapons: list[Weapon] = load_weapons(self.player.guns)
+        self._weapons: list[Weapon] = load_weapons(
+            self.player.guns, faction=self._faction)
         self._weapon_idx: int = 0
         self._apply_character_weapon_bonuses()
 

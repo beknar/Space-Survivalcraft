@@ -82,10 +82,20 @@ SFX_MELEE_SWING = os.path.join(
     "Stormwave Audio Sci-Fi Sound Effects Bundle", "Impacts",
     "Game Futuristic Impact Sound 12.wav",
 )
-MELEE_SWORD_PNG = os.path.join(
-    _HERE, "assets", "Kenney Game Assets All-in-1 3.4.0",
-    "2D assets", "Voxel Pack", "PNG", "Items", "sword_diamond.png",
-)
+_LIGHTSABRE_DIR = os.path.join(_HERE, "assets", "lightsabres")
+# Per-faction melee sword sprite — vertical lightsabre PNGs from
+# https://willisthehy.itch.io/light-saber-game-assets.  Each
+# faction gets its own blade colour.  Looked up by the faction
+# string passed to ``GameView`` ("Earth" / "Colonial" /
+# "Heavy World" / "Ascended"); ``MELEE_SWORD_PNG`` is the
+# fallback when faction is unknown or omitted.
+MELEE_SWORD_PNG_BY_FACTION: dict[str, str] = {
+    "Earth":       os.path.join(_LIGHTSABRE_DIR, "Sabers-06.png"),
+    "Colonial":    os.path.join(_LIGHTSABRE_DIR, "Sabers-05.png"),
+    "Heavy World": os.path.join(_LIGHTSABRE_DIR, "Sabers-02.png"),
+    "Ascended":    os.path.join(_LIGHTSABRE_DIR, "Sabers-03.png"),
+}
+MELEE_SWORD_PNG = MELEE_SWORD_PNG_BY_FACTION["Earth"]
 # Alien-laser fire sound — same Stormwave pack, ricochet variant.
 SFX_ALIEN_LASER = os.path.join(
     _HERE, "assets", "Sci Fi Sound Effects Bundle",
@@ -265,18 +275,20 @@ MELEE_COOLDOWN: float = 0.30          # seconds between swings
 MELEE_DAMAGE: int = 40                # base HP damage per enemy per swing
 MELEE_HIT_RADIUS: float = 80.0        # px — also offset from nose
 MELEE_SWING_LIFETIME: float = 0.25    # seconds the swing animation runs
-MELEE_SWING_ARC: float = 90.0         # degrees the texture rotates over its life
-# Half the on-screen size of the player ship (player renders at
-# 128 px sheet × 0.75 scale = 96 px; sword PNG is 128 px native,
-# so 48 / 128 = 0.375 puts the blade at exactly half the ship's
-# rendered size).
-MELEE_SCALE: float = 0.375
-# Sword PNG is drawn diagonally (point in the upper-right of the
-# square), so without compensation the sprite renders tilted right
-# even when the ship's heading is 0.  Subtracting 45° rotates the
-# texture so the blade tip aligns with the ship's spine /
-# direction of travel.
-MELEE_TEX_ANGLE_OFFSET: float = -45.0
+# Total degrees the blade rotates across one swing.  The animation
+# starts at ``-MELEE_SWING_ARC / 2`` and ends at
+# ``+MELEE_SWING_ARC / 2`` relative to the ship's heading, so the
+# blade visibly arcs from -75° to +75° each swing (150° total).
+MELEE_SWING_ARC: float = 150.0
+# Lightsabre PNG (https://willisthehy.itch.io/light-saber-game-assets)
+# is ~440x1812 px; rendered tip-to-handle ≈ 95 px at this scale,
+# roughly the player ship's height.  Adjust if you want a longer /
+# shorter blade — ``hit_radius`` (gameplay reach) is independent.
+MELEE_SCALE: float = 0.052
+# Lightsabre PNG is drawn vertically (handle at bottom, tip at top)
+# so no texture-rotation compensation is needed — sprite angle
+# equals the ship's heading + swing offset.
+MELEE_TEX_ANGLE_OFFSET: float = 0.0
 # Bastion bonus — longer reach + extra punch when wielding the
 # energy blade.  All other ship types use the base values above.
 MELEE_BASTION_DAMAGE_BONUS: int = 15

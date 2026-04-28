@@ -505,7 +505,7 @@ def _full_reset_respawn(gv: GameView) -> None:
     gv._hud._mod_slots = list(gv._module_slots)
     # Weapons reload off the new ship's gun count.
     from world_setup import load_weapons
-    gv._weapons = load_weapons(gv.player.guns)
+    gv._weapons = load_weapons(gv.player.guns, faction=gv._faction)
     gv._weapon_idx = 0
     # Reposition the shield bubble onto the new player.
     gv.shield_sprite.center_x = gv.player.center_x
@@ -632,7 +632,7 @@ def add_xp(gv: GameView, amount: int) -> None:
     gv._char_level = level_for_xp(gv._char_xp)
     if gv._char_level > old_level:
         flash_game_msg(gv, f"Level {gv._char_level}!", 2.0)
-        gv._weapons = load_weapons(gv.player.guns)
+        gv._weapons = load_weapons(gv.player.guns, faction=gv._faction)
         gv._apply_character_weapon_bonuses()
 
 

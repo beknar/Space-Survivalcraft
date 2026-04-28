@@ -157,9 +157,10 @@ class TestBladeIdlePose:
 
     def test_blade_idle_angle_aligned_with_heading(self):
         """Idle blade renders aligned with the ship's heading.
-        The sword PNG is drawn diagonally so the rendered angle
-        is ``heading + MELEE_TEX_ANGLE_OFFSET`` (the offset
-        compensates for the texture's native tilt)."""
+        Lightsabre PNGs are drawn vertically so the rendered angle
+        equals ``heading + MELEE_TEX_ANGLE_OFFSET`` (offset is
+        currently zero — kept as a constant in case a future
+        sword sprite needs compensation)."""
         from constants import MELEE_TEX_ANGLE_OFFSET
         gv = self._setup_with_melee_active("Cruiser")
         assert gv._active_blade.angle == pytest.approx(
@@ -224,12 +225,22 @@ class TestBladeReachConstants:
         from constants import MELEE_BASTION_HIT_RADIUS
         assert MELEE_BASTION_HIT_RADIUS == 110.0
 
-    def test_tex_angle_offset_present(self):
-        """Some non-zero offset must exist or the diagonally-
-        drawn sword PNG will render tilted right of the ship's
-        spine (the regression we're fixing here)."""
+    def test_tex_angle_offset_defined(self):
+        """``MELEE_TEX_ANGLE_OFFSET`` must exist as a float so the
+        per-frame angle math in ``MeleeBlade._update_pose`` has a
+        defined value to add.  The current lightsabre PNG is drawn
+        vertically and needs no compensation, so the offset is
+        zero — but a future sword sprite drawn at an angle would
+        need this to be set without any other code changes."""
         from constants import MELEE_TEX_ANGLE_OFFSET
-        assert MELEE_TEX_ANGLE_OFFSET != 0.0
+        assert isinstance(MELEE_TEX_ANGLE_OFFSET, float)
+
+    def test_swing_arc_is_75_to_minus_75(self):
+        """Total swing arc is 150° (from -75° to +75° relative to
+        the ship's heading).  Pinned by user spec for the
+        lightsabre weapon."""
+        from constants import MELEE_SWING_ARC
+        assert MELEE_SWING_ARC == 150.0
 
 
 # ── Bastion bonus ────────────────────────────────────────────────────────
@@ -355,10 +366,13 @@ class TestSwingDealsDamage:
 
 
 class TestSwordHalfShipSize:
-    def test_blade_scale_is_half_of_player_ship(self):
-        """Player renders at 128 px sheet × 0.75 scale = 96 px.
-        Sword PNG is 128 px native, so scale 0.375 puts the blade
-        at exactly 48 px = half the ship's rendered size."""
+    def test_blade_scale_matches_constant(self):
+        """The active blade picks up ``MELEE_SCALE`` from
+        constants — pinning the relationship so a scale tweak in
+        one place propagates to the rendered sprite without any
+        per-callsite override.  Lightsabre PNG is ~440x1812 px;
+        at scale 0.052 the rendered tip-to-handle is ≈ 95 px,
+        roughly the player-ship height."""
         from update_logic import update_weapons
         from game_view import GameView
         from constants import MELEE_SCALE
@@ -366,7 +380,46 @@ class TestSwordHalfShipSize:
                        skip_music=True)
         gv._cycle_weapon(); gv._cycle_weapon()
         update_weapons(gv, 1 / 60, fire=False)
-        # MELEE_SCALE constant pinned to 0.375.
-        assert MELEE_SCALE == pytest.approx(0.375)
-        # Blade carries the same scale.
-        assert gv._active_blade.scale_x == pytest.approx(0.375)
+        assert gv._active_blade.scale_x == pytest.approx(MELEE_SCALE)
+
+
+# ── Per-faction lightsabre sprite ────────────────────────────────────────
+
+
+class TestPerFactionMeleeSprite:
+    """Each faction gets its own lightsabre PNG.  Verify
+    ``load_weapons`` reads ``MELEE_SWORD_PNG_BY_FACTION`` and
+    that the texture on the Melee weapon matches the faction's
+    expected file."""
+
+    @pytest.mark.parametrize(
+        "faction,expected_filename",
+        [
+            ("Earth",       "Sabers-06.png"),
+            ("Colonial",    "Sabers-05.png"),
+            ("Heavy World", "Sabers-02.png"),
+            ("Ascended",    "Sabers-03.png"),
+        ],
+    )
+    def test_melee_texture_matches_faction(
+            self, faction, expected_filename):
+        from world_setup import load_weapons
+        weapons = load_weapons(gun_count=1, faction=faction)
+        melee = next(w for w in weapons if w.name == "Melee")
+        # arcade textures expose the file path via ``file_path``
+        # (Path object on 3.x).  Just check the filename ends with
+        # the expected lightsabre PNG.
+        path = str(getattr(melee._texture, "file_path", "") or "")
+        assert path.endswith(expected_filename), (
+            f"faction {faction!r}: melee texture path "
+            f"{path!r} does not end with {expected_filename!r}")
+
+    def test_unknown_faction_falls_back_to_default(self):
+        """Unknown / None faction must not crash — falls back to
+        ``MELEE_SWORD_PNG`` (the Earth lightsabre)."""
+        from world_setup import load_weapons
+        from constants import MELEE_SWORD_PNG
+        weapons = load_weapons(gun_count=1, faction="NotARealFaction")
+        melee = next(w for w in weapons if w.name == "Melee")
+        path = str(getattr(melee._texture, "file_path", "") or "")
+        assert path == MELEE_SWORD_PNG

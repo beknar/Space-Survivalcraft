@@ -247,7 +247,7 @@ def switch_to_ship(gv: GameView, target) -> None:
     gv._ability_meter = min(gv._ability_meter, gv._ability_meter_max)
 
     from world_setup import load_weapons
-    gv._weapons = load_weapons(new_player.guns)
+    gv._weapons = load_weapons(new_player.guns, faction=gv._faction)
     gv._weapon_idx = 0
 
     gv._parked_ships.remove(target)
