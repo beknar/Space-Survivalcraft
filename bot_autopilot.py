@@ -69,7 +69,6 @@ except ImportError:
 
 API_BASE = "http://127.0.0.1:8765"
 POLL_HZ = 10.0
-ENGAGE_RANGE_PX = 800.0           # target acquisition radius
 FIRE_RANGE_PX = 600.0             # within this -> hold fire
 MINING_RANGE_PX = 400.0           # within this -> mining beam
 MELEE_RANGE_PX = 100.0            # within this -> energy blade
@@ -207,31 +206,84 @@ def _do_idle() -> None:
     KeyState.release_all()
 
 
-# ── Auto-mode state machine ───────────────────────────────────────────────
+# ── Auto-mode finite state machine ────────────────────────────────────────
 #
-#  Priority cascade per tick (re-evaluated every frame, no hysteresis
-#  beyond what the goto/mine helpers already provide):
+#  Five states with asymmetric enter/exit thresholds.  ENGAGE is the
+#  defensive interrupt and preempts any other state immediately; the
+#  other four respect MIN_DWELL_S to prevent boundary thrash.
 #
-#    1. Under attack (alien within ENGAGE_RANGE)
-#         -> close to fire range, combat assist auto-aims + auto-fires
-#    2. Pickups within GATHER_RANGE_PX
-#         -> collect them (loot drops from kills + asteroid mines).
-#         Runs whenever a kill / mine has dropped iron or blueprints
-#         within reach, so loot from a finished alien fight gets
-#         scooped before the bot moves on.
-#    3. Shields not full + safe
-#         -> idle (let regen finish)
-#    4. Shields full + safe + asteroids known
-#         -> mine the nearest asteroid
-#    5. No asteroids visible (rare)
-#         -> spiral search outward from current position
+#       ┌─────────┐  alien<800 (any)            ┌────────┐
+#       │ ENGAGE  │ <─────────────────────────── │ ANY *  │
+#       │ aim+fire│ ───────────────────────────> │        │
+#       └─────────┘  no alien<1000               └────────┘
+#                                                    │
+#       ┌─────────┐  pickup<1500 + safe              │
+#       │ GATHER  │ <────────────────────────────────┤
+#       │  fly to │ ────────────────────────────>    │
+#       │  pickup │  pickup>1700 / consumed          │
+#       └─────────┘                                  │
+#                                                    │
+#       ┌─────────┐  shields < 40 %                  │
+#       │  REGEN  │ <────────────────────────────────┤
+#       │  idle   │ ────────────────────────────>    │
+#       │ for HP  │  shields ≥ 60 %                  │
+#       └─────────┘                                  │
+#                                                    │
+#       ┌─────────┐  asteroids known                 │
+#       │  MINE   │ <────────────────────────────────┤
+#       │ nearest │ ────────────────────────────>    │
+#       │ rock    │  no asteroids visible            │
+#       └─────────┘                                  │
+#                                                    │
+#       ┌─────────┐  no asteroids known              │
+#       │ SEARCH  │ <────────────────────────────────┘
+#       │ spiral  │
+#       └─────────┘
 #
-#  Step 1 cooperates with the in-process combat-assist hook
-#  (bot_combat_assist.py): the assist owns aim + fire, the
-#  autopilot owns thrust to keep the threat in fire range.
+#  The hysteresis bands replace three previous sources of flicker:
+#    * mine ↔ engage at the 800 px ring
+#    * idle ↔ mine at the 50 % shield threshold
+#    * spiral state torn down + re-anchored every time a non-spiral
+#      state briefly stole a tick
+#
+#  Combat assist (bot_combat_assist.py) still owns aim + fire while
+#  in ENGAGE.  This module owns thrust + weapon selection.
 
-GATHER_RANGE_PX: float = 1500.0   # how far the bot will detour for loot
-PICKUP_STOP_RADIUS: float = 60.0  # close enough for the magnet to engage
+# ── Hysteresis thresholds ─────────────────────────────────────────────────
+
+ENGAGE_ENTER_PX: float = 800.0
+ENGAGE_EXIT_PX:  float = 1000.0
+GATHER_ENTER_PX: float = 1500.0
+GATHER_EXIT_PX:  float = 1700.0
+REGEN_ENTER_PCT: float = 0.40
+REGEN_EXIT_PCT:  float = 0.60
+MELEE_ENTER_PX:  float = 100.0
+MELEE_EXIT_PX:   float = 130.0
+PICKUP_STOP_RADIUS: float = 60.0
+MIN_DWELL_S:     float = 0.6      # how long a non-ENGAGE state must hold
+
+
+# ── State constants ───────────────────────────────────────────────────────
+
+S_ENGAGE = "engage"
+S_GATHER = "gather"
+S_REGEN  = "regen"
+S_MINE   = "mine"
+S_SEARCH = "search"
+
+ALL_STATES = (S_ENGAGE, S_GATHER, S_REGEN, S_MINE, S_SEARCH)
+
+
+# ── FSM + spiral state ────────────────────────────────────────────────────
+
+_fsm: dict = {
+    "state": S_MINE,        # benign default; first tick re-evaluates
+    # Monotonic seconds when current state was entered.  ``None``
+    # is a sentinel meaning "never stamped yet" -- the first tick
+    # after reset is allowed to transition without dwell, then
+    # stamps the timer so subsequent transitions respect MIN_DWELL.
+    "entered_at": None,
+}
 
 _spiral_state: dict = {
     "anchor": None,   # (x, y) start of the current spiral
@@ -239,67 +291,25 @@ _spiral_state: dict = {
     "radius": 100.0,  # px
 }
 
+# Indirection so tests can monkey-patch a fake clock.
+_get_now = time.monotonic
 
-def _do_auto(state: dict, p: dict) -> None:
-    aliens = state.get("aliens", []) or []
-    px, py = p.get("x", 0.0), p.get("y", 0.0)
-    threat, threat_dist = nearest(aliens, px, py)
 
-    # Priority 1: under attack -> engage.
-    if threat is not None and threat_dist < ENGAGE_RANGE_PX:
-        _spiral_reset()                  # break spiral so mine resumes from here
-        if threat_dist < MELEE_RANGE_PX:
-            _ensure_weapon(state, "Melee")
-        else:
-            _ensure_weapon(state, "Basic Laser")
-        # Stay just outside alien stand-off (~300 px) to keep the
-        # threat in laser range without colliding.  Combat assist
-        # snaps heading + fires; autopilot just maintains distance.
-        _do_goto(state, p, threat["x"], threat["y"],
-                 stop_radius=380.0)
-        # Hold space too, in case the assist is disabled.
-        KeyState.hold("space", threat_dist < FIRE_RANGE_PX)
-        return
+def _spiral_reset() -> None:
+    _spiral_state["anchor"] = None
+    _spiral_state["angle"] = 0.0
+    _spiral_state["radius"] = 100.0
 
-    # Priority 2: pickups in range -> gather.  Runs once the
-    # threat has been cleared, so the iron + blueprints dropped
-    # by a destroyed attacker get collected before the bot
-    # idles or returns to mining.  Also catches the iron drops
-    # from asteroid mines that didn't auto-magnet because the
-    # bot had already drifted too far.
-    pickup, pdist = _nearest_pickup(state, px, py)
-    if pickup is not None and pdist < GATHER_RANGE_PX:
-        # Mining Beam doesn't help here, but it doesn't hurt --
-        # holding fire while flying may catch any new asteroid
-        # the bot drifts past.  Still, switch off space so we
-        # don't waste shots if Basic Laser is the active weapon.
-        KeyState.hold("space", False)
-        _do_goto(state, p, pickup["x"], pickup["y"],
-                 stop_radius=PICKUP_STOP_RADIUS)
-        return
 
-    # Priority 3: shields below 50 % + safe -> idle for regen.
-    # We don't wait for full shields any more -- 50 % is enough
-    # buffer to take the next mining trip and pop a stray alien.
-    sh = int(p.get("shields", 0))
-    sh_max = int(p.get("max_shields", 1))
-    SHIELD_RECOVER_THRESHOLD: float = 0.5
-    if sh < sh_max * SHIELD_RECOVER_THRESHOLD:
-        _spiral_reset()
-        _do_idle()
-        return
-
-    # Priority 4 & 5: full shields, safe -> mine.
-    asteroids = state.get("asteroids", []) or []
-    if asteroids:
-        _spiral_reset()
-        _do_mine_nearest(state, p)
-        return
-
-    # Priority 5 fallback: spiral search.  Should only fire when
-    # the entire zone has been mined out, which is rare in normal
-    # play but documented in the spec.
-    _do_spiral_search(state, p)
+def _fsm_reset(initial: str = S_MINE) -> None:
+    """Reset the FSM to ``initial`` and clear the dwell timer
+    sentinel.  The next tick is allowed to transition freely;
+    after that, MIN_DWELL gates further transitions.  Tests
+    must call this in their setup/fixture so cross-test state
+    doesn't leak."""
+    _fsm["state"] = initial
+    _fsm["entered_at"] = None
+    _spiral_reset()
 
 
 def _nearest_pickup(state: dict, px: float, py: float
@@ -313,10 +323,141 @@ def _nearest_pickup(state: dict, px: float, py: float
     return nearest(candidates, px, py)
 
 
-def _spiral_reset() -> None:
-    _spiral_state["anchor"] = None
-    _spiral_state["angle"] = 0.0
-    _spiral_state["radius"] = 100.0
+def _choose_next_state(state: dict, p: dict, cur: str) -> str:
+    """Pure function: given the world snapshot and the current FSM
+    state, return what state the bot *wants* to be in this tick.
+
+    Hysteresis is encoded by branching on ``cur``: the enter
+    threshold and exit threshold differ, so a value drifting around
+    the boundary doesn't oscillate.
+    """
+    px, py = p.get("x", 0.0), p.get("y", 0.0)
+
+    # 1. ENGAGE — alien within band.  Preempts everything.
+    aliens = state.get("aliens") or []
+    threat, td = nearest(aliens, px, py)
+    if cur == S_ENGAGE:
+        if threat is not None and td < ENGAGE_EXIT_PX:
+            return S_ENGAGE
+    else:
+        if threat is not None and td < ENGAGE_ENTER_PX:
+            return S_ENGAGE
+
+    # 2. GATHER — loot pickup within reach.
+    pickup, pd = _nearest_pickup(state, px, py)
+    if cur == S_GATHER:
+        if pickup is not None and pd < GATHER_EXIT_PX:
+            return S_GATHER
+    else:
+        if pickup is not None and pd < GATHER_ENTER_PX:
+            return S_GATHER
+
+    # 3. REGEN — shields hurt; sit still and recover.
+    sh = int(p.get("shields", 0))
+    sh_max = max(1, int(p.get("max_shields", 1)))
+    pct = sh / sh_max
+    if cur == S_REGEN:
+        if pct < REGEN_EXIT_PCT:
+            return S_REGEN
+    else:
+        if pct < REGEN_ENTER_PCT:
+            return S_REGEN
+
+    # 4. MINE vs SEARCH — discrete event, no hysteresis needed.
+    asteroids = state.get("asteroids") or []
+    if asteroids:
+        return S_MINE
+    return S_SEARCH
+
+
+def _on_enter(new_state: str) -> None:
+    """Per-state entry hook.  Currently only SEARCH cares — its
+    spiral anchor must be cleared so each fresh search starts
+    from the bot's current position, not a stale prior anchor."""
+    if new_state == S_SEARCH:
+        _spiral_reset()
+
+
+def _do_auto(state: dict, p: dict) -> None:
+    """Step the FSM one tick, then dispatch the action for the
+    current state.  ENGAGE preempts dwell; everything else waits
+    out ``MIN_DWELL_S`` before transitioning.
+
+    The first tick after ``_fsm_reset()`` (entered_at sentinel
+    None) always stamps the timer and is allowed to transition
+    freely -- otherwise a fresh process couldn't react to its
+    initial observation."""
+    now = _get_now()
+    cur = _fsm["state"]
+    desired = _choose_next_state(state, p, cur)
+
+    if _fsm["entered_at"] is None:
+        # First tick: stamp the timer, allow immediate transition.
+        _fsm["entered_at"] = now
+        if desired != cur:
+            _fsm["state"] = desired
+            cur = desired
+            _on_enter(cur)
+    elif desired != cur:
+        dwell = now - _fsm["entered_at"]
+        if desired == S_ENGAGE or dwell >= MIN_DWELL_S:
+            _fsm["state"] = desired
+            _fsm["entered_at"] = now
+            cur = desired
+            _on_enter(cur)
+
+    if cur == S_ENGAGE:
+        _act_engage(state, p)
+    elif cur == S_GATHER:
+        _act_gather(state, p)
+    elif cur == S_REGEN:
+        _do_idle()
+    elif cur == S_MINE:
+        _do_mine_nearest(state, p)
+    else:  # S_SEARCH
+        _do_spiral_search(state, p)
+
+
+def _act_engage(state: dict, p: dict) -> None:
+    """ENGAGE: maintain stand-off + hold fire.  Combat assist owns
+    aim + fire override; this just keeps the threat in laser range
+    and picks the right weapon by sub-band hysteresis."""
+    aliens = state.get("aliens") or []
+    px, py = p.get("x", 0.0), p.get("y", 0.0)
+    threat, td = nearest(aliens, px, py)
+    if threat is None:
+        # FSM said engage but the alien vanished mid-tick.  Bail
+        # to a safe no-op; next tick will re-route us out.
+        KeyState.hold("space", False)
+        return
+    cur_weapon = state.get("weapon", {}).get("name", "Basic Laser")
+    if cur_weapon == "Melee":
+        # In Melee already: only swap back to Laser once we're past
+        # the exit band (130 px).
+        if td > MELEE_EXIT_PX:
+            _ensure_weapon(state, "Basic Laser")
+    else:
+        # In a ranged weapon: only swap to Melee once we're firmly
+        # inside the enter band (100 px).
+        if td < MELEE_ENTER_PX:
+            _ensure_weapon(state, "Melee")
+        else:
+            _ensure_weapon(state, "Basic Laser")
+    _do_goto(state, p, threat["x"], threat["y"], stop_radius=380.0)
+    KeyState.hold("space", td < FIRE_RANGE_PX)
+
+
+def _act_gather(state: dict, p: dict) -> None:
+    """GATHER: head toward the nearest pickup, no fire."""
+    px, py = p.get("x", 0.0), p.get("y", 0.0)
+    pickup, _pd = _nearest_pickup(state, px, py)
+    if pickup is None:
+        # Pickup vanished (probably collected); next tick re-routes.
+        KeyState.hold("space", False)
+        return
+    KeyState.hold("space", False)
+    _do_goto(state, p, pickup["x"], pickup["y"],
+             stop_radius=PICKUP_STOP_RADIUS)
 
 
 def _do_spiral_search(state: dict, p: dict) -> None:

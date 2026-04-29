@@ -198,7 +198,7 @@ class TestAutoCascadePerf:
         monkeypatch.setattr(
             ap.KeyState, "release_all",
             staticmethod(lambda: None))
-        ap._spiral_reset()
+        ap._fsm_reset()
         yield
 
     def test_auto_cascade_under_2ms(self):

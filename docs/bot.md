@@ -89,7 +89,7 @@ State is exposed under `state.assist`.
 # Intent vocabulary
 
 ```json
-{"type": "auto"}            // default -- three-priority cascade
+{"type": "auto"}            // default -- five-state FSM (see below)
 {"type": "idle"}
 {"type": "goto", "x": 3200, "y": 4000, "radius": 80}
 {"type": "mine_nearest"}
@@ -101,24 +101,42 @@ State is exposed under `state.assist`.
 
 Unknown types are logged and the autopilot falls back to `idle`.
 
-## `auto` cascade (default)
+## `auto` finite state machine (default)
 
-Re-evaluated every tick:
+`_do_auto` is a five-state FSM with **asymmetric enter/exit
+thresholds** (hysteresis) plus a **MIN_DWELL_S = 0.6 s** gate
+on every non-`ENGAGE` transition.  `ENGAGE` is the defensive
+interrupt: it preempts dwell from any state.
 
-1. **Under attack** -- alien within 800 px: pick Energy Blade
-   (< 100 px) or Basic Laser, close to ~380 px stand-off, hold
-   space.  Combat assist owns aim + fire.
-2. **Pickups in range** -- iron or blueprint drops within 1500
-   px: fly to the nearest one (blueprints win on tie).  60 px
-   stop radius lets the in-game pickup magnet pull it in.
-3. **Shields below 50 % + safe** -- idle until shields recover
-   to at least half.  Enough buffer to take the next mining
-   trip without dying to a stray alien.
-4. **Shields >= 50 % + safe + asteroids known** -- mine the
-   nearest asteroid.
-5. **No asteroids visible** (rare) -- outward spiral search
-   around the current anchor with the Mining Beam held.
-   Re-anchors after radius >= 3000 px.
+| State | Action | Enter when | Exit when |
+|---|---|---|---|
+| `ENGAGE` | maintain ~380 px stand-off, combat assist owns aim + fire | nearest alien `< 800 px` (any state) | no alien `< 1000 px` |
+| `GATHER` | fly to nearest pickup (blueprints win on tie); 60 px stop radius | pickup `< 1500 px` and not in ENGAGE | no pickup `< 1700 px` |
+| `REGEN` | idle, release all keys, let shields recover | shields `< 40 %` and safe | shields `≥ 60 %` |
+| `MINE` | head to nearest asteroid, hold Mining Beam | asteroids visible and safe | no asteroids visible |
+| `SEARCH` | outward spiral from current position, Mining Beam held; re-anchors at 3000 px | no asteroids visible and not in any other state | asteroid appears |
+
+Within `ENGAGE`, weapon choice has its own sub-band: enter
+Energy Blade at `< 100 px`, exit (back to Basic Laser) at
+`> 130 px`.
+
+The hysteresis bands replace three previous sources of flicker
+that the old priority cascade had to mask with ad-hoc timers:
+
+* **mine ↔ engage** at the 800 px ring -- the bot used to
+  re-target every tick when an alien drifted near the boundary;
+  weapon-switch Tab presses were rate-limited at 250 ms purely
+  to hide this.
+* **idle ↔ mine** at the 50 % shield threshold -- shields ticking
+  across the line during regen would alternate idle/mine each
+  frame.
+* **spiral teardown** -- the prior cascade called
+  `_spiral_reset()` from every other branch, so a brushing
+  alien could destroy a 30-second outward sweep.
+
+Combat assist (`bot_combat_assist.py`) still owns aim + fire
+override during `ENGAGE`; the FSM owns thrust + weapon
+selection.
 
 # State JSON schema (`GET /state`)
 

@@ -1,11 +1,18 @@
-"""Unit tests for ``bot_autopilot`` -- the external state-machine
-process that translates intents into keystrokes.
+"""Unit tests for ``bot_autopilot`` -- the external FSM process
+that translates intents into keystrokes.
 
-We test the pure-logic helpers (``nearest``, ``angle_to``,
-``heading_delta``, ``_nearest_pickup``, ``_do_auto`` priority
-cascade) by patching the ``KeyState`` static class so it
-records keys instead of actually sending them, and stubbing
-the small slice of state the helpers read.
+Coverage:
+  * Pure-logic helpers (``nearest``, ``angle_to``, ``heading_delta``,
+    ``_nearest_pickup``).
+  * ``_do_auto`` per-state behaviour (action dispatch in each FSM
+    state — ENGAGE / GATHER / REGEN / MINE / SEARCH).
+  * FSM transition rules — hysteresis (asymmetric enter/exit),
+    MIN_DWELL gating, ENGAGE preemption — live in
+    ``test_bot_autopilot_fsm.py``.
+
+We patch ``KeyState`` so it records (key, down) tuples instead
+of touching pyautogui, and stub the small slice of state the
+helpers read.
 """
 from __future__ import annotations
 
@@ -36,8 +43,8 @@ def _key_recorder(monkeypatch):
     monkeypatch.setattr(ap.KeyState, "release_all",
                         staticmethod(lambda: ap.KeyState.held.clear()))
     ap.KeyState.held.clear()
-    # Also reset the spiral state so each test starts fresh.
-    ap._spiral_reset()
+    # Reset FSM + spiral so each test starts from a known state.
+    ap._fsm_reset()
     yield log
 
 
@@ -173,26 +180,25 @@ class TestAutoGather:
 
 
 class TestAutoShieldRecover:
-    def test_idles_below_50_percent_shields(self, _key_recorder):
+    def test_idles_below_regen_enter_threshold(self, _key_recorder):
+        # 20 % shields -- well below the 40 % REGEN enter band.
         s = _state(player={
             "x": 0, "y": 0, "heading": 0,
-            "shields": 30, "max_shields": 150,    # 20 % -- below 50 %
+            "shields": 30, "max_shields": 150,
         })
         ap._do_auto(s, s["player"])
-        # Idle -> all keys released.
+        # REGEN -> all keys released.
         assert ap.KeyState.held == set()
 
-    def test_acts_at_or_above_50_percent_shields(self, _key_recorder):
-        # Exactly 50 % -- threshold says "below 50% idles", so
-        # 75/150 should NOT idle -- it should pursue the next
-        # priority.  With no asteroids visible, spiral fires
-        # (which holds Mining Beam fire on).
+    def test_acts_above_regen_enter_threshold(self, _key_recorder):
+        # 50 % shields -- above the 40 % REGEN enter band.  With
+        # no aliens / no asteroids visible the FSM lands in SEARCH
+        # which holds Mining Beam fire on.
         s = _state(player={
             "x": 0, "y": 0, "heading": 0,
             "shields": 75, "max_shields": 150,
         })
         ap._do_auto(s, s["player"])
-        # Spiral search holds space (mining beam).
         assert ("space", True) in _key_recorder
 
 
