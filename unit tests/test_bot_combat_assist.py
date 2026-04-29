@@ -75,8 +75,11 @@ def _gv(
 
 
 @pytest.fixture(autouse=True)
-def _reset_assist_state():
-    """Each test starts with a fresh assist state."""
+def _reset_assist_state(monkeypatch):
+    """Each test starts with a fresh assist state.  Default the
+    RNG to "no melee" so legacy range-based tests aren't randomly
+    flipped into the melee-locked path; melee tests override
+    _get_random themselves."""
     ca._state.update({
         "enabled": True,
         "fired_this_tick": False,
@@ -85,7 +88,11 @@ def _reset_assist_state():
         "last_aim_heading": 0.0,
         "engagements": 0,
         "_holdover_until": 0.0,
+        "melee_engaged": False,
+        "_had_threat_last_tick": False,
+        "_melee_engaged_until": 0.0,
     })
+    monkeypatch.setattr(ca, "_get_random", lambda: 0.99)  # ranged
     yield
 
 
@@ -272,3 +279,134 @@ class TestSetEnabledAndGetState:
         # the install flag itself should never raise.
         ca.install(SimpleNamespace())
         ca.install(SimpleNamespace())   # second call is a no-op
+
+    def test_get_state_reports_melee_engaged(self):
+        s = ca.get_state()
+        assert "melee_engaged" in s
+        assert s["melee_engaged"] is False
+
+
+# ── Melee-commit dice + weapon lock ───────────────────────────────────────
+
+
+class TestMeleeCommitRoll:
+    """The dice roll fires on the tick that transitions
+    no-threat -> threat (a "fresh engagement").  On hit the
+    assist locks the Energy Blade for the rest of the
+    engagement; on miss it falls back to the range-based
+    auto-switch.  The lock survives a brief target loss
+    (MELEE_LOCK_HOLDOVER_S) so a one-frame line-of-sight gap
+    doesn't reroll mid-fight."""
+
+    def test_low_roll_commits_to_melee(self, monkeypatch):
+        monkeypatch.setattr(ca, "_get_random", lambda: 0.0)
+        gv = _gv(aliens=[_alien(400, 0)])
+        ca.tick(gv, 1 / 60, original_fire=False)
+        assert ca._state["melee_engaged"] is True
+
+    def test_high_roll_stays_ranged(self, monkeypatch):
+        monkeypatch.setattr(ca, "_get_random", lambda: 0.99)
+        gv = _gv(aliens=[_alien(400, 0)])
+        ca.tick(gv, 1 / 60, original_fire=False)
+        assert ca._state["melee_engaged"] is False
+
+    def test_threshold_is_strict_lt(self, monkeypatch):
+        # roll == MELEE_COMMIT_CHANCE -> miss.
+        monkeypatch.setattr(ca, "_get_random",
+                            lambda: ca.MELEE_COMMIT_CHANCE)
+        gv = _gv(aliens=[_alien(400, 0)])
+        ca.tick(gv, 1 / 60, original_fire=False)
+        assert ca._state["melee_engaged"] is False
+
+    def test_no_threat_does_not_roll(self, monkeypatch):
+        # If the RNG would commit but there's no threat, the flag
+        # must stay False -- we only roll on engagement transitions.
+        monkeypatch.setattr(ca, "_get_random", lambda: 0.0)
+        gv = _gv()  # no aliens
+        ca.tick(gv, 1 / 60, original_fire=False)
+        assert ca._state["melee_engaged"] is False
+
+    def test_does_not_re_roll_each_tick(self, monkeypatch):
+        """First tick rolls and commits.  Subsequent ticks with
+        the same threat must not re-roll, even if the RNG would
+        now miss."""
+        monkeypatch.setattr(ca, "_get_random", lambda: 0.0)
+        gv = _gv(aliens=[_alien(400, 0)])
+        ca.tick(gv, 1 / 60, original_fire=False)
+        assert ca._state["melee_engaged"] is True
+        # Flip the RNG -- no effect because we're already engaged.
+        monkeypatch.setattr(ca, "_get_random", lambda: 0.99)
+        for _ in range(10):
+            ca.tick(gv, 1 / 60, original_fire=False)
+        assert ca._state["melee_engaged"] is True
+
+
+class TestMeleeWeaponLock:
+    """When committed, the assist forces the Energy Blade every
+    frame regardless of distance -- otherwise the per-frame
+    range auto-switch would fight the autopilot's slower 10 Hz
+    Tab presses."""
+
+    def test_committed_locks_melee_at_long_range(self, monkeypatch):
+        monkeypatch.setattr(ca, "_get_random", lambda: 0.0)
+        # Threat at 600 px -- ranged would normally pick Basic
+        # Laser; with melee committed, must lock to Melee.
+        gv = _gv(aliens=[_alien(600, 0)],
+                 weapon_idx=0)  # start on Basic Laser
+        ca.tick(gv, 1 / 60, original_fire=False)
+        assert gv._weapons[gv._weapon_idx].name == "Melee"
+
+    def test_uncommitted_uses_range_based_choice(self, monkeypatch):
+        monkeypatch.setattr(ca, "_get_random", lambda: 0.99)
+        gv = _gv(aliens=[_alien(600, 0)],
+                 weapon_idx=0)
+        ca.tick(gv, 1 / 60, original_fire=False)
+        # 600 > MELEE_RANGE (100) -> Basic Laser.
+        assert gv._weapons[gv._weapon_idx].name == "Basic Laser"
+
+
+class TestMeleeLockGrace:
+    """The melee lock survives a brief target-loss window so a
+    momentary detection gap doesn't drop the commitment."""
+
+    def test_lock_holds_through_short_target_loss(self, monkeypatch):
+        monkeypatch.setattr(ca, "_get_random", lambda: 0.0)
+        gv = _gv(aliens=[_alien(200, 0)])
+        ca.tick(gv, 1 / 60, original_fire=False)
+        assert ca._state["melee_engaged"] is True
+        # Target gone, but the grace period hasn't elapsed.
+        gv.alien_list = []
+        ca.tick(gv, 1 / 60, original_fire=False)
+        assert ca._state["melee_engaged"] is True
+
+    def test_lock_clears_after_grace_elapses(self, monkeypatch):
+        monkeypatch.setattr(ca, "_get_random", lambda: 0.0)
+        gv = _gv(aliens=[_alien(200, 0)])
+        ca.tick(gv, 1 / 60, original_fire=False)
+        assert ca._state["melee_engaged"] is True
+        # Force the grace timer to be in the past, then tick with
+        # no target -- lock must drop.
+        ca._state["_melee_engaged_until"] = 0.0
+        gv.alien_list = []
+        ca.tick(gv, 1 / 60, original_fire=False)
+        assert ca._state["melee_engaged"] is False
+
+    def test_fresh_engagement_after_clear_rerolls(self, monkeypatch):
+        # First engagement -- commit.
+        monkeypatch.setattr(ca, "_get_random", lambda: 0.0)
+        gv = _gv(aliens=[_alien(200, 0)])
+        ca.tick(gv, 1 / 60, original_fire=False)
+        assert ca._state["melee_engaged"] is True
+        # Force lock + had-threat to clear (grace elapsed, no target).
+        ca._state["_melee_engaged_until"] = 0.0
+        gv.alien_list = []
+        ca.tick(gv, 1 / 60, original_fire=False)
+        assert ca._state["melee_engaged"] is False
+        assert ca._state["_had_threat_last_tick"] is False
+        # New engagement, this time RNG says miss.
+        monkeypatch.setattr(ca, "_get_random", lambda: 0.99)
+        gv.alien_list = [_alien(200, 0)]
+        ca.tick(gv, 1 / 60, original_fire=False)
+        assert ca._state["melee_engaged"] is False, (
+            "fresh engagement must re-roll the dice, not inherit"
+            " the prior engagement's commitment")

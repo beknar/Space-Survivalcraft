@@ -91,6 +91,8 @@ class TestCombatAssistTickPerf:
             "last_threat_dist": -1.0, "last_threat_type": "",
             "last_aim_heading": 0.0, "engagements": 0,
             "_holdover_until": 0.0,
+            "melee_engaged": False, "_had_threat_last_tick": False,
+            "_melee_engaged_until": 0.0,
         })
         yield
 

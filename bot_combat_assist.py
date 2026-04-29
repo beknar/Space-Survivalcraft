@@ -44,6 +44,7 @@ from __future__ import annotations
 
 import math
 import os
+import random
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -61,6 +62,21 @@ SHIELD_REGEN_GRACE_S: float = 1.0
 # choice + intent reasserts after combat.
 ASSIST_HOLDOVER_S: float = 0.4
 
+# On the first tick of a fresh engagement (no threat -> threat),
+# roll the dice: with this probability the assist commits to the
+# Energy Blade for the duration of this engagement and forces the
+# weapon every frame regardless of range.  This is the
+# game-process side of the autopilot's melee-rush behaviour --
+# the autopilot owns movement (closes to swing range), the
+# assist owns the weapon lock (so the ranged auto-switch can't
+# fight it).  Cleared once the threat has been gone for
+# ``MELEE_LOCK_HOLDOVER_S``.
+MELEE_COMMIT_CHANCE: float = 0.5
+MELEE_LOCK_HOLDOVER_S: float = 0.6
+
+# Indirection so tests can monkey-patch a deterministic RNG.
+_get_random = random.random
+
 _state: dict[str, Any] = {
     "enabled": True,
     "fired_this_tick": False,
@@ -69,6 +85,12 @@ _state: dict[str, Any] = {
     "last_aim_heading": 0.0,
     "engagements": 0,
     "_holdover_until": 0.0,
+    # Melee commitment.  ``melee_engaged`` is what callers (the
+    # autopilot, /state) read; the underscored fields are internal
+    # bookkeeping so the dice only re-roll on a fresh engagement.
+    "melee_engaged": False,
+    "_had_threat_last_tick": False,
+    "_melee_engaged_until": 0.0,
 }
 
 
@@ -178,12 +200,30 @@ def tick(gv, dt: float, original_fire: bool) -> bool:
     threat, d = _find_nearest_threat(gv)
     now = _now(gv)
     if threat is None:
-        # No threat -- only retain assist if we just ceased fire (so
-        # we don't strobe between assist and player control on
-        # frame-by-frame target loss).
+        # No threat this tick.  Drop the melee commitment once the
+        # grace timer has elapsed (so a brief target-loss + reacquire
+        # doesn't reroll the dice mid-fight).
+        _state["_had_threat_last_tick"] = False
+        if (_state["melee_engaged"]
+                and now >= _state["_melee_engaged_until"]):
+            _state["melee_engaged"] = False
+        # Retain assist briefly after target loss so we don't strobe
+        # between assist and player control on frame-by-frame loss.
         if now < _state["_holdover_until"]:
             return True
         return original_fire
+
+    # Fresh-engagement detection: roll the melee-commit dice on the
+    # tick that transitions no-threat -> threat.  Once committed, the
+    # flag persists for the entire engagement (and re-arms the grace
+    # timer below so a momentary line-of-sight loss doesn't drop it).
+    fresh = not _state["_had_threat_last_tick"]
+    _state["_had_threat_last_tick"] = True
+    if fresh and not _state["melee_engaged"]:
+        if _get_random() < MELEE_COMMIT_CHANCE:
+            _state["melee_engaged"] = True
+    if _state["melee_engaged"]:
+        _state["_melee_engaged_until"] = now + MELEE_LOCK_HOLDOVER_S
 
     # Aim: snap heading directly.  Player rotation rate would slow
     # the ship's natural turn, but for assist we want immediate
@@ -192,9 +232,20 @@ def tick(gv, dt: float, original_fire: bool) -> bool:
     gv.player.heading = heading
     _state["last_aim_heading"] = heading
 
-    # Pick weapon by range.  Mining Beam never engages aliens, so
-    # if the player intended to mine but a threat is here, override
-    # to Basic Laser (or Melee at point-blank).
+    # Weapon choice:
+    #   * Melee-committed: force Energy Blade every frame, swing
+    #     even out of arc (the autopilot is closing the distance;
+    #     the swing animation just whiffs until we're in range).
+    #   * Otherwise: range-based -- Energy Blade at point-blank,
+    #     Basic Laser inside laser range, hands off past it.
+    if _state["melee_engaged"]:
+        _ensure_weapon(gv, "Melee")
+        _state["fired_this_tick"] = True
+        _state["last_threat_dist"] = d
+        _state["last_threat_type"] = type(threat).__name__
+        _state["engagements"] += 1
+        _state["_holdover_until"] = now + ASSIST_HOLDOVER_S
+        return True
     want = "Melee" if d < MELEE_RANGE else "Basic Laser"
     if d < LASER_RANGE or d < MELEE_RANGE:
         _ensure_weapon(gv, want)
@@ -260,6 +311,7 @@ def get_state() -> dict:
         "last_threat_type": _state["last_threat_type"],
         "last_aim_heading": _state["last_aim_heading"],
         "engagements": _state["engagements"],
+        "melee_engaged": _state["melee_engaged"],
         "detect_range": DETECT_RANGE,
         "laser_range": LASER_RANGE,
         "melee_range": MELEE_RANGE,

@@ -110,15 +110,32 @@ interrupt: it preempts dwell from any state.
 
 | State | Action | Enter when | Exit when |
 |---|---|---|---|
-| `ENGAGE` | maintain ~380 px stand-off, combat assist owns aim + fire | nearest alien `< 800 px` (any state) | no alien `< 1000 px` |
+| `ENGAGE` | If the in-process combat assist has rolled into a melee commitment for this engagement (`state.assist.melee_engaged`), close to ~50 px and let the assist swing the lightsabre.  Otherwise hold ~380 px stand-off with Basic Laser.  Combat assist owns aim + fire + melee weapon-lock. | nearest alien `< 800 px` (any state) | no alien `< 1000 px` |
 | `GATHER` | fly to nearest pickup (blueprints win on tie); 60 px stop radius | pickup `< 1500 px` and not in ENGAGE | no pickup `< 1700 px` |
 | `REGEN` | idle, release all keys, let shields recover | shields `< 40 %` and safe | shields `≥ 60 %` |
 | `MINE` | head to nearest asteroid, hold Mining Beam | asteroids visible and safe | no asteroids visible |
 | `SEARCH` | outward spiral from current position, Mining Beam held; re-anchors at 3000 px | no asteroids visible and not in any other state | asteroid appears |
 
-Within `ENGAGE`, weapon choice has its own sub-band: enter
-Energy Blade at `< 100 px`, exit (back to Basic Laser) at
-`> 130 px`.
+**Melee commit (per engagement).**  The dice roll for melee
+commitment lives in the in-process combat assist
+(`bot_combat_assist.tick`), not the autopilot, because combat
+assist runs every game frame and would otherwise fight the
+autopilot's slower 10 Hz Tab presses for weapon control.
+
+On the tick that transitions no-threat → threat (a "fresh
+engagement"), the assist rolls `random.random() <
+MELEE_COMMIT_CHANCE` (default 0.5).  On hit it locks the
+Energy Blade for the duration of the engagement, force-firing
+every frame regardless of distance.  The autopilot reads
+`state.assist.melee_engaged` and closes to
+`MELEE_STOP_RADIUS_PX` (~50 px) so the swing arc reaches the
+target.  The lock survives `MELEE_LOCK_HOLDOVER_S` (0.6 s) of
+target-loss before clearing, so a one-frame line-of-sight
+gap doesn't drop it mid-fight.
+
+On miss, the autopilot uses ranged engagement with the
+laser/melee sub-band hysteresis: enter Energy Blade at `< 100
+px`, exit (back to Basic Laser) at `> 130 px`.
 
 The hysteresis bands replace three previous sources of flicker
 that the old priority cascade had to mask with ad-hoc timers:

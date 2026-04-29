@@ -52,7 +52,7 @@ def _key_recorder(monkeypatch):
 
 def _state(player=None, aliens=(), asteroids=(),
            iron_pickups=(), blueprint_pickups=(),
-           weapon_name="Basic Laser"):
+           weapon_name="Basic Laser", melee_engaged=False):
     return {
         "player": player or {
             "x": 0.0, "y": 0.0, "heading": 0.0,
@@ -64,6 +64,7 @@ def _state(player=None, aliens=(), asteroids=(),
         "iron_pickups": list(iron_pickups),
         "blueprint_pickups": list(blueprint_pickups),
         "menu": {},
+        "assist": {"melee_engaged": melee_engaged},
     }
 
 
@@ -284,3 +285,56 @@ class TestMenuSuppression:
         s["intent"] = {"type": "auto"}
         ap.execute_intent(s)
         assert ap._fsm["state"] == ap.S_MINE
+
+
+# ── ENGAGE: melee-commit movement (driven by combat assist) ───────────────
+#
+# The dice roll lives in ``bot_combat_assist.tick`` -- it has to,
+# because combat assist runs every game frame and would otherwise
+# fight the autopilot's slower 10 Hz Tab presses.  The autopilot
+# reads ``state.assist.melee_engaged`` and switches its movement
+# stop radius to close in for the swing arc.
+
+
+class TestMeleeCommitMovement:
+    """When the assist signals it's committed to melee, the
+    autopilot must drive forward to ``MELEE_STOP_RADIUS_PX``
+    instead of holding the 380 px ranged stand-off."""
+
+    def test_committed_melee_uses_short_stop_radius(
+            self, _clock, monkeypatch):
+        captured: dict = {}
+        def _spy(state, p, tx, ty, stop_radius=80.0):
+            captured["stop_radius"] = stop_radius
+        monkeypatch.setattr(ap, "_do_goto", _spy)
+        s = _state(aliens=[{"x": 400, "y": 0, "hp": 50}],
+                   melee_engaged=True)
+        ap._do_auto(s, s["player"])
+        assert captured.get("stop_radius") == ap.MELEE_STOP_RADIUS_PX
+
+    def test_uncommitted_uses_ranged_stop_radius(
+            self, _clock, monkeypatch):
+        captured: dict = {}
+        def _spy(state, p, tx, ty, stop_radius=80.0):
+            captured["stop_radius"] = stop_radius
+        monkeypatch.setattr(ap, "_do_goto", _spy)
+        s = _state(aliens=[{"x": 400, "y": 0, "hp": 50}],
+                   melee_engaged=False)
+        ap._do_auto(s, s["player"])
+        assert captured.get("stop_radius") == 380.0
+
+    def test_committed_melee_does_not_call_ensure_weapon(
+            self, _clock, monkeypatch):
+        """When committed, the autopilot must leave weapon choice
+        to the in-process combat assist -- not press Tab from
+        out-of-process at 10 Hz."""
+        switches: list[str] = []
+        monkeypatch.setattr(
+            ap, "_ensure_weapon",
+            lambda state, want: switches.append(want))
+        s = _state(aliens=[{"x": 600, "y": 0, "hp": 50}],
+                   melee_engaged=True)
+        ap._do_auto(s, s["player"])
+        assert switches == [], (
+            "autopilot must not fight combat assist for weapon "
+            "choice while melee-engaged")

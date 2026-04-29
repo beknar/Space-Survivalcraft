@@ -262,6 +262,12 @@ MELEE_EXIT_PX:   float = 130.0
 PICKUP_STOP_RADIUS: float = 60.0
 MIN_DWELL_S:     float = 0.6      # how long a non-ENGAGE state must hold
 
+# Stop radius when the in-game combat assist has committed to a
+# melee engagement (via its 50 % per-engagement dice roll).  The
+# autopilot reads ``state.assist.melee_engaged`` and closes to
+# this radius so the swing arc actually reaches the target.
+MELEE_STOP_RADIUS_PX: float = 50.0
+
 
 # ── State constants ───────────────────────────────────────────────────────
 
@@ -371,9 +377,19 @@ def _choose_next_state(state: dict, p: dict, cur: str) -> str:
 
 
 def _on_enter(new_state: str) -> None:
-    """Per-state entry hook.  Currently only SEARCH cares — its
+    """Per-state entry hook.  Currently only SEARCH cares -- its
     spiral anchor must be cleared so each fresh search starts
-    from the bot's current position, not a stale prior anchor."""
+    from the bot's current position, not a stale prior anchor.
+
+    The melee-commit dice roll on ENGAGE entry happens in the
+    in-process combat assist (see ``bot_combat_assist.tick``),
+    not here, because combat assist is the authoritative owner
+    of weapon selection -- the autopilot's 10 Hz tick + 0.25 s
+    Tab rate-limit can't beat the per-frame ranged-vs-melee
+    auto-switch unless the assist itself stays out of its way.
+    The autopilot reads the result via ``state.assist.melee_engaged``
+    in ``_act_engage`` to choose the right movement stop radius.
+    """
     if new_state == S_SEARCH:
         _spiral_reset()
 
@@ -419,9 +435,19 @@ def _do_auto(state: dict, p: dict) -> None:
 
 
 def _act_engage(state: dict, p: dict) -> None:
-    """ENGAGE: maintain stand-off + hold fire.  Combat assist owns
-    aim + fire override; this just keeps the threat in laser range
-    and picks the right weapon by sub-band hysteresis."""
+    """ENGAGE: close on the nearest threat + hold fire.  Combat
+    assist (bot_combat_assist.py) owns aim + fire override; this
+    function chooses movement stop radius based on whether the
+    assist has committed to a melee rush.
+
+    The assist exposes ``state.assist.melee_engaged`` -- True when
+    its per-engagement 50 % dice roll landed on melee.  In that
+    case the autopilot drives forward to ``MELEE_STOP_RADIUS_PX``
+    so the swing arc reaches the target and lets the assist's
+    weapon lock keep the lightsabre selected.  Otherwise it
+    stands off at ~380 px and uses the laser/melee sub-band
+    hysteresis here.
+    """
     aliens = state.get("aliens") or []
     px, py = p.get("x", 0.0), p.get("y", 0.0)
     threat, td = nearest(aliens, px, py)
@@ -430,6 +456,20 @@ def _act_engage(state: dict, p: dict) -> None:
         # to a safe no-op; next tick will re-route us out.
         KeyState.hold("space", False)
         return
+
+    melee_committed = bool(
+        (state.get("assist") or {}).get("melee_engaged", False))
+    if melee_committed:
+        # Committed melee rush: drive in to swing range.  Don't
+        # call _ensure_weapon -- the in-process combat assist has
+        # locked the Energy Blade and would just fight us at
+        # 60 FPS vs our 10 Hz Tab presses.
+        _do_goto(state, p, threat["x"], threat["y"],
+                 stop_radius=MELEE_STOP_RADIUS_PX)
+        KeyState.hold("space", True)
+        return
+
+    # Ranged engagement (default): laser/melee sub-band hysteresis.
     cur_weapon = state.get("weapon", {}).get("name", "Basic Laser")
     if cur_weapon == "Melee":
         # In Melee already: only swap back to Laser once we're past
