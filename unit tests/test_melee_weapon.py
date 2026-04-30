@@ -416,3 +416,87 @@ class TestPerFactionMeleeSprite:
         melee = next(w for w in weapons if w.name == "Melee")
         path = str(getattr(melee._texture, "file_path", "") or "")
         assert path == MELEE_SWORD_PNG
+
+
+# ── Deflect: enemy projectile striking the player while swinging ─────────
+
+
+class TestMeleeDeflect:
+    """While the energy blade is mid-swing, a 50 % dice roll on each
+    incoming enemy bolt deflects it: velocity reverses, the projectile
+    moves from the enemy list into ``gv.projectile_list`` (so it can
+    hit aliens on its return trip), and the player takes no damage.
+    On miss the bolt damages the player as normal."""
+
+    def _stub_gv(self, blade_swinging: bool):
+        """Lightweight gv with just the surface ``_try_melee_deflect``
+        + ``handle_alien_laser_hits`` need — no real arcade textures."""
+        import arcade
+        from types import SimpleNamespace
+
+        proj = SimpleNamespace(
+            center_x=100.0, center_y=100.0, angle=90.0,
+            damage=10.0, _vx=300.0, _vy=0.0, _dist_travelled=10.0,
+            _parents=[],
+        )
+        # Stub the SpriteList-style methods the deflect helper calls.
+        alien_list_obj = []
+        player_list_obj = []
+
+        def _remove_from_sprite_lists():
+            for lst in (alien_list_obj, player_list_obj):
+                if proj in lst:
+                    lst.remove(proj)
+
+        proj.remove_from_sprite_lists = _remove_from_sprite_lists
+        alien_list_obj.append(proj)
+
+        gv = SimpleNamespace(
+            alien_projectile_list=alien_list_obj,
+            projectile_list=player_list_obj,
+            player=SimpleNamespace(center_x=120.0, center_y=100.0),
+            hit_sparks=[],
+            _bump_snd=None,
+            _active_blade=SimpleNamespace(
+                is_swinging=blade_swinging),
+        )
+        return gv, proj
+
+    def test_deflect_hit_moves_projectile_to_player_list(self, monkeypatch):
+        import collisions
+        # Force the dice to "hit".
+        monkeypatch.setattr(collisions.random, "random", lambda: 0.0)
+        gv, proj = self._stub_gv(blade_swinging=True)
+        deflected = collisions._try_melee_deflect(gv, proj)
+        assert deflected is True
+        assert proj not in gv.alien_projectile_list
+        assert proj in gv.projectile_list
+        # Velocity reversed, distance reset.
+        assert proj._vx == -300.0
+        assert proj._vy == 0.0
+        assert proj._dist_travelled == 0.0
+
+    def test_deflect_miss_leaves_projectile_alone(self, monkeypatch):
+        import collisions
+        # Force the dice above the threshold.
+        monkeypatch.setattr(collisions.random, "random", lambda: 0.99)
+        gv, proj = self._stub_gv(blade_swinging=True)
+        deflected = collisions._try_melee_deflect(gv, proj)
+        assert deflected is False
+        assert proj in gv.alien_projectile_list
+        assert proj not in gv.projectile_list
+        # Velocity untouched.
+        assert proj._vx == 300.0
+
+    def test_no_deflect_when_blade_not_swinging(self, monkeypatch):
+        import collisions
+        monkeypatch.setattr(collisions.random, "random", lambda: 0.0)
+        gv, proj = self._stub_gv(blade_swinging=False)
+        assert collisions._try_melee_deflect(gv, proj) is False
+
+    def test_no_deflect_when_no_active_blade(self, monkeypatch):
+        import collisions
+        monkeypatch.setattr(collisions.random, "random", lambda: 0.0)
+        gv, proj = self._stub_gv(blade_swinging=True)
+        gv._active_blade = None
+        assert collisions._try_melee_deflect(gv, proj) is False

@@ -293,6 +293,11 @@ MELEE_TEX_ANGLE_OFFSET: float = 0.0
 # energy blade.  All other ship types use the base values above.
 MELEE_BASTION_DAMAGE_BONUS: int = 15
 MELEE_BASTION_HIT_RADIUS: float = 110.0
+# Per-projectile chance that an enemy bolt striking the player while
+# the energy blade is mid-swing is deflected back the way it came
+# (and converted to a player-owned projectile so it can hit aliens
+# on its return trip).
+MELEE_DEFLECT_CHANCE: float = 0.5
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 6. Inventory / Quick Use

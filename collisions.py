@@ -16,6 +16,7 @@ from constants import (
     BLUEPRINT_DROP_CHANCE_ALIEN, BLUEPRINT_DROP_CHANCE_ASTEROID,
     BOSS_RADIUS, BOSS_COLLISION_DAMAGE, BOSS_COLLISION_COOLDOWN,
     BOSS_BOUNCE, BOSS_CHARGE_DAMAGE, BOSS_XP_REWARD, BOSS_IRON_DROP,
+    MELEE_DEFLECT_CHANCE,
 )
 from character_data import (
     bonus_iron_asteroid, bonus_iron_enemy, blueprint_drop_bonus,
@@ -285,10 +286,38 @@ def handle_alien_alien_collision(gv: GameView) -> None:
                 a2.collision_bump()
 
 
+def _try_melee_deflect(gv: GameView, proj) -> bool:
+    """Roll the energy-blade deflect dice for a single enemy projectile.
+
+    Returns True if the bolt was deflected — the caller must skip the
+    "damage the player" branch in that case.  A deflected projectile
+    has its velocity reversed, its travel distance reset, and is moved
+    out of the enemy list and into ``gv.projectile_list`` so it can
+    hit aliens on the way back (player projectiles don't damage the
+    player, so the deflected bolt is no longer a self-hazard).
+    """
+    blade = getattr(gv, "_active_blade", None)
+    if blade is None or not blade.is_swinging:
+        return False
+    if random.random() >= MELEE_DEFLECT_CHANCE:
+        return False
+    proj._vx = -proj._vx
+    proj._vy = -proj._vy
+    proj.angle = (proj.angle + 180.0) % 360.0
+    proj._dist_travelled = 0.0
+    proj.remove_from_sprite_lists()
+    gv.projectile_list.append(proj)
+    gv.hit_sparks.append(HitSpark(proj.center_x, proj.center_y))
+    arcade.play_sound(gv._bump_snd, volume=0.4)
+    return True
+
+
 def handle_alien_laser_hits(gv: GameView) -> None:
     """Alien laser projectiles hitting the player."""
     for proj in list(gv.alien_projectile_list):
         if arcade.check_for_collision(proj, gv.player):
+            if _try_melee_deflect(gv, proj):
+                continue
             proj.remove_from_sprite_lists()
             # Alien lasers bypass the invincibility cooldown (they fire
             # rapidly and the design is that each bolt hurts).
@@ -614,6 +643,8 @@ def handle_boss_laser_hits(gv: GameView) -> None:
         dx = proj.center_x - gv.player.center_x
         dy = proj.center_y - gv.player.center_y
         if math.hypot(dx, dy) <= SHIP_RADIUS + 8.0:
+            if _try_melee_deflect(gv, proj):
+                continue
             proj.remove_from_sprite_lists()
             gv._apply_damage_to_player(int(proj.damage))
             gv._trigger_shake()
