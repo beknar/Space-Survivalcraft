@@ -152,6 +152,7 @@ Several large optimizations target the Nebula zone, which can populate hundreds 
 
 - **Ruff** --- `ruff.toml` configures bug-focused lint rules (F401, F811, F821, F823, F841, E9, B006/B008/B015/B018/B023). Initial pass cleaned 156 unused imports and 5 dead variables across 12 files, and caught 2 real bugs (missing imports in `station_inventory.py`).
 - **pytest.ini** --- excludes `integration/` from default test runs (`norecursedirs`).
+- **`tools/claude_time.py`** --- reconstructs cumulative active time across all Claude Code sessions from the local JSONL transcripts at `~/.claude/projects/`. Sums consecutive event-timestamp gaps, skipping ones longer than 5 min so overnight idle doesn't inflate the total. Run `python tools/claude_time.py` for the default; pass a custom idle threshold in seconds as an argument. There's no native time-on-task metric in Claude Code, so this is the only way to get a real number.
 
 ## Test Coverage
 
