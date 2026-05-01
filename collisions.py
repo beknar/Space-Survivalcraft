@@ -286,6 +286,48 @@ def handle_alien_alien_collision(gv: GameView) -> None:
                 a2.collision_bump()
 
 
+# Deflect telemetry — module-level counters bumped by
+# ``_try_melee_deflect`` so a session-long tally is always available.
+# Surfaced via ``bot_api.get_state().melee_deflect`` and via
+# ``melee_deflect_summary()`` for stdout dumps.  These are cumulative
+# from process start; reset with ``reset_melee_deflect_stats()``.
+melee_deflect_stats: dict[str, int] = {
+    "bolts_no_blade":       0,   # no _active_blade at impact
+    "bolts_blade_idle":     0,   # blade present but not swinging
+    "bolts_during_swing":   0,   # blade swinging — dice rolled
+    "deflects_succeeded":   0,   # roll < MELEE_DEFLECT_CHANCE
+    "deflects_failed_roll": 0,   # roll ≥ MELEE_DEFLECT_CHANCE
+}
+
+
+def reset_melee_deflect_stats() -> None:
+    for k in melee_deflect_stats:
+        melee_deflect_stats[k] = 0
+
+
+def melee_deflect_summary() -> str:
+    """One-line human-readable summary of the deflect counters.
+    Used by the autopilot / strategy helper for periodic stdout dumps."""
+    s = melee_deflect_stats
+    impacts = (s["bolts_no_blade"]
+               + s["bolts_blade_idle"]
+               + s["bolts_during_swing"])
+    swing_share = (
+        s["bolts_during_swing"] / impacts * 100.0) if impacts else 0.0
+    deflect_rate = (
+        s["deflects_succeeded"] / s["bolts_during_swing"] * 100.0
+    ) if s["bolts_during_swing"] else 0.0
+    return (
+        f"MELEE DEFLECT: impacts={impacts} "
+        f"(no_blade={s['bolts_no_blade']}, "
+        f"blade_idle={s['bolts_blade_idle']}, "
+        f"during_swing={s['bolts_during_swing']} "
+        f"-- {swing_share:.0f}% of impacts), "
+        f"deflected={s['deflects_succeeded']}/"
+        f"{s['bolts_during_swing']} "
+        f"({deflect_rate:.0f}% of swing-impacts)")
+
+
 def _try_melee_deflect(gv: GameView, proj) -> bool:
     """Roll the energy-blade deflect dice for a single enemy projectile.
 
@@ -295,12 +337,28 @@ def _try_melee_deflect(gv: GameView, proj) -> bool:
     out of the enemy list and into ``gv.projectile_list`` so it can
     hit aliens on the way back (player projectiles don't damage the
     player, so the deflected bolt is no longer a self-hazard).
+
+    Updates ``melee_deflect_stats`` on every branch so the bot API
+    and stdout dump can report whether the deflect path is reaching
+    the dice at all.  Prints a one-line "MELEE DEFLECT" marker to
+    stdout on every successful deflect — narrow enough not to spam,
+    wide enough to confirm the path fires during manual play.
     """
     blade = getattr(gv, "_active_blade", None)
-    if blade is None or not blade.is_swinging:
+    if blade is None:
+        melee_deflect_stats["bolts_no_blade"] += 1
         return False
+    if not blade.is_swinging:
+        melee_deflect_stats["bolts_blade_idle"] += 1
+        return False
+    melee_deflect_stats["bolts_during_swing"] += 1
     if random.random() >= MELEE_DEFLECT_CHANCE:
+        melee_deflect_stats["deflects_failed_roll"] += 1
         return False
+    melee_deflect_stats["deflects_succeeded"] += 1
+    print(f"MELEE DEFLECT #{melee_deflect_stats['deflects_succeeded']} "
+          f"(swing-impacts={melee_deflect_stats['bolts_during_swing']})",
+          flush=True)
     proj._vx = -proj._vx
     proj._vy = -proj._vy
     proj.angle = (proj.angle + 180.0) % 360.0

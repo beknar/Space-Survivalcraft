@@ -500,3 +500,102 @@ class TestMeleeDeflect:
         gv, proj = self._stub_gv(blade_swinging=True)
         gv._active_blade = None
         assert collisions._try_melee_deflect(gv, proj) is False
+
+
+class TestMeleeDeflectTelemetry:
+    """Pin the per-branch counters in ``melee_deflect_stats`` so the
+    bot API and stdout dumps can distinguish "deflect path never
+    reaches the dice" from "dice rolled and missed"."""
+
+    def _stub_gv(self, blade_swinging: bool):
+        # Reuse TestMeleeDeflect's helper inline (same shape).
+        from types import SimpleNamespace
+        proj = SimpleNamespace(
+            center_x=100.0, center_y=100.0,
+            _vx=300.0, _vy=0.0, angle=0.0,
+            _dist_travelled=42.0, damage=10,
+            _parents=[],
+        )
+        alien_list_obj = []
+        player_list_obj = []
+
+        def _remove_from_sprite_lists():
+            for lst in (alien_list_obj, player_list_obj):
+                if proj in lst:
+                    lst.remove(proj)
+
+        proj.remove_from_sprite_lists = _remove_from_sprite_lists
+        alien_list_obj.append(proj)
+        gv = SimpleNamespace(
+            alien_projectile_list=alien_list_obj,
+            projectile_list=player_list_obj,
+            player=SimpleNamespace(center_x=120.0, center_y=100.0),
+            hit_sparks=[],
+            _bump_snd=None,
+            _active_blade=SimpleNamespace(
+                is_swinging=blade_swinging),
+        )
+        return gv, proj
+
+    def test_no_blade_branch_bumps_no_blade_counter(self, monkeypatch):
+        import collisions
+        collisions.reset_melee_deflect_stats()
+        gv, proj = self._stub_gv(blade_swinging=True)
+        gv._active_blade = None
+        collisions._try_melee_deflect(gv, proj)
+        assert collisions.melee_deflect_stats["bolts_no_blade"] == 1
+        assert collisions.melee_deflect_stats["bolts_blade_idle"] == 0
+        assert collisions.melee_deflect_stats["bolts_during_swing"] == 0
+
+    def test_idle_blade_branch_bumps_blade_idle_counter(
+            self, monkeypatch):
+        import collisions
+        collisions.reset_melee_deflect_stats()
+        gv, proj = self._stub_gv(blade_swinging=False)
+        collisions._try_melee_deflect(gv, proj)
+        assert collisions.melee_deflect_stats["bolts_blade_idle"] == 1
+        assert collisions.melee_deflect_stats["bolts_no_blade"] == 0
+        assert collisions.melee_deflect_stats["bolts_during_swing"] == 0
+
+    def test_swing_hit_bumps_succeeded(self, monkeypatch):
+        import collisions
+        collisions.reset_melee_deflect_stats()
+        monkeypatch.setattr(collisions.random, "random", lambda: 0.0)
+        gv, proj = self._stub_gv(blade_swinging=True)
+        collisions._try_melee_deflect(gv, proj)
+        assert collisions.melee_deflect_stats["bolts_during_swing"] == 1
+        assert collisions.melee_deflect_stats["deflects_succeeded"] == 1
+        assert (
+            collisions.melee_deflect_stats["deflects_failed_roll"] == 0)
+
+    def test_swing_miss_bumps_failed_roll(self, monkeypatch):
+        import collisions
+        collisions.reset_melee_deflect_stats()
+        monkeypatch.setattr(collisions.random, "random", lambda: 0.99)
+        gv, proj = self._stub_gv(blade_swinging=True)
+        collisions._try_melee_deflect(gv, proj)
+        assert collisions.melee_deflect_stats["bolts_during_swing"] == 1
+        assert collisions.melee_deflect_stats["deflects_succeeded"] == 0
+        assert (
+            collisions.melee_deflect_stats["deflects_failed_roll"] == 1)
+
+    def test_summary_string_includes_counts_and_rates(
+            self, monkeypatch):
+        import collisions
+        collisions.reset_melee_deflect_stats()
+        # Two impacts during swing, one deflected.
+        monkeypatch.setattr(collisions.random, "random", lambda: 0.0)
+        gv, proj = self._stub_gv(blade_swinging=True)
+        collisions._try_melee_deflect(gv, proj)
+        # Reset proj so it can be processed again.
+        gv2, proj2 = self._stub_gv(blade_swinging=True)
+        monkeypatch.setattr(collisions.random, "random", lambda: 0.99)
+        collisions._try_melee_deflect(gv2, proj2)
+        # Plus one idle hit.
+        gv3, proj3 = self._stub_gv(blade_swinging=False)
+        collisions._try_melee_deflect(gv3, proj3)
+        msg = collisions.melee_deflect_summary()
+        assert "impacts=3" in msg
+        assert "blade_idle=1" in msg
+        assert "during_swing=2" in msg
+        assert "deflected=1/2" in msg
