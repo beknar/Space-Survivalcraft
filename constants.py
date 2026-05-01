@@ -325,6 +325,15 @@ PICKAXE_DAMAGE: int = 20
 # Mining-class character (Debra) gets +15 dmg/swing.  All other
 # characters use the base ``PICKAXE_DAMAGE``.
 PICKAXE_DEBRA_DAMAGE_BONUS: int = 15
+# Sprite rendering — PNG is 240 × 160 with the handle drawn
+# diagonally from lower-left up to the head at upper-right.
+# ``PICKAXE_SCALE`` (0.55) is chosen so the rendered handle
+# length (~90 px) matches the lightsabre's visible blade length
+# (~94 px).  ``PICKAXE_TEX_ANGLE_OFFSET`` (+45°) rotates the
+# diagonal handle to vertical so the pickaxe aligns with the
+# ship's spine and the head points forward at the swing's tip.
+PICKAXE_SCALE: float = 0.55
+PICKAXE_TEX_ANGLE_OFFSET: float = 45.0
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 6. Inventory / Quick Use

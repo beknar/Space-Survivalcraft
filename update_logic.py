@@ -727,17 +727,23 @@ def _pickaxe_blade_stats(gv: GameView) -> tuple[float, int]:
 def _ensure_pickaxe_blade(gv: GameView, pickaxe_tex) -> None:
     """Lazy-spawn the persistent pickaxe blade in front of the player.
     Mirrors ``_ensure_melee_blade`` but lives in a separate slot so
-    the bolt-deflect path keys off ``_active_blade`` only."""
+    the bolt-deflect path keys off ``_active_blade`` only.  Uses
+    PICKAXE_SCALE + PICKAXE_TEX_ANGLE_OFFSET so the pickaxe
+    renders at lightsabre size and its diagonal handle is rotated
+    to align with the ship's spine."""
     blade = getattr(gv, "_active_pickaxe", None)
     if blade is not None:
         return
     from sprites.melee import MeleeBlade
+    from constants import PICKAXE_SCALE, PICKAXE_TEX_ANGLE_OFFSET
     hit_radius, damage = _pickaxe_blade_stats(gv)
     blade = MeleeBlade(
         pickaxe_tex, gv.player,
         offset=hit_radius,
         damage=damage,
         hit_radius=hit_radius,
+        tex_scale=PICKAXE_SCALE,
+        tex_angle_offset=PICKAXE_TEX_ANGLE_OFFSET,
     )
     gv._melee_swings.append(blade)
     gv._active_pickaxe = blade

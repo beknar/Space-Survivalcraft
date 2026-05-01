@@ -34,12 +34,17 @@ class MeleeBlade(arcade.Sprite):
         offset: float,
         damage: int,
         hit_radius: float,
+        tex_scale: float = MELEE_SCALE,
+        tex_angle_offset: float = MELEE_TEX_ANGLE_OFFSET,
     ) -> None:
-        super().__init__(path_or_texture=texture, scale=MELEE_SCALE)
+        super().__init__(path_or_texture=texture, scale=tex_scale)
         self._ship = ship
         self._offset: float = offset
         self.damage: int = damage
         self.hit_radius: float = hit_radius
+        # Texture-rotation compensation — non-zero when the PNG art
+        # isn't drawn vertically (e.g. the diagonal pickaxe sprite).
+        self._tex_angle_offset: float = tex_angle_offset
         # Swing animation timer.  ``> 0`` while animating;
         # ``0`` (or below) → idle, blade points forward.
         self._swing_timer: float = 0.0
@@ -84,9 +89,9 @@ class MeleeBlade(arcade.Sprite):
             swing_offset = 0.0
 
         # Rendered sprite angle — texture offset compensates for
-        # the diagonally-drawn sword PNG.
+        # any non-vertical PNG art (e.g. the diagonal pickaxe).
         self.angle = (self._ship.heading + swing_offset
-                      + MELEE_TEX_ANGLE_OFFSET)
+                      + self._tex_angle_offset)
 
         # Slide the sprite centre forward by half a blade-length
         # along the blade's current pointing direction so the
