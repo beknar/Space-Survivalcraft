@@ -343,20 +343,31 @@ _spiral_state: dict = {
 # burst, then let the FSM resume.
 STUCK_DETECT_WINDOW_S    = 1.5    # window over which displacement is measured
 STUCK_DETECT_DIST_PX     = 25.0   # < this much movement in window -> stuck
-STUCK_ESCAPE_DURATION_S  = 1.5    # how long the escape override lasts
+STUCK_ESCAPE_MIN_DURATION_S = 1.5 # minimum time the escape override lasts
+# Escape stays active until the ship is at least this far from any
+# world edge — keeps the override running through long rotations
+# (e.g. 180° turn from the top edge to face south) so the override
+# doesn't expire mid-rotation and immediately re-trigger.
+STUCK_ESCAPE_CLEAR_MARGIN_PX = 500.0
 STUCK_WORLD_MARGIN_PX    = 200.0  # spiral / escape targets stay this far in
+# Throttle the "STUCK at edge" log so a long recovery doesn't
+# spam the console once per detect cycle.
+STUCK_LOG_THROTTLE_S     = 5.0
 _stuck_state: dict = {
     # Rolling list of (timestamp, x, y) samples within the detect window.
     "history": [],
     # Monotonic timestamp at which the current escape override expires;
     # 0 means no override is active.
     "escape_until": 0.0,
+    # Last time the throttled log fired (0 = never).
+    "last_log": 0.0,
 }
 
 
 def _stuck_reset() -> None:
     _stuck_state["history"] = []
     _stuck_state["escape_until"] = 0.0
+    _stuck_state["last_log"] = 0.0
 
 # Sticky mining-weapon choice — re-rolled on every fresh
 # transition into the MINE state so the bot doesn't flap between
@@ -441,6 +452,26 @@ def _do_escape_edge(state: dict, p: dict) -> None:
     # stop_radius is generous so the escape ends as soon as we're
     # clearly off the edge, not when we reach the exact centre.
     _do_goto(state, p, cx, cy, stop_radius=300.0)
+
+
+def _ship_clear_of_edges(p: dict, zone: dict) -> bool:
+    """True when the ship is at least
+    STUCK_ESCAPE_CLEAR_MARGIN_PX from every world edge.  Used as
+    the exit condition for the escape override so the bot doesn't
+    drop back into the FSM while still pinned."""
+    px = float(p.get("x", 0.0))
+    py = float(p.get("y", 0.0))
+    world_w = float(zone.get("world_w", 0) or 0)
+    world_h = float(zone.get("world_h", 0) or 0)
+    if world_w <= 0 or world_h <= 0:
+        # Don't gate on bounds we don't have — fall back to time only.
+        return True
+    return (
+        px > STUCK_ESCAPE_CLEAR_MARGIN_PX
+        and py > STUCK_ESCAPE_CLEAR_MARGIN_PX
+        and px < world_w - STUCK_ESCAPE_CLEAR_MARGIN_PX
+        and py < world_h - STUCK_ESCAPE_CLEAR_MARGIN_PX
+    )
 
 
 def _iron_total(state: dict) -> int:
@@ -580,24 +611,44 @@ def _do_auto(state: dict, p: dict) -> None:
 
     # Edge-collision watchdog: if the ship has been pinned against
     # the world boundary by goto/spiral targeting an off-map point,
-    # override the FSM and head toward the world centre for a brief
-    # escape burst.  Has to run BEFORE the FSM dispatch so it
-    # preempts whatever was driving the ship into the edge.
+    # override the FSM and head toward the world centre.  Has to
+    # run BEFORE the FSM dispatch so it preempts whatever was
+    # driving the ship into the edge.
     _record_position(p)
-    if now < _stuck_state["escape_until"]:
-        _do_escape_edge(state, p)
-        return
-    if _detect_stuck():
-        _stuck_state["escape_until"] = now + STUCK_ESCAPE_DURATION_S
-        # Reset the spiral so a follow-up SEARCH starts from the
-        # bot's NEW position (post-escape) rather than re-aiming
-        # at the same off-map target.
-        _spiral_reset()
-        # Clear position history so detection doesn't immediately
-        # re-fire on the first frame of the escape (zero movement
-        # since the override just started).
+    zone = state.get("zone") or {}
+    if _stuck_state["escape_until"] > 0.0:
+        # Escape is active.  Stay in escape until BOTH:
+        #  * the minimum duration has elapsed, AND
+        #  * the ship is clear of all world edges by the safety
+        #    margin (so a long 180° rotation doesn't drop us out
+        #    of escape mid-pivot, immediately re-pinning).
+        # Continuously clear position history while in escape so
+        # the next detect cycle starts fresh after we exit.
         _stuck_state["history"] = []
-        print("[autopilot] STUCK at edge — escape burst toward world centre")
+        if (now < _stuck_state["escape_until"]
+                or not _ship_clear_of_edges(p, zone)):
+            _do_escape_edge(state, p)
+            return
+        # Exit condition met — clear the override and fall through.
+        _stuck_state["escape_until"] = 0.0
+    if _detect_stuck():
+        _stuck_state["escape_until"] = now + STUCK_ESCAPE_MIN_DURATION_S
+        # Re-anchor the spiral to the WORLD CENTRE (not just reset
+        # to None which would re-anchor at the current edge
+        # position).  When the FSM eventually re-enters SEARCH
+        # post-escape, the spiral will expand from the centre
+        # rather than from the edge — no more immediate re-pin.
+        world_w = float(zone.get("world_w", 6400) or 6400)
+        world_h = float(zone.get("world_h", 6400) or 6400)
+        _spiral_state["anchor"] = (world_w * 0.5, world_h * 0.5)
+        _spiral_state["angle"] = 0.0
+        _spiral_state["radius"] = 100.0
+        _stuck_state["history"] = []
+        # Throttle the log so a long escape doesn't spam.
+        if (now - _stuck_state["last_log"]) >= STUCK_LOG_THROTTLE_S:
+            print("[autopilot] STUCK at edge — escape burst toward "
+                  "world centre + re-anchoring spiral to centre")
+            _stuck_state["last_log"] = now
         _do_escape_edge(state, p)
         return
 

@@ -720,23 +720,60 @@ class TestStuckEscape:
         assert captured.get("tx") == 3200.0
         assert captured.get("ty") == 3200.0
 
-    def test_escape_window_expires_after_duration(self, _clock):
-        """After STUCK_ESCAPE_DURATION_S, the override clears so the
-        FSM can resume normal flow."""
-        self._drive_ticks_at(_clock, 100.0, 100.0, n=20)
+    def test_escape_holds_until_ship_clears_edge_margin(
+            self, _clock):
+        """Even after STUCK_ESCAPE_MIN_DURATION_S elapses, the
+        escape override must persist while the ship is still
+        within STUCK_ESCAPE_CLEAR_MARGIN_PX of any edge — long
+        rotations from a corner can take longer than the minimum."""
+        # Pin near the top edge of a 6400×6400 world.
+        self._drive_ticks_at(_clock, 3200.0, 6300.0, n=20)
         assert ap._stuck_state["escape_until"] > 0.0
-        # Jump past the escape window + history reset.
-        _clock[0] += ap.STUCK_ESCAPE_DURATION_S + 0.1
-        # One more tick — escape_until should be in the past now,
-        # so the next dispatch falls through to the FSM.  History
-        # is empty after the trigger, so detection can't re-fire.
-        s = _state(player={"x": 200.0, "y": 200.0, "heading": 0.0,
+        # Jump past the minimum escape duration but stay near edge.
+        _clock[0] += ap.STUCK_ESCAPE_MIN_DURATION_S + 0.5
+        s = _state(player={"x": 3200.0, "y": 6300.0, "heading": 0.0,
                             "shields": 150, "max_shields": 150})
         ap._do_auto(s, s["player"])
-        # escape_until is in the past (set during prior trigger),
-        # but no new escape was triggered this tick because history
-        # is too short.
-        assert ap._stuck_state["escape_until"] < _clock[0]
+        # Override must NOT clear yet — ship still pinned at top.
+        assert ap._stuck_state["escape_until"] > 0.0
+
+    def test_escape_clears_when_ship_well_inside_world(
+            self, _clock):
+        """Once min duration has elapsed AND the ship is clear of
+        all edges by the safety margin, the override drops and the
+        FSM resumes normal flow."""
+        self._drive_ticks_at(_clock, 100.0, 100.0, n=20)
+        assert ap._stuck_state["escape_until"] > 0.0
+        _clock[0] += ap.STUCK_ESCAPE_MIN_DURATION_S + 0.1
+        # Ship has now moved well clear of every edge.
+        s = _state(player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                            "shields": 150, "max_shields": 150})
+        ap._do_auto(s, s["player"])
+        assert ap._stuck_state["escape_until"] == 0.0
+
+    def test_stuck_re_anchors_spiral_to_world_centre(self, _clock):
+        """Re-anchoring the spiral to the world centre on stuck
+        means a follow-up SEARCH after escape doesn't re-pin —
+        otherwise SEARCH would re-anchor at the bot's edge
+        position and immediately spiral back into the wall."""
+        self._drive_ticks_at(_clock, 100.0, 100.0, n=20)
+        assert ap._spiral_state["anchor"] == (3200.0, 3200.0)
+
+    def test_stuck_log_is_throttled(self, _clock, capsys):
+        """A long stuck recovery used to spam the console with
+        one line per detect cycle.  STUCK_LOG_THROTTLE_S now caps
+        log rate."""
+        self._drive_ticks_at(_clock, 100.0, 100.0, n=20)
+        # First trigger logs.
+        out1 = capsys.readouterr().out
+        assert "STUCK at edge" in out1
+        # Stay pinned, force another stuck cycle quickly.
+        _clock[0] += 0.5
+        ap._stuck_state["escape_until"] = 0.0   # simulate expiry
+        self._drive_ticks_at(_clock, 100.0, 100.0, n=20)
+        out2 = capsys.readouterr().out
+        # Within throttle window: must NOT log again.
+        assert "STUCK at edge" not in out2
 
 
 class TestSpiralWorldClamp:
