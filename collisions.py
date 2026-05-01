@@ -1,12 +1,8 @@
 """Collision handling routines for Space Survivalcraft."""
 from __future__ import annotations
 
-import json
 import math
-import os
 import random
-import time
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 import arcade
@@ -290,98 +286,6 @@ def handle_alien_alien_collision(gv: GameView) -> None:
                 a2.collision_bump()
 
 
-# Deflect telemetry — module-level counters bumped by
-# ``_try_melee_deflect`` so a session-long tally is always available.
-# Surfaced via ``bot_api.get_state().melee_deflect`` and via
-# ``melee_deflect_summary()`` for stdout dumps.  These are cumulative
-# from process start; reset with ``reset_melee_deflect_stats()``.
-melee_deflect_stats: dict[str, int] = {
-    "bolts_no_blade":       0,   # no _active_blade at impact
-    "bolts_blade_idle":     0,   # blade present but not swinging
-    "bolts_during_swing":   0,   # blade swinging — dice rolled
-    "deflects_succeeded":   0,   # roll < MELEE_DEFLECT_CHANCE
-    "deflects_failed_roll": 0,   # roll ≥ MELEE_DEFLECT_CHANCE
-}
-
-
-def reset_melee_deflect_stats() -> None:
-    for k in melee_deflect_stats:
-        melee_deflect_stats[k] = 0
-
-
-# Append-only JSONL session log.  Every melee-weapon use (swing
-# trigger) and every deflect attempt (bolt impact while a blade
-# exists) writes one line.  Claude reads this after a session to
-# compute deflect rates without having to be present during play.
-# Path can be overridden via the COO_MELEE_LOG env var (the test
-# suite uses this to redirect into tmp_path).
-MELEE_LOG_PATH: Path = Path(
-    os.environ.get(
-        "COO_MELEE_LOG",
-        str(Path("bot_logs") / "melee_deflect.jsonl"),
-    )
-)
-# Set True once the session_start marker has been written.  Reset
-# by ``reset_melee_log_session()`` (used by the test suite).
-_melee_log_session_marked: bool = False
-
-
-def reset_melee_log_session() -> None:
-    """Force the next log write to emit a fresh session_start marker."""
-    global _melee_log_session_marked
-    _melee_log_session_marked = False
-
-
-def _write_melee_log(entry: dict) -> None:
-    """Append a JSON line to the melee log.  Errors are swallowed —
-    telemetry must never break gameplay.  Writes a one-time
-    ``session_start`` marker on the first call per process so log
-    consumers can find session boundaries."""
-    global _melee_log_session_marked
-    try:
-        MELEE_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
-        with MELEE_LOG_PATH.open("a", encoding="utf-8") as f:
-            if not _melee_log_session_marked:
-                f.write(json.dumps({
-                    "event": "session_start",
-                    "ts": time.time(),
-                }) + "\n")
-                _melee_log_session_marked = True
-            f.write(json.dumps({**entry, "ts": time.time()}) + "\n")
-    except Exception:
-        pass
-
-
-def log_melee_swing() -> None:
-    """Record a swing trigger — called from update_logic.update_weapons
-    whenever the player presses fire while the Melee weapon is active
-    and the cooldown is clear."""
-    _write_melee_log({"event": "swing"})
-
-
-def melee_deflect_summary() -> str:
-    """One-line human-readable summary of the deflect counters.
-    Used by the autopilot / strategy helper for periodic stdout dumps."""
-    s = melee_deflect_stats
-    impacts = (s["bolts_no_blade"]
-               + s["bolts_blade_idle"]
-               + s["bolts_during_swing"])
-    swing_share = (
-        s["bolts_during_swing"] / impacts * 100.0) if impacts else 0.0
-    deflect_rate = (
-        s["deflects_succeeded"] / s["bolts_during_swing"] * 100.0
-    ) if s["bolts_during_swing"] else 0.0
-    return (
-        f"MELEE DEFLECT: impacts={impacts} "
-        f"(no_blade={s['bolts_no_blade']}, "
-        f"blade_idle={s['bolts_blade_idle']}, "
-        f"during_swing={s['bolts_during_swing']} "
-        f"-- {swing_share:.0f}% of impacts), "
-        f"deflected={s['deflects_succeeded']}/"
-        f"{s['bolts_during_swing']} "
-        f"({deflect_rate:.0f}% of swing-impacts)")
-
-
 def _try_melee_deflect(gv: GameView, proj) -> bool:
     """Roll the energy-blade deflect dice for a single enemy projectile.
 
@@ -391,38 +295,12 @@ def _try_melee_deflect(gv: GameView, proj) -> bool:
     out of the enemy list and into ``gv.projectile_list`` so it can
     hit aliens on the way back (player projectiles don't damage the
     player, so the deflected bolt is no longer a self-hazard).
-
-    Updates ``melee_deflect_stats`` on every branch so the bot API
-    and stdout dump can report whether the deflect path is reaching
-    the dice at all.  Prints a one-line "MELEE DEFLECT" marker to
-    stdout on every successful deflect — narrow enough not to spam,
-    wide enough to confirm the path fires during manual play.
     """
     blade = getattr(gv, "_active_blade", None)
-    if blade is None:
-        melee_deflect_stats["bolts_no_blade"] += 1
-        _write_melee_log({"event": "deflect_attempt",
-                          "branch": "no_blade"})
+    if blade is None or not blade.is_swinging:
         return False
-    if not blade.is_swinging:
-        melee_deflect_stats["bolts_blade_idle"] += 1
-        _write_melee_log({"event": "deflect_attempt",
-                          "branch": "blade_idle"})
+    if random.random() >= MELEE_DEFLECT_CHANCE:
         return False
-    melee_deflect_stats["bolts_during_swing"] += 1
-    roll = random.random()
-    if roll >= MELEE_DEFLECT_CHANCE:
-        melee_deflect_stats["deflects_failed_roll"] += 1
-        _write_melee_log({"event": "deflect_attempt",
-                          "branch": "during_swing",
-                          "deflected": False,
-                          "roll": roll})
-        return False
-    melee_deflect_stats["deflects_succeeded"] += 1
-    _write_melee_log({"event": "deflect_attempt",
-                      "branch": "during_swing",
-                      "deflected": True,
-                      "roll": roll})
     proj._vx = -proj._vx
     proj._vy = -proj._vy
     proj.angle = (proj.angle + 180.0) % 360.0

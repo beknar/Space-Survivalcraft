@@ -205,12 +205,6 @@ def get_state(gv) -> dict:
         assist_state = bot_combat_assist.get_state()
     except Exception:
         pass
-    deflect_stats: dict = {}
-    try:
-        import collisions
-        deflect_stats = dict(collisions.melee_deflect_stats)
-    except Exception:
-        pass
     return {
         "ts": time.time(),
         "uptime_s": time.time() - _started_at,
@@ -228,7 +222,6 @@ def get_state(gv) -> dict:
         "blueprint_pickups": _pickup_list(_safe(lambda: gv.blueprint_pickup_list)),
         "intent": dict(_intent),
         "assist": assist_state,
-        "melee_deflect": deflect_stats,
     }
 
 

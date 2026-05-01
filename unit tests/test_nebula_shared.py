@@ -195,7 +195,6 @@ class TestUpdateAlienLaserHits:
         update_alien_laser_hits."""
         import collisions
         from sprites.projectile import Projectile
-        collisions.reset_melee_deflect_stats()
         monkeypatch.setattr(collisions.random, "random", lambda: 0.0)
         z = _make_z()
         proj = Projectile(
@@ -210,14 +209,10 @@ class TestUpdateAlienLaserHits:
         # Deflected projectile is now in player projectile list.
         assert proj in stub_gv.projectile_list
         assert proj not in z._alien_projectiles
-        assert (
-            collisions.melee_deflect_stats["deflects_succeeded"] == 1)
 
     def test_idle_blade_does_not_deflect(
             self, stub_gv, tex, monkeypatch):
-        import collisions
         from sprites.projectile import Projectile
-        collisions.reset_melee_deflect_stats()
         z = _make_z()
         proj = Projectile(
             tex,
@@ -229,8 +224,6 @@ class TestUpdateAlienLaserHits:
         nebula_shared.update_alien_laser_hits(z, stub_gv)
         # Damage applied as normal — blade exists but isn't swinging.
         assert stub_gv.calls["damage"] == [7]
-        assert (
-            collisions.melee_deflect_stats["bolts_blade_idle"] == 1)
 
 
 # ── update_player_asteroid_collision ───────────────────────────────────────

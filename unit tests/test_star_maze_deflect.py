@@ -71,7 +71,6 @@ def _stub_gv(blade_swinging: bool | None):
 
 class TestMazeProjectileDeflect:
     def test_swinging_blade_deflects_maze_bolt(self, tex, monkeypatch):
-        collisions.reset_melee_deflect_stats()
         monkeypatch.setattr(collisions.random, "random", lambda: 0.0)
         gv = _stub_gv(blade_swinging=True)
         # Replace player with a real Sprite so check_for_collision works.
@@ -89,12 +88,9 @@ class TestMazeProjectileDeflect:
         assert gv.calls["damage"] == []   # no damage applied
         assert proj in gv.projectile_list
         assert proj not in stub_self._maze_projectiles
-        assert (
-            collisions.melee_deflect_stats["deflects_succeeded"] == 1)
 
     def test_idle_blade_takes_damage_normally(
             self, tex, monkeypatch):
-        collisions.reset_melee_deflect_stats()
         gv = _stub_gv(blade_swinging=False)
         gv.player = arcade.Sprite()
         gv.player.texture = tex
@@ -107,8 +103,6 @@ class TestMazeProjectileDeflect:
         stub_self._maze_projectiles.append(proj)
         StarMazeZone._handle_maze_projectiles_vs_player(stub_self, gv)
         assert gv.calls["damage"] == [7]
-        assert (
-            collisions.melee_deflect_stats["bolts_blade_idle"] == 1)
 
 
 # ── _advance_alien_projectiles (nebula bolts inside the maze) ──────────────
@@ -116,7 +110,6 @@ class TestMazeProjectileDeflect:
 class TestNebulaBoltDeflectInMaze:
     def test_swinging_blade_deflects_nebula_bolt_inside_maze(
             self, tex, monkeypatch):
-        collisions.reset_melee_deflect_stats()
         monkeypatch.setattr(collisions.random, "random", lambda: 0.0)
         gv = _stub_gv(blade_swinging=True)
         gv.player = arcade.Sprite()
@@ -138,12 +131,9 @@ class TestNebulaBoltDeflectInMaze:
         assert gv.calls["damage"] == []
         assert proj in gv.projectile_list
         assert proj not in stub_self._alien_projectiles
-        assert (
-            collisions.melee_deflect_stats["deflects_succeeded"] == 1)
 
     def test_no_blade_takes_damage_normally(
             self, tex, monkeypatch):
-        collisions.reset_melee_deflect_stats()
         gv = _stub_gv(blade_swinging=None)
         gv.player = arcade.Sprite()
         gv.player.texture = tex
@@ -158,5 +148,3 @@ class TestNebulaBoltDeflectInMaze:
         StarMazeZone._advance_alien_projectiles(
             stub_self, gv, 1.0 / 60.0)
         assert gv.calls["damage"] == [7]
-        assert (
-            collisions.melee_deflect_stats["bolts_no_blade"] == 1)
