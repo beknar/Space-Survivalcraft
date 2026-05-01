@@ -82,6 +82,14 @@ SFX_MELEE_SWING = os.path.join(
     "Stormwave Audio Sci-Fi Sound Effects Bundle", "Impacts",
     "Game Futuristic Impact Sound 12.wav",
 )
+# Energy Pickaxe swing impact SFX — distinct from the lightsabre
+# (sound 12) so the player can tell at a glance which melee
+# weapon they have selected.
+SFX_PICKAXE_SWING = os.path.join(
+    _HERE, "assets", "Sci Fi Sound Effects Bundle",
+    "Stormwave Audio Sci-Fi Sound Effects Bundle", "Impacts",
+    "Game Futuristic Impact Sound 10.wav",
+)
 _LIGHTSABRE_DIR = os.path.join(_HERE, "assets", "lightsabres")
 # Per-faction melee sword sprite — vertical lightsabre PNGs from
 # https://willisthehy.itch.io/light-saber-game-assets.  Each

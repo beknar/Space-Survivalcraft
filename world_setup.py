@@ -103,7 +103,8 @@ def load_weapons(gun_count: int, faction: str | None = None) -> list[Weapon]:
     """
     from constants import (
         MELEE_SWORD_PNG, MELEE_SWORD_PNG_BY_FACTION, SFX_MELEE_SWING,
-        MELEE_COOLDOWN, MELEE_DAMAGE, PICKAXE_PNG, PICKAXE_DAMAGE,
+        MELEE_COOLDOWN, MELEE_DAMAGE,
+        PICKAXE_PNG, PICKAXE_DAMAGE, SFX_PICKAXE_SWING,
     )
     laser_tex = arcade.load_texture(os.path.join(LASER_DIR, "laserBlue03.png"))
     mining_tex = arcade.load_texture(os.path.join(LASER_DIR, "laserGreen13.png"))
@@ -117,6 +118,7 @@ def load_weapons(gun_count: int, faction: str | None = None) -> list[Weapon]:
         os.path.join(SFX_WEAPONS_DIR, "Sci-Fi Arc Emitter Weapon Shot 2.wav")
     )
     melee_snd = arcade.load_sound(SFX_MELEE_SWING)
+    pickaxe_snd = arcade.load_sound(SFX_PICKAXE_SWING)
     weapons: list[Weapon] = []
     for _g in range(gun_count):
         weapons.append(Weapon(
@@ -150,7 +152,7 @@ def load_weapons(gun_count: int, faction: str | None = None) -> list[Weapon]:
         # animation timing is identical; damage is read from
         # PICKAXE_DAMAGE (+ Debra bonus) at swing-stat dispatch.
         weapons.append(Weapon(
-            "Energy Pickaxe", pickaxe_tex, melee_snd,
+            "Energy Pickaxe", pickaxe_tex, pickaxe_snd,
             cooldown=MELEE_COOLDOWN, damage=float(PICKAXE_DAMAGE),
             projectile_speed=0.0, max_range=0.0,
             proj_scale=1.0, mines_rock=False,
