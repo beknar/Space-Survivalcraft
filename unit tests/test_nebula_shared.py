@@ -188,6 +188,50 @@ class TestUpdateAlienLaserHits:
         assert stub_gv.calls["damage"] == []
         assert len(z._alien_projectiles) == 1
 
+    def test_swinging_blade_deflects_instead_of_damaging(
+            self, stub_gv, tex, monkeypatch):
+        """Energy blade mid-swing must deflect Nebula-alien bolts —
+        was bypassed before the deflect hook was added to
+        update_alien_laser_hits."""
+        import collisions
+        from sprites.projectile import Projectile
+        collisions.reset_melee_deflect_stats()
+        monkeypatch.setattr(collisions.random, "random", lambda: 0.0)
+        z = _make_z()
+        proj = Projectile(
+            tex,
+            stub_gv.player.center_x, stub_gv.player.center_y,
+            0.0, 0.0, 1000.0, scale=1.0, damage=7,
+        )
+        z._alien_projectiles.append(proj)
+        stub_gv._active_blade = SimpleNamespace(is_swinging=True)
+        nebula_shared.update_alien_laser_hits(z, stub_gv)
+        assert stub_gv.calls["damage"] == []   # no damage applied
+        # Deflected projectile is now in player projectile list.
+        assert proj in stub_gv.projectile_list
+        assert proj not in z._alien_projectiles
+        assert (
+            collisions.melee_deflect_stats["deflects_succeeded"] == 1)
+
+    def test_idle_blade_does_not_deflect(
+            self, stub_gv, tex, monkeypatch):
+        import collisions
+        from sprites.projectile import Projectile
+        collisions.reset_melee_deflect_stats()
+        z = _make_z()
+        proj = Projectile(
+            tex,
+            stub_gv.player.center_x, stub_gv.player.center_y,
+            0.0, 0.0, 1000.0, scale=1.0, damage=7,
+        )
+        z._alien_projectiles.append(proj)
+        stub_gv._active_blade = SimpleNamespace(is_swinging=False)
+        nebula_shared.update_alien_laser_hits(z, stub_gv)
+        # Damage applied as normal — blade exists but isn't swinging.
+        assert stub_gv.calls["damage"] == [7]
+        assert (
+            collisions.melee_deflect_stats["bolts_blade_idle"] == 1)
+
 
 # ── update_player_asteroid_collision ───────────────────────────────────────
 

@@ -1080,9 +1080,15 @@ class StarMazeZone(ZoneState):
         """Apply damage when a maze alien / spawner projectile hits
         the player.  Zone 2 handles this inline in its update loop;
         the Star Maze mirrors that pattern so the generic
-        ``handle_alien_laser_hits`` isn't needed."""
+        ``handle_alien_laser_hits`` isn't needed.
+
+        Routes through ``collisions._try_melee_deflect`` first so the
+        energy blade can deflect maze-alien / spawner bolts."""
+        from collisions import _try_melee_deflect
         for proj in arcade.check_for_collision_with_list(
                 gv.player, self._maze_projectiles):
+            if _try_melee_deflect(gv, proj):
+                continue
             gv._apply_damage_to_player(int(proj.damage))
             gv._trigger_shake()
             proj.remove_from_sprite_lists()
@@ -1124,8 +1130,13 @@ class StarMazeZone(ZoneState):
                     pprev_x, pprev_y, proj.center_x, proj.center_y):
                 proj.remove_from_sprite_lists()
         # Player collision — same inline pattern Zone 2 uses.
+        # Routes through deflect first so the energy blade applies
+        # to nebula-alien shots inside the Star Maze.
+        from collisions import _try_melee_deflect
         for proj in arcade.check_for_collision_with_list(
                 gv.player, self._alien_projectiles):
+            if _try_melee_deflect(gv, proj):
+                continue
             gv._apply_damage_to_player(int(proj.damage))
             gv._trigger_shake()
             proj.remove_from_sprite_lists()

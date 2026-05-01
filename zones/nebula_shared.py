@@ -304,9 +304,16 @@ def update_alien_asteroid_collisions(z, gv: "GameView") -> None:
 def update_alien_laser_hits(z, gv: "GameView") -> None:
     """Apply damage + remove any Z2 alien projectile currently
     overlapping the player sprite.  Both zones called the same inline
-    loop; now centralised."""
+    loop; now centralised.
+
+    Routes through ``collisions._try_melee_deflect`` first so the
+    energy blade can deflect Nebula-alien bolts (matches the Zone 1
+    ``handle_alien_laser_hits`` deflect behaviour)."""
+    from collisions import _try_melee_deflect
     for proj in arcade.check_for_collision_with_list(
             gv.player, z._alien_projectiles):
+        if _try_melee_deflect(gv, proj):
+            continue
         gv._apply_damage_to_player(int(proj.damage))
         gv._trigger_shake()
         proj.remove_from_sprite_lists()
