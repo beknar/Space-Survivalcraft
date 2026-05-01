@@ -195,6 +195,31 @@ def _menu_state(gv) -> dict:
     return flags
 
 
+def _zone_aware_aliens(gv):
+    """Same source the minimap reads — picks the right alien list
+    for the current zone (gv.alien_list in MAIN, zone._aliens in
+    Zone 2 / Star Maze, zone.get_minimap_objects() in warp zones).
+    Without this the bot was blind in non-MAIN zones: /state.aliens
+    returned an empty list while the minimap clearly showed
+    enemies, so the FSM kept dropping into SEARCH and the bot
+    appeared to pause."""
+    try:
+        from draw_logic import _minimap_enemies
+        return _minimap_enemies(gv)
+    except Exception:
+        return getattr(gv, "alien_list", [])
+
+
+def _zone_aware_asteroids(gv):
+    """Zone-aware asteroid source (mirrors _minimap_obstacles) —
+    same fix as _zone_aware_aliens but for the asteroid list."""
+    try:
+        from draw_logic import _minimap_obstacles
+        return _minimap_obstacles(gv)
+    except Exception:
+        return getattr(gv, "asteroid_list", [])
+
+
 def get_state(gv) -> dict:
     """Build the full state snapshot.  Errors in any single
     extractor are caught + replaced with empty defaults so a
@@ -215,8 +240,10 @@ def get_state(gv) -> dict:
         "boss": _boss_state(gv),
         "menu": _menu_state(gv),
         "inventory": _inventory_state(gv),
-        "asteroids": _list_summary(_safe(lambda: gv.asteroid_list)),
-        "aliens": _list_summary(_safe(lambda: gv.alien_list)),
+        # Zone-aware lists — pull from the same aggregators the
+        # minimap uses so the bot sees what the player sees.
+        "asteroids": _list_summary(_safe(lambda: _zone_aware_asteroids(gv))),
+        "aliens": _list_summary(_safe(lambda: _zone_aware_aliens(gv))),
         "buildings": _list_summary(_safe(lambda: gv.building_list)),
         "iron_pickups": _pickup_list(_safe(lambda: gv.iron_pickup_list)),
         "blueprint_pickups": _pickup_list(_safe(lambda: gv.blueprint_pickup_list)),

@@ -252,3 +252,66 @@ class TestGetState:
         assert isinstance(s, dict)
         assert s["asteroids"] == []
         assert s["zone"] == {}
+
+
+class TestZoneAwareLists:
+    """The bot's /state must mirror the minimap's zone-aware view —
+    in Zone 2 / Star Maze / warp zones, aliens + asteroids live on
+    the zone, not on gv.alien_list / gv.asteroid_list.  Without
+    this fix the bot was blind in non-MAIN zones and the FSM would
+    flap between SEARCH and idle even though the minimap clearly
+    showed enemies + rocks."""
+
+    def test_zone_two_aliens_surface_in_state(self, monkeypatch):
+        """When ``_minimap_enemies`` returns the zone's aliens, the
+        bot's /state.aliens reflects those entries — not the empty
+        ``gv.alien_list`` that Zone 2 keeps for compatibility."""
+        zone_aliens = [
+            _sprite(2000, 2000), _sprite(2500, 2500),
+        ]
+        # Stub draw_logic._minimap_enemies to simulate Zone 2
+        # behavior without instantiating a real zone.
+        import draw_logic
+        monkeypatch.setattr(
+            draw_logic, "_minimap_enemies",
+            lambda gv: zone_aliens)
+        gv = _gv(alien_list=[])
+        s = bot_api.get_state(gv)
+        assert len(s["aliens"]) == 2
+        assert s["aliens"][0]["x"] == 2000
+        assert s["aliens"][1]["x"] == 2500
+
+    def test_zone_two_asteroids_surface_in_state(self, monkeypatch):
+        """Same fix for asteroids — _minimap_obstacles returns the
+        zone's iron + copper asteroid chain in Zone 2 / Star Maze."""
+        zone_obstacles = [
+            _sprite(3000, 3000), _sprite(3100, 3050),
+            _sprite(3200, 3100),
+        ]
+        import draw_logic
+        monkeypatch.setattr(
+            draw_logic, "_minimap_obstacles",
+            lambda gv: zone_obstacles)
+        gv = _gv(asteroid_list=[])
+        s = bot_api.get_state(gv)
+        assert len(s["asteroids"]) == 3
+
+    def test_falls_back_to_gv_lists_when_aggregator_fails(
+            self, monkeypatch):
+        """If draw_logic's helpers raise (e.g. attribute access
+        on a half-initialised zone), the bot must still serve a
+        valid /state by falling back to gv.alien_list /
+        gv.asteroid_list — never crash the API."""
+        import draw_logic
+        def _boom(gv):
+            raise RuntimeError("zone not ready")
+        monkeypatch.setattr(draw_logic, "_minimap_enemies", _boom)
+        monkeypatch.setattr(draw_logic, "_minimap_obstacles", _boom)
+        gv = _gv(
+            alien_list=[_sprite(100, 100)],
+            asteroid_list=[_sprite(200, 200)],
+        )
+        s = bot_api.get_state(gv)
+        # Fallback served the gv lists.
+        assert len(s["aliens"]) == 1
+        assert len(s["asteroids"]) == 1
