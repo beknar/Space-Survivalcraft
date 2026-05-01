@@ -60,6 +60,7 @@ Welcome to the full documentation for **Call of Orion**, a top-down space surviv
 ### Weapons / Effects
 
 - Light saber game assets (melee weapon sprites): https://willisthehy.itch.io/light-saber-game-assets
+- Energized pickaxe: https://pixelartmaker.com/offshoot/70c3591d158d1bd
 
 ## Music & Sound Effects Licensing
 
