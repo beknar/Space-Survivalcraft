@@ -37,6 +37,7 @@ class MeleeBlade(arcade.Sprite):
         tex_scale: float = MELEE_SCALE,
         tex_angle_offset: float = MELEE_TEX_ANGLE_OFFSET,
         handle_offset_px: tuple[float, float] | None = None,
+        head_offset_px: tuple[float, float] = (0.0, 0.0),
     ) -> None:
         super().__init__(path_or_texture=texture, scale=tex_scale)
         self._ship = ship
@@ -55,6 +56,16 @@ class MeleeBlade(arcade.Sprite):
         self._handle_local: tuple[float, float] = (
             handle_offset_px[0] * tex_scale,
             handle_offset_px[1] * tex_scale,
+        )
+        # Head position in scaled, sprite-local coords (origin at
+        # sprite centre, +y UP).  Used by the AOE-damage pass to
+        # centre the hit zone on the blade's business end (top of
+        # the pickaxe blade) instead of the sprite centre.  Default
+        # (0, 0) = sprite centre, which preserves the lightsabre's
+        # mid-blade hit zone.
+        self._head_local: tuple[float, float] = (
+            head_offset_px[0] * tex_scale,
+            head_offset_px[1] * tex_scale,
         )
         # Swing animation timer.  ``> 0`` while animating;
         # ``0`` (or below) → idle, blade points forward.
@@ -128,6 +139,22 @@ class MeleeBlade(arcade.Sprite):
         rad = math.radians(self._ship.heading)
         return (self._ship.center_x + math.sin(rad) * self._offset,
                 self._ship.center_y + math.cos(rad) * self._offset)
+
+    @property
+    def head_pos(self) -> tuple[float, float]:
+        """World-space position of the blade's head (business end).
+        Computed by rotating the sprite-local head offset by the
+        current sprite angle and adding it to the sprite centre.
+        For blades that don't override ``head_offset_px`` this is
+        the sprite centre — same as the existing AOE hit zone."""
+        ang_rad = math.radians(self.angle)
+        cos_a = math.cos(ang_rad)
+        sin_a = math.sin(ang_rad)
+        hx, hy = self._head_local
+        # Same CW-positive rotation matrix as in _update_pose.
+        wox = hx * cos_a + hy * sin_a
+        woy = -hx * sin_a + hy * cos_a
+        return (self.center_x + wox, self.center_y + woy)
 
     def update_blade(self, dt: float) -> None:
         """Advance the swing animation (if any) and re-anchor."""

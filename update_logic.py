@@ -737,7 +737,7 @@ def _ensure_pickaxe_blade(gv: GameView, pickaxe_tex) -> None:
     from sprites.melee import MeleeBlade
     from constants import (
         PICKAXE_SCALE, PICKAXE_TEX_ANGLE_OFFSET,
-        PICKAXE_HANDLE_OFFSET_PX,
+        PICKAXE_HANDLE_OFFSET_PX, PICKAXE_HEAD_OFFSET_PX,
     )
     hit_radius, damage = _pickaxe_blade_stats(gv)
     blade = MeleeBlade(
@@ -748,6 +748,7 @@ def _ensure_pickaxe_blade(gv: GameView, pickaxe_tex) -> None:
         tex_scale=PICKAXE_SCALE,
         tex_angle_offset=PICKAXE_TEX_ANGLE_OFFSET,
         handle_offset_px=PICKAXE_HANDLE_OFFSET_PX,
+        head_offset_px=PICKAXE_HEAD_OFFSET_PX,
     )
     gv._melee_swings.append(blade)
     gv._active_pickaxe = blade
@@ -791,13 +792,17 @@ def update_pickaxe_blade(gv: GameView, dt: float) -> None:
         ASTEROID_IRON_YIELD, BLUEPRINT_DROP_CHANCE_ASTEROID,
     )
     r_sq = blade.hit_radius * blade.hit_radius
+    # Hit zone centred on the pickaxe head (top of the blade)
+    # rather than the sprite centre, so the effective range tracks
+    # the business end as the swing arcs.
+    head_x, head_y = blade.head_pos
     for ast in list(asteroids):
         if blade.already_hit(ast):
             continue
         if getattr(ast, "hp", 0) <= 0:
             continue
-        dx = ast.center_x - blade.center_x
-        dy = ast.center_y - blade.center_y
+        dx = ast.center_x - head_x
+        dy = ast.center_y - head_y
         if dx * dx + dy * dy > r_sq:
             continue
         ast.take_damage(int(blade.damage))

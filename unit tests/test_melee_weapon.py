@@ -617,6 +617,42 @@ class TestEnergyPickaxeDamage:
         update_weapons(gv, 1 / 60, fire=True)
         assert ast.hp == 100
 
+    def test_head_pos_offset_from_sprite_centre(self):
+        """The pickaxe exposes ``head_pos`` (top of the blade)
+        offset from the sprite centre.  The AOE-damage pass uses
+        ``head_pos`` so the effective range tracks the business
+        end as the swing arcs."""
+        from update_logic import update_weapons
+        from game_view import GameView
+        import math
+        gv = GameView(faction="Earth", ship_type="Cruiser",
+                       skip_music=True)
+        _cycle_to_pickaxe(gv)
+        update_weapons(gv, 1 / 60, fire=False)
+        head_x, head_y = gv._active_pickaxe.head_pos
+        sprite_x = gv._active_pickaxe.center_x
+        sprite_y = gv._active_pickaxe.center_y
+        # Pickaxe head sits ~30 px from the sprite centre after
+        # PICKAXE_HEAD_OFFSET_PX scaling + rotation; the lightsabre
+        # would have head_pos == sprite centre (default offset (0,0)).
+        assert math.hypot(
+            head_x - sprite_x, head_y - sprite_y) > 5.0, (
+            "pickaxe head should be offset from sprite centre")
+
+    def test_lightsabre_head_pos_equals_sprite_centre(self):
+        """Default ``head_offset_px = (0, 0)`` keeps the lightsabre's
+        existing mid-blade hit zone byte-for-byte unchanged."""
+        from update_logic import update_weapons
+        from game_view import GameView
+        gv = GameView(faction="Earth", ship_type="Cruiser",
+                       skip_music=True)
+        gv._cycle_weapon(); gv._cycle_weapon()       # to Melee
+        update_weapons(gv, 1 / 60, fire=False)
+        b = gv._active_blade
+        hx, hy = b.head_pos
+        assert hx == pytest.approx(b.center_x)
+        assert hy == pytest.approx(b.center_y)
+
     def test_asteroid_hit_at_most_once_per_swing(self):
         from update_logic import update_weapons
         from game_view import GameView

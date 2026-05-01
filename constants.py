@@ -343,6 +343,12 @@ PICKAXE_TEX_ANGLE_OFFSET: float = 45.0
 # (top-left origin, y down), which maps to
 # (835-512, -(865-512)) = (323, -353) sprite-local.
 PICKAXE_HANDLE_OFFSET_PX: tuple[float, float] = (323.0, -353.0)
+# Head position — the AOE hit zone is centred here (the top of
+# the pickaxe blade) instead of at the sprite centre, so the
+# effective range tracks the business end as the swing arcs.
+# The head metalwork sits at roughly (300, 280) in 1024×1024 PNG
+# coords, mapping to (300-512, -(280-512)) = (-212, 232).
+PICKAXE_HEAD_OFFSET_PX: tuple[float, float] = (-212.0, 232.0)
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 6. Inventory / Quick Use
