@@ -52,7 +52,8 @@ def _key_recorder(monkeypatch):
 
 def _state(player=None, aliens=(), asteroids=(),
            iron_pickups=(), blueprint_pickups=(),
-           weapon_name="Basic Laser", melee_engaged=False):
+           weapon_name="Basic Laser", melee_engaged=False,
+           iron=0):
     return {
         "player": player or {
             "x": 0.0, "y": 0.0, "heading": 0.0,
@@ -65,6 +66,7 @@ def _state(player=None, aliens=(), asteroids=(),
         "blueprint_pickups": list(blueprint_pickups),
         "menu": {},
         "assist": {"melee_engaged": melee_engaged},
+        "inventory": {"items": {"iron": int(iron)}},
     }
 
 
@@ -558,3 +560,98 @@ class TestHoldDistanceBehaviour:
                              hold_radius=100.0)
         # One of A/D must be held to rotate toward the target.
         assert _key_log.get("a") is True or _key_log.get("d") is True
+
+
+# ── Starter-base BUILD trigger ────────────────────────────────────────────
+
+
+class TestStarterBaseBuildGate:
+    """Pin the conditions for entering the one-shot S_BUILD state:
+    ≥ BUILD_IRON_THRESHOLD iron AND clear area (no asteroids in
+    400 px, no aliens in 600 px) AND not already attempted."""
+
+    def test_no_build_below_iron_threshold(self, _clock):
+        s = _state(iron=ap.BUILD_IRON_THRESHOLD - 1)
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] != ap.S_BUILD
+
+    def test_no_build_when_asteroid_too_close(self, _clock):
+        # Iron OK but asteroid inside the clear band.
+        s = _state(
+            iron=ap.BUILD_IRON_THRESHOLD,
+            asteroids=[{"x": 200, "y": 0, "hp": 100}],
+        )
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] != ap.S_BUILD
+
+    def test_no_build_when_alien_too_close(self, _clock):
+        s = _state(
+            iron=ap.BUILD_IRON_THRESHOLD,
+            aliens=[{"x": 500, "y": 0, "hp": 50}],
+        )
+        ap._do_auto(s, s["player"])
+        # Engage takes priority anyway; just verify not BUILD.
+        assert ap._fsm["state"] != ap.S_BUILD
+
+    def test_build_triggers_when_conditions_met(
+            self, _clock, monkeypatch):
+        # Stub out the HTTP POST so the test doesn't need a server.
+        post_calls: list = []
+        monkeypatch.setattr(
+            ap, "_post_build_starter_base",
+            lambda timeout_s=5.0: (
+                post_calls.append(True) or {"placed": [], "failed": []}))
+        s = _state(iron=ap.BUILD_IRON_THRESHOLD)
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_BUILD
+        assert len(post_calls) == 1, "POST must fire on BUILD entry"
+        assert ap._build_done is True
+
+    def test_build_is_one_shot(self, _clock, monkeypatch):
+        """After ``_build_done`` flips, the FSM must not re-enter
+        S_BUILD even if conditions are still met."""
+        post_calls: list = []
+        monkeypatch.setattr(
+            ap, "_post_build_starter_base",
+            lambda timeout_s=5.0: (
+                post_calls.append(True) or {"placed": [], "failed": []}))
+        s = _state(iron=ap.BUILD_IRON_THRESHOLD)
+        ap._do_auto(s, s["player"])
+        assert ap._build_done is True
+        # Walk past dwell + tick again with the same conditions.
+        for _ in range(5):
+            _clock[0] += ap.MIN_DWELL_S + 0.1
+            ap._do_auto(s, s["player"])
+        assert len(post_calls) == 1, (
+            "BUILD must fire exactly once; subsequent ticks must "
+            "fall through to MINE / SEARCH")
+        assert ap._fsm["state"] != ap.S_BUILD
+
+    def test_build_releases_movement_keys(
+            self, _clock, monkeypatch):
+        """The act_build branch must coast in place — movement keys
+        released — so the ship doesn't drift while seven buildings
+        are placed in the HTTP-handler thread."""
+        monkeypatch.setattr(
+            ap, "_post_build_starter_base",
+            lambda timeout_s=5.0: {"placed": [], "failed": []})
+        released: list = []
+        monkeypatch.setattr(
+            ap.KeyState, "release_all",
+            staticmethod(lambda: released.append(True)))
+        s = _state(iron=ap.BUILD_IRON_THRESHOLD)
+        ap._do_auto(s, s["player"])
+        assert released, "release_all must be called in BUILD state"
+
+    def test_engage_preempts_build(self, _clock, monkeypatch):
+        """An alien that appears alongside the build conditions must
+        steal the FSM — combat priority over construction."""
+        monkeypatch.setattr(
+            ap, "_post_build_starter_base",
+            lambda timeout_s=5.0: {"placed": [], "failed": []})
+        s = _state(
+            iron=ap.BUILD_IRON_THRESHOLD,
+            aliens=[{"x": 400, "y": 0, "hp": 50}],
+        )
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_ENGAGE

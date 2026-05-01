@@ -310,6 +310,18 @@ class _Handler(BaseHTTPRequestHandler):
             except Exception as e:
                 self._send_json(500, {"error": f"build failed: {e}"})
             return
+        if self.path == "/build_starter_base":
+            if _gv_ref is None:
+                self._send_json(503, {"error": "game not ready"})
+                return
+            try:
+                import bot_builder
+                result = bot_builder.build_starter_base(_gv_ref)
+                self._send_json(200, {"ok": True, **result})
+            except Exception as e:
+                self._send_json(
+                    500, {"error": f"starter base build failed: {e}"})
+            return
         if self.path == "/assist":
             try:
                 length = int(self.headers.get("Content-Length", "0"))

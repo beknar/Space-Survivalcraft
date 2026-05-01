@@ -301,8 +301,20 @@ S_GATHER = "gather"
 S_REGEN  = "regen"
 S_MINE   = "mine"
 S_SEARCH = "search"
+S_BUILD  = "build"
 
-ALL_STATES = (S_ENGAGE, S_GATHER, S_REGEN, S_MINE, S_SEARCH)
+ALL_STATES = (S_ENGAGE, S_GATHER, S_REGEN, S_MINE, S_SEARCH, S_BUILD)
+
+# Starter-base build gate.  When the bot has accumulated this much
+# iron AND there are no asteroids / aliens within the clear-area
+# bands, it transitions into S_BUILD once and POSTs the build
+# trigger.  ``_build_done`` flips True after the first attempt so
+# the bot doesn't keep re-rolling the build (intentionally simple
+# one-shot — a destroyed station won't auto-rebuild).
+BUILD_IRON_THRESHOLD          = 1000
+BUILD_CLEAR_ASTEROID_RANGE_PX = 400.0
+BUILD_CLEAR_ALIEN_RANGE_PX    = 600.0
+_build_done: bool = False
 
 
 # ── FSM + spiral state ────────────────────────────────────────────────────
@@ -344,10 +356,11 @@ def _fsm_reset(initial: str = S_MINE) -> None:
     after that, MIN_DWELL gates further transitions.  Tests
     must call this in their setup/fixture so cross-test state
     doesn't leak."""
-    global _mining_weapon_pick
+    global _mining_weapon_pick, _build_done
     _fsm["state"] = initial
     _fsm["entered_at"] = None
     _mining_weapon_pick = "Mining Beam"
+    _build_done = False
     _spiral_reset()
 
 
@@ -360,6 +373,37 @@ def _nearest_pickup(state: dict, px: float, py: float
     bps = state.get("blueprint_pickups", []) or []
     candidates = list(bps) + list(iron)   # blueprints first
     return nearest(candidates, px, py)
+
+
+def _iron_total(state: dict) -> int:
+    """Iron count from the player inventory snapshot in /state.
+    The state.inventory.items dict is keyed by item name."""
+    items = (state.get("inventory") or {}).get("items") or {}
+    return int(items.get("iron", 0))
+
+
+def _build_area_clear(state: dict, px: float, py: float) -> bool:
+    """True when no asteroids are within
+    ``BUILD_CLEAR_ASTEROID_RANGE_PX`` and no aliens are within
+    ``BUILD_CLEAR_ALIEN_RANGE_PX`` of the player.  Used as the
+    pre-condition for entering S_BUILD."""
+    asteroids = state.get("asteroids") or []
+    for a in asteroids:
+        dx = a.get("x", 0.0) - px
+        dy = a.get("y", 0.0) - py
+        if dx * dx + dy * dy < (
+                BUILD_CLEAR_ASTEROID_RANGE_PX
+                * BUILD_CLEAR_ASTEROID_RANGE_PX):
+            return False
+    aliens = state.get("aliens") or []
+    for a in aliens:
+        dx = a.get("x", 0.0) - px
+        dy = a.get("y", 0.0) - py
+        if dx * dx + dy * dy < (
+                BUILD_CLEAR_ALIEN_RANGE_PX
+                * BUILD_CLEAR_ALIEN_RANGE_PX):
+            return False
+    return True
 
 
 def _choose_next_state(state: dict, p: dict, cur: str) -> str:
@@ -411,7 +455,17 @@ def _choose_next_state(state: dict, p: dict, cur: str) -> str:
         if pickup is not None and pd < GATHER_ENTER_PX:
             return S_GATHER
 
-    # 4. MINE vs SEARCH — discrete event, no hysteresis needed.
+    # 4. BUILD — one-shot starter base when iron + clear area
+    #    conditions are met.  Falls below ENGAGE / REGEN so the
+    #    bot doesn't try to build during combat or while shields
+    #    are low.  Falls above MINE / SEARCH so the bot stops
+    #    accumulating iron the moment it has enough and a clear
+    #    spot.  ``_build_done`` flips True after the first attempt.
+    if not _build_done and _iron_total(state) >= BUILD_IRON_THRESHOLD:
+        if _build_area_clear(state, px, py):
+            return S_BUILD
+
+    # 5. MINE vs SEARCH — discrete event, no hysteresis needed.
     asteroids = state.get("asteroids") or []
     if asteroids:
         return S_MINE
@@ -489,8 +543,63 @@ def _do_auto(state: dict, p: dict) -> None:
         _do_idle()
     elif cur == S_MINE:
         _do_mine_nearest(state, p)
+    elif cur == S_BUILD:
+        _act_build(state, p)
     else:  # S_SEARCH
         _do_spiral_search(state, p)
+
+
+def _post_build_starter_base(timeout_s: float = 5.0) -> dict | None:
+    """POST /build_starter_base on the in-game HTTP API.  Returns
+    the parsed JSON response, or ``None`` on transport failure.
+    The endpoint is synchronous — the entire build sequence runs
+    in the HTTP-handler thread before the response is sent."""
+    try:
+        req = Request(
+            f"{API_BASE}/build_starter_base",
+            data=b"{}",
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urlopen(req, timeout=timeout_s) as r:
+            import json
+            return json.loads(r.read().decode("utf-8"))
+    except (URLError, TimeoutError, OSError) as e:
+        print(f"[autopilot] build POST error: {e}")
+        return None
+    except Exception as e:
+        print(f"[autopilot] build POST unexpected error: {e}")
+        return None
+
+
+def _act_build(state: dict, p: dict) -> None:
+    """BUILD: fire the one-shot starter-base trigger and flip
+    ``_build_done`` so the FSM falls through to MINE / SEARCH on
+    subsequent ticks.  Releases all movement keys for the duration
+    of the call so the ship coasts in place while the seven
+    buildings are placed in-process."""
+    global _build_done
+    KeyState.release_all()
+    _do_idle()
+    print("[autopilot] BUILD: requesting starter base "
+          f"(iron={_iron_total(state)})")
+    result = _post_build_starter_base()
+    # Mark done regardless of outcome so we don't keep retrying on
+    # every tick.  If placement failed (e.g. snap-port rejection),
+    # the bot resumes mining and the player can build manually.
+    _build_done = True
+    if result is None:
+        print("[autopilot] BUILD: POST failed; flagging done so the "
+              "FSM resumes normal flow")
+        return
+    placed = result.get("placed", [])
+    failed = result.get("failed", [])
+    print(f"[autopilot] BUILD: placed {len(placed)} "
+          f"({[p['type'] for p in placed]})  "
+          f"failed {len(failed)}")
+    if failed:
+        for f in failed:
+            print(f"  - {f}")
 
 
 def _act_engage(state: dict, p: dict) -> None:
