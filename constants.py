@@ -274,7 +274,14 @@ BROADSIDE_RANGE: float = 400.0        # max travel distance
 MELEE_COOLDOWN: float = 0.30          # seconds between swings
 MELEE_DAMAGE: int = 40                # base HP damage per enemy per swing
 MELEE_HIT_RADIUS: float = 80.0        # px — also offset from nose
-MELEE_SWING_LIFETIME: float = 0.25    # seconds the swing animation runs
+MELEE_SWING_LIFETIME: float = 0.35    # seconds the swing animation runs
+# Lifetime > MELEE_COOLDOWN (0.30 s) by design: with continuous
+# fire the next start_swing fires before the previous swing's
+# timer expires, so the blade is effectively always swinging.
+# Closes the ~33 % "blade idle between swings" gap observed in
+# bot_logs/melee_deflect.jsonl on 2026-04-30 without changing
+# one-hit-per-swing semantics (start_swing also clears
+# _enemies_hit, not just the natural-timeout branch).
 # Total degrees the blade rotates across one swing.  The animation
 # starts at ``-MELEE_SWING_ARC / 2`` and ends at
 # ``+MELEE_SWING_ARC / 2`` relative to the ship's heading, so the
