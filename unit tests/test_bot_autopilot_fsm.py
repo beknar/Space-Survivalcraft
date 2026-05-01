@@ -53,7 +53,7 @@ def _key_recorder(monkeypatch):
 def _state(player=None, aliens=(), asteroids=(),
            iron_pickups=(), blueprint_pickups=(),
            weapon_name="Basic Laser", melee_engaged=False,
-           iron=0):
+           iron=0, world_w=6400, world_h=6400):
     return {
         "player": player or {
             "x": 0.0, "y": 0.0, "heading": 0.0,
@@ -67,6 +67,8 @@ def _state(player=None, aliens=(), asteroids=(),
         "menu": {},
         "assist": {"melee_engaged": melee_engaged},
         "inventory": {"items": {"iron": int(iron)}},
+        "zone": {"world_w": world_w, "world_h": world_h,
+                 "zone_id": "ZoneID.MAIN"},
     }
 
 
@@ -655,3 +657,113 @@ class TestStarterBaseBuildGate:
         )
         ap._do_auto(s, s["player"])
         assert ap._fsm["state"] == ap.S_ENGAGE
+
+
+# ── Edge-stuck watchdog ───────────────────────────────────────────────────
+
+
+class TestStuckEscape:
+    """The bot must escape when pinned at a world edge.  A short
+    rolling window of position samples is checked; if displacement
+    over the window is below STUCK_DETECT_DIST_PX, an escape burst
+    toward the world centre is triggered for STUCK_ESCAPE_DURATION_S."""
+
+    def _drive_ticks_at(self, _clock, x, y, n):
+        """Run n ticks with the player frozen at (x, y).  No
+        asteroids/aliens/pickups so the FSM lands in SEARCH."""
+        for _ in range(n):
+            s = _state(player={
+                "x": x, "y": y, "heading": 0.0,
+                "shields": 150, "max_shields": 150,
+            })
+            ap._do_auto(s, s["player"])
+            _clock[0] += 0.1   # 10 Hz
+
+    def test_no_escape_when_ship_is_moving(self, _clock):
+        # Drive 20 ticks, advancing 50 px each tick — ship clearly
+        # making progress; stuck detection must NOT fire.
+        for i in range(20):
+            s = _state(player={
+                "x": 100.0 + i * 50.0, "y": 100.0, "heading": 0.0,
+                "shields": 150, "max_shields": 150,
+            })
+            ap._do_auto(s, s["player"])
+            _clock[0] += 0.1
+        assert ap._stuck_state["escape_until"] == 0.0
+
+    def test_escape_fires_after_window_with_no_movement(
+            self, _clock):
+        """Pin the ship at (100, 100) for the full detect window —
+        next tick must flag stuck and start the escape override."""
+        self._drive_ticks_at(_clock, 100.0, 100.0, n=20)
+        # Inside the escape window now.
+        assert ap._stuck_state["escape_until"] > 0.0
+
+    def test_escape_targets_world_centre(self, _clock, monkeypatch):
+        """During the escape override, _do_goto should be called with
+        the world centre as the target — not whatever spiral / mine
+        target was previously aiming off-map."""
+        captured: dict = {}
+        def _spy(state, p, tx, ty, stop_radius=80.0):
+            captured["tx"], captured["ty"] = tx, ty
+        monkeypatch.setattr(ap, "_do_goto", _spy)
+        # Pin near the bottom edge of a 6400×6400 world.
+        for _ in range(20):
+            s = _state(player={
+                "x": 3200.0, "y": 50.0, "heading": 0.0,
+                "shields": 150, "max_shields": 150,
+            })
+            ap._do_auto(s, s["player"])
+            _clock[0] += 0.1
+        # Most-recent dispatch was the escape — target should be
+        # the world centre (3200, 3200).
+        assert captured.get("tx") == 3200.0
+        assert captured.get("ty") == 3200.0
+
+    def test_escape_window_expires_after_duration(self, _clock):
+        """After STUCK_ESCAPE_DURATION_S, the override clears so the
+        FSM can resume normal flow."""
+        self._drive_ticks_at(_clock, 100.0, 100.0, n=20)
+        assert ap._stuck_state["escape_until"] > 0.0
+        # Jump past the escape window + history reset.
+        _clock[0] += ap.STUCK_ESCAPE_DURATION_S + 0.1
+        # One more tick — escape_until should be in the past now,
+        # so the next dispatch falls through to the FSM.  History
+        # is empty after the trigger, so detection can't re-fire.
+        s = _state(player={"x": 200.0, "y": 200.0, "heading": 0.0,
+                            "shields": 150, "max_shields": 150})
+        ap._do_auto(s, s["player"])
+        # escape_until is in the past (set during prior trigger),
+        # but no new escape was triggered this tick because history
+        # is too short.
+        assert ap._stuck_state["escape_until"] < _clock[0]
+
+
+class TestSpiralWorldClamp:
+    """Spiral search targets must stay inside the world rect (with
+    a margin) so the bot doesn't keep aiming off-map and pinning
+    itself against the edge."""
+
+    def test_spiral_target_clamped_within_world(
+            self, _clock, monkeypatch):
+        captured: dict = {}
+        def _spy(state, p, tx, ty, stop_radius=80.0):
+            captured["tx"], captured["ty"] = tx, ty
+        monkeypatch.setattr(ap, "_do_goto", _spy)
+        # Force the spiral anchor near the SW corner, with a huge
+        # radius and an angle that points off-map (toward -x, -y).
+        ap._spiral_state["anchor"] = (50.0, 50.0)
+        ap._spiral_state["radius"] = 5000.0
+        import math as _m
+        ap._spiral_state["angle"] = _m.radians(225.0)   # SW
+        s = _state(
+            player={"x": 50.0, "y": 50.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            world_w=6400, world_h=6400,
+        )
+        ap._do_spiral_search(s, s["player"])
+        # Clamp = 200 px margin.
+        assert ap.STUCK_WORLD_MARGIN_PX <= captured["tx"]
+        assert ap.STUCK_WORLD_MARGIN_PX <= captured["ty"]
+        assert captured["tx"] <= 6400 - ap.STUCK_WORLD_MARGIN_PX
+        assert captured["ty"] <= 6400 - ap.STUCK_WORLD_MARGIN_PX

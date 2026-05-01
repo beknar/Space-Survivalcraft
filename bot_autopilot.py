@@ -334,6 +334,30 @@ _spiral_state: dict = {
     "radius": 100.0,  # px
 }
 
+# ── Edge-collision (stuck) detection ──────────────────────────────────────
+# When the ship is held against a world edge by goto/spiral targeting an
+# off-map point, the bot would keep thrusting "w" without moving.  We
+# sample position over a short rolling window; if displacement is tiny
+# despite the action loop firing, we declare "stuck" and override
+# movement with a heading toward the world centre for a short escape
+# burst, then let the FSM resume.
+STUCK_DETECT_WINDOW_S    = 1.5    # window over which displacement is measured
+STUCK_DETECT_DIST_PX     = 25.0   # < this much movement in window -> stuck
+STUCK_ESCAPE_DURATION_S  = 1.5    # how long the escape override lasts
+STUCK_WORLD_MARGIN_PX    = 200.0  # spiral / escape targets stay this far in
+_stuck_state: dict = {
+    # Rolling list of (timestamp, x, y) samples within the detect window.
+    "history": [],
+    # Monotonic timestamp at which the current escape override expires;
+    # 0 means no override is active.
+    "escape_until": 0.0,
+}
+
+
+def _stuck_reset() -> None:
+    _stuck_state["history"] = []
+    _stuck_state["escape_until"] = 0.0
+
 # Sticky mining-weapon choice — re-rolled on every fresh
 # transition into the MINE state so the bot doesn't flap between
 # weapons mid-asteroid.  Default = Mining Beam so the very first
@@ -362,6 +386,7 @@ def _fsm_reset(initial: str = S_MINE) -> None:
     _mining_weapon_pick = "Mining Beam"
     _build_done = False
     _spiral_reset()
+    _stuck_reset()
 
 
 def _nearest_pickup(state: dict, px: float, py: float
@@ -373,6 +398,49 @@ def _nearest_pickup(state: dict, px: float, py: float
     bps = state.get("blueprint_pickups", []) or []
     candidates = list(bps) + list(iron)   # blueprints first
     return nearest(candidates, px, py)
+
+
+def _record_position(p: dict) -> None:
+    """Append the player's current position to the rolling stuck-
+    detect history and evict samples older than the detect window."""
+    now = _get_now()
+    px = float(p.get("x", 0.0))
+    py = float(p.get("y", 0.0))
+    h = _stuck_state["history"]
+    h.append((now, px, py))
+    cutoff = now - STUCK_DETECT_WINDOW_S
+    # Drop stale samples (cheap — list is at most ~15 entries at 10 Hz).
+    while h and h[0][0] < cutoff:
+        h.pop(0)
+
+
+def _detect_stuck() -> bool:
+    """True when the ship has barely moved over the last
+    STUCK_DETECT_WINDOW_S.  Conservative: requires the history to
+    have spanned at least 80% of the window so we don't false-fire
+    in the first second after process start."""
+    h = _stuck_state["history"]
+    if len(h) < 5:
+        return False
+    span = h[-1][0] - h[0][0]
+    if span < STUCK_DETECT_WINDOW_S * 0.8:
+        return False
+    moved = math.hypot(h[-1][1] - h[0][1], h[-1][2] - h[0][2])
+    return moved < STUCK_DETECT_DIST_PX
+
+
+def _do_escape_edge(state: dict, p: dict) -> None:
+    """Override movement: rotate toward the world centre and thrust
+    forward to break out of an edge collision.  Used when
+    ``_detect_stuck`` flags the ship as pinned at a map edge."""
+    zone = state.get("zone") or {}
+    world_w = float(zone.get("world_w", 6400) or 6400)
+    world_h = float(zone.get("world_h", 6400) or 6400)
+    cx = world_w * 0.5
+    cy = world_h * 0.5
+    # stop_radius is generous so the escape ends as soon as we're
+    # clearly off the edge, not when we reach the exact centre.
+    _do_goto(state, p, cx, cy, stop_radius=300.0)
 
 
 def _iron_total(state: dict) -> int:
@@ -509,6 +577,30 @@ def _do_auto(state: dict, p: dict) -> None:
     freely -- otherwise a fresh process couldn't react to its
     initial observation."""
     now = _get_now()
+
+    # Edge-collision watchdog: if the ship has been pinned against
+    # the world boundary by goto/spiral targeting an off-map point,
+    # override the FSM and head toward the world centre for a brief
+    # escape burst.  Has to run BEFORE the FSM dispatch so it
+    # preempts whatever was driving the ship into the edge.
+    _record_position(p)
+    if now < _stuck_state["escape_until"]:
+        _do_escape_edge(state, p)
+        return
+    if _detect_stuck():
+        _stuck_state["escape_until"] = now + STUCK_ESCAPE_DURATION_S
+        # Reset the spiral so a follow-up SEARCH starts from the
+        # bot's NEW position (post-escape) rather than re-aiming
+        # at the same off-map target.
+        _spiral_reset()
+        # Clear position history so detection doesn't immediately
+        # re-fire on the first frame of the escape (zero movement
+        # since the override just started).
+        _stuck_state["history"] = []
+        print("[autopilot] STUCK at edge — escape burst toward world centre")
+        _do_escape_edge(state, p)
+        return
+
     cur = _fsm["state"]
     desired = _choose_next_state(state, p, cur)
 
@@ -683,6 +775,19 @@ def _do_spiral_search(state: dict, p: dict) -> None:
     a = _spiral_state["angle"]
     tx = ax + math.cos(a) * r
     ty = ay + math.sin(a) * r
+    # Clamp the spiral target to the world rect (with a margin) so
+    # the bot doesn't keep aiming at a point off the map and ram
+    # the boundary.  Without this clamp, the spiral was the most
+    # common cause of edge-stuck cases reported in play-testing.
+    zone = state.get("zone") or {}
+    world_w = float(zone.get("world_w", 0) or 0)
+    world_h = float(zone.get("world_h", 0) or 0)
+    if world_w > 0:
+        tx = max(STUCK_WORLD_MARGIN_PX,
+                 min(world_w - STUCK_WORLD_MARGIN_PX, tx))
+    if world_h > 0:
+        ty = max(STUCK_WORLD_MARGIN_PX,
+                 min(world_h - STUCK_WORLD_MARGIN_PX, ty))
     # Same sticky weapon as the active mining session — search
     # phase is just positioning, but staying on the picked weapon
     # avoids a Tab the moment we find a target.
