@@ -36,16 +36,21 @@ The recommended stack is the one wired into `bot_kickoff.py`:
 # Running
 
 ```
-# Terminal 1 -- launch game (with API) + drive splash + load music video
-python bot_kickoff.py
+# One-terminal combined launch (recommended for normal play):
+python bot_run.py
 
-# Terminal 2 -- autopilot at 10 Hz (defaults to "auto" intent)
-python bot_autopilot.py
+# Or run the two stages separately if you want fine control:
+python bot_kickoff.py        # Terminal 1 -- launch game + splash flow
+python bot_autopilot.py      # Terminal 2 -- autopilot at 10 Hz
 
-# Terminal 3 (or Claude) -- strategist
+# Strategist (optional, third terminal or Claude):
 python bot_strategy_helper.py state
 python bot_strategy_helper.py set_intent '{"type": "mine_nearest"}'
 ```
+
+`bot_run.py` is a thin wrapper that calls `bot_kickoff.main()`
+then `bot_autopilot.main()` in sequence.  Both child scripts
+remain standalone entry points.
 
 `bot_kickoff.py` enables the bot API by setting `COO_BOT_API=1`
 before launching `main.py` as a detached subprocess, drives the
@@ -105,14 +110,18 @@ Unknown types are logged and the autopilot falls back to `idle`.
 
 `_do_auto` is a five-state FSM with **asymmetric enter/exit
 thresholds** (hysteresis) plus a **MIN_DWELL_S = 0.6 s** gate
-on every non-`ENGAGE` transition.  `ENGAGE` is the defensive
-interrupt: it preempts dwell from any state.
+on transitions.  `REGEN` and `ENGAGE` are defensive interrupts:
+they preempt dwell from any state.  `REGEN` sits at the top of
+the priority order so the bot pauses to recover shields rather
+than chasing a fight at low health; combat assist keeps aiming
++ firing every frame so the bot is still shooting back while
+it idles.
 
 | State | Action | Enter when | Exit when |
 |---|---|---|---|
-| `ENGAGE` | If the in-process combat assist has rolled into a melee commitment for this engagement (`state.assist.melee_engaged`), close to ~50 px and let the assist swing the lightsabre.  Otherwise hold ~380 px stand-off with Basic Laser.  Combat assist owns aim + fire + melee weapon-lock. | nearest alien `< 800 px` (any state) | no alien `< 1000 px` |
-| `GATHER` | fly to nearest pickup (blueprints win on tie); 60 px stop radius | pickup `< 1500 px` and not in ENGAGE | no pickup `< 1700 px` |
-| `REGEN` | idle, release all keys, let shields recover | shields `< 40 %` and safe | shields `≥ 60 %` |
+| `REGEN` | idle, release all keys, let shields recover.  Combat assist still auto-fires at anything in range. | shields `< 40 %` (any state) | shields `≥ 60 %` |
+| `ENGAGE` | If the in-process combat assist has rolled into a melee commitment for this engagement (`state.assist.melee_engaged`), close to ~50 px and let the assist swing the lightsabre.  Otherwise hold ~380 px stand-off with Basic Laser.  Combat assist owns aim + fire + melee weapon-lock. | nearest alien `< 800 px` and not in REGEN | no alien `< 1000 px` |
+| `GATHER` | fly to nearest pickup (blueprints win on tie); 60 px stop radius | pickup `< 1500 px` and not in REGEN/ENGAGE | no pickup `< 1700 px` |
 | `MINE` | head to nearest asteroid, hold Mining Beam | asteroids visible and safe | no asteroids visible |
 | `SEARCH` | outward spiral from current position, Mining Beam held; re-anchors at 3000 px | no asteroids visible and not in any other state | asteroid appears |
 
