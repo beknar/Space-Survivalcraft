@@ -176,13 +176,15 @@ class TestGatherHysteresis:
 
 
 class TestMinDwell:
-    def test_mine_does_not_flip_within_dwell(self, _clock):
-        """In MINE -- shields plummet to 30 % (REGEN territory) but
-        only ``MIN_DWELL_S/2`` has elapsed.  FSM holds MINE."""
+    def test_mine_holds_within_dwell_for_non_defensive_change(self, _clock):
+        """MIN_DWELL still holds for transitions that aren't
+        defensive interrupts.  Drop the asteroids mid-dwell -- the
+        FSM would normally fall through to SEARCH, but it has to
+        wait for the dwell timer first."""
         s = _state(asteroids=[{"x": 200, "y": 0, "hp": 100}])
         ap._do_auto(s, s["player"])
         assert ap._fsm["state"] == ap.S_MINE
-        s["player"]["shields"] = 30
+        s["asteroids"] = []
         _clock[0] += ap.MIN_DWELL_S / 2.0
         ap._do_auto(s, s["player"])
         assert ap._fsm["state"] == ap.S_MINE, (
@@ -194,8 +196,20 @@ class TestMinDwell:
         s = _state(asteroids=[{"x": 200, "y": 0, "hp": 100}])
         ap._do_auto(s, s["player"])
         assert ap._fsm["state"] == ap.S_MINE
-        s["player"]["shields"] = 30
+        s["asteroids"] = []
         _clock[0] += ap.MIN_DWELL_S + 0.1
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_SEARCH
+
+    def test_mine_drops_to_regen_within_dwell(self, _clock):
+        """REGEN is a defensive interrupt: shields collapsing while
+        MINE is still inside its dwell window must still trigger
+        the swap on the next tick (just like ENGAGE)."""
+        s = _state(asteroids=[{"x": 200, "y": 0, "hp": 100}])
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_MINE
+        s["player"]["shields"] = 30
+        _clock[0] += ap.MIN_DWELL_S / 2.0
         ap._do_auto(s, s["player"])
         assert ap._fsm["state"] == ap.S_REGEN
 
@@ -216,18 +230,48 @@ class TestEngagePreemption:
         assert ap._fsm["state"] == ap.S_ENGAGE, (
             "ENGAGE must preempt MIN_DWELL")
 
-    def test_engage_preempts_regen_within_dwell(self, _clock):
-        """REGEN -> ENGAGE must fire even while shields still low."""
-        s = _state(player={
-            "x": 0, "y": 0, "heading": 0,
-            "shields": 30, "max_shields": 150,
-        })
+    def test_regen_holds_against_alien_threat(self, _clock):
+        """REGEN now sits *above* ENGAGE in the priority order: when
+        shields are below 40 %, the bot stays idle even with an
+        alien within engagement range.  Combat assist still aims +
+        fires every frame so the bot isn't defenseless -- it just
+        doesn't burn thrust chasing a fight at low health."""
+        s = _state(
+            player={
+                "x": 0, "y": 0, "heading": 0,
+                "shields": 30, "max_shields": 150,
+            },
+            aliens=[{"x": 400, "y": 0, "hp": 50}],
+        )
         ap._do_auto(s, s["player"])
         assert ap._fsm["state"] == ap.S_REGEN
-        s["aliens"] = [{"x": 400, "y": 0, "hp": 50}]
-        _clock[0] += 0.05
+        # Hold for several ticks: even with the alien still present,
+        # REGEN must persist until shields cross the 60 % exit band.
+        for _ in range(3):
+            _clock[0] += 0.1
+            ap._do_auto(s, s["player"])
+            assert ap._fsm["state"] == ap.S_REGEN
+
+    def test_engage_drops_to_regen_when_shields_collapse(self, _clock):
+        """Active engagement; shields drop into REGEN territory --
+        the FSM must abandon the chase and idle.  REGEN preempts
+        MIN_DWELL just like ENGAGE does, so the switch lands on
+        the same tick the shields cross the 40 % enter band."""
+        s = _state(
+            aliens=[{"x": 400, "y": 0, "hp": 50}],
+            player={
+                "x": 0, "y": 0, "heading": 0,
+                "shields": 150, "max_shields": 150,
+            },
+        )
         ap._do_auto(s, s["player"])
         assert ap._fsm["state"] == ap.S_ENGAGE
+        # Shields collapse mid-engagement.
+        s["player"]["shields"] = 30
+        _clock[0] += 0.05    # well inside MIN_DWELL_S
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_REGEN, (
+            "REGEN must preempt ENGAGE without waiting for dwell")
 
 
 # ── Post-engage gather ────────────────────────────────────────────────────
@@ -338,3 +382,111 @@ class TestMeleeCommitMovement:
         assert switches == [], (
             "autopilot must not fight combat assist for weapon "
             "choice while melee-engaged")
+
+
+# ── Mining-weapon dice roll on MINE entry ─────────────────────────────────
+
+
+class TestMiningWeaponDiceRoll:
+    """When the FSM enters the MINE state the bot rolls a 50/50
+    dice to pick between Mining Beam (default ranged mining) and
+    Energy Pickaxe (melee mining).  The choice is sticky for the
+    whole mining session so the bot doesn't tab-flap mid-asteroid."""
+
+    def test_pickaxe_chosen_when_roll_low(
+            self, _clock, monkeypatch):
+        """Force the dice low — bot picks Energy Pickaxe."""
+        switches: list[str] = []
+        monkeypatch.setattr(
+            ap, "_ensure_weapon",
+            lambda state, want: switches.append(want))
+        monkeypatch.setattr(ap.random, "random", lambda: 0.0)
+        s = _state(asteroids=[{"x": 200, "y": 0, "hp": 100}])
+        ap._do_auto(s, s["player"])
+        assert "Energy Pickaxe" in switches
+        assert "Mining Beam" not in switches
+        assert ap._mining_weapon_pick == "Energy Pickaxe"
+
+    def test_mining_beam_chosen_when_roll_high(
+            self, _clock, monkeypatch):
+        """Force the dice above the threshold — bot keeps Mining Beam."""
+        switches: list[str] = []
+        monkeypatch.setattr(
+            ap, "_ensure_weapon",
+            lambda state, want: switches.append(want))
+        monkeypatch.setattr(ap.random, "random", lambda: 0.99)
+        s = _state(asteroids=[{"x": 200, "y": 0, "hp": 100}])
+        ap._do_auto(s, s["player"])
+        assert "Mining Beam" in switches
+        assert "Energy Pickaxe" not in switches
+        assert ap._mining_weapon_pick == "Mining Beam"
+
+    def test_choice_sticky_across_mining_ticks(
+            self, _clock, monkeypatch):
+        """Once the dice has rolled, repeated MINE ticks must keep
+        the same weapon — the dice is per-ENTRY, not per-tick."""
+        rolls = iter([0.0, 0.99, 0.99, 0.99, 0.99])
+        monkeypatch.setattr(ap.random, "random", lambda: next(rolls))
+        switches: list[str] = []
+        monkeypatch.setattr(
+            ap, "_ensure_weapon",
+            lambda state, want: switches.append(want))
+        s = _state(asteroids=[{"x": 200, "y": 0, "hp": 100}])
+        for _ in range(5):
+            ap._do_auto(s, s["player"])
+            _clock[0] += 0.1
+        # All 5 ticks should still reference the pickaxe (the entry
+        # roll was 0.0; subsequent rolls don't matter while we stay
+        # in MINE).
+        assert all(w == "Energy Pickaxe" for w in switches), switches
+        assert ap._mining_weapon_pick == "Energy Pickaxe"
+
+    def test_dice_rerolled_on_fresh_mine_entry(
+            self, _clock, monkeypatch):
+        """Leaving + re-entering MINE re-rolls the dice — the
+        sticky choice resets per session."""
+        # Roll #1: pickaxe.  Roll #2: mining beam.
+        rolls = iter([0.0, 0.99])
+        monkeypatch.setattr(ap.random, "random", lambda: next(rolls))
+        s = _state(asteroids=[{"x": 200, "y": 0, "hp": 100}])
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_MINE
+        assert ap._mining_weapon_pick == "Energy Pickaxe"
+        # Drop the asteroid → MINE → SEARCH → re-add asteroid → MINE.
+        s["asteroids"] = []
+        _clock[0] += ap.MIN_DWELL_S + 0.1
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_SEARCH
+        s["asteroids"] = [{"x": 200, "y": 0, "hp": 100}]
+        _clock[0] += ap.MIN_DWELL_S + 0.1
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_MINE
+        # Second entry rolled 0.99 → Mining Beam.
+        assert ap._mining_weapon_pick == "Mining Beam"
+
+    def test_pickaxe_uses_short_stop_radius(
+            self, _clock, monkeypatch):
+        """When the dice picks pickaxe, the bot must close to
+        PICKAXE_MINING_STOP_RADIUS, not the mining beam's 200 px."""
+        captured: dict = {}
+        def _spy(state, p, tx, ty, stop_radius=80.0):
+            captured["stop_radius"] = stop_radius
+        monkeypatch.setattr(ap, "_do_goto", _spy)
+        monkeypatch.setattr(ap.random, "random", lambda: 0.0)
+        s = _state(asteroids=[{"x": 200, "y": 0, "hp": 100}])
+        ap._do_auto(s, s["player"])
+        assert (
+            captured.get("stop_radius")
+            == ap.PICKAXE_MINING_STOP_RADIUS)
+
+    def test_mining_beam_uses_ranged_stop_radius(
+            self, _clock, monkeypatch):
+        """Mining Beam keeps the existing 200 px stand-off."""
+        captured: dict = {}
+        def _spy(state, p, tx, ty, stop_radius=80.0):
+            captured["stop_radius"] = stop_radius
+        monkeypatch.setattr(ap, "_do_goto", _spy)
+        monkeypatch.setattr(ap.random, "random", lambda: 0.99)
+        s = _state(asteroids=[{"x": 200, "y": 0, "hp": 100}])
+        ap._do_auto(s, s["player"])
+        assert captured.get("stop_radius") == 200.0

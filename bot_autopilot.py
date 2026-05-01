@@ -39,6 +39,7 @@ state endpoint is reachable.
 from __future__ import annotations
 
 import math
+import random
 import sys
 import threading
 import time
@@ -71,6 +72,17 @@ API_BASE = "http://127.0.0.1:8765"
 POLL_HZ = 10.0
 FIRE_RANGE_PX = 600.0             # within this -> hold fire
 MINING_RANGE_PX = 400.0           # within this -> mining beam
+# Energy Pickaxe is melee — its hit zone is centred on the head
+# (~80 px from the handle pivot, with a hit radius of 80 px), so
+# the bot must close to ~80 px from the asteroid to actually
+# damage it.  Distinct stop / fire radii so the pickaxe path
+# doesn't inherit the mining beam's 400 px stand-off.
+PICKAXE_MINING_RANGE_PX  = 120.0  # within this -> press fire
+PICKAXE_MINING_STOP_RADIUS = 80.0 # how close to approach an asteroid
+# Per-MINE-entry chance the bot picks the Energy Pickaxe over the
+# Mining Beam.  The choice is sticky for the entire mining session
+# so the bot doesn't tab-flap mid-asteroid.
+MINING_PICKAXE_CHANCE = 0.5
 MELEE_RANGE_PX = 100.0            # within this -> energy blade
 
 
@@ -299,6 +311,12 @@ _spiral_state: dict = {
     "radius": 100.0,  # px
 }
 
+# Sticky mining-weapon choice — re-rolled on every fresh
+# transition into the MINE state so the bot doesn't flap between
+# weapons mid-asteroid.  Default = Mining Beam so the very first
+# tick (before _on_enter has fired) behaves like the old code.
+_mining_weapon_pick: str = "Mining Beam"
+
 # Indirection so tests can monkey-patch a fake clock.
 _get_now = time.monotonic
 
@@ -315,8 +333,10 @@ def _fsm_reset(initial: str = S_MINE) -> None:
     after that, MIN_DWELL gates further transitions.  Tests
     must call this in their setup/fixture so cross-test state
     doesn't leak."""
+    global _mining_weapon_pick
     _fsm["state"] = initial
     _fsm["entered_at"] = None
+    _mining_weapon_pick = "Mining Beam"
     _spiral_reset()
 
 
@@ -403,6 +423,15 @@ def _on_enter(new_state: str) -> None:
     """
     if new_state == S_SEARCH:
         _spiral_reset()
+    elif new_state == S_MINE:
+        # 50/50 dice roll: Mining Beam vs Energy Pickaxe.  Sticky
+        # for the entire mining session so the bot doesn't tab-flap
+        # mid-asteroid.  Re-rolled on each fresh entry into MINE.
+        global _mining_weapon_pick
+        if random.random() < MINING_PICKAXE_CHANCE:
+            _mining_weapon_pick = "Energy Pickaxe"
+        else:
+            _mining_weapon_pick = "Mining Beam"
 
 
 def _do_auto(state: dict, p: dict) -> None:
@@ -420,11 +449,16 @@ def _do_auto(state: dict, p: dict) -> None:
 
     if _fsm["entered_at"] is None:
         # First tick: stamp the timer, allow immediate transition.
+        # Always fire the entry hook so initial-state side effects
+        # (spiral reset for SEARCH, mining-weapon dice for MINE)
+        # run even when the desired state matches the seeded
+        # default — otherwise a fresh process that begins in MINE
+        # would never roll the per-session dice.
         _fsm["entered_at"] = now
         if desired != cur:
             _fsm["state"] = desired
             cur = desired
-            _on_enter(cur)
+        _on_enter(cur)
     elif desired != cur:
         dwell = now - _fsm["entered_at"]
         # ENGAGE and REGEN are defensive interrupts -- they bypass
@@ -529,7 +563,10 @@ def _do_spiral_search(state: dict, p: dict) -> None:
     a = _spiral_state["angle"]
     tx = ax + math.cos(a) * r
     ty = ay + math.sin(a) * r
-    _ensure_weapon(state, "Mining Beam")
+    # Same sticky weapon as the active mining session — search
+    # phase is just positioning, but staying on the picked weapon
+    # avoids a Tab the moment we find a target.
+    _ensure_weapon(state, _mining_weapon_pick)
     _do_goto(state, p, tx, ty, stop_radius=120.0)
     # Mining beam fires while moving, in case we drift past an
     # asteroid we couldn't see in state (e.g. extraction lag).
@@ -573,9 +610,17 @@ def _do_mine_nearest(state: dict, p: dict) -> None:
     if target is None:
         _do_idle()
         return
-    _ensure_weapon(state, "Mining Beam")
-    _do_goto(state, p, target["x"], target["y"], stop_radius=200.0)
-    KeyState.hold("space", dist < MINING_RANGE_PX)
+    _ensure_weapon(state, _mining_weapon_pick)
+    if _mining_weapon_pick == "Energy Pickaxe":
+        # Pickaxe is melee — close to the asteroid and only fire
+        # when within swing reach.
+        _do_goto(state, p, target["x"], target["y"],
+                 stop_radius=PICKAXE_MINING_STOP_RADIUS)
+        KeyState.hold("space", dist < PICKAXE_MINING_RANGE_PX)
+    else:
+        # Mining Beam — ranged, stand off and fire from afar.
+        _do_goto(state, p, target["x"], target["y"], stop_radius=200.0)
+        KeyState.hold("space", dist < MINING_RANGE_PX)
 
 
 def _do_attack_nearest(state: dict, p: dict) -> None:
