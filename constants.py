@@ -318,32 +318,31 @@ MELEE_DEFLECT_CHANCE: float = 0.5
 # cooldown / lifetime / arc as the lightsabre (so it shares the
 # MeleeBlade visual + animation pipeline) but only damages
 # asteroids; aliens, bosses, and bolt-deflection are untouched.
-# Sprite from https://pixelartmaker.com/offshoot/70c3591d158d1bd.
 PICKAXE_PNG = os.path.join(
-    _HERE, "assets", "ai generated", "EnergizedPickaxe.png")
+    _HERE, "assets", "ai generated", "energypickaxe2.png")
 PICKAXE_DAMAGE: int = 20
 # Mining-class character (Debra) gets +15 dmg/swing.  All other
 # characters use the base ``PICKAXE_DAMAGE``.
 PICKAXE_DEBRA_DAMAGE_BONUS: int = 15
-# Sprite rendering — PNG is 2400 × 1600 (LANCZOS-upscaled 10× from
-# the original 240 × 160 source) so its sample density at the
-# rendered size matches the lightsabre's ~19× oversampling.  The
-# handle is drawn diagonally from lower-left up to the head at
-# upper-right.  ``PICKAXE_SCALE`` (0.055) is chosen so the rendered
-# handle length (~90 px) matches the lightsabre's visible blade
-# length (~94 px).  ``PICKAXE_TEX_ANGLE_OFFSET`` (-45°) rotates
+# Sprite rendering — PNG is 1024 × 1024 with the pickaxe head at
+# upper-left (flaming red/orange spikes) and the handle running
+# diagonally to the teal-banded butt at lower-right.
+# ``PICKAXE_SCALE`` (0.10) gives a rendered diagonal of ~95 px,
+# matching the lightsabre's visible blade length (~94 px).
+# ``PICKAXE_TEX_ANGLE_OFFSET`` (+45° = clockwise = right) rotates
 # the diagonal handle to vertical so the pickaxe aligns with the
 # ship's spine and the head points forward at the swing's tip.
-PICKAXE_SCALE: float = 0.055
-PICKAXE_TEX_ANGLE_OFFSET: float = -45.0
+PICKAXE_SCALE: float = 0.10
+PICKAXE_TEX_ANGLE_OFFSET: float = 45.0
 # Handle-butt position in unscaled texture pixel coords, with
 # origin at the texture CENTER and +y UP (sprite-local frame, not
 # PNG-image frame).  The pickaxe pivots around this point during
 # swings — handle stays anchored at the world pivot while the
-# head arcs through space.  The PNG's handle butt sits at roughly
-# (500, 1300) in 2400 × 1600 image coords (top-left origin, y down),
-# which maps to (500-1200, -(1300-800)) = (-700, -500) sprite-local.
-PICKAXE_HANDLE_OFFSET_PX: tuple[float, float] = (-700.0, -500.0)
+# head arcs through space.  The PNG's handle butt (teal-banded
+# end) sits at roughly (835, 865) in 1024×1024 image coords
+# (top-left origin, y down), which maps to
+# (835-512, -(865-512)) = (323, -353) sprite-local.
+PICKAXE_HANDLE_OFFSET_PX: tuple[float, float] = (323.0, -353.0)
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 6. Inventory / Quick Use
