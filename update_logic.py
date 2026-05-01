@@ -806,6 +806,8 @@ def update_weapons(gv: GameView, dt: float, fire: bool) -> None:
                 if blade is not None:
                     blade.start_swing()
                     fired_any = True
+                    import collisions
+                    collisions.log_melee_swing()
         else:
             for gi in range(gun_count):
                 wpn = gv._weapons[base_idx + gi]

@@ -599,3 +599,119 @@ class TestMeleeDeflectTelemetry:
         assert "blade_idle=1" in msg
         assert "during_swing=2" in msg
         assert "deflected=1/2" in msg
+
+
+class TestMeleeJsonlLog:
+    """Pin the JSONL session log so Claude can post-mortem a session
+    by reading ``bot_logs/melee_deflect.jsonl`` after the game closes."""
+
+    def _stub_gv(self, blade_swinging: bool):
+        from types import SimpleNamespace
+        proj = SimpleNamespace(
+            center_x=100.0, center_y=100.0,
+            _vx=300.0, _vy=0.0, angle=0.0,
+            _dist_travelled=42.0, damage=10,
+            _parents=[],
+        )
+        alien_list_obj = []
+        player_list_obj = []
+
+        def _remove_from_sprite_lists():
+            for lst in (alien_list_obj, player_list_obj):
+                if proj in lst:
+                    lst.remove(proj)
+
+        proj.remove_from_sprite_lists = _remove_from_sprite_lists
+        alien_list_obj.append(proj)
+        gv = SimpleNamespace(
+            alien_projectile_list=alien_list_obj,
+            projectile_list=player_list_obj,
+            player=SimpleNamespace(center_x=120.0, center_y=100.0),
+            hit_sparks=[],
+            _bump_snd=None,
+            _active_blade=SimpleNamespace(
+                is_swinging=blade_swinging),
+        )
+        return gv, proj
+
+    def _read_log(self, path):
+        import json as _json
+        return [_json.loads(ln) for ln in path.read_text(
+            encoding="utf-8").splitlines() if ln.strip()]
+
+    def test_session_start_marker_written_once(
+            self, tmp_path, monkeypatch):
+        import collisions
+        log_path = tmp_path / "melee.jsonl"
+        monkeypatch.setattr(collisions, "MELEE_LOG_PATH", log_path)
+        collisions.reset_melee_log_session()
+        collisions.log_melee_swing()
+        collisions.log_melee_swing()
+        events = self._read_log(log_path)
+        starts = [e for e in events if e["event"] == "session_start"]
+        assert len(starts) == 1
+        swings = [e for e in events if e["event"] == "swing"]
+        assert len(swings) == 2
+
+    def test_deflect_attempt_branches_logged(
+            self, tmp_path, monkeypatch):
+        import collisions
+        log_path = tmp_path / "melee.jsonl"
+        monkeypatch.setattr(collisions, "MELEE_LOG_PATH", log_path)
+        collisions.reset_melee_log_session()
+        collisions.reset_melee_deflect_stats()
+        # Branch 1: no blade.
+        gv, proj = self._stub_gv(blade_swinging=True)
+        gv._active_blade = None
+        collisions._try_melee_deflect(gv, proj)
+        # Branch 2: blade idle.
+        gv, proj = self._stub_gv(blade_swinging=False)
+        collisions._try_melee_deflect(gv, proj)
+        # Branch 3: swing hit.
+        monkeypatch.setattr(collisions.random, "random", lambda: 0.0)
+        gv, proj = self._stub_gv(blade_swinging=True)
+        collisions._try_melee_deflect(gv, proj)
+        # Branch 4: swing miss.
+        monkeypatch.setattr(collisions.random, "random", lambda: 0.99)
+        gv, proj = self._stub_gv(blade_swinging=True)
+        collisions._try_melee_deflect(gv, proj)
+
+        events = self._read_log(log_path)
+        attempts = [e for e in events
+                    if e["event"] == "deflect_attempt"]
+        assert len(attempts) == 4
+        branches = [e["branch"] for e in attempts]
+        assert branches == [
+            "no_blade", "blade_idle",
+            "during_swing", "during_swing",
+        ]
+        # The two during_swing entries record the dice outcome.
+        deflected = [e["deflected"] for e in attempts
+                     if e["branch"] == "during_swing"]
+        assert deflected == [True, False]
+        rolls = [e["roll"] for e in attempts
+                 if e["branch"] == "during_swing"]
+        assert rolls == [0.0, 0.99]
+
+    def test_log_failure_does_not_break_deflect(
+            self, tmp_path, monkeypatch):
+        """Telemetry must never break gameplay -- if the file write
+        raises (permission denied, disk full, etc.), the deflect
+        path still returns the right value."""
+        import collisions
+        # Path under a non-existent parent that we then make
+        # un-creatable by patching mkdir.
+        log_path = tmp_path / "nope" / "melee.jsonl"
+        monkeypatch.setattr(collisions, "MELEE_LOG_PATH", log_path)
+        collisions.reset_melee_log_session()
+        collisions.reset_melee_deflect_stats()
+
+        def _boom(*a, **kw):
+            raise OSError("disk full")
+        monkeypatch.setattr(collisions.Path, "mkdir", _boom)
+        monkeypatch.setattr(collisions.random, "random", lambda: 0.0)
+        gv, proj = self._stub_gv(blade_swinging=True)
+        # Must still succeed even though logging blew up.
+        assert collisions._try_melee_deflect(gv, proj) is True
+        assert (
+            collisions.melee_deflect_stats["deflects_succeeded"] == 1)

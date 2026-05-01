@@ -1,8 +1,12 @@
 """Collision handling routines for Space Survivalcraft."""
 from __future__ import annotations
 
+import json
 import math
+import os
 import random
+import time
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import arcade
@@ -305,6 +309,56 @@ def reset_melee_deflect_stats() -> None:
         melee_deflect_stats[k] = 0
 
 
+# Append-only JSONL session log.  Every melee-weapon use (swing
+# trigger) and every deflect attempt (bolt impact while a blade
+# exists) writes one line.  Claude reads this after a session to
+# compute deflect rates without having to be present during play.
+# Path can be overridden via the COO_MELEE_LOG env var (the test
+# suite uses this to redirect into tmp_path).
+MELEE_LOG_PATH: Path = Path(
+    os.environ.get(
+        "COO_MELEE_LOG",
+        str(Path("bot_logs") / "melee_deflect.jsonl"),
+    )
+)
+# Set True once the session_start marker has been written.  Reset
+# by ``reset_melee_log_session()`` (used by the test suite).
+_melee_log_session_marked: bool = False
+
+
+def reset_melee_log_session() -> None:
+    """Force the next log write to emit a fresh session_start marker."""
+    global _melee_log_session_marked
+    _melee_log_session_marked = False
+
+
+def _write_melee_log(entry: dict) -> None:
+    """Append a JSON line to the melee log.  Errors are swallowed —
+    telemetry must never break gameplay.  Writes a one-time
+    ``session_start`` marker on the first call per process so log
+    consumers can find session boundaries."""
+    global _melee_log_session_marked
+    try:
+        MELEE_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with MELEE_LOG_PATH.open("a", encoding="utf-8") as f:
+            if not _melee_log_session_marked:
+                f.write(json.dumps({
+                    "event": "session_start",
+                    "ts": time.time(),
+                }) + "\n")
+                _melee_log_session_marked = True
+            f.write(json.dumps({**entry, "ts": time.time()}) + "\n")
+    except Exception:
+        pass
+
+
+def log_melee_swing() -> None:
+    """Record a swing trigger — called from update_logic.update_weapons
+    whenever the player presses fire while the Melee weapon is active
+    and the cooldown is clear."""
+    _write_melee_log({"event": "swing"})
+
+
 def melee_deflect_summary() -> str:
     """One-line human-readable summary of the deflect counters.
     Used by the autopilot / strategy helper for periodic stdout dumps."""
@@ -347,18 +401,28 @@ def _try_melee_deflect(gv: GameView, proj) -> bool:
     blade = getattr(gv, "_active_blade", None)
     if blade is None:
         melee_deflect_stats["bolts_no_blade"] += 1
+        _write_melee_log({"event": "deflect_attempt",
+                          "branch": "no_blade"})
         return False
     if not blade.is_swinging:
         melee_deflect_stats["bolts_blade_idle"] += 1
+        _write_melee_log({"event": "deflect_attempt",
+                          "branch": "blade_idle"})
         return False
     melee_deflect_stats["bolts_during_swing"] += 1
-    if random.random() >= MELEE_DEFLECT_CHANCE:
+    roll = random.random()
+    if roll >= MELEE_DEFLECT_CHANCE:
         melee_deflect_stats["deflects_failed_roll"] += 1
+        _write_melee_log({"event": "deflect_attempt",
+                          "branch": "during_swing",
+                          "deflected": False,
+                          "roll": roll})
         return False
     melee_deflect_stats["deflects_succeeded"] += 1
-    print(f"MELEE DEFLECT #{melee_deflect_stats['deflects_succeeded']} "
-          f"(swing-impacts={melee_deflect_stats['bolts_during_swing']})",
-          flush=True)
+    _write_melee_log({"event": "deflect_attempt",
+                      "branch": "during_swing",
+                      "deflected": True,
+                      "roll": roll})
     proj._vx = -proj._vx
     proj._vy = -proj._vy
     proj.angle = (proj.angle + 180.0) % 360.0
