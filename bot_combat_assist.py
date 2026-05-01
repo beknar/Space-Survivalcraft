@@ -151,7 +151,8 @@ def _find_nearest_threat(gv) -> tuple[Any | None, float]:
 
 # ── Weapon switching ──────────────────────────────────────────────────────
 
-_WEAPON_NAME_ORDER = ("Basic Laser", "Mining Beam", "Melee")
+_WEAPON_NAME_ORDER = (
+    "Basic Laser", "Mining Beam", "Melee", "Energy Pickaxe")
 
 
 def _ensure_weapon(gv, want: str) -> bool:

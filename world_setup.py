@@ -103,12 +103,13 @@ def load_weapons(gun_count: int, faction: str | None = None) -> list[Weapon]:
     """
     from constants import (
         MELEE_SWORD_PNG, MELEE_SWORD_PNG_BY_FACTION, SFX_MELEE_SWING,
-        MELEE_COOLDOWN, MELEE_DAMAGE,
+        MELEE_COOLDOWN, MELEE_DAMAGE, PICKAXE_PNG, PICKAXE_DAMAGE,
     )
     laser_tex = arcade.load_texture(os.path.join(LASER_DIR, "laserBlue03.png"))
     mining_tex = arcade.load_texture(os.path.join(LASER_DIR, "laserGreen13.png"))
     sword_path = MELEE_SWORD_PNG_BY_FACTION.get(faction, MELEE_SWORD_PNG)
     sword_tex = arcade.load_texture(sword_path)
+    pickaxe_tex = arcade.load_texture(PICKAXE_PNG)
     laser_snd = arcade.load_sound(
         os.path.join(SFX_WEAPONS_DIR, "Small Laser Weapon Shot 1.wav")
     )
@@ -139,6 +140,18 @@ def load_weapons(gun_count: int, faction: str | None = None) -> list[Weapon]:
         weapons.append(Weapon(
             "Melee", sword_tex, melee_snd,
             cooldown=MELEE_COOLDOWN, damage=float(MELEE_DAMAGE),
+            projectile_speed=0.0, max_range=0.0,
+            proj_scale=1.0, mines_rock=False,
+        ))
+    for _g in range(gun_count):
+        # Energy Pickaxe — same melee swing cadence, but the
+        # AOE damage pass in update_pickaxe_blade only touches
+        # asteroids.  Cooldown + name + sound mirror Melee so the
+        # animation timing is identical; damage is read from
+        # PICKAXE_DAMAGE (+ Debra bonus) at swing-stat dispatch.
+        weapons.append(Weapon(
+            "Energy Pickaxe", pickaxe_tex, melee_snd,
+            cooldown=MELEE_COOLDOWN, damage=float(PICKAXE_DAMAGE),
             projectile_speed=0.0, max_range=0.0,
             proj_scale=1.0, mines_rock=False,
         ))

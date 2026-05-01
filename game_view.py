@@ -223,6 +223,12 @@ class GameView(arcade.View):
         # reference for direct mutation (start_swing etc.).
         self._melee_swings: arcade.SpriteList = arcade.SpriteList()
         self._active_blade = None
+        # Energy Pickaxe — separate slot from the lightsabre so the
+        # bolt-deflect path (which keys off ``_active_blade``) does
+        # not fire when the pickaxe is the active weapon.  The
+        # pickaxe shares the MeleeBlade visual + animation but its
+        # AOE damage pass only touches asteroids.
+        self._active_pickaxe = None
 
         # Companion drone — at most one active at a time, replaceable
         # by pressing R after switching to the other weapon class.

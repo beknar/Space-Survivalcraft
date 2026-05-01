@@ -208,25 +208,27 @@ def _do_idle() -> None:
 
 # ── Auto-mode finite state machine ────────────────────────────────────────
 #
-#  Five states with asymmetric enter/exit thresholds.  ENGAGE is the
-#  defensive interrupt and preempts any other state immediately; the
-#  other four respect MIN_DWELL_S to prevent boundary thrash.
+#  Five states with asymmetric enter/exit thresholds.  REGEN and
+#  ENGAGE are defensive interrupts -- they bypass MIN_DWELL_S and
+#  preempt other states immediately.  REGEN sits at the top so the
+#  bot pauses to recover shields rather than chasing a fight at low
+#  health; ENGAGE preempts everything else.  The other three states
+#  respect MIN_DWELL_S to prevent boundary thrash.
 #
-#       ┌─────────┐  alien<800 (any)            ┌────────┐
-#       │ ENGAGE  │ <─────────────────────────── │ ANY *  │
-#       │ aim+fire│ ───────────────────────────> │        │
-#       └─────────┘  no alien<1000               └────────┘
+#       ┌─────────┐  shields < 40 %             ┌────────┐
+#       │  REGEN  │ <─────────────────────────── │ ANY *  │
+#       │  idle   │ ───────────────────────────> │        │
+#       └─────────┘  shields >= 60 %             └────────┘
+#                                                    │
+#       ┌─────────┐  alien<800 (any non-REGEN)       │
+#       │ ENGAGE  │ <────────────────────────────────┤
+#       │ aim+fire│ ────────────────────────────>    │
+#       └─────────┘  no alien<1000                   │
 #                                                    │
 #       ┌─────────┐  pickup<1500 + safe              │
 #       │ GATHER  │ <────────────────────────────────┤
 #       │  fly to │ ────────────────────────────>    │
 #       │  pickup │  pickup>1700 / consumed          │
-#       └─────────┘                                  │
-#                                                    │
-#       ┌─────────┐  shields < 40 %                  │
-#       │  REGEN  │ <────────────────────────────────┤
-#       │  idle   │ ────────────────────────────>    │
-#       │ for HP  │  shields ≥ 60 %                  │
 #       └─────────┘                                  │
 #                                                    │
 #       ┌─────────┐  asteroids known                 │
@@ -336,29 +338,19 @@ def _choose_next_state(state: dict, p: dict, cur: str) -> str:
     Hysteresis is encoded by branching on ``cur``: the enter
     threshold and exit threshold differ, so a value drifting around
     the boundary doesn't oscillate.
+
+    REGEN is the **top priority** -- when shields drop below 40 %
+    the bot disengages, sits still, and waits for shields to climb
+    back to 60 % before doing anything else.  Combat assist still
+    aims + fires automatically every frame, so the bot isn't
+    defenseless while regenerating; it just doesn't burn thrust
+    chasing targets while the shield bar is low.
     """
     px, py = p.get("x", 0.0), p.get("y", 0.0)
 
-    # 1. ENGAGE — alien within band.  Preempts everything.
-    aliens = state.get("aliens") or []
-    threat, td = nearest(aliens, px, py)
-    if cur == S_ENGAGE:
-        if threat is not None and td < ENGAGE_EXIT_PX:
-            return S_ENGAGE
-    else:
-        if threat is not None and td < ENGAGE_ENTER_PX:
-            return S_ENGAGE
-
-    # 2. GATHER — loot pickup within reach.
-    pickup, pd = _nearest_pickup(state, px, py)
-    if cur == S_GATHER:
-        if pickup is not None and pd < GATHER_EXIT_PX:
-            return S_GATHER
-    else:
-        if pickup is not None and pd < GATHER_ENTER_PX:
-            return S_GATHER
-
-    # 3. REGEN — shields hurt; sit still and recover.
+    # 1. REGEN — shields hurt; sit still and recover.  Preempts
+    #    ENGAGE/GATHER/MINE so the bot actually idles instead of
+    #    burning thrust while shields are low.
     sh = int(p.get("shields", 0))
     sh_max = max(1, int(p.get("max_shields", 1)))
     pct = sh / sh_max
@@ -368,6 +360,25 @@ def _choose_next_state(state: dict, p: dict, cur: str) -> str:
     else:
         if pct < REGEN_ENTER_PCT:
             return S_REGEN
+
+    # 2. ENGAGE — alien within band.  Preempts the rest.
+    aliens = state.get("aliens") or []
+    threat, td = nearest(aliens, px, py)
+    if cur == S_ENGAGE:
+        if threat is not None and td < ENGAGE_EXIT_PX:
+            return S_ENGAGE
+    else:
+        if threat is not None and td < ENGAGE_ENTER_PX:
+            return S_ENGAGE
+
+    # 3. GATHER — loot pickup within reach.
+    pickup, pd = _nearest_pickup(state, px, py)
+    if cur == S_GATHER:
+        if pickup is not None and pd < GATHER_EXIT_PX:
+            return S_GATHER
+    else:
+        if pickup is not None and pd < GATHER_ENTER_PX:
+            return S_GATHER
 
     # 4. MINE vs SEARCH — discrete event, no hysteresis needed.
     asteroids = state.get("asteroids") or []
@@ -416,7 +427,10 @@ def _do_auto(state: dict, p: dict) -> None:
             _on_enter(cur)
     elif desired != cur:
         dwell = now - _fsm["entered_at"]
-        if desired == S_ENGAGE or dwell >= MIN_DWELL_S:
+        # ENGAGE and REGEN are defensive interrupts -- they bypass
+        # MIN_DWELL so the bot reacts to a sudden threat or a sudden
+        # shield collapse without waiting for the dwell timer.
+        if desired in (S_ENGAGE, S_REGEN) or dwell >= MIN_DWELL_S:
             _fsm["state"] = desired
             _fsm["entered_at"] = now
             cur = desired
@@ -610,7 +624,8 @@ def _do_retreat(state: dict, p: dict) -> None:
 
 # ── Weapon cycling ────────────────────────────────────────────────────────
 
-_WEAPON_ORDER = ("Basic Laser", "Mining Beam", "Melee")
+_WEAPON_ORDER = (
+    "Basic Laser", "Mining Beam", "Melee", "Energy Pickaxe")
 _last_cycle_t: float = 0.0
 
 

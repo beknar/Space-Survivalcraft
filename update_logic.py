@@ -710,6 +710,99 @@ def _remove_melee_blade(gv: GameView) -> None:
     gv._active_blade = None
 
 
+def _pickaxe_blade_stats(gv: GameView) -> tuple[float, int]:
+    """Return ``(hit_radius, damage)`` for the Energy Pickaxe.
+    Same hit radius as the lightsabre; damage is base + Debra bonus."""
+    from constants import (
+        MELEE_HIT_RADIUS, PICKAXE_DAMAGE, PICKAXE_DEBRA_DAMAGE_BONUS,
+    )
+    from settings import audio as _audio
+    char_name = getattr(_audio, "character_name", None)
+    damage = PICKAXE_DAMAGE
+    if char_name == "Debra":
+        damage += PICKAXE_DEBRA_DAMAGE_BONUS
+    return (MELEE_HIT_RADIUS, damage)
+
+
+def _ensure_pickaxe_blade(gv: GameView, pickaxe_tex) -> None:
+    """Lazy-spawn the persistent pickaxe blade in front of the player.
+    Mirrors ``_ensure_melee_blade`` but lives in a separate slot so
+    the bolt-deflect path keys off ``_active_blade`` only."""
+    blade = getattr(gv, "_active_pickaxe", None)
+    if blade is not None:
+        return
+    from sprites.melee import MeleeBlade
+    hit_radius, damage = _pickaxe_blade_stats(gv)
+    blade = MeleeBlade(
+        pickaxe_tex, gv.player,
+        offset=hit_radius,
+        damage=damage,
+        hit_radius=hit_radius,
+    )
+    gv._melee_swings.append(blade)
+    gv._active_pickaxe = blade
+
+
+def _remove_pickaxe_blade(gv: GameView) -> None:
+    """Despawn the pickaxe blade (called when the active weapon
+    is no longer the Energy Pickaxe)."""
+    blade = getattr(gv, "_active_pickaxe", None)
+    if blade is None:
+        return
+    blade.remove_from_sprite_lists()
+    gv._active_pickaxe = None
+
+
+def update_pickaxe_blade(gv: GameView, dt: float) -> None:
+    """Tick the persistent pickaxe (anchor + swing animation) and
+    deal AOE damage to **asteroids only** in range during the swing.
+    Each asteroid is damaged at most once per swing — the blade
+    tracks its hit set internally."""
+    blade = getattr(gv, "_active_pickaxe", None)
+    if blade is None:
+        return
+    blade.update_blade(dt)
+    if not blade.is_swinging:
+        return
+    # AOE asteroid pass — main + zone-specific asteroid lists.
+    asteroids: list = list(gv.asteroid_list)
+    zone = getattr(gv, "_zone", None)
+    if zone is not None:
+        for attr in ("_iron_asteroids", "_double_iron",
+                     "_copper_asteroids", "_wanderers"):
+            zlist = getattr(zone, attr, None)
+            if zlist is not None and zlist is not gv.asteroid_list:
+                asteroids.extend(zlist)
+    if not asteroids:
+        return
+    from collisions import _apply_kill_rewards
+    from character_data import bonus_iron_asteroid
+    from constants import (
+        ASTEROID_IRON_YIELD, BLUEPRINT_DROP_CHANCE_ASTEROID,
+    )
+    r_sq = blade.hit_radius * blade.hit_radius
+    for ast in list(asteroids):
+        if blade.already_hit(ast):
+            continue
+        if getattr(ast, "hp", 0) <= 0:
+            continue
+        dx = ast.center_x - blade.center_x
+        dy = ast.center_y - blade.center_y
+        if dx * dx + dy * dy > r_sq:
+            continue
+        ast.take_damage(int(blade.damage))
+        blade.mark_hit(ast)
+        if getattr(ast, "hp", 1) <= 0:
+            ax = getattr(ast, "_base_x", ast.center_x)
+            ay = getattr(ast, "_base_y", ast.center_y)
+            ast.remove_from_sprite_lists()
+            _apply_kill_rewards(
+                gv, ax, ay, ASTEROID_IRON_YIELD,
+                bonus_iron_asteroid,
+                BLUEPRINT_DROP_CHANCE_ASTEROID,
+                asteroid=True)
+
+
 def update_melee_blade(gv: GameView, dt: float) -> None:
     """Tick the persistent blade (anchor + swing animation) and
     deal AOE damage to enemies in range during the swing.  Each
@@ -776,14 +869,20 @@ def update_weapons(gv: GameView, dt: float, fire: bool) -> None:
 
     # Persistent melee blade lifecycle — visible whenever the
     # melee weapon is the active weapon.  Spawned lazily when the
-    # player tabs to it, despawned when they tab away.
+    # player tabs to it, despawned when they tab away.  The Energy
+    # Pickaxe lives in its own slot on the same lifecycle pattern.
     gun_count = gv.player.guns
     base_idx = (gv._weapon_idx // gun_count) * gun_count
     head_wpn = gv._weapons[base_idx]
     if head_wpn.name == "Melee":
         _ensure_melee_blade(gv, head_wpn._texture)
+        _remove_pickaxe_blade(gv)
+    elif head_wpn.name == "Energy Pickaxe":
+        _ensure_pickaxe_blade(gv, head_wpn._texture)
+        _remove_melee_blade(gv)
     else:
         _remove_melee_blade(gv)
+        _remove_pickaxe_blade(gv)
 
     fired_any = False
     if fire:
@@ -803,6 +902,16 @@ def update_weapons(gv: GameView, dt: float, fire: bool) -> None:
                     arcade.play_sound(head_wpn._sound, volume=0.5)
                     head_wpn._snd_cd = head_wpn._snd_min_interval
                 blade = getattr(gv, "_active_blade", None)
+                if blade is not None:
+                    blade.start_swing()
+                    fired_any = True
+        elif head_wpn.name == "Energy Pickaxe":
+            if head_wpn._timer <= 0.0:
+                head_wpn._timer = head_wpn.cooldown
+                if head_wpn._snd_cd <= 0.0:
+                    arcade.play_sound(head_wpn._sound, volume=0.5)
+                    head_wpn._snd_cd = head_wpn._snd_min_interval
+                blade = getattr(gv, "_active_pickaxe", None)
                 if blade is not None:
                     blade.start_swing()
                     fired_any = True
@@ -827,6 +936,7 @@ def update_weapons(gv: GameView, dt: float, fire: bool) -> None:
     # the blade isn't swinging) just re-anchor the pose to the
     # ship's current position + heading.
     update_melee_blade(gv, dt)
+    update_pickaxe_blade(gv, dt)
 
     # Broadside auto-fire
     if "broadside" in gv._module_slots and not gv._player_dead:

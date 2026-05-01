@@ -306,6 +306,18 @@ MELEE_BASTION_HIT_RADIUS: float = 110.0
 # on its return trip).
 MELEE_DEFLECT_CHANCE: float = 0.5
 
+# Energy Pickaxe — third melee weapon, mining-only.  Same swing
+# cooldown / lifetime / arc as the lightsabre (so it shares the
+# MeleeBlade visual + animation pipeline) but only damages
+# asteroids; aliens, bosses, and bolt-deflection are untouched.
+# Sprite from https://pixelartmaker.com/offshoot/70c3591d158d1bd.
+PICKAXE_PNG = os.path.join(
+    _HERE, "assets", "ai generated", "EnergizedPickaxe.png")
+PICKAXE_DAMAGE: int = 20
+# Mining-class character (Debra) gets +15 dmg/swing.  All other
+# characters use the base ``PICKAXE_DAMAGE``.
+PICKAXE_DEBRA_DAMAGE_BONUS: int = 15
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # 6. Inventory / Quick Use
 # ═══════════════════════════════════════════════════════════════════════════════

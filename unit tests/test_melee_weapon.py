@@ -29,7 +29,7 @@ class TestLoadWeaponsIncludesMelee:
         from world_setup import load_weapons
         weapons = load_weapons(gun_count=1)
         assert [w.name for w in weapons] == [
-            "Basic Laser", "Mining Beam", "Melee"]
+            "Basic Laser", "Mining Beam", "Melee", "Energy Pickaxe"]
 
     def test_dual_gun_ship_has_one_melee_per_gun_block(self):
         from world_setup import load_weapons
@@ -38,6 +38,7 @@ class TestLoadWeaponsIncludesMelee:
             "Basic Laser", "Basic Laser",
             "Mining Beam", "Mining Beam",
             "Melee", "Melee",
+            "Energy Pickaxe", "Energy Pickaxe",
         ]
 
     def test_melee_weapon_stats(self):
@@ -62,6 +63,8 @@ class TestHUDShowsMelee:
         assert gv._active_weapon.name == "Mining Beam"
         gv._cycle_weapon()
         assert gv._active_weapon.name == "Melee"
+        gv._cycle_weapon()
+        assert gv._active_weapon.name == "Energy Pickaxe"
         gv._cycle_weapon()
         assert gv._active_weapon.name == "Basic Laser"
 
@@ -89,9 +92,13 @@ class TestBladeLifecycle:
         gv._cycle_weapon(); gv._cycle_weapon()       # to Melee
         update_weapons(gv, 1 / 60, fire=False)       # blade spawns
         assert gv._active_blade is not None
-        gv._cycle_weapon()                            # back to Basic Laser
+        # Cycle past Energy Pickaxe back to Basic Laser so neither
+        # melee blade nor pickaxe blade is active.
+        gv._cycle_weapon(); gv._cycle_weapon()
+        assert gv._active_weapon.name == "Basic Laser"
         update_weapons(gv, 1 / 60, fire=False)
         assert gv._active_blade is None
+        assert gv._active_pickaxe is None
         assert len(gv._melee_swings) == 0
 
 
@@ -499,5 +506,224 @@ class TestMeleeDeflect:
         monkeypatch.setattr(collisions.random, "random", lambda: 0.0)
         gv, proj = self._stub_gv(blade_swinging=True)
         gv._active_blade = None
+        assert collisions._try_melee_deflect(gv, proj) is False
+
+
+# ── Energy Pickaxe ─────────────────────────────────────────────────────────
+
+
+def _cycle_to_pickaxe(gv):
+    """Tab through Basic Laser → Mining Beam → Melee → Energy Pickaxe."""
+    gv._cycle_weapon(); gv._cycle_weapon(); gv._cycle_weapon()
+    assert gv._active_weapon.name == "Energy Pickaxe"
+
+
+class TestEnergyPickaxeBasics:
+    def test_pickaxe_is_in_weapon_cycle_with_correct_label(self):
+        from game_view import GameView
+        gv = GameView(faction="Earth", ship_type="Cruiser",
+                       skip_music=True)
+        names = [w.name for w in gv._weapons[::gv.player.guns]]
+        assert "Energy Pickaxe" in names
+        # Tab order ends at the pickaxe (4th weapon class).
+        _cycle_to_pickaxe(gv)
+        assert gv._active_weapon.name == "Energy Pickaxe"
+
+    def test_pickaxe_blade_spawns_when_selected(self):
+        from update_logic import update_weapons
+        from game_view import GameView
+        gv = GameView(faction="Earth", ship_type="Cruiser",
+                       skip_music=True)
+        _cycle_to_pickaxe(gv)
+        update_weapons(gv, 1 / 60, fire=False)
+        assert gv._active_pickaxe is not None
+        # And the lightsabre slot stays empty.
+        assert gv._active_blade is None
+
+    def test_tabbing_away_despawns_pickaxe(self):
+        from update_logic import update_weapons
+        from game_view import GameView
+        gv = GameView(faction="Earth", ship_type="Cruiser",
+                       skip_music=True)
+        _cycle_to_pickaxe(gv)
+        update_weapons(gv, 1 / 60, fire=False)
+        assert gv._active_pickaxe is not None
+        gv._cycle_weapon()   # back to Basic Laser
+        update_weapons(gv, 1 / 60, fire=False)
+        assert gv._active_pickaxe is None
+
+    def test_fire_starts_pickaxe_swing(self):
+        from update_logic import update_weapons
+        from game_view import GameView
+        gv = GameView(faction="Earth", ship_type="Cruiser",
+                       skip_music=True)
+        _cycle_to_pickaxe(gv)
+        update_weapons(gv, 1 / 60, fire=False)
+        assert gv._active_pickaxe.is_swinging is False
+        update_weapons(gv, 1 / 60, fire=True)
+        assert gv._active_pickaxe.is_swinging is True
+
+
+class TestEnergyPickaxeDamage:
+    def _make_asteroid_at(self, x, y, hp=100):
+        ast = SimpleNamespace(
+            center_x=x, center_y=y, hp=hp,
+            _base_x=x, _base_y=y,
+            _ticks=0,
+        )
+        ast.take_damage = lambda dmg: (
+            setattr(ast, "hp", ast.hp - dmg),
+            setattr(ast, "_ticks", ast._ticks + 1),
+        )
+        ast.remove_from_sprite_lists = lambda: None
+        return ast
+
+    def test_swing_damages_asteroid_in_radius(self):
+        from update_logic import update_weapons
+        from constants import PICKAXE_DAMAGE
+        from game_view import GameView
+        gv = GameView(faction="Earth", ship_type="Cruiser",
+                       skip_music=True)
+        _cycle_to_pickaxe(gv)
+        ast = self._make_asteroid_at(
+            gv.player.center_x, gv.player.center_y + 80.0)
+        gv.asteroid_list = [ast]
+        update_weapons(gv, 1 / 60, fire=True)
+        assert ast._ticks == 1
+        assert ast.hp == 100 - PICKAXE_DAMAGE
+
+    def test_idle_blade_does_no_damage(self):
+        from update_logic import update_weapons
+        from game_view import GameView
+        gv = GameView(faction="Earth", ship_type="Cruiser",
+                       skip_music=True)
+        _cycle_to_pickaxe(gv)
+        ast = self._make_asteroid_at(
+            gv.player.center_x, gv.player.center_y + 80.0)
+        gv.asteroid_list = [ast]
+        update_weapons(gv, 1 / 60, fire=False)
+        assert ast.hp == 100
+
+    def test_asteroid_outside_radius_unharmed(self):
+        from update_logic import update_weapons
+        from game_view import GameView
+        gv = GameView(faction="Earth", ship_type="Cruiser",
+                       skip_music=True)
+        _cycle_to_pickaxe(gv)
+        # 500 px away — well outside MELEE_HIT_RADIUS (80 px).
+        ast = self._make_asteroid_at(
+            gv.player.center_x + 500.0, gv.player.center_y)
+        gv.asteroid_list = [ast]
+        update_weapons(gv, 1 / 60, fire=True)
+        assert ast.hp == 100
+
+    def test_asteroid_hit_at_most_once_per_swing(self):
+        from update_logic import update_weapons
+        from game_view import GameView
+        from constants import PICKAXE_DAMAGE
+        gv = GameView(faction="Earth", ship_type="Cruiser",
+                       skip_music=True)
+        _cycle_to_pickaxe(gv)
+        ast = self._make_asteroid_at(
+            gv.player.center_x, gv.player.center_y + 80.0)
+        gv.asteroid_list = [ast]
+        update_weapons(gv, 1 / 60, fire=True)
+        # Multiple subsequent ticks within the same swing — must
+        # not re-damage the same asteroid.
+        for _ in range(5):
+            update_weapons(gv, 1 / 60, fire=False)
+        assert ast.hp == 100 - PICKAXE_DAMAGE
+        assert ast._ticks == 1
+
+    def test_pickaxe_does_not_damage_aliens(self):
+        from update_logic import update_weapons
+        from game_view import GameView
+        gv = GameView(faction="Earth", ship_type="Cruiser",
+                       skip_music=True)
+        _cycle_to_pickaxe(gv)
+        alien = SimpleNamespace(
+            center_x=gv.player.center_x,
+            center_y=gv.player.center_y + 80.0,
+            hp=200, _ticks=0)
+        alien.take_damage = lambda dmg: (
+            setattr(alien, "hp", alien.hp - dmg),
+            setattr(alien, "_ticks", alien._ticks + 1),
+        )
+        alien.remove_from_sprite_lists = lambda: None
+        gv.alien_list = [alien]
+        update_weapons(gv, 1 / 60, fire=True)
+        # Alien is unharmed — pickaxe is mining-only.
+        assert alien.hp == 200
+        assert alien._ticks == 0
+
+
+class TestPickaxeDebraBonus:
+    def test_debra_gets_bonus_damage(self, monkeypatch):
+        """Debra (mining class) hits asteroids for +15 dmg/swing."""
+        from update_logic import update_weapons
+        from settings import audio
+        from constants import PICKAXE_DAMAGE, PICKAXE_DEBRA_DAMAGE_BONUS
+        from game_view import GameView
+        monkeypatch.setattr(audio, "character_name", "Debra")
+        gv = GameView(faction="Earth", ship_type="Cruiser",
+                       skip_music=True)
+        _cycle_to_pickaxe(gv)
+        ast = SimpleNamespace(
+            center_x=gv.player.center_x,
+            center_y=gv.player.center_y + 80.0,
+            hp=200, _base_x=gv.player.center_x,
+            _base_y=gv.player.center_y + 80.0)
+        ast.take_damage = lambda dmg: setattr(
+            ast, "hp", ast.hp - dmg)
+        ast.remove_from_sprite_lists = lambda: None
+        gv.asteroid_list = [ast]
+        update_weapons(gv, 1 / 60, fire=True)
+        assert ast.hp == 200 - (
+            PICKAXE_DAMAGE + PICKAXE_DEBRA_DAMAGE_BONUS)
+
+    def test_non_debra_uses_base_damage(self, monkeypatch):
+        from update_logic import update_weapons
+        from settings import audio
+        from constants import PICKAXE_DAMAGE
+        from game_view import GameView
+        monkeypatch.setattr(audio, "character_name", "Ellie")
+        gv = GameView(faction="Earth", ship_type="Cruiser",
+                       skip_music=True)
+        _cycle_to_pickaxe(gv)
+        ast = SimpleNamespace(
+            center_x=gv.player.center_x,
+            center_y=gv.player.center_y + 80.0,
+            hp=200, _base_x=gv.player.center_x,
+            _base_y=gv.player.center_y + 80.0)
+        ast.take_damage = lambda dmg: setattr(
+            ast, "hp", ast.hp - dmg)
+        ast.remove_from_sprite_lists = lambda: None
+        gv.asteroid_list = [ast]
+        update_weapons(gv, 1 / 60, fire=True)
+        assert ast.hp == 200 - PICKAXE_DAMAGE
+
+
+class TestPickaxeDoesNotDeflect:
+    """The bolt-deflect path keys off ``_active_blade`` (lightsabre).
+    With the Energy Pickaxe selected, ``_active_blade`` is None and
+    enemy bolts hit normally."""
+
+    def test_pickaxe_does_not_deflect_alien_bolts(self):
+        from update_logic import update_weapons
+        from game_view import GameView
+        gv = GameView(faction="Earth", ship_type="Cruiser",
+                       skip_music=True)
+        _cycle_to_pickaxe(gv)
+        update_weapons(gv, 1 / 60, fire=True)
+        assert gv._active_pickaxe.is_swinging is True
+        # Lightsabre slot is empty — deflect short-circuits.
+        assert gv._active_blade is None
+        import collisions
+        proj = SimpleNamespace(
+            center_x=0.0, center_y=0.0,
+            _vx=300.0, _vy=0.0, angle=0.0,
+            _dist_travelled=0.0, damage=10, _parents=[])
+        proj.remove_from_sprite_lists = lambda: None
+        # Should return False (no deflect) because _active_blade is None.
         assert collisions._try_melee_deflect(gv, proj) is False
 
