@@ -735,7 +735,10 @@ def _ensure_pickaxe_blade(gv: GameView, pickaxe_tex) -> None:
     if blade is not None:
         return
     from sprites.melee import MeleeBlade
-    from constants import PICKAXE_SCALE, PICKAXE_TEX_ANGLE_OFFSET
+    from constants import (
+        PICKAXE_SCALE, PICKAXE_TEX_ANGLE_OFFSET,
+        PICKAXE_HANDLE_OFFSET_PX,
+    )
     hit_radius, damage = _pickaxe_blade_stats(gv)
     blade = MeleeBlade(
         pickaxe_tex, gv.player,
@@ -744,6 +747,7 @@ def _ensure_pickaxe_blade(gv: GameView, pickaxe_tex) -> None:
         hit_radius=hit_radius,
         tex_scale=PICKAXE_SCALE,
         tex_angle_offset=PICKAXE_TEX_ANGLE_OFFSET,
+        handle_offset_px=PICKAXE_HANDLE_OFFSET_PX,
     )
     gv._melee_swings.append(blade)
     gv._active_pickaxe = blade

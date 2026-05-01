@@ -333,7 +333,15 @@ PICKAXE_DEBRA_DAMAGE_BONUS: int = 15
 # diagonal handle to vertical so the pickaxe aligns with the
 # ship's spine and the head points forward at the swing's tip.
 PICKAXE_SCALE: float = 0.55
-PICKAXE_TEX_ANGLE_OFFSET: float = 45.0
+PICKAXE_TEX_ANGLE_OFFSET: float = -45.0
+# Handle-butt position in unscaled texture pixel coords, with
+# origin at the texture CENTER and +y UP (sprite-local frame, not
+# PNG-image frame).  The pickaxe pivots around this point during
+# swings — handle stays anchored at the world pivot while the
+# head arcs through space.  The PNG's handle butt sits at roughly
+# (50, 130) in 240×160 image coords (top-left origin, y down),
+# which maps to (50-120, -(130-80)) = (-70, -50) sprite-local.
+PICKAXE_HANDLE_OFFSET_PX: tuple[float, float] = (-70.0, -50.0)
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 6. Inventory / Quick Use

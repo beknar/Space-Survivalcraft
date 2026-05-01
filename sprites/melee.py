@@ -36,6 +36,7 @@ class MeleeBlade(arcade.Sprite):
         hit_radius: float,
         tex_scale: float = MELEE_SCALE,
         tex_angle_offset: float = MELEE_TEX_ANGLE_OFFSET,
+        handle_offset_px: tuple[float, float] | None = None,
     ) -> None:
         super().__init__(path_or_texture=texture, scale=tex_scale)
         self._ship = ship
@@ -45,6 +46,16 @@ class MeleeBlade(arcade.Sprite):
         # Texture-rotation compensation — non-zero when the PNG art
         # isn't drawn vertically (e.g. the diagonal pickaxe sprite).
         self._tex_angle_offset: float = tex_angle_offset
+        # Handle-butt position in scaled, sprite-local coords (origin
+        # at sprite centre, +y UP).  The blade pivots around this
+        # point during swings.  Default = bottom-centre of the
+        # texture (correct for the vertical lightsabre PNG).
+        if handle_offset_px is None:
+            handle_offset_px = (0.0, -texture.height * 0.5)
+        self._handle_local: tuple[float, float] = (
+            handle_offset_px[0] * tex_scale,
+            handle_offset_px[1] * tex_scale,
+        )
         # Swing animation timer.  ``> 0`` while animating;
         # ``0`` (or below) → idle, blade points forward.
         self._swing_timer: float = 0.0
@@ -93,18 +104,20 @@ class MeleeBlade(arcade.Sprite):
         self.angle = (self._ship.heading + swing_offset
                       + self._tex_angle_offset)
 
-        # Slide the sprite centre forward by half a blade-length
-        # along the blade's current pointing direction so the
-        # handle (rear of sprite) stays at the pivot.  Tip
-        # direction excludes the texture-art offset — that's just
-        # for visual rotation, not the physical direction the
-        # blade is pointing.
-        tip_rad = math.radians(self._ship.heading + swing_offset)
-        tip_x = math.sin(tip_rad)
-        tip_y = math.cos(tip_rad)
-        half_len = self.height * 0.5
-        self.center_x = pivot_x + tip_x * half_len
-        self.center_y = pivot_y + tip_y * half_len
+        # Position the sprite so its handle-butt point (in sprite-
+        # local coords) ends up at the world pivot after the
+        # rotation.  arcade.Sprite rotates around the sprite
+        # centre, so we have to translate the centre to compensate:
+        # ``sprite_centre = pivot - R(angle) * handle_local``.
+        # Rotation is CW positive (arcade / pyglet convention).
+        ang_rad = math.radians(self.angle)
+        cos_a = math.cos(ang_rad)
+        sin_a = math.sin(ang_rad)
+        hx, hy = self._handle_local
+        wox = hx * cos_a + hy * sin_a
+        woy = -hx * sin_a + hy * cos_a
+        self.center_x = pivot_x - wox
+        self.center_y = pivot_y - woy
 
     @property
     def handle_pos(self) -> tuple[float, float]:
