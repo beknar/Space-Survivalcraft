@@ -464,29 +464,97 @@ class TestMiningWeaponDiceRoll:
         # Second entry rolled 0.99 → Mining Beam.
         assert ap._mining_weapon_pick == "Mining Beam"
 
-    def test_pickaxe_uses_short_stop_radius(
+    def test_pickaxe_uses_hold_distance_not_goto(
             self, _clock, monkeypatch):
-        """When the dice picks pickaxe, the bot must close to
-        PICKAXE_MINING_STOP_RADIUS, not the mining beam's 200 px."""
+        """When the dice picks pickaxe, the bot must hold optimal
+        swing distance via _do_hold_distance — _do_goto would close
+        until contact and ram the asteroid."""
         captured: dict = {}
-        def _spy(state, p, tx, ty, stop_radius=80.0):
-            captured["stop_radius"] = stop_radius
-        monkeypatch.setattr(ap, "_do_goto", _spy)
+        def _spy_hold(state, p, tx, ty, hold_radius, dead_band=20.0):
+            captured["hold_radius"] = hold_radius
+        def _spy_goto(*a, **kw):
+            captured["goto_called"] = True
+        monkeypatch.setattr(ap, "_do_hold_distance", _spy_hold)
+        monkeypatch.setattr(ap, "_do_goto", _spy_goto)
         monkeypatch.setattr(ap.random, "random", lambda: 0.0)
         s = _state(asteroids=[{"x": 200, "y": 0, "hp": 100}])
         ap._do_auto(s, s["player"])
         assert (
-            captured.get("stop_radius")
-            == ap.PICKAXE_MINING_STOP_RADIUS)
+            captured.get("hold_radius")
+            == ap.PICKAXE_HOLD_DISTANCE_PX)
+        assert "goto_called" not in captured, (
+            "pickaxe path must not use _do_goto -- that closes to "
+            "stop_radius and rams the asteroid")
 
     def test_mining_beam_uses_ranged_stop_radius(
             self, _clock, monkeypatch):
-        """Mining Beam keeps the existing 200 px stand-off."""
+        """Mining Beam keeps the existing 200 px stand-off via
+        _do_goto (not _do_hold_distance — beam is ranged)."""
         captured: dict = {}
-        def _spy(state, p, tx, ty, stop_radius=80.0):
+        def _spy_goto(state, p, tx, ty, stop_radius=80.0):
             captured["stop_radius"] = stop_radius
-        monkeypatch.setattr(ap, "_do_goto", _spy)
+        def _spy_hold(*a, **kw):
+            captured["hold_called"] = True
+        monkeypatch.setattr(ap, "_do_goto", _spy_goto)
+        monkeypatch.setattr(ap, "_do_hold_distance", _spy_hold)
         monkeypatch.setattr(ap.random, "random", lambda: 0.99)
         s = _state(asteroids=[{"x": 200, "y": 0, "hp": 100}])
         ap._do_auto(s, s["player"])
         assert captured.get("stop_radius") == 200.0
+        assert "hold_called" not in captured
+
+
+class TestHoldDistanceBehaviour:
+    """Pin the thrust-forward / coast / reverse-thrust branches in
+    _do_hold_distance so the pickaxe path doesn't ram asteroids."""
+
+    @pytest.fixture
+    def _key_log(self, monkeypatch):
+        log: dict = {}
+        def _hold(key, down):
+            log[key] = bool(down)
+        monkeypatch.setattr(
+            ap.KeyState, "hold", staticmethod(_hold))
+        return log
+
+    def _player_at(self, x, y, heading=0.0):
+        return {
+            "x": x, "y": y, "heading": heading,
+            "shields": 150, "max_shields": 150,
+        }
+
+    def test_far_thrusts_forward(self, _key_log):
+        # Asteroid at (0, 500), bot at (0, 0).  Distance 500 >>
+        # hold + dead_band → forward thrust (and aligned).
+        p = self._player_at(0, 0, heading=0.0)
+        ap._do_hold_distance(_state(), p, 0.0, 500.0,
+                             hold_radius=100.0)
+        assert _key_log.get("w") is True
+        assert _key_log.get("s") is False
+
+    def test_too_close_reverses(self, _key_log):
+        # Asteroid at (0, 50), bot at (0, 0).  Distance 50 <
+        # hold (100) - dead_band (20) = 80 → reverse thrust.
+        p = self._player_at(0, 0, heading=0.0)
+        ap._do_hold_distance(_state(), p, 0.0, 50.0,
+                             hold_radius=100.0)
+        assert _key_log.get("s") is True
+        assert _key_log.get("w") is False
+
+    def test_inside_dead_band_coasts(self, _key_log):
+        # Asteroid at (0, 100), bot at (0, 0).  Distance 100 sits
+        # exactly on hold → no thrust either direction.
+        p = self._player_at(0, 0, heading=0.0)
+        ap._do_hold_distance(_state(), p, 0.0, 100.0,
+                             hold_radius=100.0)
+        assert _key_log.get("w") is False
+        assert _key_log.get("s") is False
+
+    def test_always_rotates_to_face_target(self, _key_log):
+        # Asteroid to the right (90°) of a north-facing ship → must
+        # rotate clockwise (heading_delta sign convention).
+        p = self._player_at(0, 0, heading=0.0)
+        ap._do_hold_distance(_state(), p, 500.0, 0.0,
+                             hold_radius=100.0)
+        # One of A/D must be held to rotate toward the target.
+        assert _key_log.get("a") is True or _key_log.get("d") is True

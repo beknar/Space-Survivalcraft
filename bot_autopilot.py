@@ -78,7 +78,18 @@ MINING_RANGE_PX = 400.0           # within this -> mining beam
 # damage it.  Distinct stop / fire radii so the pickaxe path
 # doesn't inherit the mining beam's 400 px stand-off.
 PICKAXE_MINING_RANGE_PX  = 120.0  # within this -> press fire
-PICKAXE_MINING_STOP_RADIUS = 80.0 # how close to approach an asteroid
+# Hold the asteroid at this distance from the ship CENTER while
+# pickaxe-mining.  Pivot is 80 px ahead of the ship and the head
+# arcs at radius 80 around the pivot, so an asteroid centred 100
+# px from the ship sits in the swing zone for nearly the entire
+# 150° sweep without colliding (collision threshold is
+# SHIP_RADIUS + ASTEROID_RADIUS ≈ 54 px).
+PICKAXE_HOLD_DISTANCE_PX = 100.0
+# Dead-band around the hold distance: the bot only thrusts forward
+# when farther than HOLD + HALF_BAND, only reverses when closer
+# than HOLD - HALF_BAND.  Prevents forward/back jitter at the
+# boundary.
+PICKAXE_HOLD_DEAD_BAND_PX = 20.0
 # Per-MINE-entry chance the bot picks the Energy Pickaxe over the
 # Mining Beam.  The choice is sticky for the entire mining session
 # so the bot doesn't tab-flap mid-asteroid.
@@ -604,6 +615,44 @@ def _do_goto(state: dict, p: dict, tx: float, ty: float,
     KeyState.hold("w", abs(delta) < 45.0)
 
 
+def _do_hold_distance(state: dict, p: dict, tx: float, ty: float,
+                      hold_radius: float,
+                      dead_band: float = PICKAXE_HOLD_DEAD_BAND_PX
+                      ) -> None:
+    """Maintain ``hold_radius`` distance from (tx, ty) while always
+    facing it.  Used for melee mining with the energy pickaxe — the
+    bot needs to keep the asteroid in the swing arc without ramming
+    it.  Thrust forward when too far, reverse when too close, coast
+    inside the dead-band to avoid jitter."""
+    dx = tx - p.get("x", 0)
+    dy = ty - p.get("y", 0)
+    dist = math.hypot(dx, dy)
+    # Always rotate to face the target so the swing arc covers it.
+    target = angle_to(dx, dy)
+    delta = heading_delta(p.get("heading", 0.0), target)
+    if delta < -5.0:
+        KeyState.hold("a", True);  KeyState.hold("d", False)
+    elif delta > 5.0:
+        KeyState.hold("a", False); KeyState.hold("d", True)
+    else:
+        KeyState.hold("a", False); KeyState.hold("d", False)
+    # Distance control with hysteresis around hold_radius.
+    if dist > hold_radius + dead_band:
+        # Too far — thrust forward (only when roughly aligned).
+        KeyState.hold("w", abs(delta) < 45.0)
+        KeyState.hold("s", False)
+    elif dist < hold_radius - dead_band:
+        # Too close — reverse-thrust to back off.  ``s`` is
+        # ``thrust_bwd`` in the player controls (not just brake),
+        # so this actively pushes the ship away.
+        KeyState.hold("w", False)
+        KeyState.hold("s", True)
+    else:
+        # In the dead-band — coast in place.
+        KeyState.hold("w", False)
+        KeyState.hold("s", False)
+
+
 def _do_mine_nearest(state: dict, p: dict) -> None:
     asteroids = state.get("asteroids", [])
     target, dist = nearest(asteroids, p.get("x", 0), p.get("y", 0))
@@ -612,10 +661,12 @@ def _do_mine_nearest(state: dict, p: dict) -> None:
         return
     _ensure_weapon(state, _mining_weapon_pick)
     if _mining_weapon_pick == "Energy Pickaxe":
-        # Pickaxe is melee — close to the asteroid and only fire
-        # when within swing reach.
-        _do_goto(state, p, target["x"], target["y"],
-                 stop_radius=PICKAXE_MINING_STOP_RADIUS)
+        # Pickaxe is melee — hold optimal swing distance instead
+        # of closing all the way and ramming the asteroid.  After
+        # the asteroid is destroyed the FSM transitions to GATHER,
+        # which uses _do_goto to close on the iron pickup.
+        _do_hold_distance(state, p, target["x"], target["y"],
+                          hold_radius=PICKAXE_HOLD_DISTANCE_PX)
         KeyState.hold("space", dist < PICKAXE_MINING_RANGE_PX)
     else:
         # Mining Beam — ranged, stand off and fire from afar.
