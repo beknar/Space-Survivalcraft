@@ -409,7 +409,7 @@ class TestMiningWeaponDiceRoll:
         ap._do_auto(s, s["player"])
         assert "Energy Pickaxe" in switches
         assert "Mining Beam" not in switches
-        assert ap._mining_weapon_pick == "Energy Pickaxe"
+        assert ap._state.mining_weapon_pick == "Energy Pickaxe"
 
     def test_mining_beam_chosen_when_roll_high(
             self, _clock, monkeypatch):
@@ -423,7 +423,7 @@ class TestMiningWeaponDiceRoll:
         ap._do_auto(s, s["player"])
         assert "Mining Beam" in switches
         assert "Energy Pickaxe" not in switches
-        assert ap._mining_weapon_pick == "Mining Beam"
+        assert ap._state.mining_weapon_pick == "Mining Beam"
 
     def test_choice_sticky_across_mining_ticks(
             self, _clock, monkeypatch):
@@ -443,7 +443,7 @@ class TestMiningWeaponDiceRoll:
         # roll was 0.0; subsequent rolls don't matter while we stay
         # in MINE).
         assert all(w == "Energy Pickaxe" for w in switches), switches
-        assert ap._mining_weapon_pick == "Energy Pickaxe"
+        assert ap._state.mining_weapon_pick == "Energy Pickaxe"
 
     def test_dice_rerolled_on_fresh_mine_entry(
             self, _clock, monkeypatch):
@@ -455,7 +455,7 @@ class TestMiningWeaponDiceRoll:
         s = _state(asteroids=[{"x": 200, "y": 0, "hp": 100}])
         ap._do_auto(s, s["player"])
         assert ap._fsm["state"] == ap.S_MINE
-        assert ap._mining_weapon_pick == "Energy Pickaxe"
+        assert ap._state.mining_weapon_pick == "Energy Pickaxe"
         # Drop the asteroid → MINE → SEARCH → re-add asteroid → MINE.
         s["asteroids"] = []
         _clock[0] += ap.MIN_DWELL_S + 0.1
@@ -466,7 +466,7 @@ class TestMiningWeaponDiceRoll:
         ap._do_auto(s, s["player"])
         assert ap._fsm["state"] == ap.S_MINE
         # Second entry rolled 0.99 → Mining Beam.
-        assert ap._mining_weapon_pick == "Mining Beam"
+        assert ap._state.mining_weapon_pick == "Mining Beam"
 
     def test_pickaxe_uses_hold_distance_not_goto(
             self, _clock, monkeypatch):
@@ -607,7 +607,7 @@ class TestStarterBaseBuildGate:
         ap._do_auto(s, s["player"])
         assert ap._fsm["state"] == ap.S_BUILD
         assert len(post_calls) == 1, "POST must fire on BUILD entry"
-        assert ap._build_done is True
+        assert ap._state.build_done is True
 
     def test_build_is_one_shot(self, _clock, monkeypatch):
         """After ``_build_done`` flips, the FSM must not re-enter
@@ -619,7 +619,7 @@ class TestStarterBaseBuildGate:
                 post_calls.append(True) or {"placed": [], "failed": []}))
         s = _state(iron=ap.BUILD_IRON_THRESHOLD)
         ap._do_auto(s, s["player"])
-        assert ap._build_done is True
+        assert ap._state.build_done is True
         # Walk past dwell + tick again with the same conditions.
         for _ in range(5):
             _clock[0] += ap.MIN_DWELL_S + 0.1

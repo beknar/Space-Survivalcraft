@@ -43,6 +43,7 @@ import random
 import sys
 import threading
 import time
+from dataclasses import dataclass, field
 from typing import Any
 from urllib.error import URLError
 from urllib.request import urlopen, Request
@@ -308,33 +309,16 @@ ALL_STATES = (S_ENGAGE, S_GATHER, S_REGEN, S_MINE, S_SEARCH, S_BUILD)
 # Starter-base build gate.  When the bot has accumulated this much
 # iron AND there are no asteroids / aliens within the clear-area
 # bands, it transitions into S_BUILD once and POSTs the build
-# trigger.  ``_build_done`` flips True after the first attempt so
-# the bot doesn't keep re-rolling the build (intentionally simple
-# one-shot — a destroyed station won't auto-rebuild).
+# trigger.  ``_state.build_done`` flips True after the first
+# attempt so the bot doesn't keep re-rolling the build
+# (intentionally simple one-shot — a destroyed station won't
+# auto-rebuild).
 BUILD_IRON_THRESHOLD          = 1000
 BUILD_CLEAR_ASTEROID_RANGE_PX = 400.0
 BUILD_CLEAR_ALIEN_RANGE_PX    = 600.0
-_build_done: bool = False
 
 
-# ── FSM + spiral state ────────────────────────────────────────────────────
-
-_fsm: dict = {
-    "state": S_MINE,        # benign default; first tick re-evaluates
-    # Monotonic seconds when current state was entered.  ``None``
-    # is a sentinel meaning "never stamped yet" -- the first tick
-    # after reset is allowed to transition without dwell, then
-    # stamps the timer so subsequent transitions respect MIN_DWELL.
-    "entered_at": None,
-}
-
-_spiral_state: dict = {
-    "anchor": None,   # (x, y) start of the current spiral
-    "angle": 0.0,     # radians
-    "radius": 100.0,  # px
-}
-
-# ── Edge-collision (stuck) detection ──────────────────────────────────────
+# ── Edge-collision (stuck) detection — tuning constants ──────────────────
 # When the ship is held against a world edge by goto/spiral targeting an
 # off-map point, the bot would keep thrusting "w" without moving.  We
 # sample position over a short rolling window; if displacement is tiny
@@ -353,51 +337,91 @@ STUCK_WORLD_MARGIN_PX    = 200.0  # spiral / escape targets stay this far in
 # Throttle the "STUCK at edge" log so a long recovery doesn't
 # spam the console once per detect cycle.
 STUCK_LOG_THROTTLE_S     = 5.0
-_stuck_state: dict = {
-    # Rolling list of (timestamp, x, y) samples within the detect window.
-    "history": [],
-    # Monotonic timestamp at which the current escape override expires;
-    # 0 means no override is active.
-    "escape_until": 0.0,
-    # Last time the throttled log fired (0 = never).
-    "last_log": 0.0,
-}
 
 
-def _stuck_reset() -> None:
-    _stuck_state["history"] = []
-    _stuck_state["escape_until"] = 0.0
-    _stuck_state["last_log"] = 0.0
+# ── BotState — all persistent runtime state in one place ─────────────────
+#
+# Bundles the FSM dict, spiral search state, edge-stuck watchdog state,
+# the sticky mining-weapon pick, and the one-shot starter-base flag.
+# Replaces five separate module-level globals — adding a new piece of
+# bot state now means adding a field here and including it in
+# ``reset()``, no scattered ``global`` declarations.  The reset()
+# method clears+repopulates the dict fields IN PLACE so module-level
+# aliases (``_fsm``, ``_spiral_state``, ``_stuck_state``) stay valid
+# across resets — preserves backward-compat with the ~70 test
+# references that read those dicts directly.
 
-# Sticky mining-weapon choice — re-rolled on every fresh
-# transition into the MINE state so the bot doesn't flap between
-# weapons mid-asteroid.  Default = Mining Beam so the very first
-# tick (before _on_enter has fired) behaves like the old code.
-_mining_weapon_pick: str = "Mining Beam"
+@dataclass
+class BotState:
+    fsm: dict = field(default_factory=lambda: {
+        "state": S_MINE,
+        "entered_at": None,
+    })
+    spiral: dict = field(default_factory=lambda: {
+        "anchor": None,
+        "angle": 0.0,
+        "radius": 100.0,
+    })
+    stuck: dict = field(default_factory=lambda: {
+        "history": [],
+        "escape_until": 0.0,
+        "last_log": 0.0,
+    })
+    mining_weapon_pick: str = "Mining Beam"
+    build_done: bool = False
+
+    def reset(self) -> None:
+        """Restore every field to its default.  Mutates dict fields
+        in place so external aliases stay live."""
+        fresh = BotState()
+        for d, src in (
+            (self.fsm, fresh.fsm),
+            (self.spiral, fresh.spiral),
+            (self.stuck, fresh.stuck),
+        ):
+            d.clear()
+            d.update(src)
+        self.mining_weapon_pick = fresh.mining_weapon_pick
+        self.build_done = fresh.build_done
+
+
+_state = BotState()
+
+# Backwards-compat module-level aliases.  These point at the SAME
+# dict objects as ``_state.fsm`` / ``_state.spiral`` / ``_state.stuck``,
+# so writes through either name are visible to both.  Many tests +
+# call sites read ``_fsm["state"]`` etc; this keeps them working
+# without churn while new code can use ``_state`` directly.
+_fsm = _state.fsm
+_spiral_state = _state.spiral
+_stuck_state = _state.stuck
 
 # Indirection so tests can monkey-patch a fake clock.
 _get_now = time.monotonic
 
 
 def _spiral_reset() -> None:
-    _spiral_state["anchor"] = None
-    _spiral_state["angle"] = 0.0
-    _spiral_state["radius"] = 100.0
+    s = _state.spiral
+    s["anchor"] = None
+    s["angle"] = 0.0
+    s["radius"] = 100.0
+
+
+def _stuck_reset() -> None:
+    s = _state.stuck
+    s["history"] = []
+    s["escape_until"] = 0.0
+    s["last_log"] = 0.0
 
 
 def _fsm_reset(initial: str = S_MINE) -> None:
-    """Reset the FSM to ``initial`` and clear the dwell timer
-    sentinel.  The next tick is allowed to transition freely;
-    after that, MIN_DWELL gates further transitions.  Tests
-    must call this in their setup/fixture so cross-test state
-    doesn't leak."""
-    global _mining_weapon_pick, _build_done
-    _fsm["state"] = initial
-    _fsm["entered_at"] = None
-    _mining_weapon_pick = "Mining Beam"
-    _build_done = False
-    _spiral_reset()
-    _stuck_reset()
+    """Reset every piece of bot runtime state to its default.
+    Tests must call this in their setup/fixture so cross-test
+    state doesn't leak.  The dict aliases (_fsm / _spiral_state /
+    _stuck_state) stay valid because BotState.reset() mutates in
+    place."""
+    _state.reset()
+    _state.fsm["state"] = initial
 
 
 def _nearest_pickup(state: dict, px: float, py: float
@@ -559,8 +583,9 @@ def _choose_next_state(state: dict, p: dict, cur: str) -> str:
     #    bot doesn't try to build during combat or while shields
     #    are low.  Falls above MINE / SEARCH so the bot stops
     #    accumulating iron the moment it has enough and a clear
-    #    spot.  ``_build_done`` flips True after the first attempt.
-    if not _build_done and _iron_total(state) >= BUILD_IRON_THRESHOLD:
+    #    spot.  ``_state.build_done`` flips True after the first attempt.
+    if (not _state.build_done
+            and _iron_total(state) >= BUILD_IRON_THRESHOLD):
         if _build_area_clear(state, px, py):
             return S_BUILD
 
@@ -591,11 +616,10 @@ def _on_enter(new_state: str) -> None:
         # 50/50 dice roll: Mining Beam vs Energy Pickaxe.  Sticky
         # for the entire mining session so the bot doesn't tab-flap
         # mid-asteroid.  Re-rolled on each fresh entry into MINE.
-        global _mining_weapon_pick
         if random.random() < MINING_PICKAXE_CHANCE:
-            _mining_weapon_pick = "Energy Pickaxe"
+            _state.mining_weapon_pick = "Energy Pickaxe"
         else:
-            _mining_weapon_pick = "Mining Beam"
+            _state.mining_weapon_pick = "Mining Beam"
 
 
 def _do_auto(state: dict, p: dict) -> None:
@@ -717,11 +741,10 @@ def _post_build_starter_base(timeout_s: float = 5.0) -> dict | None:
 
 def _act_build(state: dict, p: dict) -> None:
     """BUILD: fire the one-shot starter-base trigger and flip
-    ``_build_done`` so the FSM falls through to MINE / SEARCH on
-    subsequent ticks.  Releases all movement keys for the duration
-    of the call so the ship coasts in place while the seven
-    buildings are placed in-process."""
-    global _build_done
+    ``_state.build_done`` so the FSM falls through to MINE /
+    SEARCH on subsequent ticks.  Releases all movement keys for
+    the duration of the call so the ship coasts in place while
+    the seven buildings are placed in-process."""
     KeyState.release_all()
     _do_idle()
     print("[autopilot] BUILD: requesting starter base "
@@ -730,7 +753,7 @@ def _act_build(state: dict, p: dict) -> None:
     # Mark done regardless of outcome so we don't keep retrying on
     # every tick.  If placement failed (e.g. snap-port rejection),
     # the bot resumes mining and the player can build manually.
-    _build_done = True
+    _state.build_done = True
     if result is None:
         print("[autopilot] BUILD: POST failed; flagging done so the "
               "FSM resumes normal flow")
@@ -842,7 +865,7 @@ def _do_spiral_search(state: dict, p: dict) -> None:
     # Same sticky weapon as the active mining session — search
     # phase is just positioning, but staying on the picked weapon
     # avoids a Tab the moment we find a target.
-    _ensure_weapon(state, _mining_weapon_pick)
+    _ensure_weapon(state, _state.mining_weapon_pick)
     _do_goto(state, p, tx, ty, stop_radius=120.0)
     # Mining beam fires while moving, in case we drift past an
     # asteroid we couldn't see in state (e.g. extraction lag).
@@ -924,8 +947,8 @@ def _do_mine_nearest(state: dict, p: dict) -> None:
     if target is None:
         _do_idle()
         return
-    _ensure_weapon(state, _mining_weapon_pick)
-    if _mining_weapon_pick == "Energy Pickaxe":
+    _ensure_weapon(state, _state.mining_weapon_pick)
+    if _state.mining_weapon_pick == "Energy Pickaxe":
         # Pickaxe is melee — hold optimal swing distance instead
         # of closing all the way and ramming the asteroid.  After
         # the asteroid is destroyed the FSM transitions to GATHER,
