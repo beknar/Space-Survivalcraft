@@ -297,25 +297,34 @@ MELEE_STOP_RADIUS_PX: float = 50.0
 
 # ── State constants ───────────────────────────────────────────────────────
 
-S_ENGAGE = "engage"
-S_GATHER = "gather"
-S_REGEN  = "regen"
-S_MINE   = "mine"
-S_SEARCH = "search"
-S_BUILD  = "build"
+S_ENGAGE     = "engage"
+S_GATHER     = "gather"
+S_REGEN      = "regen"
+S_MINE       = "mine"
+S_SEARCH     = "search"
+S_BUILD      = "build"
+S_BUILD_SEEK = "build_seek"
 
-ALL_STATES = (S_ENGAGE, S_GATHER, S_REGEN, S_MINE, S_SEARCH, S_BUILD)
+ALL_STATES = (
+    S_ENGAGE, S_GATHER, S_REGEN, S_MINE, S_SEARCH, S_BUILD, S_BUILD_SEEK,
+)
 
 # Starter-base build gate.  When the bot has accumulated this much
 # iron AND there are no asteroids / aliens within the clear-area
-# bands, it transitions into S_BUILD once and POSTs the build
+# radius, it transitions into S_BUILD once and POSTs the build
 # trigger.  ``_state.build_done`` flips True after the first
 # attempt so the bot doesn't keep re-rolling the build
 # (intentionally simple one-shot — a destroyed station won't
 # auto-rebuild).
-BUILD_IRON_THRESHOLD          = 1000
-BUILD_CLEAR_ASTEROID_RANGE_PX = 400.0
-BUILD_CLEAR_ALIEN_RANGE_PX    = 600.0
+BUILD_IRON_THRESHOLD = 1000
+# Single radius for "clear and quiet" — no asteroids, aliens,
+# pickups, or buildings within this distance of the player.
+# Approximately matches the visible game screen so the player's
+# inability to see threats from off-screen doesn't trigger the
+# build prematurely.
+BUILD_CLEAR_RADIUS_PX = 800.0
+# Distance the bot walks per tick when seeking a clear spot.
+BUILD_SEEK_TARGET_DIST_PX = 1000.0
 
 
 # ── Edge-collision (stuck) detection — tuning constants ──────────────────
@@ -506,27 +515,86 @@ def _iron_total(state: dict) -> int:
 
 
 def _build_area_clear(state: dict, px: float, py: float) -> bool:
-    """True when no asteroids are within
-    ``BUILD_CLEAR_ASTEROID_RANGE_PX`` and no aliens are within
-    ``BUILD_CLEAR_ALIEN_RANGE_PX`` of the player.  Used as the
-    pre-condition for entering S_BUILD."""
-    asteroids = state.get("asteroids") or []
-    for a in asteroids:
-        dx = a.get("x", 0.0) - px
-        dy = a.get("y", 0.0) - py
-        if dx * dx + dy * dy < (
-                BUILD_CLEAR_ASTEROID_RANGE_PX
-                * BUILD_CLEAR_ASTEROID_RANGE_PX):
-            return False
-    aliens = state.get("aliens") or []
-    for a in aliens:
-        dx = a.get("x", 0.0) - px
-        dy = a.get("y", 0.0) - py
-        if dx * dx + dy * dy < (
-                BUILD_CLEAR_ALIEN_RANGE_PX
-                * BUILD_CLEAR_ALIEN_RANGE_PX):
-            return False
+    """True when nothing detectable is within
+    ``BUILD_CLEAR_RADIUS_PX`` of the player — checked across
+    asteroids, aliens, pickups, and existing buildings.  Used as
+    the pre-condition for entering S_BUILD."""
+    r_sq = BUILD_CLEAR_RADIUS_PX * BUILD_CLEAR_RADIUS_PX
+    for key in ("asteroids", "aliens",
+                "iron_pickups", "blueprint_pickups", "buildings"):
+        for o in state.get(key) or []:
+            dx = o.get("x", 0.0) - px
+            dy = o.get("y", 0.0) - py
+            if dx * dx + dy * dy < r_sq:
+                return False
     return True
+
+
+def _build_seek_direction(state: dict, px: float, py: float
+                          ) -> tuple[float, float]:
+    """Return a unit vector pointing AWAY from the centroid of
+    nearby detectables — the direction of least clutter.  Used
+    by S_BUILD_SEEK to actively find a clear pocket instead of
+    waiting passively for one to appear.
+
+    Considers detectables within twice the build clear radius so
+    the bot reacts to clutter just outside its visible screen."""
+    scan_r_sq = (BUILD_CLEAR_RADIUS_PX * 2.0) ** 2
+    cx_sum = 0.0
+    cy_sum = 0.0
+    n = 0
+    for key in ("asteroids", "aliens",
+                "iron_pickups", "blueprint_pickups", "buildings"):
+        for o in state.get(key) or []:
+            ox = o.get("x", 0.0)
+            oy = o.get("y", 0.0)
+            dx = ox - px
+            dy = oy - py
+            if dx * dx + dy * dy < scan_r_sq:
+                cx_sum += ox
+                cy_sum += oy
+                n += 1
+    if n == 0:
+        # Already clear — caller shouldn't have entered seek mode.
+        # Pick an arbitrary forward direction so we still return
+        # something sensible.
+        return (0.0, 1.0)
+    cx = cx_sum / n
+    cy = cy_sum / n
+    dx = px - cx
+    dy = py - cy
+    d = math.hypot(dx, dy)
+    if d < 0.1:
+        # Centroid coincides with the ship — pick a random heading
+        # so we don't sit in place.
+        ang = random.random() * 2.0 * math.pi
+        return (math.cos(ang), math.sin(ang))
+    return (dx / d, dy / d)
+
+
+def _act_build_seek(state: dict, p: dict) -> None:
+    """BUILD_SEEK: walk in the direction of least detectable
+    density, looking for a clear pocket to build the starter
+    base.  Heads BUILD_SEEK_TARGET_DIST_PX in the away-from-
+    centroid direction (clamped to the world), then the FSM
+    re-evaluates each tick and either flips to S_BUILD when the
+    area becomes clear or keeps seeking."""
+    px = float(p.get("x", 0.0))
+    py = float(p.get("y", 0.0))
+    ux, uy = _build_seek_direction(state, px, py)
+    tx = px + ux * BUILD_SEEK_TARGET_DIST_PX
+    ty = py + uy * BUILD_SEEK_TARGET_DIST_PX
+    zone = state.get("zone") or {}
+    world_w = float(zone.get("world_w", 6400) or 6400)
+    world_h = float(zone.get("world_h", 6400) or 6400)
+    tx = max(STUCK_WORLD_MARGIN_PX,
+             min(world_w - STUCK_WORLD_MARGIN_PX, tx))
+    ty = max(STUCK_WORLD_MARGIN_PX,
+             min(world_h - STUCK_WORLD_MARGIN_PX, ty))
+    # Don't fire any weapon while seeking — the goal is to find
+    # an empty pocket, not to mine on the way.
+    KeyState.hold("space", False)
+    _do_goto(state, p, tx, ty, stop_radius=200.0)
 
 
 def _choose_next_state(state: dict, p: dict, cur: str) -> str:
@@ -584,10 +652,13 @@ def _choose_next_state(state: dict, p: dict, cur: str) -> str:
     #    are low.  Falls above MINE / SEARCH so the bot stops
     #    accumulating iron the moment it has enough and a clear
     #    spot.  ``_state.build_done`` flips True after the first attempt.
+    #    BUILD_SEEK actively walks toward less-cluttered space when
+    #    iron is met but the area isn't clear.
     if (not _state.build_done
             and _iron_total(state) >= BUILD_IRON_THRESHOLD):
         if _build_area_clear(state, px, py):
             return S_BUILD
+        return S_BUILD_SEEK
 
     # 5. MINE vs SEARCH — discrete event, no hysteresis needed.
     asteroids = state.get("asteroids") or []
@@ -712,6 +783,8 @@ def _do_auto(state: dict, p: dict) -> None:
         _do_mine_nearest(state, p)
     elif cur == S_BUILD:
         _act_build(state, p)
+    elif cur == S_BUILD_SEEK:
+        _act_build_seek(state, p)
     else:  # S_SEARCH
         _do_spiral_search(state, p)
 
@@ -867,9 +940,20 @@ def _do_spiral_search(state: dict, p: dict) -> None:
     # avoids a Tab the moment we find a target.
     _ensure_weapon(state, _state.mining_weapon_pick)
     _do_goto(state, p, tx, ty, stop_radius=120.0)
-    # Mining beam fires while moving, in case we drift past an
-    # asteroid we couldn't see in state (e.g. extraction lag).
-    KeyState.hold("space", True)
+    # Only fire when an asteroid is actually in mining range.
+    # Used to fire continuously as a "drift past extraction lag"
+    # safety net, but that ended up making the bot mine empty
+    # space at the centre of the world after a stuck-escape with
+    # no real targets nearby.
+    asteroids = state.get("asteroids") or []
+    nearest_ast, nd = nearest(asteroids, px, py)
+    if _state.mining_weapon_pick == "Energy Pickaxe":
+        in_range = (
+            nearest_ast is not None and nd < PICKAXE_MINING_RANGE_PX)
+    else:
+        in_range = (
+            nearest_ast is not None and nd < MINING_RANGE_PX)
+    KeyState.hold("space", in_range)
     # Advance the spiral incrementally each tick.
     _spiral_state["angle"] = (a + math.radians(8.0)) % (2 * math.pi)
     _spiral_state["radius"] = min(r + 1.5, 3000.0)

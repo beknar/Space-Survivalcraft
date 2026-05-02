@@ -569,22 +569,46 @@ class TestHoldDistanceBehaviour:
 
 class TestStarterBaseBuildGate:
     """Pin the conditions for entering the one-shot S_BUILD state:
-    ≥ BUILD_IRON_THRESHOLD iron AND clear area (no asteroids in
-    400 px, no aliens in 600 px) AND not already attempted."""
+    ≥ BUILD_IRON_THRESHOLD iron AND no detectable within
+    BUILD_CLEAR_RADIUS_PX (800 px — asteroids, aliens, pickups,
+    buildings) AND not already attempted.  When iron is met but
+    the area isn't clear, the FSM enters S_BUILD_SEEK instead."""
 
     def test_no_build_below_iron_threshold(self, _clock):
         s = _state(iron=ap.BUILD_IRON_THRESHOLD - 1)
         ap._do_auto(s, s["player"])
         assert ap._fsm["state"] != ap.S_BUILD
+        assert ap._fsm["state"] != ap.S_BUILD_SEEK
 
-    def test_no_build_when_asteroid_too_close(self, _clock):
-        # Iron OK but asteroid inside the clear band.
+    def test_seek_when_iron_met_but_asteroid_in_radius(self, _clock):
+        """Asteroid inside the 800 px clear radius — bot enters
+        S_BUILD_SEEK to walk away from it, not S_BUILD."""
         s = _state(
             iron=ap.BUILD_IRON_THRESHOLD,
             asteroids=[{"x": 200, "y": 0, "hp": 100}],
         )
         ap._do_auto(s, s["player"])
-        assert ap._fsm["state"] != ap.S_BUILD
+        assert ap._fsm["state"] == ap.S_BUILD_SEEK
+
+    def test_clear_check_counts_pickups_and_buildings(self, _clock):
+        """``_build_area_clear`` rejects pickups and buildings just
+        like asteroids + aliens.  (GATHER preempts BUILD_SEEK in the
+        FSM when a pickup is in reach, so this is checked at the
+        helper level rather than via _do_auto dispatch.)"""
+        # Pickup in the clear radius → not clear.
+        s = _state(
+            iron_pickups=[
+                {"x": 300, "y": 0, "amount": 10, "item_type": "iron"}],
+        )
+        assert not ap._build_area_clear(
+            s, s["player"]["x"], s["player"]["y"])
+        # Building in the clear radius → not clear.
+        s = _state()
+        s["buildings"] = [{"x": 500, "y": 0}]
+        assert not ap._build_area_clear(
+            s, s["player"]["x"], s["player"]["y"])
+        # Empty state → clear.
+        assert ap._build_area_clear(_state(), 0.0, 0.0)
 
     def test_no_build_when_alien_too_close(self, _clock):
         s = _state(
@@ -804,3 +828,155 @@ class TestSpiralWorldClamp:
         assert ap.STUCK_WORLD_MARGIN_PX <= captured["ty"]
         assert captured["tx"] <= 6400 - ap.STUCK_WORLD_MARGIN_PX
         assert captured["ty"] <= 6400 - ap.STUCK_WORLD_MARGIN_PX
+
+
+# ── BUILD_SEEK + spiral-no-fire ───────────────────────────────────────────
+
+
+class TestBuildSeek:
+    """Active hunt for a clear pocket: when the bot has the iron
+    threshold but the area isn't clear, it should walk AWAY from
+    the centroid of nearby clutter (instead of waiting passively
+    for SEARCH to land somewhere quiet)."""
+
+    @pytest.fixture
+    def _capture_goto(self, monkeypatch):
+        captured: dict = {}
+        def _spy(state, p, tx, ty, stop_radius=80.0):
+            captured["tx"], captured["ty"] = tx, ty
+            captured["stop_radius"] = stop_radius
+        monkeypatch.setattr(ap, "_do_goto", _spy)
+        return captured
+
+    def test_seek_walks_away_from_single_asteroid(
+            self, _clock, _capture_goto, monkeypatch):
+        """One asteroid 300 px to the EAST → bot heads WEST."""
+        # Stub KeyState so the fire-suppress assertion isn't noisy.
+        keys: dict = {}
+        monkeypatch.setattr(
+            ap.KeyState, "hold",
+            staticmethod(lambda k, v: keys.__setitem__(k, bool(v))))
+        s = _state(
+            player={"x": 3000.0, "y": 3000.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            iron=ap.BUILD_IRON_THRESHOLD,
+            asteroids=[{"x": 3300.0, "y": 3000.0, "hp": 100}],
+        )
+        ap._do_auto(s, s["player"])
+        # Target should be west of player (tx < 3000, |dy| small).
+        assert _capture_goto.get("tx") is not None
+        assert _capture_goto["tx"] < 3000.0, (
+            f"expected target west of player, got tx={_capture_goto['tx']}")
+
+    def test_seek_walks_toward_open_space_with_clutter_north(
+            self, _clock, _capture_goto, monkeypatch):
+        """Asteroids to the NORTH → bot heads SOUTH."""
+        monkeypatch.setattr(
+            ap.KeyState, "hold",
+            staticmethod(lambda k, v: None))
+        s = _state(
+            player={"x": 3000.0, "y": 3000.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            iron=ap.BUILD_IRON_THRESHOLD,
+            asteroids=[
+                {"x": 3050, "y": 3500, "hp": 100},
+                {"x": 2950, "y": 3500, "hp": 100},
+            ],
+        )
+        ap._do_auto(s, s["player"])
+        assert _capture_goto["ty"] < 3000.0, (
+            "should head south away from clutter to the north")
+
+    def test_seek_target_clamped_to_world(
+            self, _clock, _capture_goto, monkeypatch):
+        """Even when the away-from-clutter direction would take
+        the bot off-map, the target is clamped to world bounds."""
+        monkeypatch.setattr(
+            ap.KeyState, "hold",
+            staticmethod(lambda k, v: None))
+        # Player near east edge with clutter east → bot wants to
+        # go further east, but clamp keeps target in world.
+        s = _state(
+            player={"x": 6300.0, "y": 3000.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            iron=ap.BUILD_IRON_THRESHOLD,
+            asteroids=[{"x": 5800, "y": 3000, "hp": 100}],
+        )
+        ap._do_auto(s, s["player"])
+        # Target stays inside the world rect with margin.
+        assert (
+            _capture_goto["tx"]
+            <= 6400 - ap.STUCK_WORLD_MARGIN_PX)
+        assert _capture_goto["tx"] >= ap.STUCK_WORLD_MARGIN_PX
+
+    def test_seek_does_not_fire_weapon(
+            self, _clock, _capture_goto, monkeypatch):
+        """Seeking is positioning-only — must not press space."""
+        keys: dict = {}
+        monkeypatch.setattr(
+            ap.KeyState, "hold",
+            staticmethod(lambda k, v: keys.__setitem__(k, bool(v))))
+        s = _state(
+            iron=ap.BUILD_IRON_THRESHOLD,
+            asteroids=[{"x": 200, "y": 0, "hp": 100}],
+        )
+        ap._do_auto(s, s["player"])
+        # space key must be False (released) during seek.
+        assert keys.get("space") is False
+
+    def test_seek_transitions_to_build_when_pocket_clear(
+            self, _clock, monkeypatch):
+        """Once the bot reaches a position with no detectables in
+        the 800 px radius, the FSM flips from S_BUILD_SEEK to
+        S_BUILD on the next tick."""
+        monkeypatch.setattr(
+            ap, "_post_build_starter_base",
+            lambda timeout_s=5.0: {"placed": [], "failed": []})
+        # First tick: clutter nearby → SEEK.
+        s_dirty = _state(
+            iron=ap.BUILD_IRON_THRESHOLD,
+            asteroids=[{"x": 200, "y": 0, "hp": 100}],
+        )
+        ap._do_auto(s_dirty, s_dirty["player"])
+        assert ap._fsm["state"] == ap.S_BUILD_SEEK
+        # Second tick (after dwell): clutter gone → BUILD.
+        _clock[0] += ap.MIN_DWELL_S + 0.1
+        s_clean = _state(iron=ap.BUILD_IRON_THRESHOLD)
+        ap._do_auto(s_clean, s_clean["player"])
+        assert ap._fsm["state"] == ap.S_BUILD
+
+
+class TestSpiralFireGate:
+    """The spiral search used to fire the active mining weapon
+    every tick as a "drift past extraction lag" safety net.  After
+    a stuck-escape that put the bot at the world centre with no
+    real targets, that meant the bot stood there mining empty
+    space.  Fire is now gated on actually having an asteroid in
+    range of the picked weapon."""
+
+    @pytest.fixture
+    def _key_log(self, monkeypatch):
+        log: dict = {}
+        monkeypatch.setattr(
+            ap.KeyState, "hold",
+            staticmethod(lambda k, v: log.__setitem__(k, bool(v))))
+        return log
+
+    def test_no_fire_with_no_asteroids(self, _key_log):
+        s = _state()   # no asteroids
+        ap._do_spiral_search(s, s["player"])
+        assert _key_log.get("space") is False
+
+    def test_no_fire_with_distant_asteroid(self, _key_log):
+        # Asteroid well outside MINING_RANGE_PX (400 px).
+        s = _state(asteroids=[{"x": 2000, "y": 0, "hp": 100}])
+        ap._do_spiral_search(s, s["player"])
+        assert _key_log.get("space") is False
+
+    def test_fires_when_asteroid_within_mining_beam_range(
+            self, _key_log):
+        # Within MINING_RANGE_PX (400) for the default Mining Beam.
+        ap._state.mining_weapon_pick = "Mining Beam"
+        s = _state(asteroids=[{"x": 300, "y": 0, "hp": 100}])
+        ap._do_spiral_search(s, s["player"])
+        assert _key_log.get("space") is True

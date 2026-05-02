@@ -191,15 +191,23 @@ class TestAutoShieldRecover:
         assert ap.KeyState.held == set()
 
     def test_acts_above_regen_enter_threshold(self, _key_recorder):
-        # 50 % shields -- above the 40 % REGEN enter band.  With
-        # no aliens / no asteroids visible the FSM lands in SEARCH
-        # which holds Mining Beam fire on.
+        # 50 % shields -- above the 40 % REGEN enter band.  With no
+        # aliens / no asteroids visible the FSM lands in SEARCH;
+        # the bot moves but does NOT fire the mining beam at empty
+        # space (a 2026-05-01 fix — used to hold space=True
+        # unconditionally during SEARCH which made the bot mine
+        # nothing at the world centre after a stuck-escape).
         s = _state(player={
             "x": 0, "y": 0, "heading": 0,
             "shields": 75, "max_shields": 150,
         })
         ap._do_auto(s, s["player"])
-        assert ("space", True) in _key_recorder
+        # space must be released when no asteroid is in range.
+        assert ("space", False) in _key_recorder
+        assert ("space", True) not in _key_recorder
+        # Bot is still acting (some movement key held).
+        keys_pressed = {k for k, d in _key_recorder if d}
+        assert keys_pressed, "bot should be moving even without targets"
 
 
 class TestAutoMine:
