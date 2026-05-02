@@ -268,31 +268,92 @@ def test_no_max_skip_when_below_limit(monkeypatch):
 # ── Phase 2 deposit ───────────────────────────────────────────────────────
 
 
-def test_deposit_moves_ship_iron_to_station():
-    """Phase 2 transfers all ship iron + copper into the home
-    station inventory."""
+def _stub_inv_with_items(items_dict):
+    """Build a stub inventory with ``_items`` and tracked
+    add/remove/count helpers.  ``items_dict`` is {item_type: count}."""
     transfers: list = []
-    inv_iron = [500]
-    def _remove_inv(k, n):
-        if k == "iron":
-            inv_iron[0] -= n
-            transfers.append(("inv_remove", k, n))
-    def _add_station(k, n):
-        transfers.append(("station_add", k, n))
+    # ``_items`` keyed by synthetic cell coords; one cell per type.
+    items = {(i, 0): (k, v) for i, (k, v) in enumerate(items_dict.items())}
+
+    def _count(k):
+        return sum(c for (it, c) in items.values() if it == k)
+
+    def _remove(k, n):
+        transfers.append(("remove", k, n))
+        for cell, (it, ct) in list(items.items()):
+            if it == k:
+                if ct > n:
+                    items[cell] = (it, ct - n)
+                else:
+                    del items[cell]
+                return n
+        return 0
+
+    def _add(k, n):
+        transfers.append(("add", k, n))
+        for cell, (it, ct) in list(items.items()):
+            if it == k:
+                items[cell] = (it, ct + n)
+                return
+        items[(len(items), 0)] = (k, n)
+
+    inv = SimpleNamespace(
+        _items=items,
+        total_iron=_count("iron"),
+        count_item=_count,
+        remove_item=_remove,
+        add_item=_add,
+    )
+    return inv, transfers
+
+
+def test_deposit_moves_all_item_types_to_station():
+    """Deposit transfers EVERY item type from ship inv (iron,
+    copper, blueprints, etc.) — not just iron + copper."""
+    ship, _ship_xfers = _stub_inv_with_items({
+        "iron": 500, "copper": 75,
+        "bp_engine_booster": 1, "bp_advanced_crafter": 2,
+    })
+    station, station_xfers = _stub_inv_with_items({})
     gv = SimpleNamespace(
         building_list=[SimpleNamespace(building_type="Home Station")],
-        inventory=SimpleNamespace(
-            total_iron=500,
-            count_item=lambda k: 75 if k == "copper" else 0,
-            remove_item=_remove_inv,
-        ),
-        _station_inv=SimpleNamespace(add_item=_add_station),
+        inventory=ship,
+        _station_inv=station,
     )
     result = bot_builder.deposit_ship_resources_to_station(gv)
-    assert result["deposited"] == {"iron": 500, "copper": 75}
-    assert ("inv_remove", "iron", 500) in transfers
-    assert ("station_add", "iron", 500) in transfers
-    assert ("station_add", "copper", 75) in transfers
+    deposited = result["deposited"]
+    assert deposited.get("iron") == 500
+    assert deposited.get("copper") == 75
+    assert deposited.get("bp_engine_booster") == 1
+    assert deposited.get("bp_advanced_crafter") == 2
+    # Ship inv now empty; station has everything.
+    assert station.count_item("iron") == 500
+    assert station.count_item("copper") == 75
+    assert station.count_item("bp_engine_booster") == 1
+    assert station.count_item("bp_advanced_crafter") == 2
+    assert ship.count_item("iron") == 0
+    assert ship.count_item("bp_engine_booster") == 0
+
+
+def test_deposit_handles_partial_when_station_full():
+    """If station's add_item silently rejects (e.g. inventory
+    full), the helper only removes the actually-accepted amount
+    from the ship.  Items aren't lost."""
+    ship, _ = _stub_inv_with_items({"iron": 500})
+    # Station that swallows add_item without growing count.
+    station = SimpleNamespace(
+        count_item=lambda k: 0,
+        add_item=lambda k, n: None,   # silently drop
+    )
+    gv = SimpleNamespace(
+        building_list=[SimpleNamespace(building_type="Home Station")],
+        inventory=ship,
+        _station_inv=station,
+    )
+    result = bot_builder.deposit_ship_resources_to_station(gv)
+    # Nothing accepted → nothing removed from ship.
+    assert result["deposited"].get("iron", 0) == 0
+    assert ship.count_item("iron") == 500
 
 
 def test_deposit_skips_when_no_home_station():

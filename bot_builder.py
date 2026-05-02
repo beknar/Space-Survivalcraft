@@ -151,30 +151,48 @@ def _place_sequence(
 
 
 def deposit_ship_resources_to_station(gv: Any) -> dict:
-    """Move all ship iron + copper into the Home Station inventory.
-    No-op (with a reason) when no Home Station exists.  Bot calls
-    this between Phase 1 and Phase 3 so the extension build is
-    paid out of station stock — matching how a player would
-    behave after putting up their first base."""
+    """Move EVERY item out of the ship inventory into the Home
+    Station inventory — iron, copper, blueprints, crafted items,
+    whatever the player has picked up.  No-op (with a reason)
+    when no Home Station exists.
+
+    Implementation walks ``gv.inventory._items`` to discover every
+    distinct item_type in the ship, then transfers each one
+    individually.  Reads station-side count before + after the
+    add to detect partial transfers (e.g. station inventory full),
+    and only removes from the ship the amount that was actually
+    accepted — so we never lose items if the destination rejects.
+    """
     if not _has_home_station(gv):
         return {"deposited": {}, "skipped": "no home station"}
+
+    # Discover every distinct item_type in the ship inventory and
+    # its total count (an item_type may live in multiple cells).
+    items = getattr(gv.inventory, "_items", {}) or {}
+    totals: dict[str, int] = {}
+    try:
+        for (_cell, (item_type, count)) in items.items():
+            totals[item_type] = totals.get(item_type, 0) + int(count)
+    except Exception as e:
+        return {"deposited": {}, "error": f"failed to scan ship inv: {e}"}
+
     deposited: dict = {}
-    try:
-        iron_amt = int(getattr(gv.inventory, "total_iron", 0))
-        if iron_amt > 0:
-            gv.inventory.remove_item("iron", iron_amt)
-            gv._station_inv.add_item("iron", iron_amt)
-            deposited["iron"] = iron_amt
-    except Exception as e:
-        deposited["iron_error"] = str(e)
-    try:
-        copper_amt = int(gv.inventory.count_item("copper"))
-        if copper_amt > 0:
-            gv.inventory.remove_item("copper", copper_amt)
-            gv._station_inv.add_item("copper", copper_amt)
-            deposited["copper"] = copper_amt
-    except Exception as e:
-        deposited["copper_error"] = str(e)
+    for item_type, ship_count in totals.items():
+        if ship_count <= 0:
+            continue
+        try:
+            before = int(gv._station_inv.count_item(item_type))
+            gv._station_inv.add_item(item_type, ship_count)
+            after = int(gv._station_inv.count_item(item_type))
+            actually_added = max(0, after - before)
+            if actually_added > 0:
+                gv.inventory.remove_item(item_type, actually_added)
+                deposited[item_type] = (
+                    deposited.get(item_type, 0) + actually_added)
+        except Exception as e:
+            # Don't break the loop on a single item_type — keep
+            # going so later items still get deposited.
+            deposited[f"{item_type}_error"] = str(e)
     return {"deposited": deposited}
 
 

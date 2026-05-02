@@ -304,9 +304,11 @@ S_MINE       = "mine"
 S_SEARCH     = "search"
 S_BUILD      = "build"
 S_BUILD_SEEK = "build_seek"
+S_DEPOSIT    = "deposit"
 
 ALL_STATES = (
-    S_ENGAGE, S_GATHER, S_REGEN, S_MINE, S_SEARCH, S_BUILD, S_BUILD_SEEK,
+    S_ENGAGE, S_GATHER, S_REGEN, S_MINE, S_SEARCH,
+    S_BUILD, S_BUILD_SEEK, S_DEPOSIT,
 )
 
 # Starter-base build gate.  When the bot has accumulated this much
@@ -324,6 +326,18 @@ ALL_STATES = (
 #                                   Basic Crafter 150)
 #   Total                 825 iron — leaves ~175 iron of headroom
 BUILD_IRON_THRESHOLD = 1000
+# Ongoing-deposit gate.  Once a Home Station exists, the bot
+# periodically returns to it to dump everything in the ship
+# inventory (iron, copper, blueprints, anything).  Triggers on
+# either threshold being met:
+#   * ship iron ≥ DEPOSIT_IRON_THRESHOLD, OR
+#   * ship has any blueprint pickup
+# DEPOSIT_RANGE_PX is how close the bot must be to the home
+# station before the deposit fires.  DEPOSIT_COOLDOWN_S avoids
+# re-triggering the moment the bot starts a new mining run.
+DEPOSIT_IRON_THRESHOLD = 200
+DEPOSIT_RANGE_PX       = 200.0
+DEPOSIT_COOLDOWN_S     = 30.0
 # Single radius for "clear and quiet" — no asteroids, aliens,
 # pickups, or buildings within this distance of the player.
 # Approximately matches the visible game screen so the player's
@@ -401,6 +415,10 @@ class BotState:
     })
     mining_weapon_pick: str = "Mining Beam"
     build_done: bool = False
+    # Monotonic timestamp of the last successful POST /deposit_to_station.
+    # Used as a cooldown so the bot doesn't re-trigger S_DEPOSIT
+    # the moment it returns from a mining run.
+    last_deposit_at: float = 0.0
 
     def reset(self) -> None:
         """Restore every field to its default.  Mutates dict fields
@@ -415,6 +433,7 @@ class BotState:
             d.update(src)
         self.mining_weapon_pick = fresh.mining_weapon_pick
         self.build_done = fresh.build_done
+        self.last_deposit_at = fresh.last_deposit_at
 
 
 _state = BotState()
@@ -536,6 +555,26 @@ def _iron_total(state: dict) -> int:
     The state.inventory.items dict is keyed by item name."""
     items = (state.get("inventory") or {}).get("items") or {}
     return int(items.get("iron", 0))
+
+
+def _ship_has_blueprint(state: dict) -> bool:
+    """True when the ship inventory contains any blueprint pickup
+    (item names starting with ``bp_``).  Used as one of the
+    triggers for the S_DEPOSIT state — the user wants blueprints
+    in the home station inventory, not the ship's."""
+    items = (state.get("inventory") or {}).get("items") or {}
+    return any(name.startswith("bp_") for name in items.keys())
+
+
+def _find_home_station(state: dict) -> dict | None:
+    """Locate the Home Station building in the /state snapshot.
+    Returns the building dict (with x, y) or None if the bot
+    hasn't built one yet.  Matches on the ``building_type``
+    field that bot_api stamps onto every building sprite."""
+    for b in state.get("buildings") or []:
+        if b.get("building_type") == "Home Station":
+            return b
+    return None
 
 
 def _build_area_clear(state: dict, px: float, py: float) -> bool:
@@ -695,7 +734,22 @@ def _choose_next_state(state: dict, p: dict, cur: str) -> str:
             return S_BUILD
         return S_BUILD_SEEK
 
-    # 5. MINE vs SEARCH — discrete event, no hysteresis needed.
+    # 5. DEPOSIT — once a Home Station exists, the bot periodically
+    #    returns to dump everything in the ship inventory (iron,
+    #    blueprints, etc.) into the station's bigger inventory.
+    #    Triggers when ship iron ≥ DEPOSIT_IRON_THRESHOLD or any
+    #    blueprint is sitting in the ship.  Cooldown prevents the
+    #    bot from re-triggering immediately after a deposit run.
+    hs = _find_home_station(state)
+    if hs is not None:
+        cooldown_ok = (
+            now - _state.last_deposit_at) >= DEPOSIT_COOLDOWN_S
+        if cooldown_ok and (
+                _iron_total(state) >= DEPOSIT_IRON_THRESHOLD
+                or _ship_has_blueprint(state)):
+            return S_DEPOSIT
+
+    # 6. MINE vs SEARCH — discrete event, no hysteresis needed.
     asteroids = state.get("asteroids") or []
     if asteroids:
         return S_MINE
@@ -827,6 +881,8 @@ def _do_auto(state: dict, p: dict) -> None:
         _act_build(state, p)
     elif cur == S_BUILD_SEEK:
         _act_build_seek(state, p)
+    elif cur == S_DEPOSIT:
+        _act_deposit(state, p)
     else:  # S_SEARCH
         _do_spiral_search(state, p)
 
@@ -852,6 +908,62 @@ def _post_build_starter_base(timeout_s: float = 5.0) -> dict | None:
     except Exception as e:
         print(f"[autopilot] build POST unexpected error: {e}")
         return None
+
+
+def _post_deposit_to_station(timeout_s: float = 5.0) -> dict | None:
+    """POST /deposit_to_station on the in-game HTTP API.  Returns
+    the parsed JSON response, or ``None`` on transport failure.
+    The endpoint is synchronous — the in-process deposit runs on
+    the main thread and returns the moved-items dict."""
+    try:
+        req = Request(
+            f"{API_BASE}/deposit_to_station",
+            data=b"{}",
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urlopen(req, timeout=timeout_s) as r:
+            import json
+            return json.loads(r.read().decode("utf-8"))
+    except (URLError, TimeoutError, OSError) as e:
+        print(f"[autopilot] deposit POST error: {e}")
+        return None
+    except Exception as e:
+        print(f"[autopilot] deposit POST unexpected error: {e}")
+        return None
+
+
+def _act_deposit(state: dict, p: dict) -> None:
+    """DEPOSIT: head to the home station and dump everything in
+    the ship inventory into the station's bigger storage.  Once
+    within DEPOSIT_RANGE_PX of the Home Station, POSTs the
+    deposit and stamps ``last_deposit_at`` so the cooldown kicks
+    in.  Otherwise just navigates toward the station — the FSM
+    re-evaluates next tick."""
+    hs = _find_home_station(state)
+    if hs is None:
+        # Home Station vanished mid-tick (destroyed?) — fall back
+        # to idle so the FSM can re-route on the next tick.
+        _do_idle()
+        return
+    px = float(p.get("x", 0.0))
+    py = float(p.get("y", 0.0))
+    hx = float(hs.get("x", 0.0))
+    hy = float(hs.get("y", 0.0))
+    dist = math.hypot(hx - px, hy - py)
+    if dist <= DEPOSIT_RANGE_PX:
+        # In range — fire the deposit and stamp cooldown.
+        result = _post_deposit_to_station()
+        _state.last_deposit_at = _get_now()
+        if result is not None:
+            deposited = result.get("deposited", {}) or {}
+            if deposited:
+                print("[autopilot] DEPOSIT: "
+                      f"{', '.join(f'{k}={v}' for k, v in deposited.items())}")
+        return
+    # Not yet in range — navigate to the home station, no fire.
+    KeyState.hold("space", False)
+    _do_goto(state, p, hx, hy, stop_radius=DEPOSIT_RANGE_PX * 0.8)
 
 
 def _act_build(state: dict, p: dict) -> None:

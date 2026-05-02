@@ -180,7 +180,19 @@ class TestSpriteSummary:
     def test_basic_fields(self):
         sp = _sprite(100, 200, hp=42)
         s = bot_api._sprite_summary(sp)
-        assert s == {"x": 100.0, "y": 200.0, "hp": 42, "type": "SimpleNamespace"}
+        assert s == {
+            "x": 100.0, "y": 200.0, "hp": 42,
+            "type": "SimpleNamespace",
+            "building_type": "",   # empty for non-buildings
+        }
+
+    def test_building_type_surfaces(self):
+        """Building sprites carry a ``building_type`` attribute set
+        by building_manager — bot_api forwards it so the bot can
+        find specific buildings (the Home Station, especially)."""
+        sp = _sprite(500, 500, hp=100, building_type="Home Station")
+        s = bot_api._sprite_summary(sp)
+        assert s["building_type"] == "Home Station"
 
     def test_list_summary_caps_at_max(self):
         lst = [_sprite(i, 0) for i in range(150)]

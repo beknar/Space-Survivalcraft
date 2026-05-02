@@ -53,7 +53,9 @@ def _key_recorder(monkeypatch):
 def _state(player=None, aliens=(), asteroids=(),
            iron_pickups=(), blueprint_pickups=(),
            weapon_name="Basic Laser", melee_engaged=False,
-           iron=0, world_w=6400, world_h=6400):
+           iron=0, world_w=6400, world_h=6400,
+           buildings=(), inventory_items=None):
+    inv = {"iron": int(iron)} if inventory_items is None else dict(inventory_items)
     return {
         "player": player or {
             "x": 0.0, "y": 0.0, "heading": 0.0,
@@ -64,9 +66,10 @@ def _state(player=None, aliens=(), asteroids=(),
         "asteroids": list(asteroids),
         "iron_pickups": list(iron_pickups),
         "blueprint_pickups": list(blueprint_pickups),
+        "buildings": list(buildings),
         "menu": {},
         "assist": {"melee_engaged": melee_engaged},
-        "inventory": {"items": {"iron": int(iron)}},
+        "inventory": {"items": inv},
         "zone": {"world_w": world_w, "world_h": world_h,
                  "zone_id": "ZoneID.MAIN"},
     }
@@ -1080,3 +1083,112 @@ class TestStuckCentreLockout:
         )
         ap._do_auto(s, s["player"])
         assert ap._fsm["state"] == ap.S_MINE
+
+
+# ── DEPOSIT (ongoing return-to-base) ──────────────────────────────────────
+
+
+def _hs_building(x=3200.0, y=3200.0):
+    """Build a Home Station entry for /state.buildings."""
+    return {"x": x, "y": y, "hp": 100, "type": "StationModule",
+            "building_type": "Home Station"}
+
+
+class TestDepositTrigger:
+    """S_DEPOSIT fires when the bot has a Home Station built AND
+    the ship inventory has substantial items (≥ DEPOSIT_IRON_THRESHOLD
+    iron OR any blueprint).  Cooldown prevents re-trigger."""
+
+    def test_no_deposit_without_home_station(self, _clock):
+        s = _state(iron=ap.DEPOSIT_IRON_THRESHOLD)
+        # No buildings → no Home Station.
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] != ap.S_DEPOSIT
+
+    def test_no_deposit_below_iron_threshold(self, _clock):
+        s = _state(
+            iron=ap.DEPOSIT_IRON_THRESHOLD - 1,
+            buildings=[_hs_building()])
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] != ap.S_DEPOSIT
+
+    def test_deposit_triggers_at_iron_threshold(self, _clock):
+        s = _state(
+            iron=ap.DEPOSIT_IRON_THRESHOLD,
+            buildings=[_hs_building()])
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_DEPOSIT
+
+    def test_deposit_triggers_on_any_blueprint(self, _clock):
+        """Even with iron well below threshold, a single blueprint
+        in the ship triggers a deposit run — blueprints are too
+        valuable to leave in the ship inventory."""
+        s = _state(
+            iron=10,
+            inventory_items={"iron": 10, "bp_engine_booster": 1},
+            buildings=[_hs_building()])
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_DEPOSIT
+
+    def test_deposit_cooldown_prevents_immediate_retrigger(self, _clock):
+        """After a deposit, the bot must not re-enter DEPOSIT for
+        DEPOSIT_COOLDOWN_S (otherwise it would loop between mine
+        and deposit on every iron pickup)."""
+        ap._state.last_deposit_at = _clock[0]
+        s = _state(
+            iron=ap.DEPOSIT_IRON_THRESHOLD,
+            buildings=[_hs_building()])
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] != ap.S_DEPOSIT
+
+    def test_engage_preempts_deposit(self, _clock):
+        """Combat priority: alien within engage range steals the
+        FSM from DEPOSIT just like every other non-defensive state."""
+        s = _state(
+            iron=ap.DEPOSIT_IRON_THRESHOLD,
+            buildings=[_hs_building()],
+            aliens=[{"x": 400, "y": 0, "hp": 50}],
+        )
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_ENGAGE
+
+    def test_act_deposit_navigates_to_home_station_when_far(
+            self, _clock, monkeypatch):
+        """When the ship is far from the home station, _act_deposit
+        calls _do_goto with the station's (x, y) — does NOT POST
+        the deposit yet."""
+        captured: dict = {}
+        def _spy_goto(state, p, tx, ty, stop_radius=80.0):
+            captured["tx"], captured["ty"] = tx, ty
+        post_calls: list = []
+        monkeypatch.setattr(ap, "_do_goto", _spy_goto)
+        monkeypatch.setattr(
+            ap, "_post_deposit_to_station",
+            lambda timeout_s=5.0: post_calls.append(True))
+        s = _state(
+            player={"x": 0.0, "y": 0.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            iron=ap.DEPOSIT_IRON_THRESHOLD,
+            buildings=[_hs_building(x=3200.0, y=3200.0)])
+        ap._do_auto(s, s["player"])
+        assert captured.get("tx") == 3200.0
+        assert captured.get("ty") == 3200.0
+        assert post_calls == []   # too far to deposit yet
+
+    def test_act_deposit_posts_when_in_range(
+            self, _clock, monkeypatch):
+        """When within DEPOSIT_RANGE_PX of the home station,
+        _act_deposit POSTs the deposit + stamps last_deposit_at."""
+        post_calls: list = []
+        monkeypatch.setattr(
+            ap, "_post_deposit_to_station",
+            lambda timeout_s=5.0: (post_calls.append(True)
+                                   or {"deposited": {"iron": 200}}))
+        s = _state(
+            player={"x": 3100.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            iron=ap.DEPOSIT_IRON_THRESHOLD,
+            buildings=[_hs_building(x=3200.0, y=3200.0)])
+        ap._do_auto(s, s["player"])
+        assert len(post_calls) == 1
+        assert ap._state.last_deposit_at == _clock[0]

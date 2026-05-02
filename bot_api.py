@@ -172,6 +172,13 @@ def _sprite_summary(sprite) -> dict:
         "y": _safe(lambda: float(sprite.center_y), 0.0),
         "hp": _safe(lambda: int(getattr(sprite, "hp", 0)), 0),
         "type": type(sprite).__name__,
+        # ``building_type`` is the human-readable name set by
+        # building_manager (e.g. "Home Station", "Service Module");
+        # empty string for non-building sprites.  Lets the bot find
+        # specific buildings (the Home Station, in particular)
+        # without having to know arcade Sprite class names.
+        "building_type": _safe(
+            lambda: str(getattr(sprite, "building_type", "")), ""),
     }
 
 
@@ -415,6 +422,24 @@ class _Handler(BaseHTTPRequestHandler):
                 self._send_json(
                     500, {"error":
                           f"starter base build failed: {result['error']}"})
+                return
+            self._send_json(200, {"ok": True, **result["value"]})
+            return
+        if self.path == "/deposit_to_station":
+            if _gv_ref is None:
+                self._send_json(503, {"error": "game not ready"})
+                return
+            import bot_builder
+            done, result = submit_to_main_thread(
+                bot_builder.deposit_ship_resources_to_station)
+            if not done.wait(timeout=5.0):
+                self._send_json(
+                    504, {"error": "timeout waiting for main thread"})
+                return
+            if result["error"] is not None:
+                self._send_json(
+                    500, {"error":
+                          f"deposit failed: {result['error']}"})
                 return
             self._send_json(200, {"ok": True, **result["value"]})
             return
