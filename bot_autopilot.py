@@ -305,10 +305,12 @@ S_SEARCH     = "search"
 S_BUILD      = "build"
 S_BUILD_SEEK = "build_seek"
 S_DEPOSIT    = "deposit"
+S_CRAFT      = "craft"
+S_INSTALL    = "install"
 
 ALL_STATES = (
     S_ENGAGE, S_GATHER, S_REGEN, S_MINE, S_SEARCH,
-    S_BUILD, S_BUILD_SEEK, S_DEPOSIT,
+    S_BUILD, S_BUILD_SEEK, S_DEPOSIT, S_CRAFT, S_INSTALL,
 )
 
 # Starter-base build gate.  When the bot has accumulated this much
@@ -346,6 +348,51 @@ DEPOSIT_COOLDOWN_S     = 30.0
 BUILD_CLEAR_RADIUS_PX = 800.0
 # Distance the bot walks per tick when seeking a clear spot.
 BUILD_SEEK_TARGET_DIST_PX = 1000.0
+
+# ── Craft phase tuning ──────────────────────────────────────────────────
+# Iron threshold (in station inventory) the bot must accumulate
+# before entering the module-craft phase.  Modules cost a total of
+# 700 iron (50+75+100+125+150+200) — the 2000 cushion gives the bot
+# headroom for any extra building work and for the consumable phase
+# that follows.  Mirrored as the gate for the consumable phase too.
+CRAFT_PHASE_IRON_THRESHOLD: int = 2000
+# Distance below which the bot is "at" the Basic Crafter and can
+# fire the /craft API call.  Wider than the player click range
+# (300 px) so the bot doesn't have to inch the last few pixels.
+CRAFT_INTERACT_RANGE_PX: float = 200.0
+# Same idea for installing a module — the install flow operates on
+# the station inventory + ship slots, no positional gate strictly
+# required, but we still close to the Home Station so the action
+# reads as deliberate (and so the bot is in safe territory when
+# installing).
+INSTALL_INTERACT_RANGE_PX: float = 250.0
+# Sequence of modules the bot crafts after the starter base + all
+# blueprints have been deposited.  In the user's wording the fifth
+# entry was "damage enhancer" — the in-game module key for that is
+# ``damage_absorber`` (effect: shield damage reduction), so the
+# crafting cycle uses that key.  Order matches the user's spec.
+MODULE_CRAFT_QUEUE: tuple[str, ...] = (
+    "armor_plate",
+    "engine_booster",
+    "shield_booster",
+    "shield_enhancer",
+    "damage_absorber",
+    "broadside",
+)
+# After all six modules are crafted, install just these four (in
+# this order) into the ship.  Engine Booster and Damage Absorber
+# stay in the station inventory.
+MODULE_INSTALL_QUEUE: tuple[str, ...] = (
+    "broadside",
+    "shield_booster",
+    "shield_enhancer",
+    "armor_plate",
+)
+# Number of repair-pack and shield-recharge crafts to run after the
+# install phase.  Each craft yields 5 of the consumable, so 5 craft
+# cycles produces 25 repair packs and 25 shield recharges.
+REPAIR_PACK_CRAFT_BATCHES: int = 5
+SHIELD_RECHARGE_CRAFT_BATCHES: int = 5
 
 
 # ── Edge-collision (stuck) detection — tuning constants ──────────────────
@@ -392,6 +439,50 @@ STUCK_CENTRE_LOCKOUT_S   = 30.0
 # references that read those dicts directly.
 
 @dataclass
+class CraftQueue:
+    """Sequential post-build workflow.
+
+    The bot drives this queue in three phases after the starter
+    base + extension are up:
+
+      Phase 1 — craft each module key in ``modules_to_craft`` (head
+                first), one per S_CRAFT visit; the FSM gathers
+                between visits while the crafter ticks down its 60 s
+                timer.
+
+      Phase 2 — install each module key in ``modules_to_install``
+                via S_INSTALL.  Each visit pulls one ``mod_<key>``
+                out of station inventory and into the next free
+                ship slot.
+
+      Phase 3 — craft ``repair_packs_remaining`` batches of repair
+                packs, then ``shield_recharges_remaining`` batches
+                of shield recharges (5 of the consumable per
+                batch).  Same S_CRAFT mechanism — only the queue
+                contents differ.
+
+    Heads are popped on confirmed completion, not on dispatch — a
+    failed POST/start (insufficient iron, blueprint missing, no
+    idle crafter) leaves the queue intact so the next FSM tick
+    retries naturally.
+    """
+    modules_to_craft: list[str] = field(
+        default_factory=lambda: list(MODULE_CRAFT_QUEUE))
+    modules_to_install: list[str] = field(
+        default_factory=lambda: list(MODULE_INSTALL_QUEUE))
+    repair_packs_remaining: int = REPAIR_PACK_CRAFT_BATCHES
+    shield_recharges_remaining: int = SHIELD_RECHARGE_CRAFT_BATCHES
+    # Sticky flag: once the module-craft phase has STARTED (the
+    # first craft fired), we don't re-gate on the 2000-iron
+    # threshold for subsequent module crafts — only per-module
+    # cost matters from that point on.  Keeps the bot from
+    # stalling mid-queue if iron drops below 2000 between crafts.
+    module_phase_started: bool = False
+    # Same idea for the consumable phase.
+    consumable_phase_started: bool = False
+
+
+@dataclass
 class BotState:
     fsm: dict = field(default_factory=lambda: {
         "state": S_MINE,
@@ -419,6 +510,8 @@ class BotState:
     # Used as a cooldown so the bot doesn't re-trigger S_DEPOSIT
     # the moment it returns from a mining run.
     last_deposit_at: float = 0.0
+    # Post-build craft + install queue.  See CraftQueue docstring.
+    queue: CraftQueue = field(default_factory=CraftQueue)
 
     def reset(self) -> None:
         """Restore every field to its default.  Mutates dict fields
@@ -434,6 +527,9 @@ class BotState:
         self.mining_weapon_pick = fresh.mining_weapon_pick
         self.build_done = fresh.build_done
         self.last_deposit_at = fresh.last_deposit_at
+        # Replace the queue object so the install/craft lists reset
+        # to their full default contents on each FSM reset.
+        self.queue = CraftQueue()
 
 
 _state = BotState()
@@ -575,6 +671,70 @@ def _find_home_station(state: dict) -> dict | None:
         if b.get("building_type") == "Home Station":
             return b
     return None
+
+
+def _find_basic_crafter(state: dict, *, idle_only: bool = True
+                        ) -> dict | None:
+    """Locate a Basic Crafter building.  When ``idle_only`` is True
+    (default) only returns one that's currently not crafting and
+    not disabled — what S_CRAFT navigates toward.  When False,
+    returns any Basic Crafter (used to test whether the build
+    phase has produced one yet)."""
+    for b in state.get("buildings") or []:
+        if b.get("building_type") != "Basic Crafter":
+            continue
+        if idle_only and (
+                b.get("crafting", False) or b.get("disabled", False)):
+            continue
+        return b
+    return None
+
+
+def _any_crafter_busy(state: dict) -> bool:
+    """True when at least one Basic Crafter is mid-craft.  The bot
+    waits on this so it doesn't queue a second craft while a
+    pending one is still ticking — the craft queue is intentionally
+    serial."""
+    for b in state.get("buildings") or []:
+        if b.get("building_type") != "Basic Crafter":
+            continue
+        if b.get("crafting", False):
+            return True
+    return False
+
+
+def _station_items(state: dict) -> dict:
+    """Station-inventory item-name → count map from /state.  Empty
+    dict if the home station hasn't been built (then /state
+    returns no station_inventory).  Used by the craft queue to
+    gate on iron, blueprints, and crafted-module presence without
+    touching gv state."""
+    return (state.get("station_inventory") or {}).get("items") or {}
+
+
+def _station_iron(state: dict) -> int:
+    return int(_station_items(state).get("iron", 0))
+
+
+def _all_blueprints_deposited(state: dict) -> bool:
+    """True when every blueprint in MODULE_CRAFT_QUEUE has been
+    deposited at the home station (count >= 1).  Pre-condition for
+    entering the module-craft phase — the user wants to be sure
+    every recipe is unlocked before the queue starts."""
+    items = _station_items(state)
+    for key in MODULE_CRAFT_QUEUE:
+        if items.get(f"bp_{key}", 0) < 1:
+            return False
+    return True
+
+
+def _module_already_installed(state: dict, mod_key: str) -> bool:
+    """True when ``mod_key`` is currently in one of the ship's
+    installed module slots.  Used by the install queue to skip
+    keys that ended up installed via some other path (e.g. the
+    user dropped one manually mid-run)."""
+    slots = state.get("module_slots") or []
+    return mod_key in slots
 
 
 def _build_area_clear(state: dict, px: float, py: float) -> bool:
@@ -749,6 +909,20 @@ def _choose_next_state(state: dict, p: dict, cur: str) -> str:
                 or _ship_has_blueprint(state)):
             return S_DEPOSIT
 
+    # 5.5  CRAFT / INSTALL — sequential post-build workflow.  Only
+    #      reachable after a Home Station + Basic Crafter exist.
+    #      Install takes priority over a fresh craft (we want
+    #      crafted modules onto the ship before queuing more).
+    #      Both gates require the FSM to NOT already have a
+    #      crafter mid-cycle — the queue is intentionally serial,
+    #      so the bot returns to MINE / GATHER / SEARCH while a
+    #      craft ticks down its 60 s timer.
+    if hs is not None and _find_basic_crafter(state, idle_only=False) is not None:
+        if _next_install_target(state) is not None:
+            return S_INSTALL
+        if not _any_crafter_busy(state) and _next_craft_target(state) is not None:
+            return S_CRAFT
+
     # 6. MINE vs SEARCH — discrete event, no hysteresis needed.
     asteroids = state.get("asteroids") or []
     if asteroids:
@@ -883,6 +1057,10 @@ def _do_auto(state: dict, p: dict) -> None:
         _act_build_seek(state, p)
     elif cur == S_DEPOSIT:
         _act_deposit(state, p)
+    elif cur == S_CRAFT:
+        _act_craft(state, p)
+    elif cur == S_INSTALL:
+        _act_install(state, p)
     else:  # S_SEARCH
         _do_spiral_search(state, p)
 
@@ -907,6 +1085,52 @@ def _post_build_starter_base(timeout_s: float = 5.0) -> dict | None:
         return None
     except Exception as e:
         print(f"[autopilot] build POST unexpected error: {e}")
+        return None
+
+
+def _post_craft(target: str, timeout_s: float = 5.0) -> dict | None:
+    """POST /craft to start a Basic Crafter cycle for ``target``
+    (a MODULE_TYPES key, ``"repair_pack"``, or ``"shield_recharge"``).
+    Returns the parsed response dict (with ``ok`` flag) or ``None``
+    on transport failure."""
+    try:
+        import json
+        req = Request(
+            f"{API_BASE}/craft",
+            data=json.dumps({"target": target}).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urlopen(req, timeout=timeout_s) as r:
+            return json.loads(r.read().decode("utf-8"))
+    except (URLError, TimeoutError, OSError) as e:
+        print(f"[autopilot] craft POST error: {e}")
+        return None
+    except Exception as e:
+        print(f"[autopilot] craft POST unexpected error: {e}")
+        return None
+
+
+def _post_install_module(mod_key: str,
+                          timeout_s: float = 5.0) -> dict | None:
+    """POST /install_module to install one ``mod_<mod_key>`` from
+    station inventory into the next free ship slot.  Returns the
+    parsed response dict or ``None`` on transport failure."""
+    try:
+        import json
+        req = Request(
+            f"{API_BASE}/install_module",
+            data=json.dumps({"mod_key": mod_key}).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urlopen(req, timeout=timeout_s) as r:
+            return json.loads(r.read().decode("utf-8"))
+    except (URLError, TimeoutError, OSError) as e:
+        print(f"[autopilot] install POST error: {e}")
+        return None
+    except Exception as e:
+        print(f"[autopilot] install POST unexpected error: {e}")
         return None
 
 
@@ -964,6 +1188,190 @@ def _act_deposit(state: dict, p: dict) -> None:
     # Not yet in range — navigate to the home station, no fire.
     KeyState.hold("space", False)
     _do_goto(state, p, hx, hy, stop_radius=DEPOSIT_RANGE_PX * 0.8)
+
+
+def _next_craft_target(state: dict) -> str | None:
+    """Return the next thing the bot wants to craft, or ``None`` if
+    the queue is empty / preconditions aren't met.  Encapsulates
+    the three-phase workflow:
+
+      1. Modules from MODULE_CRAFT_QUEUE (gated by 2000 iron on
+         entry, then by per-module cost + matching blueprint).
+      2. Repair packs (after install queue is drained).
+      3. Shield recharges (after repair packs are done).
+
+    The 2000-iron gate sticks once the phase has started — so the
+    bot doesn't stall mid-queue if iron drops below 2000 after the
+    first craft pays out.
+    """
+    from constants import MODULE_TYPES, CRAFT_IRON_COST  # local import: kept off the
+                                                          # autopilot's hot path; this
+                                                          # function only fires when the
+                                                          # craft phase is reachable.
+    q = _state.queue
+    items = _station_items(state)
+    iron = int(items.get("iron", 0))
+
+    # ── Module craft phase ────────────────────────────────────────
+    if q.modules_to_craft:
+        # 2000-iron gate on the FIRST module craft only.
+        if not q.module_phase_started and iron < CRAFT_PHASE_IRON_THRESHOLD:
+            return None
+        # Every blueprint must already be in the station inventory
+        # before we start the phase.  Once started, individual
+        # blueprint counts are checked per-craft.
+        if not q.module_phase_started and not _all_blueprints_deposited(state):
+            return None
+        head = q.modules_to_craft[0]
+        cost = int(MODULE_TYPES.get(head, {}).get("craft_cost", 0))
+        if iron < cost:
+            return None
+        if items.get(f"bp_{head}", 0) < 1:
+            return None
+        return head
+
+    # ── Repair pack phase ─────────────────────────────────────────
+    # Install must be drained before consumables; the gate below
+    # already enforces that via the FSM-level ordering, but we
+    # double-check here to keep the helper standalone.
+    if q.modules_to_install:
+        return None
+
+    if q.repair_packs_remaining > 0:
+        # 2000-iron gate on the FIRST consumable craft only.
+        if (not q.consumable_phase_started
+                and iron < CRAFT_PHASE_IRON_THRESHOLD):
+            return None
+        if iron < CRAFT_IRON_COST:
+            return None
+        return "repair_pack"
+
+    # ── Shield recharge phase ─────────────────────────────────────
+    if q.shield_recharges_remaining > 0:
+        if (not q.consumable_phase_started
+                and iron < CRAFT_PHASE_IRON_THRESHOLD):
+            return None
+        if iron < CRAFT_IRON_COST:
+            return None
+        return "shield_recharge"
+
+    return None
+
+
+def _next_install_target(state: dict) -> str | None:
+    """Return the head of the install queue iff its
+    ``mod_<key>`` is sitting in station inventory and the key
+    isn't already installed on the ship.  Else None.
+    """
+    q = _state.queue
+    if not q.modules_to_install:
+        return None
+    head = q.modules_to_install[0]
+    if _module_already_installed(state, head):
+        # Skip ahead — somebody installed it manually.  Pop and
+        # let the next tick re-evaluate.
+        q.modules_to_install.pop(0)
+        return None
+    items = _station_items(state)
+    if items.get(f"mod_{head}", 0) < 1:
+        return None
+    return head
+
+
+def _act_craft(state: dict, p: dict) -> None:
+    """S_CRAFT: navigate to the nearest idle Basic Crafter.  Once
+    in range, fire POST /craft for the queue head and pop the
+    queue on success.  The FSM transitions back to MINE / GATHER /
+    SEARCH on the next tick — the crafter ticks down its 60 s
+    timer on its own, and ``_choose_next_state`` won't re-enter
+    S_CRAFT until ``_any_crafter_busy`` reports False again."""
+    crafter = _find_basic_crafter(state, idle_only=True)
+    if crafter is None:
+        # No idle crafter visible — happens for one tick right
+        # after we just started a craft (state hasn't refreshed
+        # yet).  Fall back to safe coast; the FSM re-routes us
+        # next tick.
+        _do_idle()
+        return
+    px = float(p.get("x", 0.0))
+    py = float(p.get("y", 0.0))
+    cx = float(crafter.get("x", 0.0))
+    cy = float(crafter.get("y", 0.0))
+    dist = math.hypot(cx - px, cy - py)
+    if dist > CRAFT_INTERACT_RANGE_PX:
+        # Still travelling — navigate, don't fire.
+        KeyState.hold("space", False)
+        _do_goto(state, p, cx, cy,
+                 stop_radius=CRAFT_INTERACT_RANGE_PX * 0.8)
+        return
+    # In range.  Compute what to craft, fire the POST, pop on success.
+    target = _next_craft_target(state)
+    if target is None:
+        # Queue head not ready (insufficient iron, blueprint
+        # missing, etc.).  Idle one tick; FSM will re-route.
+        _do_idle()
+        return
+    KeyState.release_all()
+    print(f"[autopilot] CRAFT: starting {target!r} "
+          f"(station_iron={_station_iron(state)})")
+    result = _post_craft(target)
+    q = _state.queue
+    if result is None or not result.get("ok", False):
+        reason = (result or {}).get("reason", "transport failure")
+        print(f"[autopilot] CRAFT: {target!r} rejected ({reason})")
+        return
+    # Success — pop the queue head + flip the phase-started latch.
+    if target in MODULE_CRAFT_QUEUE and q.modules_to_craft \
+            and q.modules_to_craft[0] == target:
+        q.modules_to_craft.pop(0)
+        q.module_phase_started = True
+    elif target == "repair_pack" and q.repair_packs_remaining > 0:
+        q.repair_packs_remaining -= 1
+        q.consumable_phase_started = True
+    elif target == "shield_recharge" and q.shield_recharges_remaining > 0:
+        q.shield_recharges_remaining -= 1
+        q.consumable_phase_started = True
+    print(f"[autopilot] CRAFT: queued {target!r} -- "
+          f"modules_left={len(q.modules_to_craft)} "
+          f"installs_left={len(q.modules_to_install)} "
+          f"rp_left={q.repair_packs_remaining} "
+          f"sr_left={q.shield_recharges_remaining}")
+
+
+def _act_install(state: dict, p: dict) -> None:
+    """S_INSTALL: navigate to the Home Station, then fire POST
+    /install_module for the head of ``modules_to_install``.  Pops
+    the queue on success."""
+    hs = _find_home_station(state)
+    if hs is None:
+        _do_idle()
+        return
+    px = float(p.get("x", 0.0))
+    py = float(p.get("y", 0.0))
+    hx = float(hs.get("x", 0.0))
+    hy = float(hs.get("y", 0.0))
+    dist = math.hypot(hx - px, hy - py)
+    if dist > INSTALL_INTERACT_RANGE_PX:
+        KeyState.hold("space", False)
+        _do_goto(state, p, hx, hy,
+                 stop_radius=INSTALL_INTERACT_RANGE_PX * 0.8)
+        return
+    target = _next_install_target(state)
+    if target is None:
+        _do_idle()
+        return
+    KeyState.release_all()
+    result = _post_install_module(target)
+    q = _state.queue
+    if result is None or not result.get("ok", False):
+        reason = (result or {}).get("reason", "transport failure")
+        print(f"[autopilot] INSTALL: {target!r} rejected ({reason})")
+        return
+    if q.modules_to_install and q.modules_to_install[0] == target:
+        q.modules_to_install.pop(0)
+    print(f"[autopilot] INSTALL: {target!r} -> slot "
+          f"{result.get('slot')} (installs_left="
+          f"{len(q.modules_to_install)})")
 
 
 def _act_build(state: dict, p: dict) -> None:

@@ -94,7 +94,7 @@ State is exposed under `state.assist`.
 # Intent vocabulary
 
 ```json
-{"type": "auto"}            // default -- five-state FSM (see below)
+{"type": "auto"}            // default -- nine-state FSM (see below)
 {"type": "idle"}
 {"type": "goto", "x": 3200, "y": 4000, "radius": 80}
 {"type": "mine_nearest"}
@@ -108,7 +108,7 @@ Unknown types are logged and the autopilot falls back to `idle`.
 
 ## `auto` finite state machine (default)
 
-`_do_auto` is a five-state FSM with **asymmetric enter/exit
+`_do_auto` is a nine-state FSM with **asymmetric enter/exit
 thresholds** (hysteresis) plus a **MIN_DWELL_S = 0.6 s** gate
 on transitions.  `REGEN` and `ENGAGE` are defensive interrupts:
 they preempt dwell from any state.  `REGEN` sits at the top of
@@ -122,8 +122,37 @@ it idles.
 | `REGEN` | idle, release all keys, let shields recover.  Combat assist still auto-fires at anything in range. | shields `< 40 %` (any state) | shields `≥ 60 %` |
 | `ENGAGE` | If the in-process combat assist has rolled into a melee commitment for this engagement (`state.assist.melee_engaged`), close to ~50 px and let the assist swing the lightsabre.  Otherwise hold ~380 px stand-off with Basic Laser.  Combat assist owns aim + fire + melee weapon-lock. | nearest alien `< 800 px` and not in REGEN | no alien `< 1000 px` |
 | `GATHER` | fly to nearest pickup (blueprints win on tie); 60 px stop radius | pickup `< 1500 px` and not in REGEN/ENGAGE | no pickup `< 1700 px` |
+| `BUILD` / `BUILD_SEEK` | one-shot starter base (HS + SM + PR + SA2 + RM + 2× T2 + west extension + Basic Crafter); SEEK walks toward less-cluttered space first | ship iron `≥ 1000` and area is clear of asteroids/aliens/pickups within 800 px | `_state.build_done` flips True after first POST |
+| `DEPOSIT` | head to Home Station, POST `/deposit_to_station` to dump every item type from ship into station inventory | ship iron `≥ 200` OR any blueprint in ship; cooldown `30 s` since last deposit | POST returns; cooldown re-arms |
+| `INSTALL` | head to Home Station, POST `/install_module` for the head of the install queue (broadside → shield_booster → shield_enhancer → armor_plate); pops queue on success | a `mod_<key>` for the install queue head is sitting in station inventory | post-install — falls through to next FSM tick |
+| `CRAFT` | head to a non-busy Basic Crafter, POST `/craft` for the head of the craft queue (modules first: armor_plate → engine_booster → shield_booster → shield_enhancer → damage_absorber → broadside; then 5× repair pack; then 5× shield recharge) and pop on success | every blueprint in `MODULE_CRAFT_QUEUE` deposited at station, station iron `≥ 2000` (sticky after first craft), no Basic Crafter currently mid-cycle | POST returns; the 60 s craft timer ticks down on the building while the FSM falls back to MINE / GATHER / SEARCH |
 | `MINE` | head to nearest asteroid, hold Mining Beam | asteroids visible and safe | no asteroids visible |
 | `SEARCH` | outward spiral from current position, Mining Beam held; re-anchors at 3000 px | no asteroids visible and not in any other state | asteroid appears |
+
+**Post-build workflow** (`CraftQueue`).  Once the starter base is
+up and a Basic Crafter exists, the bot drives a serial three-phase
+queue between mining runs:
+
+1. **Module craft phase** — gated by 2000 station-iron + every
+   `bp_<key>` deposited.  The bot fires one `POST /craft` per
+   queue head in this order: `armor_plate`, `engine_booster`,
+   `shield_booster`, `shield_enhancer`, `damage_absorber`,
+   `broadside`.  Each craft takes 60 s; during that window the
+   FSM falls back to `MINE` / `GATHER` / `ENGAGE` so the bot
+   gathers resources between visits.  `_any_crafter_busy` keeps
+   the queue serial — only one craft runs at a time.
+2. **Module install phase** — once a `mod_<key>` lands in station
+   inventory, `INSTALL` takes priority over fresh `CRAFT`.  Four
+   modules are installed in this order: `broadside`,
+   `shield_booster`, `shield_enhancer`, `armor_plate`.  The other
+   two (`engine_booster`, `damage_absorber`) stay in station
+   storage.
+3. **Consumable craft phase** — gated by 2000 station-iron
+   (sticky after the first batch).  5 `repair_pack` cycles (25
+   total packs) followed by 5 `shield_recharge` cycles (25 total
+   recharges).  Same gather-between-visits rhythm as the module
+   phase.  `S_DEPOSIT` keeps firing during this phase too, so
+   gathered iron + blueprints still flow back to the station.
 
 **Melee commit (per engagement).**  The dice roll for melee
 commitment lives in the in-process combat assist
@@ -184,6 +213,8 @@ selection.
   "boss": null,
   "menu": {"build": false, "inventory": false, "escape": false, ...},
   "inventory": {"items": {"iron": 105, "bp_armor_plate": 4, ...}},
+  "station_inventory": {"items": {"iron": 2400, "bp_broadside": 1, ...}},
+  "module_slots": ["broadside", null, null, null],
   "asteroids": [{"x": ..., "y": ..., "hp": 100, "type": "Asteroid"}, ...],
   "aliens": [...],
   "buildings": [...],
@@ -214,6 +245,10 @@ selection.
 | POST   | `/intent`| set the next intent (JSON body) |
 | POST   | `/assist`| toggle combat assist (`{"enabled": false}`) |
 | POST   | `/build` | place a building near the player (`{"type": "Home Station"}`) |
+| POST   | `/build_starter_base` | one-shot: place the seven-building starter base + deposit + west extension (no body required) |
+| POST   | `/deposit_to_station` | dump every item from ship inventory into the Home Station's inventory (no body required) |
+| POST   | `/craft` | start a Basic Crafter cycle (`{"target": "armor_plate"}` or `"repair_pack"` / `"shield_recharge"`) |
+| POST   | `/install_module` | install one `mod_<key>` from station into the next free ship slot (`{"mod_key": "broadside"}`) |
 
 # Dependencies
 

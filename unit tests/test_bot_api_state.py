@@ -184,6 +184,9 @@ class TestSpriteSummary:
             "x": 100.0, "y": 200.0, "hp": 42,
             "type": "SimpleNamespace",
             "building_type": "",   # empty for non-buildings
+            "crafting": False,
+            "craft_target": "",
+            "disabled": False,
         }
 
     def test_building_type_surfaces(self):

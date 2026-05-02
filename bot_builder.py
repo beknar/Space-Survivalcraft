@@ -199,6 +199,144 @@ def deposit_ship_resources_to_station(gv: Any) -> dict:
 # ── Public entry point ──────────────────────────────────────────────────
 
 
+def _craft_cost_multiplier(gv: Any) -> float:
+    """Mirror of ``input_handlers._apply_craft_action`` cost math —
+    bots pay the same per-character craft discount the player gets."""
+    try:
+        from character_data import craft_cost_multiplier
+        import audio
+        return craft_cost_multiplier(audio.character_name, gv._char_level)
+    except Exception:
+        return 1.0
+
+
+def _find_idle_basic_crafter(gv: Any):
+    """Return the first non-disabled, non-busy ``BasicCrafter`` in
+    the building list, or ``None`` if every crafter is unavailable.
+    Used by ``start_craft`` so the bot doesn't queue a second craft
+    on a crafter that's already mid-cycle."""
+    from sprites.building import BasicCrafter
+    for b in gv.building_list:
+        if (isinstance(b, BasicCrafter)
+                and not b.disabled
+                and not b.crafting):
+            return b
+    return None
+
+
+def start_craft(gv: Any, target: str) -> dict:
+    """Start a craft on the first idle ``BasicCrafter``.
+
+    ``target`` is one of:
+      * ``"repair_pack"``     → craft 5× Repair Pack (CRAFT_IRON_COST)
+      * ``"shield_recharge"`` → craft 5× Shield Recharge (CRAFT_IRON_COST)
+      * any key in ``MODULE_TYPES`` → craft that module (cost from
+        ``MODULE_TYPES[key]["craft_cost"]``).  Requires the matching
+        ``bp_<key>`` blueprint in station inventory.
+
+    Returns ``{"ok": True, ...}`` on success, ``{"ok": False,
+    "reason": ...}`` on validation failure (no crafter idle,
+    insufficient iron, blueprint missing, unknown target).  All
+    state mutation happens on the main thread (this function is
+    invoked through ``submit_to_main_thread``).
+    """
+    from constants import MODULE_TYPES, CRAFT_TIME, CRAFT_IRON_COST
+
+    crafter = _find_idle_basic_crafter(gv)
+    if crafter is None:
+        return {"ok": False, "reason": "no idle basic crafter"}
+
+    ccm = _craft_cost_multiplier(gv)
+    is_module = target in MODULE_TYPES
+    if is_module:
+        cost = int(MODULE_TYPES[target]["craft_cost"] * ccm)
+    elif target in ("repair_pack", "shield_recharge", ""):
+        cost = int(CRAFT_IRON_COST * ccm)
+    else:
+        return {"ok": False, "reason": f"unknown craft target {target!r}"}
+
+    iron_have = int(gv._station_inv.count_item("iron"))
+    if iron_have < cost:
+        return {
+            "ok": False,
+            "reason": f"insufficient iron: have {iron_have}, need {cost}",
+        }
+
+    if is_module and gv._station_inv.count_item(f"bp_{target}") < 1:
+        return {
+            "ok": False,
+            "reason": f"blueprint bp_{target} not in station inventory",
+        }
+
+    gv._station_inv.remove_item("iron", cost)
+    crafter.crafting = True
+    crafter.craft_timer = 0.0
+    crafter.craft_total = CRAFT_TIME
+    # ``craft_target`` is the same field ``_apply_craft_action`` sets:
+    # module key for module crafts, ``"shield_recharge"`` for the
+    # shield recipe, ``""`` for repair pack.  ``update_crafting``
+    # reads this when the timer elapses to decide what to add to the
+    # station inventory.
+    if is_module:
+        crafter.craft_target = target
+    elif target == "shield_recharge":
+        crafter.craft_target = "shield_recharge"
+    else:
+        crafter.craft_target = ""
+    # Mirror onto the menu's shared field too — kept for backward
+    # compatibility with ``update_crafting``'s legacy fallback path
+    # for old saves whose crafters didn't carry per-instance targets.
+    try:
+        gv._craft_menu._craft_target = crafter.craft_target
+    except Exception:
+        pass
+
+    return {
+        "ok": True,
+        "target": target,
+        "cost": cost,
+        "iron_remaining": int(gv._station_inv.count_item("iron")),
+        "craft_time_s": float(CRAFT_TIME),
+    }
+
+
+def install_module(gv: Any, mod_key: str) -> dict:
+    """Install one ``mod_<mod_key>`` from station inventory into the
+    next free slot of the player ship.  Mirrors the player flow in
+    ``input_handlers._handle_station_inventory_drop`` for the
+    drop-onto-HUD-module-slot path.
+
+    Returns ``{"ok": True, "slot": i, "installed": mod_key}`` on
+    success, ``{"ok": False, "reason": ...}`` otherwise.
+    """
+    if gv._station_inv.count_item(f"mod_{mod_key}") < 1:
+        return {
+            "ok": False,
+            "reason": f"mod_{mod_key} not in station inventory",
+        }
+    if mod_key in gv._module_slots:
+        return {
+            "ok": False,
+            "reason": f"{mod_key} already installed in a ship slot",
+        }
+    free_slot = None
+    for i, slot in enumerate(gv._module_slots):
+        if slot is None:
+            free_slot = i
+            break
+    if free_slot is None:
+        return {"ok": False, "reason": "no free module slot on ship"}
+
+    gv._station_inv.remove_item(f"mod_{mod_key}", 1)
+    gv._module_slots[free_slot] = mod_key
+    gv.player.apply_modules(gv._module_slots)
+    try:
+        gv._hud._mod_slots = list(gv._module_slots)
+    except Exception:
+        pass
+    return {"ok": True, "installed": mod_key, "slot": free_slot}
+
+
 def build_starter_base(gv: Any) -> dict:
     """Three-phase build: starter base → deposit → west extension.
     See module docstring for the layout of each sequence.

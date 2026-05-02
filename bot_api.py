@@ -179,6 +179,18 @@ def _sprite_summary(sprite) -> dict:
         # without having to know arcade Sprite class names.
         "building_type": _safe(
             lambda: str(getattr(sprite, "building_type", "")), ""),
+        # ``crafting`` + ``craft_target`` are populated by
+        # ``BasicCrafter`` instances; both default to safe values
+        # for non-crafter sprites.  The bot reads ``crafting`` to
+        # decide whether to start a new craft cycle (only when
+        # every crafter is idle) and ``craft_target`` to know which
+        # module is currently in the queue.
+        "crafting": _safe(
+            lambda: bool(getattr(sprite, "crafting", False)), False),
+        "craft_target": _safe(
+            lambda: str(getattr(sprite, "craft_target", "")), ""),
+        "disabled": _safe(
+            lambda: bool(getattr(sprite, "disabled", False)), False),
     }
 
 
@@ -243,6 +255,37 @@ def _inventory_state(gv) -> dict:
     return {"items": by_name}
 
 
+def _station_inventory_state(gv) -> dict:
+    """Aggregate the home-station inventory by item name.  Mirrors
+    ``_inventory_state`` for the ship side.  Empty dict if the
+    station inventory hasn't been initialised yet (no Home
+    Station built)."""
+    inv = getattr(gv, "_station_inv", None)
+    if inv is None:
+        return {}
+    by_name: dict[str, int] = {}
+    items = getattr(inv, "_items", {}) or {}
+    try:
+        for _cell, (name, count) in items.items():
+            by_name[name] = by_name.get(name, 0) + int(count)
+    except Exception:
+        pass
+    return {"items": by_name}
+
+
+def _module_slots_state(gv) -> list[str | None]:
+    """Snapshot of ``gv._module_slots`` (None for empty slots).
+    Lets the bot detect which modules are currently installed so it
+    can drive the install queue without re-installing duplicates."""
+    try:
+        return [
+            (None if s is None else str(s))
+            for s in (gv._module_slots or [])
+        ]
+    except Exception:
+        return []
+
+
 def _menu_state(gv) -> dict:
     """Best-effort: which modal (if any) is open, so the
     autopilot doesn't fight the player by spamming WASD while a
@@ -302,6 +345,8 @@ def get_state(gv) -> dict:
         "boss": _boss_state(gv),
         "menu": _menu_state(gv),
         "inventory": _inventory_state(gv),
+        "station_inventory": _station_inventory_state(gv),
+        "module_slots": _module_slots_state(gv),
         # Zone-aware lists — pull from the same aggregators the
         # minimap uses so the bot sees what the player sees.
         "asteroids": _list_summary(_safe(lambda: _zone_aware_asteroids(gv))),
@@ -442,6 +487,64 @@ class _Handler(BaseHTTPRequestHandler):
                           f"deposit failed: {result['error']}"})
                 return
             self._send_json(200, {"ok": True, **result["value"]})
+            return
+        if self.path == "/craft":
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                raw = self.rfile.read(length) if length else b""
+                body = json.loads(raw.decode("utf-8") or "{}")
+            except Exception as e:
+                self._send_json(400, {"error": f"bad JSON: {e}"})
+                return
+            if _gv_ref is None:
+                self._send_json(503, {"error": "game not ready"})
+                return
+            target = body.get("target", "repair_pack")
+            if not isinstance(target, str) or not target:
+                self._send_json(
+                    400, {"error": "missing or invalid 'target'"})
+                return
+            import bot_builder
+            done, result = submit_to_main_thread(
+                lambda gv: bot_builder.start_craft(gv, target))
+            if not done.wait(timeout=5.0):
+                self._send_json(
+                    504, {"error": "timeout waiting for main thread"})
+                return
+            if result["error"] is not None:
+                self._send_json(
+                    500, {"error": f"craft failed: {result['error']}"})
+                return
+            self._send_json(200, result["value"])
+            return
+        if self.path == "/install_module":
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                raw = self.rfile.read(length) if length else b""
+                body = json.loads(raw.decode("utf-8") or "{}")
+            except Exception as e:
+                self._send_json(400, {"error": f"bad JSON: {e}"})
+                return
+            if _gv_ref is None:
+                self._send_json(503, {"error": "game not ready"})
+                return
+            mod_key = body.get("mod_key", "")
+            if not isinstance(mod_key, str) or not mod_key:
+                self._send_json(
+                    400, {"error": "missing or invalid 'mod_key'"})
+                return
+            import bot_builder
+            done, result = submit_to_main_thread(
+                lambda gv: bot_builder.install_module(gv, mod_key))
+            if not done.wait(timeout=5.0):
+                self._send_json(
+                    504, {"error": "timeout waiting for main thread"})
+                return
+            if result["error"] is not None:
+                self._send_json(
+                    500, {"error": f"install failed: {result['error']}"})
+                return
+            self._send_json(200, result["value"])
             return
         if self.path == "/assist":
             try:

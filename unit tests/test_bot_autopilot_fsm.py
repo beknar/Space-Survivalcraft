@@ -54,8 +54,12 @@ def _state(player=None, aliens=(), asteroids=(),
            iron_pickups=(), blueprint_pickups=(),
            weapon_name="Basic Laser", melee_engaged=False,
            iron=0, world_w=6400, world_h=6400,
-           buildings=(), inventory_items=None):
+           buildings=(), inventory_items=None,
+           station_inventory_items=None, module_slots=None):
     inv = {"iron": int(iron)} if inventory_items is None else dict(inventory_items)
+    sinv = (dict(station_inventory_items)
+            if station_inventory_items is not None else {})
+    slots = list(module_slots) if module_slots is not None else []
     return {
         "player": player or {
             "x": 0.0, "y": 0.0, "heading": 0.0,
@@ -70,6 +74,8 @@ def _state(player=None, aliens=(), asteroids=(),
         "menu": {},
         "assist": {"melee_engaged": melee_engaged},
         "inventory": {"items": inv},
+        "station_inventory": {"items": sinv},
+        "module_slots": slots,
         "zone": {"world_w": world_w, "world_h": world_h,
                  "zone_id": "ZoneID.MAIN"},
     }
@@ -1192,3 +1198,318 @@ class TestDepositTrigger:
         ap._do_auto(s, s["player"])
         assert len(post_calls) == 1
         assert ap._state.last_deposit_at == _clock[0]
+
+
+# ── Craft / install queue ────────────────────────────────────────────────
+
+
+def _crafter_building(x=3260.0, y=3260.0, *,
+                      crafting=False, craft_target=""):
+    """Build a Basic Crafter entry for /state.buildings."""
+    return {"x": x, "y": y, "hp": 75, "type": "BasicCrafter",
+            "building_type": "Basic Crafter",
+            "crafting": crafting, "craft_target": craft_target,
+            "disabled": False}
+
+
+def _all_blueprints_in_station(extra=None):
+    """Station-inventory dict pre-populated with one of every
+    module blueprint the bot waits on before crafting."""
+    items = {f"bp_{k}": 1 for k in ap.MODULE_CRAFT_QUEUE}
+    if extra:
+        items.update(extra)
+    return items
+
+
+class TestCraftQueueGate:
+    """The module-craft phase requires:
+      * Home Station + Basic Crafter built
+      * Every blueprint in MODULE_CRAFT_QUEUE deposited
+      * 2000 iron in station inventory (gate fires once, then sticky)
+    Otherwise the FSM falls through to MINE / SEARCH.
+    """
+
+    def test_no_craft_without_basic_crafter(self, _clock):
+        s = _state(
+            buildings=[_hs_building()],
+            station_inventory_items=_all_blueprints_in_station(
+                {"iron": ap.CRAFT_PHASE_IRON_THRESHOLD}),
+        )
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] != ap.S_CRAFT
+
+    def test_no_craft_below_iron_threshold_on_first_entry(self, _clock):
+        s = _state(
+            buildings=[_hs_building(), _crafter_building()],
+            station_inventory_items=_all_blueprints_in_station(
+                {"iron": ap.CRAFT_PHASE_IRON_THRESHOLD - 1}),
+        )
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] != ap.S_CRAFT
+
+    def test_no_craft_when_a_blueprint_is_missing(self, _clock):
+        items = _all_blueprints_in_station(
+            {"iron": ap.CRAFT_PHASE_IRON_THRESHOLD})
+        del items["bp_armor_plate"]
+        s = _state(
+            buildings=[_hs_building(), _crafter_building()],
+            station_inventory_items=items,
+        )
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] != ap.S_CRAFT
+
+    def test_craft_triggers_with_all_conditions_met(self, _clock):
+        s = _state(
+            buildings=[_hs_building(), _crafter_building()],
+            station_inventory_items=_all_blueprints_in_station(
+                {"iron": ap.CRAFT_PHASE_IRON_THRESHOLD}),
+        )
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_CRAFT
+
+    def test_engage_preempts_craft(self, _clock):
+        """Combat priority: alien within engage range steals the
+        FSM from S_CRAFT just like every other non-defensive state."""
+        s = _state(
+            buildings=[_hs_building(), _crafter_building()],
+            station_inventory_items=_all_blueprints_in_station(
+                {"iron": ap.CRAFT_PHASE_IRON_THRESHOLD}),
+            aliens=[{"x": 400, "y": 0, "hp": 50}],
+        )
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_ENGAGE
+
+    def test_busy_crafter_blocks_new_craft(self, _clock):
+        """If any Basic Crafter is mid-cycle, the bot doesn't queue
+        a second craft — it falls through to mining/searching while
+        the active one finishes."""
+        s = _state(
+            buildings=[_hs_building(),
+                       _crafter_building(crafting=True,
+                                         craft_target="armor_plate")],
+            station_inventory_items=_all_blueprints_in_station(
+                {"iron": ap.CRAFT_PHASE_IRON_THRESHOLD}),
+            asteroids=[{"x": 100, "y": 0, "hp": 100}],
+        )
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] != ap.S_CRAFT
+
+
+class TestCraftQueueOrder:
+    """``_next_craft_target`` returns the right thing based on the
+    current queue contents — module heads first, then repair packs,
+    then shield recharges."""
+
+    def test_first_target_is_armor_plate(self, _clock):
+        s = _state(
+            buildings=[_hs_building(), _crafter_building()],
+            station_inventory_items=_all_blueprints_in_station(
+                {"iron": ap.CRAFT_PHASE_IRON_THRESHOLD}),
+        )
+        assert ap._next_craft_target(s) == "armor_plate"
+
+    def test_module_phase_started_relaxes_2k_gate(self, _clock):
+        """Once the first module craft has fired, the 2000-iron
+        gate sticks open — the next module craft only needs enough
+        iron for that module's per-craft cost."""
+        ap._state.queue.module_phase_started = True
+        s = _state(
+            buildings=[_hs_building(), _crafter_building()],
+            station_inventory_items=_all_blueprints_in_station(
+                {"iron": 800}),  # well below 2000 but above engine_booster cost (75)
+        )
+        # Pop armor_plate so engine_booster is the head.
+        ap._state.queue.modules_to_craft.pop(0)
+        assert ap._next_craft_target(s) == "engine_booster"
+
+    def test_consumable_phase_starts_after_modules_drained(self, _clock):
+        """With both queues drained except for repair packs, the
+        next craft target is repair_pack — but only when the 2000
+        iron gate is met (or the consumable phase already started)."""
+        ap._state.queue.modules_to_craft.clear()
+        ap._state.queue.modules_to_install.clear()
+        s = _state(
+            buildings=[_hs_building(), _crafter_building()],
+            station_inventory_items={
+                "iron": ap.CRAFT_PHASE_IRON_THRESHOLD},
+        )
+        assert ap._next_craft_target(s) == "repair_pack"
+
+    def test_shield_recharge_after_repair_packs(self, _clock):
+        """After repair packs run out, the next consumable in the
+        queue is shield recharge."""
+        ap._state.queue.modules_to_craft.clear()
+        ap._state.queue.modules_to_install.clear()
+        ap._state.queue.repair_packs_remaining = 0
+        ap._state.queue.consumable_phase_started = True
+        s = _state(
+            buildings=[_hs_building(), _crafter_building()],
+            station_inventory_items={"iron": 200},
+        )
+        assert ap._next_craft_target(s) == "shield_recharge"
+
+    def test_empty_queue_returns_none(self, _clock):
+        ap._state.queue.modules_to_craft.clear()
+        ap._state.queue.modules_to_install.clear()
+        ap._state.queue.repair_packs_remaining = 0
+        ap._state.queue.shield_recharges_remaining = 0
+        s = _state(
+            buildings=[_hs_building(), _crafter_building()],
+            station_inventory_items={"iron": 5000},
+        )
+        assert ap._next_craft_target(s) is None
+
+
+class TestInstallQueue:
+    """Install priority + queue-pop behaviour for the four modules
+    the bot installs after the craft phase."""
+
+    def test_install_takes_priority_over_craft(self, _clock):
+        """When ``mod_broadside`` is in the station inventory, the
+        FSM enters S_INSTALL even if the craft queue still has
+        unfinished modules."""
+        s = _state(
+            buildings=[_hs_building(), _crafter_building()],
+            station_inventory_items=_all_blueprints_in_station({
+                "iron": ap.CRAFT_PHASE_IRON_THRESHOLD,
+                "mod_broadside": 1,
+            }),
+        )
+        # Drop broadside off the craft queue (it was crafted) so the
+        # remaining craft queue head is engine_booster.
+        ap._state.queue.modules_to_craft = ["engine_booster"]
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_INSTALL
+
+    def test_install_skips_already_installed_modules(self, _clock):
+        """If broadside is already on the ship (for whatever
+        reason), the install queue pops it and re-evaluates."""
+        s = _state(
+            buildings=[_hs_building(), _crafter_building()],
+            station_inventory_items={"mod_broadside": 1},
+            module_slots=["broadside", None, None, None],
+        )
+        ap._state.queue.modules_to_craft.clear()
+        target = ap._next_install_target(s)
+        # Pop happened — now head is shield_booster, which isn't in
+        # station inv, so no install target.
+        assert target is None
+        assert ap._state.queue.modules_to_install[0] == "shield_booster"
+
+    def test_install_returns_none_when_module_not_in_station(self, _clock):
+        s = _state(
+            buildings=[_hs_building(), _crafter_building()],
+            station_inventory_items={},  # no mod_broadside
+        )
+        assert ap._next_install_target(s) is None
+
+
+class TestCraftAction:
+    """``_act_craft`` navigates to a Basic Crafter and fires
+    POST /craft when in range, popping the queue on success."""
+
+    def test_navigates_when_far_does_not_post(self, _clock, monkeypatch):
+        captured: dict = {}
+        post_calls: list = []
+        monkeypatch.setattr(
+            ap, "_do_goto",
+            lambda state, p, tx, ty, stop_radius=80.0: captured.update(
+                tx=tx, ty=ty))
+        monkeypatch.setattr(
+            ap, "_post_craft",
+            lambda target, timeout_s=5.0: post_calls.append(target)
+            or {"ok": True})
+        s = _state(
+            player={"x": 0.0, "y": 0.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            buildings=[_hs_building(),
+                       _crafter_building(x=4000.0, y=4000.0)],
+            station_inventory_items=_all_blueprints_in_station(
+                {"iron": ap.CRAFT_PHASE_IRON_THRESHOLD}),
+        )
+        ap._do_auto(s, s["player"])
+        assert captured.get("tx") == 4000.0
+        assert captured.get("ty") == 4000.0
+        assert post_calls == []
+
+    def test_posts_craft_when_in_range(self, _clock, monkeypatch):
+        post_calls: list = []
+        monkeypatch.setattr(
+            ap, "_post_craft",
+            lambda target, timeout_s=5.0: (post_calls.append(target)
+                                            or {"ok": True}))
+        s = _state(
+            player={"x": 4000.0, "y": 4000.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            buildings=[_hs_building(),
+                       _crafter_building(x=4050.0, y=4050.0)],
+            station_inventory_items=_all_blueprints_in_station(
+                {"iron": ap.CRAFT_PHASE_IRON_THRESHOLD}),
+        )
+        ap._do_auto(s, s["player"])
+        assert post_calls == ["armor_plate"]
+        assert ap._state.queue.modules_to_craft[0] == "engine_booster"
+        assert ap._state.queue.module_phase_started is True
+
+    def test_failed_post_does_not_pop_queue(self, _clock, monkeypatch):
+        monkeypatch.setattr(
+            ap, "_post_craft",
+            lambda target, timeout_s=5.0: {"ok": False,
+                                            "reason": "no idle crafter"})
+        s = _state(
+            player={"x": 4000.0, "y": 4000.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            buildings=[_hs_building(),
+                       _crafter_building(x=4050.0, y=4050.0)],
+            station_inventory_items=_all_blueprints_in_station(
+                {"iron": ap.CRAFT_PHASE_IRON_THRESHOLD}),
+        )
+        before = list(ap._state.queue.modules_to_craft)
+        ap._do_auto(s, s["player"])
+        assert ap._state.queue.modules_to_craft == before
+
+
+class TestInstallAction:
+    """``_act_install`` navigates to the Home Station and fires
+    POST /install_module when in range, popping the install queue
+    on success."""
+
+    def test_posts_install_when_in_range(self, _clock, monkeypatch):
+        post_calls: list = []
+        monkeypatch.setattr(
+            ap, "_post_install_module",
+            lambda mod_key, timeout_s=5.0: (post_calls.append(mod_key)
+                                             or {"ok": True, "slot": 0}))
+        s = _state(
+            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            buildings=[_hs_building(x=3200.0, y=3200.0),
+                       _crafter_building()],
+            station_inventory_items={"mod_broadside": 1},
+        )
+        ap._state.queue.modules_to_craft.clear()
+        ap._do_auto(s, s["player"])
+        assert post_calls == ["broadside"]
+        # First entry of install queue is broadside; should pop.
+        assert ap._state.queue.modules_to_install[0] == "shield_booster"
+
+
+class TestCraftQueueDefaults:
+    """Pin the user-facing queue ordering so changes here are
+    deliberate, not accidental."""
+
+    def test_module_craft_order(self):
+        assert list(ap.MODULE_CRAFT_QUEUE) == [
+            "armor_plate", "engine_booster", "shield_booster",
+            "shield_enhancer", "damage_absorber", "broadside",
+        ]
+
+    def test_module_install_order(self):
+        assert list(ap.MODULE_INSTALL_QUEUE) == [
+            "broadside", "shield_booster",
+            "shield_enhancer", "armor_plate",
+        ]
+
+    def test_consumable_batch_counts(self):
+        assert ap.REPAIR_PACK_CRAFT_BATCHES == 5
+        assert ap.SHIELD_RECHARGE_CRAFT_BATCHES == 5
