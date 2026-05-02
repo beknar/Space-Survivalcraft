@@ -59,6 +59,61 @@ _started_at: float = 0.0
 API_VERSION = "1.0"
 
 
+# ── Main-thread work queue ────────────────────────────────────────────────
+#
+# arcade / pyglet OpenGL operations only work from the main thread that
+# owns the GL context.  Sprite / texture creation is GL-backed, so HTTP
+# handlers that need to spawn buildings or place sprites can't call
+# building_manager.place_building directly — that triggers
+# ``GL_INVALID_OPERATION (0x1282)`` from a worker thread.
+#
+# Submit_to_main_thread queues a callable to run on the next
+# ``pump_main_thread_queue`` call, which the game loop fires from
+# ``GameView.on_update``.  The HTTP handler waits on a per-call Event
+# for the callable to finish, then reads the result / error.
+_main_thread_queue: list = []
+_main_thread_queue_lock = threading.Lock()
+
+
+def submit_to_main_thread(fn):
+    """Queue ``fn`` to run on the main thread the next time the
+    game loop pumps the queue.  Returns ``(done_event, result_box)``;
+    ``result_box`` is a dict with ``"value"`` (return value) and
+    ``"error"`` (exception or None) populated once the main thread
+    runs the callable."""
+    done = threading.Event()
+    result: dict = {"value": None, "error": None}
+
+    def wrapper(gv):
+        try:
+            result["value"] = fn(gv)
+        except Exception as e:
+            result["error"] = e
+        finally:
+            done.set()
+
+    with _main_thread_queue_lock:
+        _main_thread_queue.append(wrapper)
+    return done, result
+
+
+def pump_main_thread_queue(gv) -> None:
+    """Drain queued main-thread callables.  Called once per frame
+    from ``GameView.on_update`` so HTTP handlers that need GL-
+    backed mutation (sprite spawn, building placement) can run
+    on the right thread.  Cheap no-op when the queue is empty."""
+    with _main_thread_queue_lock:
+        if not _main_thread_queue:
+            return
+        callables = _main_thread_queue[:]
+        _main_thread_queue.clear()
+    for c in callables:
+        try:
+            c(gv)
+        except Exception as e:
+            print(f"[bot_api] main-thread callable failed: {e}")
+
+
 # ── State extraction ──────────────────────────────────────────────────────
 
 def _safe(fn, default=None):
@@ -316,38 +371,52 @@ class _Handler(BaseHTTPRequestHandler):
             if _gv_ref is None:
                 self._send_json(503, {"error": "game not ready"})
                 return
-            try:
+            bt = body.get("type", "Home Station")
+            offset = float(body.get("offset", 200.0))
+
+            def _do_build(gv):
+                """Run on the main thread — sprite + texture
+                creation goes through arcade / pyglet which only
+                tolerate GL ops on the GL-context thread."""
                 import building_manager as bm
-                bt = body.get("type", "Home Station")
-                # Place near the player.  ``offset`` is the px in
-                # the +X direction relative to the player; default
-                # 200 px is outside the ship's collision radius
-                # but still close enough that it counts as adjacent.
-                offset = float(body.get("offset", 200.0))
-                gv = _gv_ref
                 wx = gv.player.center_x + offset
                 wy = gv.player.center_y
                 bm.enter_placement_mode(gv, bt)
                 bm.place_building(gv, wx, wy)
-                self._send_json(200, {
-                    "ok": True, "type": bt,
+                return {
+                    "type": bt,
                     "placed_at": {"x": wx, "y": wy},
                     "buildings_now": len(gv.building_list),
-                })
-            except Exception as e:
-                self._send_json(500, {"error": f"build failed: {e}"})
+                }
+
+            done, result = submit_to_main_thread(_do_build)
+            if not done.wait(timeout=10.0):
+                self._send_json(
+                    504, {"error": "timeout waiting for main thread"})
+                return
+            if result["error"] is not None:
+                self._send_json(
+                    500, {"error": f"build failed: {result['error']}"})
+                return
+            self._send_json(200, {"ok": True, **result["value"]})
             return
         if self.path == "/build_starter_base":
             if _gv_ref is None:
                 self._send_json(503, {"error": "game not ready"})
                 return
-            try:
-                import bot_builder
-                result = bot_builder.build_starter_base(_gv_ref)
-                self._send_json(200, {"ok": True, **result})
-            except Exception as e:
+            import bot_builder
+            done, result = submit_to_main_thread(
+                bot_builder.build_starter_base)
+            if not done.wait(timeout=10.0):
                 self._send_json(
-                    500, {"error": f"starter base build failed: {e}"})
+                    504, {"error": "timeout waiting for main thread"})
+                return
+            if result["error"] is not None:
+                self._send_json(
+                    500, {"error":
+                          f"starter base build failed: {result['error']}"})
+                return
+            self._send_json(200, {"ok": True, **result["value"]})
             return
         if self.path == "/assist":
             try:

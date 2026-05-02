@@ -1027,6 +1027,15 @@ class GameView(arcade.View):
 
     # ── Update ───────────────────────────────────────────────────────────────
     def on_update(self, delta_time: float) -> None:
+        # Drain bot-API main-thread work (e.g. building placements
+        # queued from HTTP handlers) BEFORE per-frame logic so the
+        # game state is up-to-date for this tick.  No-op when the
+        # bot API isn't running or the queue is empty.
+        try:
+            import bot_api
+            bot_api.pump_main_thread_queue(self)
+        except Exception:
+            pass
         _ul.update_preamble(self, delta_time)
         if self._player_dead:
             _ul.update_death_state(self, delta_time)

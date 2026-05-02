@@ -315,3 +315,64 @@ class TestZoneAwareLists:
         # Fallback served the gv lists.
         assert len(s["aliens"]) == 1
         assert len(s["asteroids"]) == 1
+
+
+class TestMainThreadQueue:
+    """``submit_to_main_thread`` queues a callable for the next
+    ``pump_main_thread_queue`` call — required so HTTP handlers
+    that need GL-backed mutation (sprite spawn, building
+    placement) run on the GL-context thread instead of crashing
+    with GL_INVALID_OPERATION (0x1282)."""
+
+    def test_callable_runs_on_pump(self):
+        # Reset queue so prior tests don't leak.
+        with bot_api._main_thread_queue_lock:
+            bot_api._main_thread_queue.clear()
+        ran: list = []
+        done, _ = bot_api.submit_to_main_thread(
+            lambda gv: ran.append(gv) or "result")
+        # Hasn't run yet — callable is pending.
+        assert ran == []
+        assert not done.is_set()
+        # Pump runs it on the (test) main thread.
+        bot_api.pump_main_thread_queue("fake_gv")
+        assert ran == ["fake_gv"]
+        assert done.is_set()
+
+    def test_result_value_propagates(self):
+        with bot_api._main_thread_queue_lock:
+            bot_api._main_thread_queue.clear()
+        done, result = bot_api.submit_to_main_thread(
+            lambda gv: 42)
+        bot_api.pump_main_thread_queue(None)
+        assert done.is_set()
+        assert result["value"] == 42
+        assert result["error"] is None
+
+    def test_exception_captured_into_result(self):
+        with bot_api._main_thread_queue_lock:
+            bot_api._main_thread_queue.clear()
+        def _boom(gv):
+            raise RuntimeError("kaboom")
+        done, result = bot_api.submit_to_main_thread(_boom)
+        bot_api.pump_main_thread_queue(None)
+        assert done.is_set()
+        assert result["value"] is None
+        assert isinstance(result["error"], RuntimeError)
+        assert "kaboom" in str(result["error"])
+
+    def test_pump_with_empty_queue_is_no_op(self):
+        with bot_api._main_thread_queue_lock:
+            bot_api._main_thread_queue.clear()
+        # Should not raise.
+        bot_api.pump_main_thread_queue(None)
+
+    def test_pump_drains_in_fifo_order(self):
+        with bot_api._main_thread_queue_lock:
+            bot_api._main_thread_queue.clear()
+        order: list = []
+        bot_api.submit_to_main_thread(lambda gv: order.append(1))
+        bot_api.submit_to_main_thread(lambda gv: order.append(2))
+        bot_api.submit_to_main_thread(lambda gv: order.append(3))
+        bot_api.pump_main_thread_queue(None)
+        assert order == [1, 2, 3]
