@@ -1082,16 +1082,13 @@ class StarMazeZone(ZoneState):
         the Star Maze mirrors that pattern so the generic
         ``handle_alien_laser_hits`` isn't needed.
 
-        Routes through ``collisions._try_melee_deflect`` first so the
-        energy blade can deflect maze-alien / spawner bolts."""
-        from collisions import _try_melee_deflect
+        Delegates to ``collisions.apply_enemy_projectile_hit`` so
+        the energy-blade deflect path covers maze-alien + spawner
+        bolts."""
+        from collisions import apply_enemy_projectile_hit
         for proj in arcade.check_for_collision_with_list(
                 gv.player, self._maze_projectiles):
-            if _try_melee_deflect(gv, proj):
-                continue
-            gv._apply_damage_to_player(int(proj.damage))
-            gv._trigger_shake()
-            proj.remove_from_sprite_lists()
+            apply_enemy_projectile_hit(gv, proj)
 
     def _block_player_projectiles_at_walls(self, gv: GameView) -> None:
         """Remove any player projectile (laser / mining beam / boss
@@ -1130,16 +1127,13 @@ class StarMazeZone(ZoneState):
                     pprev_x, pprev_y, proj.center_x, proj.center_y):
                 proj.remove_from_sprite_lists()
         # Player collision — same inline pattern Zone 2 uses.
-        # Routes through deflect first so the energy blade applies
-        # to nebula-alien shots inside the Star Maze.
-        from collisions import _try_melee_deflect
+        # Delegates to apply_enemy_projectile_hit so the energy-
+        # blade deflect path covers nebula-alien shots inside the
+        # Star Maze too.
+        from collisions import apply_enemy_projectile_hit
         for proj in arcade.check_for_collision_with_list(
                 gv.player, self._alien_projectiles):
-            if _try_melee_deflect(gv, proj):
-                continue
-            gv._apply_damage_to_player(int(proj.damage))
-            gv._trigger_shake()
-            proj.remove_from_sprite_lists()
+            apply_enemy_projectile_hit(gv, proj)
 
     def _handle_projectile_hits_vs_stalkers(self, gv: GameView) -> None:
         """Player + drone shots vs stalker.  Mirrors the Z2 alien

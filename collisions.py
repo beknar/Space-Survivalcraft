@@ -312,18 +312,37 @@ def _try_melee_deflect(gv: GameView, proj) -> bool:
     return True
 
 
+def apply_enemy_projectile_hit(
+        gv: GameView, proj, *,
+        bump_volume: float | None = None) -> None:
+    """Standard handler for an enemy projectile that has just
+    collided with the player.  Tries a melee deflect first; on
+    miss, removes the projectile, applies damage to the player,
+    triggers a screen shake, and optionally plays the bump sound
+    at the given volume.
+
+    Consolidates the "deflect → damage → shake" pattern that was
+    duplicated across five call sites (Zone 1 alien lasers, boss
+    lasers, nebula_shared alien lasers, Star Maze maze
+    projectiles, Star Maze nebula projectiles) — each site only
+    differed in the bump-sound volume.
+    """
+    if _try_melee_deflect(gv, proj):
+        return
+    proj.remove_from_sprite_lists()
+    gv._apply_damage_to_player(int(proj.damage))
+    gv._trigger_shake()
+    if bump_volume is not None:
+        arcade.play_sound(gv._bump_snd, volume=bump_volume)
+
+
 def handle_alien_laser_hits(gv: GameView) -> None:
     """Alien laser projectiles hitting the player."""
     for proj in list(gv.alien_projectile_list):
         if arcade.check_for_collision(proj, gv.player):
-            if _try_melee_deflect(gv, proj):
-                continue
-            proj.remove_from_sprite_lists()
             # Alien lasers bypass the invincibility cooldown (they fire
             # rapidly and the design is that each bolt hurts).
-            gv._apply_damage_to_player(int(proj.damage))
-            gv._trigger_shake()
-            arcade.play_sound(gv._bump_snd, volume=0.3)
+            apply_enemy_projectile_hit(gv, proj, bump_volume=0.3)
 
 
 def _hit_player_on_cooldown(
@@ -643,12 +662,7 @@ def handle_boss_laser_hits(gv: GameView) -> None:
         dx = proj.center_x - gv.player.center_x
         dy = proj.center_y - gv.player.center_y
         if math.hypot(dx, dy) <= SHIP_RADIUS + 8.0:
-            if _try_melee_deflect(gv, proj):
-                continue
-            proj.remove_from_sprite_lists()
-            gv._apply_damage_to_player(int(proj.damage))
-            gv._trigger_shake()
-            arcade.play_sound(gv._bump_snd, volume=0.5)
+            apply_enemy_projectile_hit(gv, proj, bump_volume=0.5)
 
 
 def handle_boss_player_collision(gv: GameView) -> None:

@@ -306,14 +306,11 @@ def update_alien_laser_hits(z, gv: "GameView") -> None:
     overlapping the player sprite.  Both zones called the same inline
     loop; now centralised.
 
-    Routes through ``collisions._try_melee_deflect`` first so the
-    energy blade can deflect Nebula-alien bolts (matches the Zone 1
-    ``handle_alien_laser_hits`` deflect behaviour)."""
-    from collisions import _try_melee_deflect
+    Delegates to ``collisions.apply_enemy_projectile_hit`` so the
+    energy-blade deflect path fires here too (matches the Zone 1
+    ``handle_alien_laser_hits`` behaviour).  No bump sound — Z2
+    alien hits are silent in the original behaviour."""
+    from collisions import apply_enemy_projectile_hit
     for proj in arcade.check_for_collision_with_list(
             gv.player, z._alien_projectiles):
-        if _try_melee_deflect(gv, proj):
-            continue
-        gv._apply_damage_to_player(int(proj.damage))
-        gv._trigger_shake()
-        proj.remove_from_sprite_lists()
+        apply_enemy_projectile_hit(gv, proj)
