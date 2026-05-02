@@ -484,7 +484,7 @@ Players can spend mined iron to construct a modular space station. Press **B** t
 | Turret 1 | 100 | 50 | unlimited | 1 slot | Single-barrel auto-fire turret |
 | Turret 2 | 100 | 75 | unlimited | 2 slots | Dual-barrel auto-fire turret |
 | Repair Module | 75 | 75 | 1 | 1 slot | Enables passive HP repair near Home Station |
-| Basic Crafter | 75 | 150 | 1 | 1 slot | Crafts Repair Packs from iron |
+| Basic Crafter | 75 | 150 | 1 | 1 slot | Crafts Repair Packs and Shield Recharges from iron |
 
 ### Placement Rules
 
@@ -566,17 +566,16 @@ Players can spend mined iron to construct a modular space station. Press **B** t
 
 ### Basic Crafter Behaviour
 
-| Constant | Value |
-|---|---|
-| Recipe | Repair Pack |
-| Iron cost | 200 (from station inventory) |
-| Craft time | 60 s |
-| Output | 5× Repair Pack (added to station inventory) |
+| Recipe | Iron Cost | Craft Time | Output |
+|---|---|---|---|
+| Repair Pack | 200 (from station inventory) | 60 s | 5× Repair Pack (added to station inventory) |
+| Shield Recharge | 200 (from station inventory) | 60 s | 5× Shield Recharge (added to station inventory) |
 
 - Click a placed Basic Crafter (within 300 px) to open the craft menu
-- Craft menu shows recipe info, iron cost, and a Craft button
+- Craft menu shows the recipe list, iron cost, and a Craft button
+- Repair Pack and Shield Recharge are always available; module recipes appear once their blueprints are deposited
 - While crafting: progress bar fills over 60 seconds
-- On completion: 5 Repair Packs are added to the station inventory
+- On completion: 5 of the chosen consumable are added to the station inventory
 - Only one craft can run at a time per crafter
 
 ### Station Inventory
@@ -597,6 +596,23 @@ Players can spend mined iron to construct a modular space station. Press **B** t
 | Craft output | 5 packs per craft |
 | Effect | Restores 50% of player's maximum HP |
 | Usage | Place in Quick Use slot, press corresponding number key (1–5) |
+| Max stack | 99 |
+| Refusal | Use is rejected with "HP already full!" if HP is already at max |
+| Side effect | Consuming an item inside a Null Field breaks the cloak |
+
+### Shield Recharge
+
+| Property | Value |
+|---|---|
+| Asset | `assets/kenney space combat assets/Space Shooter Redux/PNG/Power-ups/powerupBlue_bolt.png` |
+| Craft cost | 200 iron + 60 seconds |
+| Craft output | 5 recharges per craft |
+| Effect | Restores 50% of player's maximum shields (`SHIELD_RECHARGE_HEAL = 0.50`) |
+| Usage | Place in Quick Use slot, press corresponding number key (1–5) |
+| Max stack | 99 |
+| Refusal | Use is rejected with "Shields already full!" if shields are already at max |
+| Side effect | Consuming an item inside a Null Field breaks the cloak |
+| Visual | Brief blue glow `(80, 160, 255, 160)` for 0.4 s on use |
 
 ### Quick Use Bar
 
@@ -607,7 +623,10 @@ Players can spend mined iron to construct a modular space station. Press **B** t
 - **Use items**: press keys 1–5 or click the slot to use the item (consumes one, decrements count)
 - **Rearrange**: click and drag between Quick Use slots to move or swap assignments; visible pick-up animation during drag
 - **Unassign**: drag an item out of the Quick Use bar (release outside any slot) to remove the assignment; the item remains in inventory
-- Currently supports: Repair Pack (heals 50% max HP on use, displays repair pack icon in slot)
+- Currently supports:
+  - Repair Pack (heals 50% max HP on use, displays repair pack icon in slot)
+  - Shield Recharge (restores 50% max shields on use, displays blue-bolt icon in slot)
+  - Homing Missile (fires one homing missile per use, displays missile icon in slot)
 
 ### Building Assets
 

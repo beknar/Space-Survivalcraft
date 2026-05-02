@@ -176,6 +176,7 @@ The Energy Blade is a persistent lightsabre sprite that lives in front of the sh
 | Iron | 999 |
 | Copper | 999 |
 | Repair Pack | 99 |
+| Shield Recharge | 99 |
 | Missile | 500 |
 | Blueprints/Modules | 10 |
 
@@ -377,6 +378,7 @@ The Energy Blade is a persistent lightsabre sprite that lives in front of the sh
 | Recipe | Iron Cost | Time | Output |
 |---|---|---|---|
 | Repair Pack | 200 | 60 s | 5 packs |
+| Shield Recharge | 200 | 60 s | 5 recharges |
 
 ---
 
@@ -406,6 +408,7 @@ trade panel.
 |---|---|---|
 | Iron | 1 credit | --- |
 | Repair Pack | 100 credits | 400 credits (x5) |
+| Shield Recharge | 100 credits | 400 credits (x5) |
 | Blueprint | Half craft cost | --- |
 | Module | Full craft cost | --- |
 

@@ -374,7 +374,7 @@ persisted).
 
 - 10x10 station grid accessible by clicking the Home Station
 - Drag items between station and ship inventories
-- Basic Crafter produces Repair Packs and ship modules
+- Basic Crafter produces Repair Packs, Shield Recharges, and ship modules
 - Recipes unlock permanently when blueprints are deposited
 
 ## Trading Station
