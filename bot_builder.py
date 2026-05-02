@@ -6,15 +6,17 @@ to be triggered via ``POST /build_starter_base`` on the bot HTTP
 API (the autopilot fires this once it has accumulated enough iron
 and is in a clear area).
 
-Sequence (positions are relative to the player at trigger time):
+Sequence (positions are relative to the player at trigger time;
+all 200 px north of the player so the ship doesn't end up trapped
+inside the Home Station):
 
-  1. Home Station   at (px,         py)         -- anchor
-  2. Service Module at (px,         py + 60)    -- snaps to N port of HS
-  3. Power Receiver at (px,         py + 120)   -- snaps to N port of SM
-  4. Solar Array 2  at (px,         py + 200)   -- snaps to N port of PR
-  5. Repair Module  at (px + 60,    py + 60)    -- snaps to E port of SM
-  6. Turret 2       at (px + 300,   py)         -- max-distance free place
-  7. Turret 2       at (px - 300,   py)         -- max-distance free place
+  1. Home Station   at (px,         py + 200)   -- anchor
+  2. Service Module at (px,         py + 260)   -- snaps to N port of HS
+  3. Power Receiver at (px,         py + 320)   -- snaps to N port of SM
+  4. Solar Array 2  at (px,         py + 400)   -- snaps to N port of PR
+  5. Repair Module  at (px + 60,    py + 260)   -- snaps to E port of SM
+  6. Turret 2       at (px + 300,   py + 200)   -- max-distance free place
+  7. Turret 2       at (px - 300,   py + 200)   -- max-distance free place
 
 Each step goes through the standard
 ``building_manager.enter_placement_mode`` +
@@ -40,15 +42,33 @@ from typing import Any
 # for the calc), and the snap logic in ``place_building`` will pull
 # each module onto the appropriate port even if our coordinate is a
 # few pixels off-grid.
+# The whole sequence is shifted 200 px north of the player so the
+# Home Station lands clear of the ship — the player ship has
+# SHIP_RADIUS = 28 + buildings have BUILDING_RADIUS = 30, so
+# placing the Home Station on the player's position trapped the
+# ship inside the structure with no way to thrust out.
+_STARTER_BASE_OFFSET_Y: float = 200.0
 STARTER_BASE_SEQUENCE: list[tuple[str, float, float]] = [
-    ("Home Station",     0.0,    0.0),
-    ("Service Module",   0.0,   60.0),
-    ("Power Receiver",   0.0,  120.0),
-    ("Solar Array 2",    0.0,  200.0),
-    ("Repair Module",   60.0,   60.0),
-    ("Turret 2",       300.0,    0.0),
-    ("Turret 2",      -300.0,    0.0),
+    ("Home Station",     0.0, _STARTER_BASE_OFFSET_Y +    0.0),
+    ("Service Module",   0.0, _STARTER_BASE_OFFSET_Y +   60.0),
+    ("Power Receiver",   0.0, _STARTER_BASE_OFFSET_Y +  120.0),
+    ("Solar Array 2",    0.0, _STARTER_BASE_OFFSET_Y +  200.0),
+    ("Repair Module",   60.0, _STARTER_BASE_OFFSET_Y +   60.0),
+    ("Turret 2",       300.0, _STARTER_BASE_OFFSET_Y +    0.0),
+    ("Turret 2",      -300.0, _STARTER_BASE_OFFSET_Y +    0.0),
 ]
+
+
+def _existing_count(gv: Any, building_type: str) -> int:
+    """Count existing buildings of ``building_type`` in
+    ``gv.building_list``.  Used to skip placement of types that
+    have already hit their max (``place_building`` itself doesn't
+    enforce max-count — that lives in the build-menu UI)."""
+    n = 0
+    for b in gv.building_list:
+        if getattr(b, "building_type", None) == building_type:
+            n += 1
+    return n
 
 
 def build_starter_base(gv: Any) -> dict:
@@ -56,10 +76,14 @@ def build_starter_base(gv: Any) -> dict:
 
     Returns a JSON-serialisable dict reporting which buildings were
     placed successfully and which failed (with reasons).  Resource
-    cost validation, snap-port alignment, and max-count gates are
-    enforced by ``building_manager.place_building`` itself; this
-    function just sequences the calls and records the outcome.
+    cost validation + snap-port alignment are enforced by
+    ``building_manager.place_building``.  Max-count is enforced
+    HERE (defensive) because ``place_building`` itself bypasses
+    the UI's max-count gate — without this guard, a re-trigger
+    would create duplicate Home Stations / Service Modules /
+    Repair Modules.
     """
+    from constants import BUILDING_TYPES
     import building_manager as bm
 
     px = gv.player.center_x
@@ -71,6 +95,17 @@ def build_starter_base(gv: Any) -> dict:
     for bt, dx, dy in STARTER_BASE_SEQUENCE:
         wx = px + dx
         wy = py + dy
+        # Defensive max-count check.  ``place_building`` doesn't
+        # gate on max — that gate is in the UI.  Without this,
+        # repeated builds (e.g. process restart with cached iron)
+        # would happily duplicate max=1 buildings.
+        max_count = BUILDING_TYPES.get(bt, {}).get("max")
+        if max_count is not None and _existing_count(gv, bt) >= max_count:
+            failed.append(
+                {"type": bt,
+                 "reason": f"max-count {max_count} already placed",
+                 "at": [wx, wy]})
+            continue
         before = len(gv.building_list)
         try:
             bm.enter_placement_mode(gv, bt)
@@ -91,7 +126,7 @@ def build_starter_base(gv: Any) -> dict:
             placed.append({"type": bt, "at": [wx, wy]})
         else:
             # ``place_building`` silently cancels on failure (cost
-            # too high, connectivity rejected, max-count hit).
+            # too high, connectivity rejected).
             failed.append(
                 {"type": bt, "reason": "placement rejected",
                  "at": [wx, wy]})

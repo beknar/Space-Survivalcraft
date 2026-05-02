@@ -852,16 +852,29 @@ def _act_build(state: dict, p: dict) -> None:
     ``_state.build_done`` so the FSM falls through to MINE /
     SEARCH on subsequent ticks.  Releases all movement keys for
     the duration of the call so the ship coasts in place while
-    the seven buildings are placed in-process."""
+    the seven buildings are placed in-process.
+
+    Guarded by an early ``build_done`` check: while the FSM is
+    holding S_BUILD through MIN_DWELL_S, the dispatch can call
+    this multiple times — but only the FIRST call should actually
+    POST the build.  Without the guard, a 0.6 s dwell at 10 Hz
+    plus the synchronous HTTP POST round-trip produced 6 build
+    attempts in one play-test, each one re-spending iron on
+    duplicate buildings."""
+    if _state.build_done:
+        # Already POSTed once this session.  Coast until the FSM
+        # transitions out of S_BUILD on the next tick.
+        _do_idle()
+        return
     KeyState.release_all()
     _do_idle()
     print("[autopilot] BUILD: requesting starter base "
           f"(iron={_iron_total(state)})")
-    result = _post_build_starter_base()
-    # Mark done regardless of outcome so we don't keep retrying on
-    # every tick.  If placement failed (e.g. snap-port rejection),
-    # the bot resumes mining and the player can build manually.
+    # Mark done BEFORE the POST so a re-entry mid-POST (if it
+    # ever happens) early-returns above.  The HTTP request is
+    # synchronous so we'll typically only re-enter post-completion.
     _state.build_done = True
+    result = _post_build_starter_base()
     if result is None:
         print("[autopilot] BUILD: POST failed; flagging done so the "
               "FSM resumes normal flow")

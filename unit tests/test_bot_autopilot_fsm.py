@@ -653,6 +653,28 @@ class TestStarterBaseBuildGate:
             "fall through to MINE / SEARCH")
         assert ap._fsm["state"] != ap.S_BUILD
 
+    def test_act_build_does_not_repost_during_dwell(
+            self, _clock, monkeypatch):
+        """While the FSM is holding S_BUILD through MIN_DWELL_S,
+        the dispatch may call _act_build multiple times — but only
+        the FIRST call should POST.  Without the guard, the
+        synchronous HTTP round-trip plus the 0.6 s dwell at 10 Hz
+        produced 6 build attempts in a play-test, each one re-
+        spending iron on duplicate buildings."""
+        post_calls: list = []
+        monkeypatch.setattr(
+            ap, "_post_build_starter_base",
+            lambda timeout_s=5.0: (
+                post_calls.append(True) or {"placed": [], "failed": []}))
+        s = _state(iron=ap.BUILD_IRON_THRESHOLD)
+        # Manually call _act_build five times in a row (simulating
+        # repeated dispatch within the dwell window).
+        for _ in range(5):
+            ap._act_build(s, s["player"])
+        assert len(post_calls) == 1, (
+            "_act_build must guard against repeat POSTs via "
+            "_state.build_done check")
+
     def test_build_releases_movement_keys(
             self, _clock, monkeypatch):
         """The act_build branch must coast in place — movement keys

@@ -41,14 +41,38 @@ def test_sequence_is_seven_buildings_in_documented_order():
 
 def test_turrets_are_at_max_free_place_radius():
     """Turret 2s sit at +/-300 px on the X axis — the
-    TURRET_FREE_PLACE_RADIUS limit defined in constants.py."""
+    TURRET_FREE_PLACE_RADIUS limit defined in constants.py.
+    The Y offset is the global STARTER_BASE_OFFSET_Y so the
+    turrets line up with the home station along its row."""
     from constants import TURRET_FREE_PLACE_RADIUS
     turret_offsets = [
         (dx, dy) for (bt, dx, dy) in bot_builder.STARTER_BASE_SEQUENCE
         if bt == "Turret 2"
     ]
-    assert (TURRET_FREE_PLACE_RADIUS, 0.0) in turret_offsets
-    assert (-TURRET_FREE_PLACE_RADIUS, 0.0) in turret_offsets
+    base_y = bot_builder._STARTER_BASE_OFFSET_Y
+    assert (TURRET_FREE_PLACE_RADIUS, base_y) in turret_offsets
+    assert (-TURRET_FREE_PLACE_RADIUS, base_y) in turret_offsets
+
+
+def test_home_station_offset_clears_player_radius():
+    """Home Station must sit far enough from the player that the
+    ship doesn't end up trapped inside the structure (player ship
+    radius 28 + building radius 30 = 58 px clearance minimum;
+    we use a generous 200 px shift so the bot can manoeuvre
+    after the build completes)."""
+    from constants import SHIP_RADIUS, BUILDING_RADIUS
+    hs_offsets = [
+        (dx, dy) for (bt, dx, dy) in bot_builder.STARTER_BASE_SEQUENCE
+        if bt == "Home Station"
+    ]
+    assert len(hs_offsets) == 1
+    dx, dy = hs_offsets[0]
+    import math
+    dist = math.hypot(dx, dy)
+    min_clearance = SHIP_RADIUS + BUILDING_RADIUS + 50  # 50 px buffer
+    assert dist >= min_clearance, (
+        f"Home Station offset {dist:.0f} px must be >= "
+        f"{min_clearance:.0f} px for the ship to escape after build")
 
 
 # ── build_starter_base() behaviour ────────────────────────────────────────
@@ -141,3 +165,63 @@ def test_exception_in_placement_recorded_and_continues(
     assert "boom" in result["failed"][0]["error"]
     assert len(result["placed"]) == 6
     assert cancels, "must call cancel_placement after exception"
+
+
+# ── Max-count defensive guard ─────────────────────────────────────────────
+
+
+def test_skips_max_one_buildings_that_already_exist(monkeypatch):
+    """Defensive guard: ``place_building`` doesn't enforce
+    max-count (that's the build-menu UI's job).  bot_builder must
+    skip max=1 types that are already in the building list, or a
+    re-trigger would create duplicates."""
+    import building_manager as bm
+    placed_types: list = []
+
+    def _enter(gv, bt):
+        pass
+
+    def _place(gv, wx, wy):
+        placed_types.append("placed")
+        gv.building_list.append(SimpleNamespace())
+
+    monkeypatch.setattr(bm, "enter_placement_mode", _enter)
+    monkeypatch.setattr(bm, "place_building", _place)
+    monkeypatch.setattr(bm, "cancel_placement", lambda gv: None)
+
+    # Pre-seed building_list with an existing Home Station + Service Module.
+    existing = [
+        SimpleNamespace(building_type="Home Station"),
+        SimpleNamespace(building_type="Service Module"),
+        SimpleNamespace(building_type="Repair Module"),
+    ]
+    gv = _stub_gv(buildings=list(existing))
+    result = bot_builder.build_starter_base(gv)
+
+    # max=1 entries (Home Station, Repair Module) skipped + Service
+    # Module skipped.  4 buildings placed (PR, SA2, T2, T2).
+    skipped_types = [f["type"] for f in result["failed"]
+                     if "max-count" in f.get("reason", "")]
+    assert "Home Station" in skipped_types
+    assert "Repair Module" in skipped_types
+    # Service Module is max=4, only 1 exists, so it should still place.
+    assert "Service Module" not in skipped_types
+
+
+def test_no_max_skip_when_below_limit(monkeypatch):
+    """max=4 Service Module with 1 existing → should still place."""
+    import building_manager as bm
+
+    def _place(gv, wx, wy):
+        gv.building_list.append(SimpleNamespace())
+
+    monkeypatch.setattr(bm, "enter_placement_mode", lambda gv, bt: None)
+    monkeypatch.setattr(bm, "place_building", _place)
+    monkeypatch.setattr(bm, "cancel_placement", lambda gv: None)
+
+    gv = _stub_gv(buildings=[
+        SimpleNamespace(building_type="Service Module")])
+    result = bot_builder.build_starter_base(gv)
+    skipped_types = [f["type"] for f in result["failed"]
+                     if "max-count" in f.get("reason", "")]
+    assert "Service Module" not in skipped_types
