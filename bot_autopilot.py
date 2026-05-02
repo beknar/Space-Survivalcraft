@@ -316,6 +316,13 @@ ALL_STATES = (
 # attempt so the bot doesn't keep re-rolling the build
 # (intentionally simple one-shot — a destroyed station won't
 # auto-rebuild).
+#
+# 1000 iron covers all three build phases:
+#   Phase 1 starter base  500 iron (HS 100 + SM 25 + PR 50 +
+#                                   SA2 100 + RM 75 + 2× T2 150)
+#   Phase 3 extension     325 iron (SM 25 + PR 50 + SA2 100 +
+#                                   Basic Crafter 150)
+#   Total                 825 iron — leaves ~175 iron of headroom
 BUILD_IRON_THRESHOLD = 1000
 # Single radius for "clear and quiet" — no asteroids, aliens,
 # pickups, or buildings within this distance of the player.

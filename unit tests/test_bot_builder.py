@@ -79,6 +79,9 @@ def test_home_station_offset_clears_player_radius():
 
 
 def test_each_step_calls_enter_then_place(monkeypatch):
+    """Both phases (Phase 1 starter base + Phase 3 extension)
+    must be placed.  7 + 4 = 11 buildings expected when all
+    placements succeed and no max-count gate trips."""
     calls: list = []
 
     def _enter(gv, bt):
@@ -87,7 +90,10 @@ def test_each_step_calls_enter_then_place(monkeypatch):
     def _place(gv, wx, wy):
         calls.append(("place", wx, wy))
         # Simulate a successful placement -- grow building_list.
-        gv.building_list.append(SimpleNamespace(name="stub"))
+        # Tag with a building_type so max-count guard can dedupe.
+        bt = calls[-2][1]   # the matching enter call
+        gv.building_list.append(
+            SimpleNamespace(building_type=bt))
 
     def _cancel(gv):
         calls.append(("cancel",))
@@ -98,22 +104,33 @@ def test_each_step_calls_enter_then_place(monkeypatch):
     monkeypatch.setattr(bm, "cancel_placement", _cancel)
 
     gv = _stub_gv()
+    # Stub inventory + station_inv so the deposit phase doesn't
+    # blow up between Phase 1 and Phase 3.
+    gv.inventory = SimpleNamespace(
+        total_iron=0,
+        count_item=lambda k: 0,
+        remove_item=lambda k, n: None,
+    )
+    gv._station_inv = SimpleNamespace(
+        add_item=lambda k, n: None,
+    )
     result = bot_builder.build_starter_base(gv)
 
-    # 7 enter + 7 place, in interleaved order.
+    # 7 (Phase 1) + 4 (Phase 3) = 11 buildings.
     enter_count = sum(1 for c in calls if c[0] == "enter")
     place_count = sum(1 for c in calls if c[0] == "place")
-    assert enter_count == 7
-    assert place_count == 7
-    assert result["buildings_added"] == 7
-    assert len(result["placed"]) == 7
+    assert enter_count == 11
+    assert place_count == 11
+    assert result["buildings_added"] == 11
+    assert len(result["placed"]) == 11
     assert result["failed"] == []
 
 
 def test_failed_placement_reported_as_rejected(monkeypatch):
     """When ``place_building`` doesn't grow ``building_list`` (the
     canonical "rejected" path — silent cancel inside the helper),
-    that step lands in ``failed`` not ``placed``."""
+    that step lands in ``failed`` not ``placed``.  All 11 buildings
+    across both phases are attempted."""
     import building_manager as bm
     monkeypatch.setattr(bm, "enter_placement_mode", lambda gv, bt: None)
     # Reject every placement.
@@ -121,11 +138,15 @@ def test_failed_placement_reported_as_rejected(monkeypatch):
     monkeypatch.setattr(bm, "cancel_placement", lambda gv: None)
 
     gv = _stub_gv()
+    gv.inventory = SimpleNamespace(
+        total_iron=0, count_item=lambda k: 0,
+        remove_item=lambda k, n: None)
+    gv._station_inv = SimpleNamespace(add_item=lambda k, n: None)
     result = bot_builder.build_starter_base(gv)
 
     assert result["buildings_added"] == 0
     assert result["placed"] == []
-    assert len(result["failed"]) == 7
+    assert len(result["failed"]) == 11
     assert all(f["reason"] == "placement rejected"
                for f in result["failed"])
 
@@ -134,20 +155,23 @@ def test_exception_in_placement_recorded_and_continues(
         monkeypatch):
     """If ``place_building`` raises, the builder must
     ``cancel_placement`` to clear the ghost and continue with the
-    next building."""
+    next building.  10 subsequent placements (out of the 11-step
+    total) should succeed after a single exception on step 1."""
     import building_manager as bm
     cancels: list = []
     placed_after_first: list = []
 
     enter_count = [0]
+    last_enter_bt: list = []
     def _enter(gv, bt):
         enter_count[0] += 1
+        last_enter_bt.append(bt)
 
     def _place(gv, wx, wy):
         if enter_count[0] == 1:
             raise RuntimeError("boom")
-        # Subsequent placements succeed.
-        gv.building_list.append(SimpleNamespace())
+        gv.building_list.append(
+            SimpleNamespace(building_type=last_enter_bt[-1]))
         placed_after_first.append(True)
 
     monkeypatch.setattr(bm, "enter_placement_mode", _enter)
@@ -157,13 +181,18 @@ def test_exception_in_placement_recorded_and_continues(
         lambda gv: cancels.append(True))
 
     gv = _stub_gv()
+    gv.inventory = SimpleNamespace(
+        total_iron=0, count_item=lambda k: 0,
+        remove_item=lambda k, n: None)
+    gv._station_inv = SimpleNamespace(add_item=lambda k, n: None)
     result = bot_builder.build_starter_base(gv)
 
-    # Failure on Home Station, but 6 subsequent placements succeed.
+    # Failure on Home Station, plus 10 subsequent placements
+    # succeed (6 remaining Phase 1 + 4 Phase 3).
     assert len(result["failed"]) == 1
     assert result["failed"][0]["type"] == "Home Station"
     assert "boom" in result["failed"][0]["error"]
-    assert len(result["placed"]) == 6
+    assert len(result["placed"]) == 10
     assert cancels, "must call cancel_placement after exception"
 
 
@@ -189,39 +218,131 @@ def test_skips_max_one_buildings_that_already_exist(monkeypatch):
     monkeypatch.setattr(bm, "place_building", _place)
     monkeypatch.setattr(bm, "cancel_placement", lambda gv: None)
 
-    # Pre-seed building_list with an existing Home Station + Service Module.
+    # Pre-seed building_list with an existing Home Station + Repair Module.
     existing = [
         SimpleNamespace(building_type="Home Station"),
-        SimpleNamespace(building_type="Service Module"),
         SimpleNamespace(building_type="Repair Module"),
     ]
     gv = _stub_gv(buildings=list(existing))
+    gv.inventory = SimpleNamespace(
+        total_iron=0, count_item=lambda k: 0,
+        remove_item=lambda k, n: None)
+    gv._station_inv = SimpleNamespace(add_item=lambda k, n: None)
     result = bot_builder.build_starter_base(gv)
 
-    # max=1 entries (Home Station, Repair Module) skipped + Service
-    # Module skipped.  4 buildings placed (PR, SA2, T2, T2).
+    # max=1 entries (Home Station, Repair Module) skipped.
     skipped_types = [f["type"] for f in result["failed"]
                      if "max-count" in f.get("reason", "")]
     assert "Home Station" in skipped_types
     assert "Repair Module" in skipped_types
-    # Service Module is max=4, only 1 exists, so it should still place.
-    assert "Service Module" not in skipped_types
 
 
 def test_no_max_skip_when_below_limit(monkeypatch):
     """max=4 Service Module with 1 existing → should still place."""
     import building_manager as bm
 
-    def _place(gv, wx, wy):
-        gv.building_list.append(SimpleNamespace())
+    last_bt: list = []
+    def _enter(gv, bt):
+        last_bt.append(bt)
 
-    monkeypatch.setattr(bm, "enter_placement_mode", lambda gv, bt: None)
+    def _place(gv, wx, wy):
+        gv.building_list.append(
+            SimpleNamespace(building_type=last_bt[-1]))
+
+    monkeypatch.setattr(bm, "enter_placement_mode", _enter)
     monkeypatch.setattr(bm, "place_building", _place)
     monkeypatch.setattr(bm, "cancel_placement", lambda gv: None)
 
     gv = _stub_gv(buildings=[
         SimpleNamespace(building_type="Service Module")])
+    gv.inventory = SimpleNamespace(
+        total_iron=0, count_item=lambda k: 0,
+        remove_item=lambda k, n: None)
+    gv._station_inv = SimpleNamespace(add_item=lambda k, n: None)
     result = bot_builder.build_starter_base(gv)
     skipped_types = [f["type"] for f in result["failed"]
                      if "max-count" in f.get("reason", "")]
     assert "Service Module" not in skipped_types
+
+
+# ── Phase 2 deposit ───────────────────────────────────────────────────────
+
+
+def test_deposit_moves_ship_iron_to_station():
+    """Phase 2 transfers all ship iron + copper into the home
+    station inventory."""
+    transfers: list = []
+    inv_iron = [500]
+    def _remove_inv(k, n):
+        if k == "iron":
+            inv_iron[0] -= n
+            transfers.append(("inv_remove", k, n))
+    def _add_station(k, n):
+        transfers.append(("station_add", k, n))
+    gv = SimpleNamespace(
+        building_list=[SimpleNamespace(building_type="Home Station")],
+        inventory=SimpleNamespace(
+            total_iron=500,
+            count_item=lambda k: 75 if k == "copper" else 0,
+            remove_item=_remove_inv,
+        ),
+        _station_inv=SimpleNamespace(add_item=_add_station),
+    )
+    result = bot_builder.deposit_ship_resources_to_station(gv)
+    assert result["deposited"] == {"iron": 500, "copper": 75}
+    assert ("inv_remove", "iron", 500) in transfers
+    assert ("station_add", "iron", 500) in transfers
+    assert ("station_add", "copper", 75) in transfers
+
+
+def test_deposit_skips_when_no_home_station():
+    """No Home Station built yet → deposit is a no-op."""
+    gv = SimpleNamespace(
+        building_list=[],
+        inventory=SimpleNamespace(
+            total_iron=500,
+            count_item=lambda k: 0,
+            remove_item=lambda k, n: None,
+        ),
+        _station_inv=SimpleNamespace(add_item=lambda k, n: None),
+    )
+    result = bot_builder.deposit_ship_resources_to_station(gv)
+    assert result["deposited"] == {}
+    assert "no home station" in result.get("skipped", "")
+
+
+# ── Phase 3 extension layout ──────────────────────────────────────────────
+
+
+def test_extension_sequence_is_four_buildings_in_order():
+    types = [bt for (bt, _, _) in bot_builder.EXTENSION_SEQUENCE]
+    assert types == [
+        "Service Module",
+        "Power Receiver",
+        "Solar Array 2",
+        "Basic Crafter",
+    ]
+
+
+def test_extension_west_chain_extends_leftward():
+    """The Service / Power Receiver / Solar Array chain runs WEST
+    from the home station — each module further left than the
+    previous so each can snap to its parent's W port."""
+    west = [(dx, dy) for (bt, dx, dy) in bot_builder.EXTENSION_SEQUENCE
+            if bt in ("Service Module",
+                      "Power Receiver",
+                      "Solar Array 2")]
+    xs = [dx for (dx, _) in west]
+    # Strictly decreasing x — each step further west than the last.
+    for i in range(1, len(xs)):
+        assert xs[i] < xs[i - 1], (
+            f"Phase 3 west chain must extend leftward; got x={xs}")
+
+
+def test_full_build_includes_basic_crafter():
+    """The Basic Crafter is part of the combined sequence so the
+    bot has a crafting station after one POST."""
+    all_types = (
+        [bt for (bt, _, _) in bot_builder.STARTER_BASE_SEQUENCE]
+        + [bt for (bt, _, _) in bot_builder.EXTENSION_SEQUENCE])
+    assert "Basic Crafter" in all_types
