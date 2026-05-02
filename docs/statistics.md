@@ -353,7 +353,7 @@ The Energy Blade is a persistent lightsabre sprite that lives in front of the sh
 | ![](images/buildings/turret_1.png)        | Turret 1         | 100 |  50 | unlimited | 1                | Single-barrel auto-fire |
 | ![](images/buildings/turret_2.png)        | Turret 2         | 100 |  75 | unlimited | 2                | Dual-barrel auto-fire |
 | ![](images/buildings/repair_module.png)   | Repair Module    |  75 |  75 | 1         | 1                | Passive HP repair |
-| ![](images/buildings/basic_crafter.png)   | Basic Crafter    |  75 | 150 | 1         | 1                | Crafts repair packs |
+| ![](images/buildings/basic_crafter.png)   | Basic Crafter    |  75 | 150 | 1         | 1                | Crafts repair packs and shield recharges |
 
 ### Turret Stats
 
