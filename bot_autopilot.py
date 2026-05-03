@@ -1368,6 +1368,20 @@ def _do_auto(state: dict, p: dict) -> None:
             return
         # Exit condition met — clear the override and fall through.
         _stuck_state["escape_until"] = 0.0
+        # Re-anchor the SEARCH spiral at the bot's CURRENT
+        # (clear-space) position.  Prior code re-anchored at
+        # world centre during the on-stuck handler — but the
+        # home station is typically built near world centre, so
+        # the next SEARCH cycle would target right back through
+        # the building cluster that caused the stuck (observed:
+        # 13 consecutive stuck events in 72 s, all in S_SEARCH,
+        # all oscillating between two positions 60-130 px from
+        # the HS).  Anchoring at the post-escape position means
+        # the new spiral starts in clear space.
+        _spiral_state["anchor"] = (
+            float(p.get("x", 0.0)), float(p.get("y", 0.0)))
+        _spiral_state["angle"] = 0.0
+        _spiral_state["radius"] = 100.0
     if _detect_stuck():
         _stuck_state["escape_until"] = now + STUCK_ESCAPE_MIN_DURATION_S
         # Blacklist whichever target the bot was trying to reach —
@@ -1414,16 +1428,13 @@ def _do_auto(state: dict, p: dict) -> None:
                        blacklisted_pickup=blacklisted_pu,
                        blacklisted_asteroid=blacklisted_ast,
                        **_telemetry_snapshot_fields(state, p))
-        # Re-anchor the spiral to the WORLD CENTRE (not just reset
-        # to None which would re-anchor at the current edge
-        # position).  When the FSM eventually re-enters SEARCH
-        # post-escape, the spiral will expand from the centre
-        # rather than from the edge — no more immediate re-pin.
-        world_w = float(zone.get("world_w", 6400) or 6400)
-        world_h = float(zone.get("world_h", 6400) or 6400)
-        _spiral_state["anchor"] = (world_w * 0.5, world_h * 0.5)
-        _spiral_state["angle"] = 0.0
-        _spiral_state["radius"] = 100.0
+        # The spiral re-anchor moved to the escape-EXIT branch
+        # (above).  Anchoring at world centre on stuck-detect
+        # was the source of a regression: the home station is
+        # typically built near world centre, so the next SEARCH
+        # cycle would target right back through the building
+        # cluster.  We now wait until the escape lands the ship
+        # in clear space and anchor THERE.
         _stuck_state["history"] = []
         # Throttle the log so a long escape burst doesn't spam.
         if (now - _stuck_state["last_log"]) >= STUCK_LOG_THROTTLE_S:

@@ -903,13 +903,36 @@ class TestStuckEscape:
         ap._do_auto(s, s["player"])
         assert ap._stuck_state["escape_until"] == 0.0
 
-    def test_stuck_re_anchors_spiral_to_world_centre(self, _clock):
-        """Re-anchoring the spiral to the world centre on stuck
-        means a follow-up SEARCH after escape doesn't re-pin —
-        otherwise SEARCH would re-anchor at the bot's edge
-        position and immediately spiral back into the wall."""
+    def test_escape_exit_anchors_spiral_at_clear_space_position(
+            self, _clock):
+        """The spiral re-anchor used to fire on stuck-detect with
+        world centre as the anchor — but the home station is
+        typically built near world centre, so the next SEARCH
+        cycle would target right back through the building
+        cluster (observed: 13 consecutive stuck events in 72 s,
+        all in S_SEARCH, oscillating between two positions
+        60-130 px from the HS).  Now the re-anchor fires when
+        the escape EXITS, using the bot's clear-space landing
+        position so the new spiral starts away from whatever
+        caused the stuck."""
         self._drive_ticks_at(_clock, 100.0, 100.0, n=20)
-        assert ap._spiral_state["anchor"] == (3200.0, 3200.0)
+        assert ap._stuck_state["escape_until"] > 0.0
+        # During the escape, anchor is whatever it was before
+        # (or what _do_spiral_search set on its first call).
+        # Now jump past the escape window, with the ship clear
+        # of edges + buildings.
+        _clock[0] += ap.STUCK_ESCAPE_MIN_DURATION_S + 0.1
+        s = _state(player={"x": 3500.0, "y": 3500.0, "heading": 0.0,
+                            "shields": 150, "max_shields": 150})
+        ap._do_auto(s, s["player"])
+        # Escape exit branch should have re-anchored the spiral
+        # at the ship's CURRENT (3500, 3500) position.  Radius
+        # and angle then get advanced one tick when the FSM
+        # falls through to _do_spiral_search post-escape, so
+        # they end up just past the seeded 100 / 0.0.
+        assert ap._spiral_state["anchor"] == (3500.0, 3500.0)
+        assert 100.0 < ap._spiral_state["radius"] < 110.0
+        assert ap._spiral_state["angle"] == ap.SPIRAL_ANGLE_ADVANCE_RAD
 
     def test_stuck_log_is_throttled(self, _clock, capsys):
         """A long stuck recovery used to spam the console with
