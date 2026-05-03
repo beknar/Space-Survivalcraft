@@ -1513,3 +1513,125 @@ class TestCraftQueueDefaults:
     def test_consumable_batch_counts(self):
         assert ap.REPAIR_PACK_CRAFT_BATCHES == 5
         assert ap.SHIELD_RECHARGE_CRAFT_BATCHES == 5
+
+
+# ── Boundary repulsion (potential field) ─────────────────────────────────
+
+
+class TestBoundaryRepulsion:
+    """``_boundary_repulsion`` returns a per-axis push vector that
+    ramps from 0 (at ``BOUNDARY_REPULSION_RANGE_PX`` from an edge)
+    to 1 (right at the edge).  Far from any edge it's exactly zero
+    so the safe case pays no cost."""
+
+    def _zone(self, w=6400, h=6400):
+        return {"world_w": w, "world_h": h, "zone_id": "ZoneID.MAIN"}
+
+    def test_far_from_edges_returns_zero(self):
+        rx, ry = ap._boundary_repulsion(
+            {"x": 3200.0, "y": 3200.0}, self._zone())
+        assert rx == 0.0 and ry == 0.0
+
+    def test_at_west_edge_pushes_east(self):
+        rx, ry = ap._boundary_repulsion(
+            {"x": 0.0, "y": 3200.0}, self._zone())
+        assert rx == 1.0
+        assert ry == 0.0
+
+    def test_at_east_edge_pushes_west(self):
+        rx, ry = ap._boundary_repulsion(
+            {"x": 6400.0, "y": 3200.0}, self._zone())
+        assert rx == -1.0
+        assert ry == 0.0
+
+    def test_at_south_edge_pushes_north(self):
+        rx, ry = ap._boundary_repulsion(
+            {"x": 3200.0, "y": 0.0}, self._zone())
+        assert rx == 0.0
+        assert ry == 1.0
+
+    def test_at_north_edge_pushes_south(self):
+        rx, ry = ap._boundary_repulsion(
+            {"x": 3200.0, "y": 6400.0}, self._zone())
+        assert rx == 0.0
+        assert ry == -1.0
+
+    def test_at_sw_corner_pushes_diagonally_ne(self):
+        """Corners stack both axes — the result is a 45° push away
+        from the corner without any extra special-case logic."""
+        rx, ry = ap._boundary_repulsion(
+            {"x": 0.0, "y": 0.0}, self._zone())
+        assert rx == 1.0
+        assert ry == 1.0
+
+    def test_ramps_linearly_across_range(self):
+        """Halfway through the range -> half magnitude."""
+        half = ap.BOUNDARY_REPULSION_RANGE_PX * 0.5
+        rx, _ = ap._boundary_repulsion(
+            {"x": half, "y": 3200.0}, self._zone())
+        assert abs(rx - 0.5) < 1e-9
+
+    def test_missing_zone_dims_returns_zero(self):
+        """Defensive: a /state without world dimensions yields zero
+        repulsion (caller falls back to plain angle_to)."""
+        rx, ry = ap._boundary_repulsion(
+            {"x": 100.0, "y": 100.0}, {})
+        assert rx == 0.0 and ry == 0.0
+
+
+class TestSteeredHeadingDeflectsNearEdge:
+    """``_steered_heading`` blends repulsion into the goto vector.
+    These tests confirm the deflection happens (i.e. the heading
+    moves away from the wall) without being so strong that the bot
+    completely abandons distant targets."""
+
+    def test_far_from_edges_heading_is_unchanged(self):
+        s = _state(
+            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150})
+        # Goto vector pointing east (dx=+1000, dy=0).
+        h = ap._steered_heading(s, s["player"], 1000.0, 0.0, 1000.0)
+        # angle_to(+x, 0) returns 90° (east) under arcade's
+        # heading-0-=-north convention.
+        assert abs(h - 90.0) < 0.01
+
+    def test_pinned_at_west_edge_pure_west_goto_falls_back_to_repulsion(self):
+        """Bot pinned at the west edge with a goto pointing further
+        west (degenerate cancellation case): ``_steered_heading``
+        falls back to **pure repulsion** so the bot peels off the
+        wall instead of arbitrarily collapsing to angle_to(0, 0).
+        Heading should be 90° (pure east) — directly away from
+        the west wall."""
+        s = _state(
+            player={"x": 0.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150})
+        h = ap._steered_heading(s, s["player"], -100.0, 0.0, 100.0)
+        assert abs(h - 90.0) < 0.01, (
+            f"expected fallback to pure-east repulsion (90°), got {h}°")
+
+    def test_pinned_at_north_edge_pure_north_goto_falls_back_to_repulsion(self):
+        """Same fallback at the north edge: degenerate cancellation
+        steers the bot to pure south (180°) — away from the
+        north wall."""
+        s = _state(
+            player={"x": 3200.0, "y": 6400.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150})
+        h = ap._steered_heading(s, s["player"], 0.0, 100.0, 100.0)
+        assert abs(h - 180.0) < 0.01, (
+            f"expected fallback to pure-south repulsion (180°), got {h}°")
+
+    def test_half_range_deflection_is_significant(self):
+        """At half the repulsion range, the deflection should be
+        roughly 27° (atan2(0.5, 1.0)) for a goto pointing into the
+        wall.  Pin it within a small tolerance."""
+        import math as _math
+        rng_half = ap.BOUNDARY_REPULSION_RANGE_PX * 0.5
+        s = _state(
+            player={"x": rng_half, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150})
+        # Goto pointing north (dx=0, dy=+1000).  Field at this x
+        # contributes (+0.5, 0) — pushing east as we travel north.
+        h = ap._steered_heading(s, s["player"], 0.0, 1000.0, 1000.0)
+        # angle_to(+0.5, 1.0) = degrees(atan2(0.5, 1.0)) ≈ 26.57°
+        expected = _math.degrees(_math.atan2(0.5, 1.0))
+        assert abs(h - expected) < 0.5

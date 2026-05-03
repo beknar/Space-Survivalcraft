@@ -424,6 +424,21 @@ STUCK_LOG_THROTTLE_S     = 30.0
 # from it indefinitely (observed on 2026-05-01 with a top-edge
 # alien / asteroid that kept attracting the FSM).
 STUCK_CENTRE_LOCKOUT_S   = 30.0
+# ── Boundary potential field (preventive — the watchdog above is
+# the reactive backstop) ───────────────────────────────────────────
+# Within this distance of any world edge, a repulsion vector
+# pointing away from that edge is blended into the goto heading.
+# Tuned to start nudging well before the bot is at risk of pinning
+# (~one screen height of warning) so the deflection is gradual,
+# not a last-second swerve.
+BOUNDARY_REPULSION_RANGE_PX: float = 400.0
+# Strength of the repulsion vs the (unit-normalized) goto vector.
+# Gain 1.0 means: at the edge itself (distance 0), repulsion has
+# magnitude 1.0 along that axis, which equals the goto's
+# magnitude — so a chase target directly through the edge ends up
+# deflected ~45° along the wall instead of pinning.  Corners stack
+# both axes so they push diagonally without extra logic.
+BOUNDARY_REPULSION_GAIN: float = 1.0
 
 
 # ── BotState — all persistent runtime state in one place ─────────────────
@@ -1536,9 +1551,100 @@ def _do_spiral_search(state: dict, p: dict) -> None:
         _spiral_reset()
 
 
+def _boundary_repulsion(p: dict, zone: dict) -> tuple[float, float]:
+    """Potential-field repulsion vector pointing **away from world
+    edges**.  Each axis contributes independently and linearly:
+    magnitude is 0 at distance ``BOUNDARY_REPULSION_RANGE_PX`` from
+    an edge, ramps to 1.0 right at the edge.
+
+    Corners get the sum of both axis components automatically, which
+    yields a diagonal push (correct: away from the corner).  Far
+    from any edge the result is exactly ``(0.0, 0.0)`` so callers
+    pay no cost for the safe case.
+
+    Returns a (dx, dy) vector in world coords; the caller is
+    expected to add it to a unit-normalized goto vector to bias
+    the heading.
+    """
+    if not zone:
+        return (0.0, 0.0)
+    world_w = float(zone.get("world_w", 0) or 0)
+    world_h = float(zone.get("world_h", 0) or 0)
+    if world_w <= 0 or world_h <= 0:
+        return (0.0, 0.0)
+    px = float(p.get("x", 0.0))
+    py = float(p.get("y", 0.0))
+    rng = BOUNDARY_REPULSION_RANGE_PX
+    rx = 0.0
+    ry = 0.0
+    # West edge (x = 0) — push east (+x).
+    if px < rng:
+        rx += 1.0 - max(0.0, px) / rng
+    # East edge — push west (-x).
+    east_dist = world_w - px
+    if east_dist < rng:
+        rx -= 1.0 - max(0.0, east_dist) / rng
+    # South edge (y = 0) — push north (+y).
+    if py < rng:
+        ry += 1.0 - max(0.0, py) / rng
+    # North edge — push south (-y).
+    north_dist = world_h - py
+    if north_dist < rng:
+        ry -= 1.0 - max(0.0, north_dist) / rng
+    return (rx, ry)
+
+
+def _steered_heading(state: dict, p: dict, dx: float, dy: float,
+                     dist: float) -> float:
+    """Return the heading (degrees) the bot should rotate toward,
+    after blending in the boundary repulsion field.  ``dx, dy`` is
+    the raw goto vector from the ship to the target; ``dist`` is
+    its magnitude (caller usually has it already from
+    ``math.hypot``).
+
+    When the ship is far from every world edge the function just
+    returns ``angle_to(dx, dy)`` — the field is zero so the
+    blended heading is identical to the unmodified one.  Closer to
+    an edge the field pushes the heading along that wall instead
+    of through it, deflecting smoothly so the bot routes around
+    corners rather than pinning.
+    """
+    zone = state.get("zone") or {}
+    rx, ry = _boundary_repulsion(p, zone)
+    if rx == 0.0 and ry == 0.0:
+        return angle_to(dx, dy)
+    # Unit-normalize the goto vector so the field's unit-scale
+    # repulsion has comparable weight regardless of the goto
+    # vector's length.  Avoids a 5000-px goto vector dominating a
+    # near-edge repulsion of magnitude ~1.0.
+    norm = max(1.0, dist)
+    gx = dx / norm
+    gy = dy / norm
+    sx = gx + rx * BOUNDARY_REPULSION_GAIN
+    sy = gy + ry * BOUNDARY_REPULSION_GAIN
+    # Degenerate cancellation: a goto pointing straight into a
+    # wall opposes the repulsion exactly along one axis, so the
+    # sum's magnitude collapses to ~0 and ``angle_to(0, 0)``
+    # would return 0° (north) — arbitrary direction unrelated to
+    # either the goto or the wall.  Fall back to **pure
+    # repulsion** in that case so the bot peels off the wall
+    # instead of picking a random heading.
+    if abs(sx) < 0.05 and abs(sy) < 0.05:
+        return angle_to(rx, ry)
+    return angle_to(sx, sy)
+
+
 def _do_goto(state: dict, p: dict, tx: float, ty: float,
              stop_radius: float = 80.0) -> None:
-    """Rotate toward (tx, ty) and thrust until within ``stop_radius``."""
+    """Rotate toward (tx, ty) and thrust until within ``stop_radius``.
+
+    The heading is blended through ``_steered_heading`` so the
+    boundary potential field deflects the bot away from world
+    edges before it pins itself — see the BOUNDARY_REPULSION_*
+    constants for tuning.  Without this the bot would chase
+    edge-adjacent targets right into the wall and rely on the
+    reactive stuck-detect watchdog to pull it out.
+    """
     dx = tx - p.get("x", 0)
     dy = ty - p.get("y", 0)
     dist = math.hypot(dx, dy)
@@ -1550,7 +1656,7 @@ def _do_goto(state: dict, p: dict, tx: float, ty: float,
         KeyState.hold("s", True)         # gentle brake
         return
     KeyState.hold("s", False)
-    target = angle_to(dx, dy)
+    target = _steered_heading(state, p, dx, dy, dist)
     delta = heading_delta(p.get("heading", 0.0), target)
     if delta < -5.0:
         KeyState.hold("a", True);  KeyState.hold("d", False)
@@ -1570,12 +1676,18 @@ def _do_hold_distance(state: dict, p: dict, tx: float, ty: float,
     facing it.  Used for melee mining with the energy pickaxe — the
     bot needs to keep the asteroid in the swing arc without ramming
     it.  Thrust forward when too far, reverse when too close, coast
-    inside the dead-band to avoid jitter."""
+    inside the dead-band to avoid jitter.
+
+    Heading is steered through the boundary repulsion field, so an
+    asteroid sitting near the edge gets engaged from a position
+    that doesn't pin the ship against the wall during the swing
+    cycle.
+    """
     dx = tx - p.get("x", 0)
     dy = ty - p.get("y", 0)
     dist = math.hypot(dx, dy)
     # Always rotate to face the target so the swing arc covers it.
-    target = angle_to(dx, dy)
+    target = _steered_heading(state, p, dx, dy, dist)
     delta = heading_delta(p.get("heading", 0.0), target)
     if delta < -5.0:
         KeyState.hold("a", True);  KeyState.hold("d", False)
