@@ -1964,6 +1964,90 @@ class TestPickupBlacklist:
             "the previously-stuck pickup must not be re-targeted")
 
 
+class TestAsteroidBlacklist:
+    """Same mechanic as TestPickupBlacklist but for asteroids
+    targeted while in S_MINE.  Diagnosed via the
+    bot_io/autopilot_telemetry.jsonl session that showed 5
+    consecutive stuck-detects within 12 s at the same world
+    position, all in S_MINE — the bot was pressing against an
+    asteroid (asteroids aren't in the building/boundary
+    repulsion field, so the field couldn't deflect around it)."""
+
+    def test_blacklisted_asteroid_skipped_by_nearest_asteroid(
+            self, _clock):
+        ap._state.asteroid_blacklist.clear()
+        s = _state(asteroids=[
+            {"x": 100.0, "y": 0.0, "hp": 100, "type": "Asteroid"},
+            {"x": 500.0, "y": 0.0, "hp": 100, "type": "Asteroid"},
+        ])
+        ap._blacklist_asteroid({"x": 100.0, "y": 0.0})
+        ast, _d = ap._nearest_asteroid(s, 0.0, 0.0)
+        assert ast is not None
+        assert ast["x"] == 500.0
+
+    def test_blacklist_radius_covers_close_asteroids(self, _clock):
+        ap._state.asteroid_blacklist.clear()
+        ap._blacklist_asteroid({"x": 100.0, "y": 0.0})
+        near = {"x": 120.0, "y": 0.0}  # 20 px away, inside 40 px radius
+        far = {"x": 200.0, "y": 0.0}   # 100 px away, outside
+        assert ap._asteroid_is_blacklisted(near) is True
+        assert ap._asteroid_is_blacklisted(far) is False
+
+    def test_blacklist_entries_expire(self, _clock):
+        ap._state.asteroid_blacklist.clear()
+        ap._blacklist_asteroid({"x": 100.0, "y": 0.0})
+        assert ap._asteroid_is_blacklisted(
+            {"x": 100.0, "y": 0.0}) is True
+        _clock[0] += ap.ASTEROID_BLACKLIST_TTL_S + 1.0
+        assert ap._asteroid_is_blacklisted(
+            {"x": 100.0, "y": 0.0}) is False
+        # Lazy eviction during the lookup.
+        assert len(ap._state.asteroid_blacklist) == 0
+
+    def test_stuck_in_mine_blacklists_the_target_asteroid(
+            self, _clock):
+        """End-to-end fix: when the bot gets stuck while mining,
+        the asteroid it was pressing against lands in the
+        blacklist and the next MINE evaluation either picks a
+        different asteroid or falls through to SEARCH."""
+        ap._state.asteroid_blacklist.clear()
+        ap._state.pickup_blacklist.clear()
+        # Pin position with one asteroid right next to the bot.
+        for _ in range(20):
+            s = _state(
+                player={"x": 100.0, "y": 100.0, "heading": 0.0,
+                        "shields": 150, "max_shields": 150},
+                asteroids=[
+                    {"x": 110.0, "y": 100.0,
+                     "hp": 100, "type": "Asteroid"}],
+            )
+            ap._do_auto(s, s["player"])
+            _clock[0] += 0.1
+        assert len(ap._state.asteroid_blacklist) >= 1, (
+            "stuck while mining must blacklist the asteroid")
+        # Re-querying with the same asteroid: it should be filtered.
+        s2 = _state(asteroids=[
+            {"x": 110.0, "y": 100.0, "hp": 100, "type": "Asteroid"}])
+        ast, _d = ap._nearest_asteroid(s2, 100.0, 100.0)
+        assert ast is None, (
+            "the previously-stuck asteroid must not be re-targeted")
+
+    def test_choose_next_state_falls_through_to_search_when_all_blacklisted(
+            self, _clock):
+        """If every visible asteroid is blacklisted,
+        _choose_next_state must NOT return S_MINE — it should
+        fall through to S_SEARCH so the bot relocates instead of
+        idling on an empty asteroid pointer."""
+        ap._state.asteroid_blacklist.clear()
+        ap._blacklist_asteroid({"x": 100.0, "y": 0.0})
+        s = _state(asteroids=[
+            {"x": 100.0, "y": 0.0, "hp": 100, "type": "Asteroid"}])
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] != ap.S_MINE, (
+            "MINE must not fire when the only asteroid is "
+            "blacklisted")
+
+
 class TestBuildDoneShortCircuitIsUnconditional:
     """Regression for the bug where the build_done flip lived
     inside the BUILD branch of _choose_next_state — when GATHER

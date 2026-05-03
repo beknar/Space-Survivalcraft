@@ -462,6 +462,18 @@ BUILD_SEEK_TARGET_DIST_PX = 1000.0
 # was the motivating case.
 PICKUP_BLACKLIST_TTL_S: float = 300.0   # entries expire after 5 minutes
 PICKUP_BLACKLIST_RADIUS_PX: float = 60.0  # skip any pickup within this distance of a blacklisted point
+# Asteroid blacklist — same mechanic as the pickup blacklist but
+# for asteroids targeted while in S_MINE.  Diagnosed via the
+# bot_io/autopilot_telemetry.jsonl session that showed 5
+# consecutive stuck-detect events within 12 s at the same world
+# position (3630, 1212), all in S_MINE — the bot was pressing
+# against an asteroid (asteroids aren't in the building/boundary
+# repulsion field, so the field can't deflect around them).
+# Shorter TTL than the pickup blacklist because asteroids may be
+# reachable from a different approach angle once the bot drifts
+# elsewhere, and 60 s lets the bot retry from a clean state.
+ASTEROID_BLACKLIST_TTL_S: float = 60.0
+ASTEROID_BLACKLIST_RADIUS_PX: float = 40.0
 
 # ── Craft phase tuning ──────────────────────────────────────────────────
 # Iron threshold (in station inventory) the bot must accumulate
@@ -649,6 +661,11 @@ class BotState:
     # unreachable pickups (typically those sitting inside a
     # station-building's repulsion zone).
     pickup_blacklist: dict = field(default_factory=dict)
+    # Asteroid blacklist: same shape as pickup_blacklist but
+    # populated when stuck-detect fires while the FSM is in
+    # S_MINE.  _nearest_asteroid filters out hits within
+    # ASTEROID_BLACKLIST_RADIUS_PX of any live entry.
+    asteroid_blacklist: dict = field(default_factory=dict)
 
     def reset(self) -> None:
         """Restore every field to its default.  Mutates dict fields
@@ -668,6 +685,7 @@ class BotState:
         # to their full default contents on each FSM reset.
         self.queue = CraftQueue()
         self.pickup_blacklist.clear()
+        self.asteroid_blacklist.clear()
 
 
 _state = BotState()
@@ -753,6 +771,52 @@ def _nearest_pickup(state: dict, px: float, py: float
     bps = state.get("blueprint_pickups", []) or []
     candidates = [c for c in (list(bps) + list(iron))
                   if not _pickup_is_blacklisted(c)]
+    return nearest(candidates, px, py)
+
+
+def _asteroid_is_blacklisted(ast: dict) -> bool:
+    """True if ``ast`` falls within
+    ``ASTEROID_BLACKLIST_RADIUS_PX`` of any live (non-expired)
+    asteroid blacklist entry."""
+    bl = _state.asteroid_blacklist
+    if not bl:
+        return False
+    ax = float(ast.get("x", 0.0))
+    ay = float(ast.get("y", 0.0))
+    r_sq = ASTEROID_BLACKLIST_RADIUS_PX * ASTEROID_BLACKLIST_RADIUS_PX
+    now = _get_now()
+    for (bx, by), expiry in list(bl.items()):
+        if now >= expiry:
+            del bl[(bx, by)]
+            continue
+        dx = bx - ax
+        dy = by - ay
+        if dx * dx + dy * dy < r_sq:
+            return True
+    return False
+
+
+def _blacklist_asteroid(ast: dict) -> None:
+    """Add ``ast`` to the asteroid blacklist with a TTL of
+    ``ASTEROID_BLACKLIST_TTL_S``.  Position is rounded to a 10 px
+    grid (same as the pickup blacklist) to absorb floating-point
+    variation between ticks."""
+    ax = float(ast.get("x", 0.0))
+    ay = float(ast.get("y", 0.0))
+    key = (round(ax / 10.0) * 10.0, round(ay / 10.0) * 10.0)
+    _state.asteroid_blacklist[key] = _get_now() + ASTEROID_BLACKLIST_TTL_S
+
+
+def _nearest_asteroid(state: dict, px: float, py: float
+                      ) -> tuple[dict | None, float]:
+    """Return the nearest non-blacklisted asteroid.  Used by
+    S_MINE so a single unreachable asteroid doesn't lock the
+    bot in an infinite stuck → escape → re-target loop — the
+    same failure mode the pickup blacklist solved for S_GATHER.
+    """
+    asteroids = state.get("asteroids", []) or []
+    candidates = [a for a in asteroids
+                  if not _asteroid_is_blacklisted(a)]
     return nearest(candidates, px, py)
 
 
@@ -1175,8 +1239,11 @@ def _choose_next_state(state: dict, p: dict, cur: str) -> str:
             return S_CRAFT
 
     # 6. MINE vs SEARCH — discrete event, no hysteresis needed.
-    asteroids = state.get("asteroids") or []
-    if asteroids:
+    #    Filter out blacklisted asteroids so a single unreachable
+    #    one doesn't force MINE to fire on a target the bot
+    #    can't actually reach.
+    nearest_ast, _ = _nearest_asteroid(state, px, py)
+    if nearest_ast is not None:
         return S_MINE
     return S_SEARCH
 
@@ -1256,33 +1323,49 @@ def _do_auto(state: dict, p: dict) -> None:
         _stuck_state["escape_until"] = 0.0
     if _detect_stuck():
         _stuck_state["escape_until"] = now + STUCK_ESCAPE_MIN_DURATION_S
-        # Blacklist the pickup the bot was trying to gather — if we
-        # got stuck WHILE in S_GATHER, the pickup is unreachable
-        # (typically inside a station-building's repulsion zone)
-        # and re-targeting it on the next tick will just reproduce
-        # the same loop.  Without this, the bot oscillates around
-        # the unreachable pickup indefinitely (23 stuck events in
-        # 155 s, all in S_GATHER, observed 2026-05-02).
-        blacklisted = None
+        # Blacklist whichever target the bot was trying to reach —
+        # if we got stuck WHILE in S_GATHER, the pickup is
+        # unreachable (typically inside a station-building's
+        # repulsion zone); if we got stuck WHILE in S_MINE, the
+        # asteroid is unreachable (asteroids aren't in the field,
+        # so the bot rams them).  Without these blacklists, the
+        # FSM re-targets the same object on the next tick and the
+        # stuck → escape → re-target loop runs forever.
+        blacklisted_pu = None
+        blacklisted_ast = None
+        sx = float(p.get("x", 0.0))
+        sy = float(p.get("y", 0.0))
         if _fsm["state"] == S_GATHER:
-            stuck_pu, _stuck_pu_d = _nearest_pickup(
-                state, float(p.get("x", 0.0)), float(p.get("y", 0.0)))
+            stuck_pu, _ = _nearest_pickup(state, sx, sy)
             if stuck_pu is not None:
                 _blacklist_pickup(stuck_pu)
-                blacklisted = {
+                blacklisted_pu = {
                     "x": round(float(stuck_pu.get("x", 0.0)), 1),
                     "y": round(float(stuck_pu.get("y", 0.0)), 1),
                     "item_type": stuck_pu.get("item_type", ""),
                 }
-                print(f"[autopilot] PICKUP-BLACKLIST: {blacklisted} "
+                print(f"[autopilot] PICKUP-BLACKLIST: {blacklisted_pu} "
                       f"(stuck while gathering, ttl "
                       f"{int(PICKUP_BLACKLIST_TTL_S)}s)")
+        elif _fsm["state"] == S_MINE:
+            stuck_ast, _ = _nearest_asteroid(state, sx, sy)
+            if stuck_ast is not None:
+                _blacklist_asteroid(stuck_ast)
+                blacklisted_ast = {
+                    "x": round(float(stuck_ast.get("x", 0.0)), 1),
+                    "y": round(float(stuck_ast.get("y", 0.0)), 1),
+                    "hp": stuck_ast.get("hp", 0),
+                }
+                print(f"[autopilot] ASTEROID-BLACKLIST: {blacklisted_ast} "
+                      f"(stuck while mining, ttl "
+                      f"{int(ASTEROID_BLACKLIST_TTL_S)}s)")
         _telemetry_log("stuck_detected",
                        cause=("building"
                               if not _ship_clear_of_buildings(p, state)
                               else "edge"),
                        fsm_state=_fsm["state"],
-                       blacklisted_pickup=blacklisted,
+                       blacklisted_pickup=blacklisted_pu,
+                       blacklisted_asteroid=blacklisted_ast,
                        **_telemetry_snapshot_fields(state, p))
         # Re-anchor the spiral to the WORLD CENTRE (not just reset
         # to None which would re-anchor at the current edge
@@ -1830,9 +1913,9 @@ def _do_spiral_search(state: dict, p: dict) -> None:
     # Used to fire continuously as a "drift past extraction lag"
     # safety net, but that ended up making the bot mine empty
     # space at the centre of the world after a stuck-escape with
-    # no real targets nearby.
-    asteroids = state.get("asteroids") or []
-    nearest_ast, nd = nearest(asteroids, px, py)
+    # no real targets nearby.  Blacklist-aware so we don't burn
+    # the laser on an asteroid we just gave up on.
+    nearest_ast, nd = _nearest_asteroid(state, px, py)
     if _state.mining_weapon_pick == "Energy Pickaxe":
         in_range = (
             nearest_ast is not None and nd < PICKAXE_MINING_RANGE_PX)
@@ -2060,8 +2143,8 @@ def _do_hold_distance(state: dict, p: dict, tx: float, ty: float,
 
 
 def _do_mine_nearest(state: dict, p: dict) -> None:
-    asteroids = state.get("asteroids", [])
-    target, dist = nearest(asteroids, p.get("x", 0), p.get("y", 0))
+    target, dist = _nearest_asteroid(
+        state, p.get("x", 0), p.get("y", 0))
     if target is None:
         _do_idle()
         return
