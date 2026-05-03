@@ -768,6 +768,27 @@ class TestStuckEscape:
             ap._do_auto(s, s["player"])
             _clock[0] += 0.1   # 10 Hz
 
+    def test_no_escape_when_ship_is_rotating_in_place(self, _clock):
+        """Rotation alone counts as activity — the bot rotating to
+        face a new spiral target during SEARCH must NOT trigger
+        the watchdog.  Without this gate the SEARCH spiral fired
+        stuck-detect every 1.5 s during normal operation: bot
+        reached spiral target, braked, rotated to next target,
+        position barely moved during rotation, position-only
+        detection couldn't tell rotation from being pinned."""
+        # Pin position but rotate the heading 10° per tick =
+        # 100°/s — well above STUCK_DETECT_ROTATION_DEG / window.
+        for i in range(20):
+            s = _state(player={
+                "x": 100.0, "y": 100.0,
+                "heading": (i * 10.0) % 360.0,
+                "shields": 150, "max_shields": 150,
+            })
+            ap._do_auto(s, s["player"])
+            _clock[0] += 0.1
+        assert ap._stuck_state["escape_until"] == 0.0, (
+            "rotation alone should not trigger stuck-detect")
+
     def test_no_escape_when_ship_is_moving(self, _clock):
         # Drive 20 ticks, advancing 50 px each tick — ship clearly
         # making progress; stuck detection must NOT fire.

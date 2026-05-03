@@ -560,6 +560,18 @@ SHIELD_RECHARGE_CRAFT_BATCHES: int = 5
 # burst, then let the FSM resume.
 STUCK_DETECT_WINDOW_S    = 1.5    # window over which displacement is measured
 STUCK_DETECT_DIST_PX     = 25.0   # < this much movement in window -> stuck
+# Cumulative heading rotation across the detect window above
+# which the bot is considered "actively turning" rather than
+# stuck.  Without this gate the SEARCH spiral fired stuck-detect
+# every 1.5 s during normal operation: the bot would reach a
+# spiral target, brake (within 120 px stop radius), then rotate
+# to face the next spiral target — position barely moved during
+# the rotation phase, and position-only stuck-detect couldn't
+# distinguish "rotating toward next target" from "pinned".
+# Observed in 2026-05-02 telemetry as 9 stuck events in 30 s
+# all in S_SEARCH while the bot was actually traveling 60 px/s
+# inward via repeated escape bursts.
+STUCK_DETECT_ROTATION_DEG = 30.0
 STUCK_ESCAPE_MIN_DURATION_S = 1.5 # minimum time the escape override lasts
 # Escape stays active until the ship is at least this far from any
 # world edge — keeps the override running through long rotations
@@ -859,13 +871,18 @@ def _nearest_asteroid(state: dict, px: float, py: float
 
 
 def _record_position(p: dict) -> None:
-    """Append the player's current position to the rolling stuck-
-    detect history and evict samples older than the detect window."""
+    """Append the player's current position + heading to the
+    rolling stuck-detect history and evict samples older than
+    the detect window.  Heading is captured so ``_detect_stuck``
+    can distinguish "rotating to face new target" (not stuck)
+    from "pinned against an obstacle" (stuck) — both look
+    identical to position-only detection."""
     now = _get_now()
     px = float(p.get("x", 0.0))
     py = float(p.get("y", 0.0))
+    heading = float(p.get("heading", 0.0))
     h = _stuck_state["history"]
-    h.append((now, px, py))
+    h.append((now, px, py, heading))
     cutoff = now - STUCK_DETECT_WINDOW_S
     # Drop stale samples (cheap — list is at most ~15 entries at 10 Hz).
     while h and h[0][0] < cutoff:
@@ -874,9 +891,18 @@ def _record_position(p: dict) -> None:
 
 def _detect_stuck() -> bool:
     """True when the ship has barely moved over the last
-    STUCK_DETECT_WINDOW_S.  Conservative: requires the history to
-    have spanned at least 80% of the window so we don't false-fire
-    in the first second after process start."""
+    STUCK_DETECT_WINDOW_S **and** isn't actively rotating.
+    Conservative: requires the history to have spanned at least
+    80% of the window so we don't false-fire in the first second
+    after process start.
+
+    The rotation check uses the cumulative absolute heading delta
+    across the window (handling 0/360 wraparound via
+    ``heading_delta``).  A bot rotating > STUCK_DETECT_ROTATION_DEG
+    is actively turning and isn't stuck — without this gate the
+    SEARCH spiral's "reach target → brake → rotate to next target"
+    cycle fired stuck-detect every 1.5 s during normal operation.
+    """
     h = _stuck_state["history"]
     if len(h) < 5:
         return False
@@ -884,7 +910,15 @@ def _detect_stuck() -> bool:
     if span < STUCK_DETECT_WINDOW_S * 0.8:
         return False
     moved = math.hypot(h[-1][1] - h[0][1], h[-1][2] - h[0][2])
-    return moved < STUCK_DETECT_DIST_PX
+    if moved >= STUCK_DETECT_DIST_PX:
+        return False
+    # Sum absolute heading delta across consecutive samples so a
+    # back-and-forth rotation also counts as "turning".  Wraparound
+    # handled by heading_delta returning a signed [-180, 180] value.
+    rotation_total = 0.0
+    for i in range(1, len(h)):
+        rotation_total += abs(heading_delta(h[i - 1][3], h[i][3]))
+    return rotation_total < STUCK_DETECT_ROTATION_DEG
 
 
 def _do_escape_edge(state: dict, p: dict) -> None:
