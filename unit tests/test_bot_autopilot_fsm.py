@@ -1125,13 +1125,32 @@ class TestDepositTrigger:
         ap._do_auto(s, s["player"])
         assert ap._fsm["state"] == ap.S_DEPOSIT
 
-    def test_deposit_triggers_on_any_blueprint(self, _clock):
-        """Even with iron well below threshold, a single blueprint
-        in the ship triggers a deposit run — blueprints are too
-        valuable to leave in the ship inventory."""
+    def test_blueprint_alone_does_not_trigger_deposit(self, _clock):
+        """A blueprint without enough iron must NOT trigger a return
+        trip — wasteful navigation cost.  Blueprints accumulate
+        with iron until the iron threshold is met, then everything
+        ships in one round trip.  (Updated from the prior
+        OR-blueprint behaviour after operator feedback that the
+        bot was making short, low-yield deposit trips.)"""
         s = _state(
             iron=10,
             inventory_items={"iron": 10, "bp_engine_booster": 1},
+            buildings=[_hs_building()])
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] != ap.S_DEPOSIT
+
+    def test_deposit_triggers_when_iron_meets_threshold_with_blueprints(
+            self, _clock):
+        """Once iron crosses the threshold, the deposit run fires
+        regardless of what else is in the ship — and the deposit
+        ships every item type, so blueprints ride along on the
+        same trip."""
+        s = _state(
+            iron=ap.DEPOSIT_IRON_THRESHOLD,
+            inventory_items={
+                "iron": ap.DEPOSIT_IRON_THRESHOLD,
+                "bp_engine_booster": 1,
+            },
             buildings=[_hs_building()])
         ap._do_auto(s, s["player"])
         assert ap._fsm["state"] == ap.S_DEPOSIT
@@ -1635,3 +1654,136 @@ class TestSteeredHeadingDeflectsNearEdge:
         # angle_to(+0.5, 1.0) = degrees(atan2(0.5, 1.0)) ≈ 26.57°
         expected = _math.degrees(_math.atan2(0.5, 1.0))
         assert abs(h - expected) < 0.5
+
+
+class TestBuildingRepulsion:
+    """``_building_repulsion`` keeps the bot from pinning itself
+    on the corners of its own station.  Each building within
+    BUILDING_REPULSION_RANGE_PX contributes a unit-vector pointing
+    from the building toward the ship; corners stack two
+    contributions automatically."""
+
+    def _building(self, x, y):
+        return {"x": x, "y": y, "hp": 100, "type": "StationModule",
+                "building_type": "Service Module"}
+
+    def test_no_buildings_returns_zero(self):
+        rx, ry = ap._building_repulsion({"x": 100.0, "y": 100.0},
+                                         {"buildings": []})
+        assert rx == 0.0 and ry == 0.0
+
+    def test_outside_range_returns_zero(self):
+        s = {"buildings": [self._building(0.0, 0.0)]}
+        # Ship is 200 px from a single building, well past the 80
+        # px range — no contribution.
+        rx, ry = ap._building_repulsion({"x": 200.0, "y": 0.0}, s)
+        assert rx == 0.0 and ry == 0.0
+
+    def test_pushes_away_from_single_building(self):
+        """Ship 40 px east of a building — repulsion points east
+        with magnitude (1 - 40/80) = 0.5."""
+        s = {"buildings": [self._building(0.0, 0.0)]}
+        rx, ry = ap._building_repulsion({"x": 40.0, "y": 0.0}, s)
+        assert abs(rx - 0.5) < 1e-9
+        assert abs(ry) < 1e-9
+
+    def test_corner_stacks_two_buildings(self):
+        """The corner-stuck case: two buildings meeting at a right
+        angle.  The bot sitting at the outer corner gets a
+        diagonal push that's the sum of both contributions —
+        without any special-case logic for corners."""
+        s = {"buildings": [
+            self._building(0.0, 0.0),     # west neighbour
+            self._building(40.0, 40.0),   # north neighbour
+        ]}
+        # Ship just past the corner, 40 px from each building.
+        rx, ry = ap._building_repulsion(
+            {"x": 40.0, "y": 0.0}, s)
+        # West neighbour at (0,0) — push east (+x): strength 0.5,
+        #   direction (+1, 0)  -> (+0.5, 0)
+        # North neighbour at (40,40) — push south (-y): strength 0.5,
+        #   direction (0, -1)  -> (0, -0.5)
+        # Sum: (+0.5, -0.5) — diagonal away from the corner.
+        assert abs(rx - 0.5) < 1e-9
+        assert abs(ry + 0.5) < 1e-9
+
+    def test_steered_heading_routes_around_station_corner(self):
+        """End-to-end fix for the user's reported case: bot
+        navigating past the corner of the player-built station
+        (two perpendicular buildings) gets deflected diagonally
+        away from the corner instead of pinning between the
+        two walls.
+
+        Setup mirrors a real station corner — a Home Station and
+        a Service Module sitting at right angles.  The ship is
+        sitting just past the corner with a goto pointing east;
+        the deflected heading must turn south-east (away from
+        both buildings) rather than continuing pure east into
+        the corner trap."""
+        s = _state(
+            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            buildings=[
+                # North neighbour — pushes south (-y).
+                {"x": 3200.0, "y": 3240.0, "hp": 100,
+                 "type": "StationModule",
+                 "building_type": "Service Module"},
+                # East neighbour — pushes west (-x).
+                {"x": 3240.0, "y": 3200.0, "hp": 100,
+                 "type": "StationModule",
+                 "building_type": "Repair Module"},
+            ])
+        # Goto pointing east, straight into the corner.
+        h = ap._steered_heading(s, s["player"], 1000.0, 0.0, 1000.0)
+        # The unsteered heading would be 90° (east).  With both
+        # neighbours pushing back, the deflected heading swings
+        # south-east — past 90° but well under 180°.  Check the
+        # qualitative sign: heading must be > 90° (turned south)
+        # but the bot must still make eastward progress (heading
+        # < 180°).
+        assert 90.0 < h < 180.0, (
+            f"expected south-east deflection (90°-180°), got {h}°")
+
+    def test_axial_pin_against_one_building_does_not_deflect(self):
+        """Documented limitation of a pure potential field: a
+        goto pointing **straight** at a single building has no
+        tangential component to deflect along, so the field only
+        opposes (slows) the goto.  Real-world this is rare —
+        buildings are usually off-axis from the bot's heading,
+        and corners (two buildings) deflect correctly per the
+        test above.  The reactive ``_detect_stuck`` watchdog is
+        the backstop for this case."""
+        s = _state(
+            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            buildings=[
+                {"x": 3200.0, "y": 3240.0, "hp": 100,
+                 "type": "StationModule",
+                 "building_type": "Service Module"}])
+        h = ap._steered_heading(s, s["player"], 0.0, 1000.0, 1000.0)
+        # Heading still 0° (north): repulsion reduced the
+        # magnitude but didn't change the direction.  Pin the
+        # behaviour so future changes are deliberate.
+        assert abs(h - 0.0) < 0.01
+
+
+class TestBuildingRepulsionDoesNotBlockDeposit:
+    """The deposit / install / craft actions stop at 200-250 px
+    from their target building.  Building repulsion only kicks in
+    within 80 px of a building, so the action range sits comfortably
+    outside the field — the bot can complete every station-side
+    action even with neighbouring buildings creating a partial
+    repulsion barrier."""
+
+    def test_deposit_stop_radius_outside_repulsion_zone(self):
+        """DEPOSIT_RANGE_PX (200 px) is well beyond
+        BUILDING_REPULSION_RANGE_PX (80 px), so the bot reaches
+        the deposit trigger before any single-building repulsion
+        could push it back out."""
+        assert ap.DEPOSIT_RANGE_PX > ap.BUILDING_REPULSION_RANGE_PX * 2
+
+    def test_install_stop_radius_outside_repulsion_zone(self):
+        assert ap.INSTALL_INTERACT_RANGE_PX > ap.BUILDING_REPULSION_RANGE_PX
+
+    def test_craft_stop_radius_outside_repulsion_zone(self):
+        assert ap.CRAFT_INTERACT_RANGE_PX > ap.BUILDING_REPULSION_RANGE_PX

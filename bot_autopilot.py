@@ -439,6 +439,24 @@ BOUNDARY_REPULSION_RANGE_PX: float = 400.0
 # deflected ~45° along the wall instead of pinning.  Corners stack
 # both axes so they push diagonally without extra logic.
 BOUNDARY_REPULSION_GAIN: float = 1.0
+# Per-building repulsion — same potential-field idea but the
+# obstacles are the player's own structures instead of the world
+# walls.  The corner of the player-built station was the one
+# remaining edge-pin pattern after the world-boundary field
+# landed (two perpendicular building edges create a corner trap
+# the same way a world corner does).
+#
+# Range is intentionally small (well past the building's collision
+# radius of ~30 px but still inside the deposit / install / craft
+# stop radii of 200-250 px) so navigation TO a building still
+# completes — the bot stops at the action range before the
+# repulsion zone of the destination building closes the door.
+BUILDING_REPULSION_RANGE_PX: float = 80.0
+# Slightly softer than world-edge repulsion: a single building's
+# push shouldn't fully overwhelm a chase vector when there's only
+# 50 px of clearance to spare.  Two adjacent buildings (a corner)
+# stack and recover the strong-deflect behaviour automatically.
+BUILDING_REPULSION_GAIN: float = 0.7
 
 
 # ── BotState — all persistent runtime state in one place ─────────────────
@@ -912,16 +930,18 @@ def _choose_next_state(state: dict, p: dict, cur: str) -> str:
     # 5. DEPOSIT — once a Home Station exists, the bot periodically
     #    returns to dump everything in the ship inventory (iron,
     #    blueprints, etc.) into the station's bigger inventory.
-    #    Triggers when ship iron ≥ DEPOSIT_IRON_THRESHOLD or any
-    #    blueprint is sitting in the ship.  Cooldown prevents the
-    #    bot from re-triggering immediately after a deposit run.
+    #    Triggers when ship iron ≥ DEPOSIT_IRON_THRESHOLD.  The
+    #    iron gate is required (no blueprint shortcut) so the bot
+    #    doesn't make wasteful return trips with a single
+    #    blueprint and 5 iron — blueprints accumulate alongside
+    #    iron until the threshold is met, then everything ships
+    #    in one round trip.  Cooldown prevents the bot from
+    #    re-triggering immediately after a deposit run.
     hs = _find_home_station(state)
     if hs is not None:
         cooldown_ok = (
             now - _state.last_deposit_at) >= DEPOSIT_COOLDOWN_S
-        if cooldown_ok and (
-                _iron_total(state) >= DEPOSIT_IRON_THRESHOLD
-                or _ship_has_blueprint(state)):
+        if cooldown_ok and _iron_total(state) >= DEPOSIT_IRON_THRESHOLD:
             return S_DEPOSIT
 
     # 5.5  CRAFT / INSTALL — sequential post-build workflow.  Only
@@ -1594,23 +1614,74 @@ def _boundary_repulsion(p: dict, zone: dict) -> tuple[float, float]:
     return (rx, ry)
 
 
+def _building_repulsion(p: dict, state: dict) -> tuple[float, float]:
+    """Per-building potential-field repulsion summed across every
+    building visible in /state.  Same linear ramp as
+    ``_boundary_repulsion`` but the source is the player's own
+    structures instead of the world walls.
+
+    Each building within ``BUILDING_REPULSION_RANGE_PX`` of the
+    ship contributes a unit-vector pointing from the building
+    center to the ship, scaled by ``1 - dist/range``.  Two adjacent
+    buildings (a station corner) sum their contributions
+    automatically, recovering the strong-deflect behaviour the
+    boundary field gets at world corners.
+
+    Returns a (dx, dy) push vector in world coords; the caller
+    blends it with the boundary field inside ``_steered_heading``.
+    """
+    buildings = state.get("buildings") or []
+    if not buildings:
+        return (0.0, 0.0)
+    px = float(p.get("x", 0.0))
+    py = float(p.get("y", 0.0))
+    rng = BUILDING_REPULSION_RANGE_PX
+    rng_sq = rng * rng
+    rx = 0.0
+    ry = 0.0
+    for b in buildings:
+        bx = float(b.get("x", 0.0))
+        by = float(b.get("y", 0.0))
+        dx_b = px - bx
+        dy_b = py - by
+        d_sq = dx_b * dx_b + dy_b * dy_b
+        if d_sq >= rng_sq:
+            continue
+        d = math.sqrt(d_sq)
+        if d < 0.5:
+            # Centred on a building (shouldn't happen given
+            # collision, but be safe) — push north arbitrarily so
+            # the field has *some* direction to act on instead of
+            # collapsing to zero.
+            ry += 1.0
+            continue
+        strength = 1.0 - d / rng
+        rx += (dx_b / d) * strength
+        ry += (dy_b / d) * strength
+    return (rx, ry)
+
+
 def _steered_heading(state: dict, p: dict, dx: float, dy: float,
                      dist: float) -> float:
     """Return the heading (degrees) the bot should rotate toward,
-    after blending in the boundary repulsion field.  ``dx, dy`` is
-    the raw goto vector from the ship to the target; ``dist`` is
-    its magnitude (caller usually has it already from
+    after blending in the boundary + building repulsion fields.
+    ``dx, dy`` is the raw goto vector from the ship to the target;
+    ``dist`` is its magnitude (caller usually has it already from
     ``math.hypot``).
 
-    When the ship is far from every world edge the function just
-    returns ``angle_to(dx, dy)`` — the field is zero so the
-    blended heading is identical to the unmodified one.  Closer to
-    an edge the field pushes the heading along that wall instead
-    of through it, deflecting smoothly so the bot routes around
-    corners rather than pinning.
+    When the ship is far from every world edge AND every building
+    the function just returns ``angle_to(dx, dy)`` — both fields
+    are zero so the blended heading is identical to the
+    unmodified one.  Closer to an edge / building the field
+    pushes the heading along that wall instead of through it,
+    deflecting smoothly so the bot routes around corners rather
+    than pinning.
     """
     zone = state.get("zone") or {}
     rx, ry = _boundary_repulsion(p, zone)
+    bx, by = _building_repulsion(p, state)
+    rx += bx * BUILDING_REPULSION_GAIN
+    ry += by * BUILDING_REPULSION_GAIN
     if rx == 0.0 and ry == 0.0:
         return angle_to(dx, dy)
     # Unit-normalize the goto vector so the field's unit-scale
