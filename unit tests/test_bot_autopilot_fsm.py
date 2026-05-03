@@ -2138,6 +2138,61 @@ class TestAsteroidChaseDistanceCap:
         # Now the cap drops and MINE fires.
         assert ap._fsm["state"] == ap.S_MINE
 
+    def test_giveup_commitment_is_sticky_across_ticks(self, _clock):
+        """Regression for the bouncing pattern: SEARCH → MINE
+        (giveup fires) → SEARCH (giveup no longer applies because
+        cur != S_SEARCH) → MINE (giveup fires again) → SEARCH...
+        Observed in the diagnosed session at t=122 and t=183.
+        The commitment must stick across ticks so MINE persists
+        until the bot actually reaches a chase-range asteroid
+        OR all asteroids vanish."""
+        ap._state.asteroid_blacklist.clear()
+        ap._state.chase_committed = False
+        far_x = ap.MAX_ASTEROID_CHASE_PX + 500.0
+        s = _state(asteroids=[
+            {"x": far_x, "y": 0.0, "hp": 100, "type": "Asteroid"}])
+        # Enter SEARCH and stay long enough for giveup.
+        ap._do_auto(s, s["player"])
+        _clock[0] += ap.SEARCH_GIVEUP_S + ap.MIN_DWELL_S + 0.1
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_MINE
+        assert ap._state.chase_committed is True
+        # Walk forward several MIN_DWELL windows with the same
+        # state (asteroid still beyond cap).  The FSM must STAY
+        # in MINE — without the sticky flag it would bounce back
+        # to SEARCH because ``long_search`` is False once cur is
+        # MINE, and the cap re-applies.
+        for _ in range(5):
+            _clock[0] += ap.MIN_DWELL_S + 0.1
+            ap._do_auto(s, s["player"])
+            assert ap._fsm["state"] == ap.S_MINE, (
+                "MINE must stay sticky once chase_committed is set")
+
+    def test_chase_commitment_clears_when_target_reached(self, _clock):
+        """When the bot moves into chase range of an asteroid
+        (either by progress along the long chase, or because a
+        new closer asteroid appeared), the commitment clears so
+        future SEARCH episodes get the normal cap-protected
+        behaviour."""
+        ap._state.asteroid_blacklist.clear()
+        ap._state.chase_committed = True   # pretend we were chasing far
+        # Now an asteroid is in chase range.
+        s = _state(asteroids=[
+            {"x": 500.0, "y": 0.0, "hp": 100, "type": "Asteroid"}])
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_MINE
+        assert ap._state.chase_committed is False, (
+            "chase_committed should clear once an in-range "
+            "asteroid is targeted")
+
+    def test_chase_commitment_clears_when_no_asteroid_visible(
+            self, _clock):
+        ap._state.asteroid_blacklist.clear()
+        ap._state.chase_committed = True
+        s = _state()  # no asteroids
+        ap._do_auto(s, s["player"])
+        assert ap._state.chase_committed is False
+
 
 class TestSpiralAngleAdvanceTuning:
     """The spiral's angle-advance rate must stay slow enough that

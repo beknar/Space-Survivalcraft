@@ -696,6 +696,13 @@ class BotState:
     # S_MINE.  _nearest_asteroid filters out hits within
     # ASTEROID_BLACKLIST_RADIUS_PX of any live entry.
     asteroid_blacklist: dict = field(default_factory=dict)
+    # Sticky commitment flag — once SEARCH_GIVEUP_S elapses and
+    # MINE fires for a far asteroid, the chase cap stays dropped
+    # until the bot actually reaches a chase-range asteroid (or
+    # all visible asteroids are exhausted).  Without this the
+    # FSM bounces SEARCH ↔ MINE every MIN_DWELL_S because the
+    # giveup condition only holds while ``cur == S_SEARCH``.
+    chase_committed: bool = False
 
     def reset(self) -> None:
         """Restore every field to its default.  Mutates dict fields
@@ -716,6 +723,7 @@ class BotState:
         self.queue = CraftQueue()
         self.pickup_blacklist.clear()
         self.asteroid_blacklist.clear()
+        self.chase_committed = False
 
 
 _state = BotState()
@@ -1281,17 +1289,37 @@ def _choose_next_state(state: dict, p: dict, cur: str) -> str:
     #    SEARCH_GIVEUP_S, drop the cap and commit to whatever's
     #    nearest.  A long round trip is better than spiralling
     #    indefinitely in a region with no in-range asteroids.
+    #    The commitment is STICKY (``_state.chase_committed``):
+    #    once we decide to chase a far target, the cap stays
+    #    dropped until the bot reaches chase range — otherwise
+    #    the FSM bounces SEARCH ↔ MINE every MIN_DWELL_S
+    #    because ``long_search`` only holds while ``cur == S_SEARCH``.
     nearest_ast, ast_d = _nearest_asteroid(state, px, py)
     if nearest_ast is not None:
         in_chase_range = ast_d < MAX_ASTEROID_CHASE_PX
+        if in_chase_range:
+            # Reached (or approached) a chase-range asteroid —
+            # clear any prior commitment so future SEARCH
+            # episodes get the normal cap-protected behaviour.
+            _state.chase_committed = False
+            return S_MINE
+        # Out of chase range.  Either we're already committed
+        # to a far chase, or we've been searching long enough
+        # to commit now.
         search_entered = _fsm.get("entered_at")
         long_search = (
             cur == S_SEARCH
             and search_entered is not None
             and (now - search_entered) >= SEARCH_GIVEUP_S
         )
-        if in_chase_range or long_search:
+        if _state.chase_committed or long_search:
+            _state.chase_committed = True
             return S_MINE
+    else:
+        # No visible asteroid (everything blacklisted, or none
+        # in /state) — clear the commitment so the next time an
+        # asteroid appears we start fresh.
+        _state.chase_committed = False
     return S_SEARCH
 
 
