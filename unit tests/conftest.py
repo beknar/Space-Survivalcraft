@@ -39,6 +39,35 @@ def arcade_window():
     w.close()
 
 
+@pytest.fixture(autouse=True)
+def _silence_bot_telemetry(monkeypatch):
+    """Disable bot_autopilot telemetry writes during tests.
+
+    ``bot_autopilot._telemetry_log`` and ``_telemetry_init`` write
+    JSONL events to ``bot_io/autopilot_telemetry.jsonl`` so the
+    operator can post-mortem a real game session.  Without this
+    fixture, every test that touches ``_do_auto`` (and the autouse
+    ``_fsm_reset`` in test_bot_autopilot_fsm.py's ``_key_recorder``
+    fixture) appends ~120 events per pytest run to the live log,
+    polluting subsequent analysis with thousands of fake sessions
+    full of impossible ``mine -> mine`` transitions and dozens of
+    duplicate ``build_done_short_circuit`` events from the
+    fixture's ``_fsm_reset`` resetting ``build_done`` each test.
+
+    The monkeypatch is per-test so production code stays
+    unchanged outside the test environment.
+    """
+    try:
+        import bot_autopilot as ap
+        monkeypatch.setattr(ap, "_telemetry_init", lambda: None)
+        monkeypatch.setattr(
+            ap, "_telemetry_log", lambda *a, **kw: None)
+    except ImportError:
+        # bot_autopilot pulls in pyautogui / pynput which may be
+        # absent in some test environments — silently skip.
+        pass
+
+
 @pytest.fixture
 def dummy_texture() -> arcade.Texture:
     """A 32x32 red RGBA PIL image wrapped as an arcade.Texture."""

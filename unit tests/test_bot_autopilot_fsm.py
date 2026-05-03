@@ -2048,6 +2048,51 @@ class TestAsteroidBlacklist:
             "blacklisted")
 
 
+class TestAsteroidChaseDistanceCap:
+    """An asteroid farther than ``MAX_ASTEROID_CHASE_PX`` is
+    treated as out-of-reach by the MINE-vs-SEARCH gate, so the
+    FSM falls through to SEARCH (spiral around current position)
+    instead of committing the bot to a long obstacle-laden trip
+    across the world.  Diagnosed via the bot_io session that
+    showed 61% of time spent more than 1500 px from base."""
+
+    def test_mine_does_not_fire_for_asteroid_beyond_chase_cap(
+            self, _clock):
+        ap._state.asteroid_blacklist.clear()
+        # Asteroid placed exactly past the cap.
+        s = _state(asteroids=[
+            {"x": ap.MAX_ASTEROID_CHASE_PX + 100.0, "y": 0.0,
+             "hp": 100, "type": "Asteroid"}])
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_SEARCH, (
+            "MINE must fall through to SEARCH for asteroids "
+            "beyond MAX_ASTEROID_CHASE_PX")
+
+    def test_mine_fires_for_asteroid_inside_chase_cap(self, _clock):
+        ap._state.asteroid_blacklist.clear()
+        # Asteroid well inside the cap.
+        s = _state(asteroids=[
+            {"x": 800.0, "y": 0.0, "hp": 100, "type": "Asteroid"}])
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_MINE
+
+    def test_chase_cap_applies_after_blacklist_filter(self, _clock):
+        """Both filters compose: a near asteroid that's
+        blacklisted + a far asteroid beyond the cap means MINE
+        can't fire, falls through to SEARCH."""
+        ap._state.asteroid_blacklist.clear()
+        # Blacklist the near one.
+        ap._blacklist_asteroid({"x": 100.0, "y": 0.0})
+        s = _state(asteroids=[
+            {"x": 100.0, "y": 0.0,
+             "hp": 100, "type": "Asteroid"},
+            {"x": ap.MAX_ASTEROID_CHASE_PX + 500.0, "y": 0.0,
+             "hp": 100, "type": "Asteroid"},
+        ])
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_SEARCH
+
+
 class TestBuildDoneShortCircuitIsUnconditional:
     """Regression for the bug where the build_done flip lived
     inside the BUILD branch of _choose_next_state — when GATHER

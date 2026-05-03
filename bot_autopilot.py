@@ -462,6 +462,19 @@ BUILD_SEEK_TARGET_DIST_PX = 1000.0
 # was the motivating case.
 PICKUP_BLACKLIST_TTL_S: float = 300.0   # entries expire after 5 minutes
 PICKUP_BLACKLIST_RADIUS_PX: float = 60.0  # skip any pickup within this distance of a blacklisted point
+# Maximum chase distance for an asteroid target.  Asteroids
+# farther than this are treated as out-of-reach so MINE falls
+# through to SEARCH (spiral around the bot's current position)
+# instead of long obstacle-laden trips across the world.
+# Diagnosed via the bot_io/autopilot_telemetry.jsonl session
+# that showed the bot spending 61% of its time more than 1500
+# px from base — wandering to far corners chasing isolated
+# asteroids, getting stuck on intermediate obstacles along the
+# way, and never accumulating enough iron to fire a deposit.
+# The cap is generous (2000 px ≈ 2× a typical screen) so the
+# bot will still chase within the visible region but stops
+# committing to cross-map trips.
+MAX_ASTEROID_CHASE_PX: float = 2000.0
 # Asteroid blacklist — same mechanic as the pickup blacklist but
 # for asteroids targeted while in S_MINE.  Diagnosed via the
 # bot_io/autopilot_telemetry.jsonl session that showed 5
@@ -1241,9 +1254,13 @@ def _choose_next_state(state: dict, p: dict, cur: str) -> str:
     # 6. MINE vs SEARCH — discrete event, no hysteresis needed.
     #    Filter out blacklisted asteroids so a single unreachable
     #    one doesn't force MINE to fire on a target the bot
-    #    can't actually reach.
-    nearest_ast, _ = _nearest_asteroid(state, px, py)
-    if nearest_ast is not None:
+    #    can't actually reach.  Also cap chase distance: an
+    #    asteroid farther than MAX_ASTEROID_CHASE_PX is treated
+    #    as out-of-reach so MINE falls through to SEARCH (spiral
+    #    around current position) instead of long obstacle-laden
+    #    trips across the world.
+    nearest_ast, ast_d = _nearest_asteroid(state, px, py)
+    if nearest_ast is not None and ast_d < MAX_ASTEROID_CHASE_PX:
         return S_MINE
     return S_SEARCH
 
