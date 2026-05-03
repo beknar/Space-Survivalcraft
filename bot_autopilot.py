@@ -451,6 +451,17 @@ DEPOSIT_COOLDOWN_S     = 30.0
 BUILD_CLEAR_RADIUS_PX = 800.0
 # Distance the bot walks per tick when seeking a clear spot.
 BUILD_SEEK_TARGET_DIST_PX = 1000.0
+# Pickup blacklist — when stuck-detect fires while the bot is in
+# S_GATHER, the pickup it was chasing gets added to a temporary
+# blacklist so subsequent GATHER passes skip it.  Without this the
+# bot oscillates indefinitely on a pickup sitting inside a
+# station-building's repulsion zone (the field pushes back, the
+# GATHER goto pulls forward; no progress, escape burst fires,
+# bot returns, repeat).  The 23-event-in-155s gather-stuck loop
+# documented in bot_io/autopilot_telemetry.jsonl on 2026-05-02
+# was the motivating case.
+PICKUP_BLACKLIST_TTL_S: float = 300.0   # entries expire after 5 minutes
+PICKUP_BLACKLIST_RADIUS_PX: float = 60.0  # skip any pickup within this distance of a blacklisted point
 
 # ── Craft phase tuning ──────────────────────────────────────────────────
 # Iron threshold (in station inventory) the bot must accumulate
@@ -631,6 +642,13 @@ class BotState:
     last_deposit_at: float = 0.0
     # Post-build craft + install queue.  See CraftQueue docstring.
     queue: CraftQueue = field(default_factory=CraftQueue)
+    # Pickup blacklist: maps (rounded_x, rounded_y) -> expiry
+    # monotonic timestamp.  Pickups within
+    # PICKUP_BLACKLIST_RADIUS_PX of any live entry are skipped by
+    # _nearest_pickup, so the bot stops oscillating on
+    # unreachable pickups (typically those sitting inside a
+    # station-building's repulsion zone).
+    pickup_blacklist: dict = field(default_factory=dict)
 
     def reset(self) -> None:
         """Restore every field to its default.  Mutates dict fields
@@ -649,6 +667,7 @@ class BotState:
         # Replace the queue object so the install/craft lists reset
         # to their full default contents on each FSM reset.
         self.queue = CraftQueue()
+        self.pickup_blacklist.clear()
 
 
 _state = BotState()
@@ -690,14 +709,50 @@ def _fsm_reset(initial: str = S_MINE) -> None:
     _state.fsm["state"] = initial
 
 
+def _pickup_is_blacklisted(pu: dict) -> bool:
+    """True if ``pu`` falls within ``PICKUP_BLACKLIST_RADIUS_PX``
+    of any live (non-expired) blacklist entry."""
+    bl = _state.pickup_blacklist
+    if not bl:
+        return False
+    pux = float(pu.get("x", 0.0))
+    puy = float(pu.get("y", 0.0))
+    r_sq = PICKUP_BLACKLIST_RADIUS_PX * PICKUP_BLACKLIST_RADIUS_PX
+    now = _get_now()
+    for (bx, by), expiry in list(bl.items()):
+        if now >= expiry:
+            # Lazily evict expired entries during the scan.
+            del bl[(bx, by)]
+            continue
+        dx = bx - pux
+        dy = by - puy
+        if dx * dx + dy * dy < r_sq:
+            return True
+    return False
+
+
+def _blacklist_pickup(pu: dict) -> None:
+    """Add ``pu`` to the pickup blacklist with a TTL of
+    ``PICKUP_BLACKLIST_TTL_S``.  Position is rounded to the
+    nearest 10 px so floating-point variation between ticks
+    can't slip past the lookup."""
+    pux = float(pu.get("x", 0.0))
+    puy = float(pu.get("y", 0.0))
+    key = (round(pux / 10.0) * 10.0, round(puy / 10.0) * 10.0)
+    _state.pickup_blacklist[key] = _get_now() + PICKUP_BLACKLIST_TTL_S
+
+
 def _nearest_pickup(state: dict, px: float, py: float
                     ) -> tuple[dict | None, float]:
-    """Return the nearest iron + blueprint pickup combined.
-    Blueprints are slightly preferred (worth more than 10 iron)
-    so they get pulled in first when a tie."""
+    """Return the nearest iron + blueprint pickup combined,
+    skipping any pickup that's been blacklisted (typically by
+    a stuck-detect event in S_GATHER).  Blueprints are slightly
+    preferred (worth more than 10 iron) so they get pulled in
+    first when a tie."""
     iron = state.get("iron_pickups", []) or []
     bps = state.get("blueprint_pickups", []) or []
-    candidates = list(bps) + list(iron)   # blueprints first
+    candidates = [c for c in (list(bps) + list(iron))
+                  if not _pickup_is_blacklisted(c)]
     return nearest(candidates, px, py)
 
 
@@ -1017,6 +1072,24 @@ def _choose_next_state(state: dict, p: dict, cur: str) -> str:
     """
     px, py = p.get("x", 0.0), p.get("y", 0.0)
 
+    # 0. Unconditional housekeeping — runs every tick, before any
+    #    early-return branch.  If the bot just connected to a
+    #    world that already has a Home Station (loaded save,
+    #    prior session, manual placement), permanently mark
+    #    build_done so the BUILD/BUILD_SEEK branch never fires.
+    #    Has to live up here, NOT inside the BUILD branch below,
+    #    because GATHER/ENGAGE/REGEN early-return long before the
+    #    BUILD branch is reached — so if the bot enters GATHER
+    #    on its very first tick (likely when a pickup is
+    #    visible), build_done would stay False forever and the
+    #    BUILD branch would fire as soon as GATHER cleared.
+    if (not _state.build_done
+            and _find_home_station(state) is not None):
+        _state.build_done = True
+        _telemetry_log("build_done_short_circuit",
+                       reason="home_station_already_exists",
+                       **_telemetry_snapshot_fields(state, p))
+
     # 1. REGEN — shields hurt; sit still and recover.  Preempts
     #    ENGAGE/GATHER/MINE so the bot actually idles instead of
     #    burning thrust while shields are low.
@@ -1060,21 +1133,10 @@ def _choose_next_state(state: dict, p: dict, cur: str) -> str:
     #    BUILD_SEEK actively walks toward less-cluttered space when
     #    iron is met but the area isn't clear.
     #
-    #    Short-circuit: if a Home Station already exists in the
-    #    world (loaded from save, built in a prior session, or
-    #    placed manually), permanently mark build_done so the
-    #    BUILD/BUILD_SEEK branch never fires.  Without this, an
-    #    autopilot starting alongside a pre-existing station with
-    #    >= 1000 iron oscillates: BUILD_SEEK walks the bot away,
-    #    BUILD attempts (every step rejected by max-count, but
-    #    build_done flips True), then DEPOSIT immediately
-    #    retriggers and walks the bot back to the station.
-    if (not _state.build_done
-            and _find_home_station(state) is not None):
-        _state.build_done = True
-        _telemetry_log("build_done_short_circuit",
-                       reason="home_station_already_exists",
-                       **_telemetry_snapshot_fields(state, p))
+    #    The has-Home-Station short-circuit (see section 0
+    #    above) flips ``build_done`` True the moment the bot
+    #    sees an existing HS, so this branch only fires for a
+    #    bot starting in a station-less world.
     if (not _state.build_done
             and _iron_total(state) >= BUILD_IRON_THRESHOLD):
         if _build_area_clear(state, px, py):
@@ -1194,11 +1256,33 @@ def _do_auto(state: dict, p: dict) -> None:
         _stuck_state["escape_until"] = 0.0
     if _detect_stuck():
         _stuck_state["escape_until"] = now + STUCK_ESCAPE_MIN_DURATION_S
+        # Blacklist the pickup the bot was trying to gather — if we
+        # got stuck WHILE in S_GATHER, the pickup is unreachable
+        # (typically inside a station-building's repulsion zone)
+        # and re-targeting it on the next tick will just reproduce
+        # the same loop.  Without this, the bot oscillates around
+        # the unreachable pickup indefinitely (23 stuck events in
+        # 155 s, all in S_GATHER, observed 2026-05-02).
+        blacklisted = None
+        if _fsm["state"] == S_GATHER:
+            stuck_pu, _stuck_pu_d = _nearest_pickup(
+                state, float(p.get("x", 0.0)), float(p.get("y", 0.0)))
+            if stuck_pu is not None:
+                _blacklist_pickup(stuck_pu)
+                blacklisted = {
+                    "x": round(float(stuck_pu.get("x", 0.0)), 1),
+                    "y": round(float(stuck_pu.get("y", 0.0)), 1),
+                    "item_type": stuck_pu.get("item_type", ""),
+                }
+                print(f"[autopilot] PICKUP-BLACKLIST: {blacklisted} "
+                      f"(stuck while gathering, ttl "
+                      f"{int(PICKUP_BLACKLIST_TTL_S)}s)")
         _telemetry_log("stuck_detected",
                        cause=("building"
                               if not _ship_clear_of_buildings(p, state)
                               else "edge"),
                        fsm_state=_fsm["state"],
+                       blacklisted_pickup=blacklisted,
                        **_telemetry_snapshot_fields(state, p))
         # Re-anchor the spiral to the WORLD CENTRE (not just reset
         # to None which would re-anchor at the current edge

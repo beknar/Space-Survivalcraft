@@ -1879,3 +1879,145 @@ class TestBuildingRepulsionDoesNotBlockDeposit:
 
     def test_craft_stop_radius_outside_repulsion_zone(self):
         assert ap.CRAFT_INTERACT_RANGE_PX > ap.BUILDING_REPULSION_RANGE_PX
+
+
+# ── Pickup blacklist (stuck-in-GATHER recovery) ──────────────────────────
+
+
+class TestPickupBlacklist:
+    """When stuck-detect fires while the FSM is in S_GATHER, the
+    pickup the bot was chasing is blacklisted — typically because
+    it's sitting inside a station-building's repulsion zone, where
+    the goto vector pulls toward it but the field pushes back, so
+    the bot oscillates forever without making progress.  Tests
+    pin the blacklist mechanic + its TTL eviction."""
+
+    def test_blacklisted_pickup_skipped_by_nearest_pickup(self, _clock):
+        ap._state.pickup_blacklist.clear()
+        # Two iron pickups: one will be blacklisted, one fresh.
+        s = _state(iron_pickups=[
+            {"x": 100.0, "y": 0.0, "amount": 5, "item_type": "iron"},
+            {"x": 500.0, "y": 0.0, "amount": 5, "item_type": "iron"},
+        ])
+        ap._blacklist_pickup({"x": 100.0, "y": 0.0})
+        # Nearest free pickup should be the 500 px one, not the
+        # blacklisted 100 px one.
+        pu, d = ap._nearest_pickup(s, 0.0, 0.0)
+        assert pu is not None
+        assert pu["x"] == 500.0
+
+    def test_blacklist_radius_covers_close_pickups(self, _clock):
+        """Pickups within PICKUP_BLACKLIST_RADIUS_PX of a
+        blacklisted point are also skipped — covers the case
+        where a pickup spawns at a slightly different position
+        each tick (e.g. iron pickup splits)."""
+        ap._state.pickup_blacklist.clear()
+        ap._blacklist_pickup({"x": 100.0, "y": 0.0})
+        near = {"x": 130.0, "y": 0.0}  # 30 px away, well inside 60 px radius
+        far = {"x": 200.0, "y": 0.0}   # 100 px away, outside radius
+        assert ap._pickup_is_blacklisted(near) is True
+        assert ap._pickup_is_blacklisted(far) is False
+
+    def test_blacklist_entries_expire(self, _clock):
+        """After ``PICKUP_BLACKLIST_TTL_S``, entries expire so
+        the bot can retry a temporarily-trapped pickup."""
+        ap._state.pickup_blacklist.clear()
+        ap._blacklist_pickup({"x": 100.0, "y": 0.0})
+        assert ap._pickup_is_blacklisted({"x": 100.0, "y": 0.0}) is True
+        # Jump past the TTL.
+        _clock[0] += ap.PICKUP_BLACKLIST_TTL_S + 1.0
+        assert ap._pickup_is_blacklisted({"x": 100.0, "y": 0.0}) is False
+        # Expired entry was lazily evicted from the dict.
+        assert len(ap._state.pickup_blacklist) == 0
+
+    def test_stuck_in_gather_blacklists_the_target_pickup(
+            self, _clock):
+        """End-to-end fix: when the bot gets stuck while
+        gathering, the pickup it was chasing lands in the
+        blacklist and the next GATHER pass picks a different
+        target."""
+        ap._state.pickup_blacklist.clear()
+        # Drive a stuck cycle WHILE the bot is in GATHER (pickup
+        # visible, no movement).  Pin position at (100, 100) with
+        # an iron pickup right next to it.
+        for _ in range(20):
+            s = _state(
+                player={"x": 100.0, "y": 100.0, "heading": 0.0,
+                        "shields": 150, "max_shields": 150},
+                iron_pickups=[
+                    {"x": 110.0, "y": 100.0,
+                     "amount": 5, "item_type": "iron"}],
+            )
+            ap._do_auto(s, s["player"])
+            _clock[0] += 0.1
+        # FSM was in GATHER (only state with a pickup nearby);
+        # stuck-detect should have fired and added the pickup to
+        # the blacklist.
+        assert len(ap._state.pickup_blacklist) >= 1, (
+            "stuck while gathering must blacklist the pickup")
+        # Next GATHER pass with the same pickup should see it
+        # filtered out.
+        s2 = _state(iron_pickups=[
+            {"x": 110.0, "y": 100.0, "amount": 5, "item_type": "iron"}])
+        pu, _d = ap._nearest_pickup(s2, 100.0, 100.0)
+        assert pu is None, (
+            "the previously-stuck pickup must not be re-targeted")
+
+
+class TestBuildDoneShortCircuitIsUnconditional:
+    """Regression for the bug where the build_done flip lived
+    inside the BUILD branch of _choose_next_state — when GATHER
+    or another high-priority state preempted, the BUILD branch
+    never ran, and build_done stayed False forever (observed
+    in 2026-05-02 telemetry: 155 s session in GATHER, 11
+    buildings present, build_done still False at end)."""
+
+    def test_short_circuit_fires_even_when_gather_preempts(
+            self, _clock):
+        """A pickup is in GATHER range AND a Home Station exists
+        in the buildings list.  The FSM picks GATHER, but the
+        unconditional short-circuit at the top of
+        _choose_next_state must still flip build_done True."""
+        ap._state.build_done = False
+        s = _state(
+            iron_pickups=[
+                {"x": 100.0, "y": 0.0,
+                 "amount": 5, "item_type": "iron"}],
+            buildings=[{"x": 3200.0, "y": 3200.0, "hp": 100,
+                        "type": "StationModule",
+                        "building_type": "Home Station"}],
+        )
+        ap._do_auto(s, s["player"])
+        # GATHER won the dispatch...
+        assert ap._fsm["state"] == ap.S_GATHER
+        # ...but the short-circuit still ran.
+        assert ap._state.build_done is True
+
+    def test_short_circuit_fires_even_when_engage_preempts(
+            self, _clock):
+        """Same regression but with ENGAGE preempting."""
+        ap._state.build_done = False
+        s = _state(
+            aliens=[{"x": 400.0, "y": 0.0, "hp": 50}],
+            buildings=[{"x": 3200.0, "y": 3200.0, "hp": 100,
+                        "type": "StationModule",
+                        "building_type": "Home Station"}],
+        )
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_ENGAGE
+        assert ap._state.build_done is True
+
+    def test_short_circuit_fires_even_when_regen_preempts(
+            self, _clock):
+        """Same regression but with REGEN preempting."""
+        ap._state.build_done = False
+        s = _state(
+            player={"x": 0.0, "y": 0.0, "heading": 0.0,
+                    "shields": 30, "max_shields": 150},
+            buildings=[{"x": 3200.0, "y": 3200.0, "hp": 100,
+                        "type": "StationModule",
+                        "building_type": "Home Station"}],
+        )
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_REGEN
+        assert ap._state.build_done is True
