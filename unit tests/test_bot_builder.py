@@ -39,19 +39,34 @@ def test_sequence_is_seven_buildings_in_documented_order():
     ]
 
 
-def test_turrets_are_at_max_free_place_radius():
-    """Turret 2s sit at +/-300 px on the X axis — the
-    TURRET_FREE_PLACE_RADIUS limit defined in constants.py.
-    The Y offset is the global STARTER_BASE_OFFSET_Y so the
-    turrets line up with the home station along its row."""
+def test_turrets_are_at_max_free_place_radius_on_diagonals():
+    """Turret 2s sit on the NE and SW corners of the Home Station
+    at exactly TURRET_FREE_PLACE_RADIUS away — split evenly
+    across the X and Y axes (R/√2 each).  The diagonal layout
+    keeps each turret at the maximum allowed distance from the
+    station while widening their effective coverage compared to
+    the prior straight east/west placement."""
     from constants import TURRET_FREE_PLACE_RADIUS
+    import math
     turret_offsets = [
         (dx, dy) for (bt, dx, dy) in bot_builder.STARTER_BASE_SEQUENCE
         if bt == "Turret 2"
     ]
     base_y = bot_builder._STARTER_BASE_OFFSET_Y
-    assert (TURRET_FREE_PLACE_RADIUS, base_y) in turret_offsets
-    assert (-TURRET_FREE_PLACE_RADIUS, base_y) in turret_offsets
+    diag = TURRET_FREE_PLACE_RADIUS / math.sqrt(2.0)
+    expected_ne = (diag, base_y + diag)
+    expected_sw = (-diag, base_y - diag)
+    assert expected_ne in turret_offsets, (
+        f"NE corner offset {expected_ne} not in {turret_offsets}")
+    assert expected_sw in turret_offsets, (
+        f"SW corner offset {expected_sw} not in {turret_offsets}")
+    # Each turret must sit exactly TURRET_FREE_PLACE_RADIUS from
+    # the Home Station (within float tolerance).
+    for dx, dy in turret_offsets:
+        dist = math.hypot(dx - 0.0, dy - base_y)
+        assert abs(dist - TURRET_FREE_PLACE_RADIUS) < 1e-6, (
+            f"Turret at ({dx},{dy}) is {dist:.3f} px from station; "
+            f"expected {TURRET_FREE_PLACE_RADIUS}")
 
 
 def test_home_station_offset_clears_player_radius():

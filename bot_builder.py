@@ -5,8 +5,10 @@ one call:
 
   Phase 1 -- starter base.  Seven buildings around the player:
              Home Station + Service / Power / Solar Array column +
-             Repair Module on the east + 2× Turret 2 at the
-             max-distance free-place radius.
+             Repair Module on the east + 2× Turret 2 on the NE
+             and SW corners at the max-distance free-place radius
+             (300 px from the Home Station, split evenly across
+             X and Y so each axis offset is R/√2 ≈ 212 px).
 
   Phase 2 -- deposit.  Move all ship iron + copper into the home
              station's inventory (player would normally do this
@@ -41,7 +43,11 @@ from the HTTP handler thread (where the API endpoint lives) hits
 """
 from __future__ import annotations
 
+import math
+
 from typing import Any
+
+from constants import TURRET_FREE_PLACE_RADIUS as _TURRET_R
 
 
 # ── Build sequences ──────────────────────────────────────────────────────
@@ -57,14 +63,24 @@ from typing import Any
 # placing the Home Station on the player's position trapped the
 # ship inside the structure with no way to thrust out.
 _STARTER_BASE_OFFSET_Y: float = 200.0
+# Per-axis offset for a turret placed diagonally at the maximum
+# free-place radius from the Home Station.  Using R/√2 keeps the
+# total euclidean distance equal to TURRET_FREE_PLACE_RADIUS while
+# splitting evenly across the X and Y axes — the turret lands on
+# the NE / SW corner of an imagined square around the station.
+_TURRET_DIAG_OFFSET: float = _TURRET_R / math.sqrt(2.0)
 STARTER_BASE_SEQUENCE: list[tuple[str, float, float]] = [
     ("Home Station",     0.0, _STARTER_BASE_OFFSET_Y +    0.0),
     ("Service Module",   0.0, _STARTER_BASE_OFFSET_Y +   60.0),
     ("Power Receiver",   0.0, _STARTER_BASE_OFFSET_Y +  120.0),
     ("Solar Array 2",    0.0, _STARTER_BASE_OFFSET_Y +  200.0),
     ("Repair Module",   60.0, _STARTER_BASE_OFFSET_Y +   60.0),
-    ("Turret 2",       300.0, _STARTER_BASE_OFFSET_Y +    0.0),
-    ("Turret 2",      -300.0, _STARTER_BASE_OFFSET_Y +    0.0),
+    # NE corner turret (max free-place radius, 45° off the +X axis).
+    ("Turret 2",  _TURRET_DIAG_OFFSET,
+                 _STARTER_BASE_OFFSET_Y + _TURRET_DIAG_OFFSET),
+    # SW corner turret (max free-place radius, 225° off the +X axis).
+    ("Turret 2", -_TURRET_DIAG_OFFSET,
+                 _STARTER_BASE_OFFSET_Y - _TURRET_DIAG_OFFSET),
 ]
 
 # Phase-3 west extension + Basic Crafter.  All offsets are measured
