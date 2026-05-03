@@ -1013,12 +1013,13 @@ class TestSpiralFireGate:
         assert _key_log.get("space") is True
 
 
-class TestStuckCentreLockout:
-    """After a stuck-escape, the FSM is locked into SEARCH for
-    STUCK_CENTRE_LOCKOUT_S seconds so MINE / GATHER / BUILD can't
-    immediately retarget whatever edge-adjacent object pulled the
-    bot into the wall.  ENGAGE + REGEN still preempt as defensive
-    interrupts."""
+class TestStuckEscapeNoLockout:
+    """The 30 s centre-lockout was removed once the boundary +
+    building potential field landed: the field deflects future
+    attempts at the same edge-adjacent target, so suppressing the
+    FSM for half a minute after every escape was overkill.  These
+    tests pin the simpler post-escape behaviour: once the ship
+    clears the edge, the normal FSM priorities resume immediately."""
 
     def _trigger_stuck(self, _clock):
         """Force a stuck cycle by pinning the player at one
@@ -1031,16 +1032,22 @@ class TestStuckCentreLockout:
             ap._do_auto(s, s["player"])
             _clock[0] += 0.1
 
-    def test_lockout_set_on_stuck_trigger(self, _clock):
-        self._trigger_stuck(_clock)
-        assert ap._stuck_state["centre_lockout_until"] > _clock[0]
+    def test_no_centre_lockout_field_in_stuck_state(self):
+        """The lockout field was removed entirely — the stuck
+        dict only carries history + escape timing now."""
+        assert "centre_lockout_until" not in ap._stuck_state
+        assert "centre_lockout_until" not in ap.BotState().stuck
 
-    def test_mine_suppressed_during_lockout(self, _clock):
-        """Even with an asteroid in state, the FSM stays in
-        SEARCH for the lockout duration."""
+    def test_mine_resumes_immediately_after_escape_clears(
+            self, _clock):
+        """After the stuck-escape exits (ship clear of all edges),
+        an asteroid in MINE range triggers MINE without waiting
+        for any lockout window — the field handles the
+        re-pinning case proactively."""
         self._trigger_stuck(_clock)
-        # Move past the escape window so we're in lockout but
-        # FSM dispatches normally.
+        # Skip past the escape duration AND move the ship clear
+        # of all edges so _ship_clear_of_edges returns True and
+        # the override exits.
         _clock[0] += ap.STUCK_ESCAPE_MIN_DURATION_S + 0.1
         s = _state(
             player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
@@ -1048,12 +1055,14 @@ class TestStuckCentreLockout:
             asteroids=[{"x": 3300.0, "y": 3200.0, "hp": 100}],
         )
         ap._do_auto(s, s["player"])
-        assert ap._fsm["state"] == ap.S_SEARCH, (
-            "lockout should suppress MINE in favour of SEARCH")
+        assert ap._fsm["state"] == ap.S_MINE, (
+            "with no lockout, MINE should fire as soon as the "
+            "escape window closes and an asteroid is reachable")
 
-    def test_engage_still_preempts_lockout(self, _clock):
-        """Combat priority: even during lockout, an alien within
-        ENGAGE range still triggers ENGAGE."""
+    def test_engage_still_preempts_after_stuck(self, _clock):
+        """Combat priority unchanged — an alien within ENGAGE
+        range steals the FSM whether or not we just escaped a
+        stuck condition."""
         self._trigger_stuck(_clock)
         _clock[0] += ap.STUCK_ESCAPE_MIN_DURATION_S + 0.1
         s = _state(
@@ -1064,9 +1073,9 @@ class TestStuckCentreLockout:
         ap._do_auto(s, s["player"])
         assert ap._fsm["state"] == ap.S_ENGAGE
 
-    def test_regen_still_preempts_lockout(self, _clock):
-        """Defensive priority: low shields → REGEN even during
-        lockout."""
+    def test_regen_still_preempts_after_stuck(self, _clock):
+        """Defensive priority unchanged — low shields trigger
+        REGEN even right after a stuck escape."""
         self._trigger_stuck(_clock)
         _clock[0] += ap.STUCK_ESCAPE_MIN_DURATION_S + 0.1
         s = _state(player={
@@ -1075,20 +1084,6 @@ class TestStuckCentreLockout:
         })
         ap._do_auto(s, s["player"])
         assert ap._fsm["state"] == ap.S_REGEN
-
-    def test_lockout_expires(self, _clock):
-        """After STUCK_CENTRE_LOCKOUT_S elapses, normal FSM
-        priorities resume and MINE can fire again."""
-        self._trigger_stuck(_clock)
-        # Jump well past the lockout window.
-        _clock[0] += ap.STUCK_CENTRE_LOCKOUT_S + ap.MIN_DWELL_S + 1.0
-        s = _state(
-            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
-                    "shields": 150, "max_shields": 150},
-            asteroids=[{"x": 3300.0, "y": 3200.0, "hp": 100}],
-        )
-        ap._do_auto(s, s["player"])
-        assert ap._fsm["state"] == ap.S_MINE
 
 
 # ── DEPOSIT (ongoing return-to-base) ──────────────────────────────────────

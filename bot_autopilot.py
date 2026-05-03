@@ -411,19 +411,8 @@ STUCK_ESCAPE_MIN_DURATION_S = 1.5 # minimum time the escape override lasts
 # doesn't expire mid-rotation and immediately re-trigger.
 STUCK_ESCAPE_CLEAR_MARGIN_PX = 500.0
 STUCK_WORLD_MARGIN_PX    = 200.0  # spiral / escape targets stay this far in
-# Throttle the "STUCK at edge" log — bumped to 30 s to match the
-# centre-lockout window so a single cycle's worth of messages
-# doesn't fire more than once.
+# Throttle the "STUCK at edge" log so a long escape doesn't spam.
 STUCK_LOG_THROTTLE_S     = 30.0
-# After a stuck-escape, the FSM is locked into SEARCH (around the
-# world centre) for this long so MINE / GATHER / BUILD_SEEK can't
-# immediately re-target the same edge-adjacent object that pulled
-# the bot into the wall in the first place.  ENGAGE + REGEN still
-# preempt as defensive interrupts.  Without this lockout the bot
-# would cycle between the edge and STUCK_ESCAPE_CLEAR_MARGIN_PX
-# from it indefinitely (observed on 2026-05-01 with a top-edge
-# alien / asteroid that kept attracting the FSM).
-STUCK_CENTRE_LOCKOUT_S   = 30.0
 # ── Boundary potential field (preventive — the watchdog above is
 # the reactive backstop) ───────────────────────────────────────────
 # Within this distance of any world edge, a repulsion vector
@@ -530,12 +519,6 @@ class BotState:
         "history": [],
         "escape_until": 0.0,
         "last_log": 0.0,
-        # Monotonic timestamp until which target-chasing FSM
-        # branches (MINE / GATHER / BUILD_SEEK) are suppressed in
-        # favour of a centred SEARCH spiral.  Set on stuck-trigger
-        # to break the "edge → escape → re-target same edge object
-        # → stuck again" cycle.  ENGAGE + REGEN still preempt.
-        "centre_lockout_until": 0.0,
     })
     mining_weapon_pick: str = "Mining Beam"
     build_done: bool = False
@@ -592,7 +575,6 @@ def _stuck_reset() -> None:
     s["history"] = []
     s["escape_until"] = 0.0
     s["last_log"] = 0.0
-    s["centre_lockout_until"] = 0.0
 
 
 def _fsm_reset(initial: str = S_MINE) -> None:
@@ -893,16 +875,7 @@ def _choose_next_state(state: dict, p: dict, cur: str) -> str:
         if threat is not None and td < ENGAGE_ENTER_PX:
             return S_ENGAGE
 
-    # 2.5  Centre-lockout.  After a stuck-escape, the spiral has
-    #      been re-anchored to the world centre and the FSM is
-    #      forced into SEARCH for STUCK_CENTRE_LOCKOUT_S so
-    #      MINE / GATHER / BUILD / BUILD_SEEK can't immediately
-    #      pull the bot back to whatever edge-adjacent target
-    #      caused the stuck cycle in the first place.  ENGAGE
-    #      already returned above; REGEN already returned earlier.
     now = _get_now()
-    if now < _state.stuck.get("centre_lockout_until", 0.0):
-        return S_SEARCH
 
     # 3. GATHER — loot pickup within reach.
     pickup, pd = _nearest_pickup(state, px, py)
@@ -1037,17 +1010,10 @@ def _do_auto(state: dict, p: dict) -> None:
         _spiral_state["angle"] = 0.0
         _spiral_state["radius"] = 100.0
         _stuck_state["history"] = []
-        # Centre-lockout: suppress MINE / GATHER / BUILD branches
-        # for the next STUCK_CENTRE_LOCKOUT_S so the FSM can't
-        # immediately retarget the same edge object.  ENGAGE +
-        # REGEN still preempt for safety.
-        _stuck_state["centre_lockout_until"] = (
-            now + STUCK_CENTRE_LOCKOUT_S)
-        # Throttle the log so a long lockout doesn't spam.
+        # Throttle the log so a long escape burst doesn't spam.
         if (now - _stuck_state["last_log"]) >= STUCK_LOG_THROTTLE_S:
             print("[autopilot] STUCK at edge — escape burst toward "
-                  "world centre + re-anchoring spiral + "
-                  f"{int(STUCK_CENTRE_LOCKOUT_S)}s centre lockout")
+                  "world centre + re-anchoring spiral")
             _stuck_state["last_log"] = now
         _do_escape_edge(state, p)
         return
