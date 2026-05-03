@@ -38,7 +38,9 @@ state endpoint is reachable.
 """
 from __future__ import annotations
 
+import json
 import math
+import os
 import random
 import sys
 import threading
@@ -96,6 +98,107 @@ PICKAXE_HOLD_DEAD_BAND_PX = 20.0
 # so the bot doesn't tab-flap mid-asteroid.
 MINING_PICKAXE_CHANCE = 0.5
 MELEE_RANGE_PX = 100.0            # within this -> energy blade
+
+
+# ── Telemetry ────────────────────────────────────────────────────────────
+#
+# JSONL stream of FSM transitions, deposit POST attempts, and periodic
+# snapshots — written to bot_io/autopilot_telemetry.jsonl so a post-
+# session analysis can reconstruct exactly why the bot did what it did.
+# Enabled by default; the writer is best-effort and never raises into
+# the main loop (a failed write just prints a warning).
+#
+# Volume: ~50-150 lines per minute under normal play (one per state
+# transition + one snapshot every 5 s).  Safe to leave on.
+
+_TELEMETRY_PATH = os.path.join("bot_io", "autopilot_telemetry.jsonl")
+_telemetry_lock = threading.Lock()
+_telemetry_started = False
+_telemetry_last_snapshot_at: float = 0.0
+TELEMETRY_SNAPSHOT_INTERVAL_S: float = 5.0
+
+
+def _telemetry_init() -> None:
+    """Create bot_io/ + write a session_start marker exactly once
+    per autopilot process.  Safe to call repeatedly."""
+    global _telemetry_started
+    if _telemetry_started:
+        return
+    _telemetry_started = True
+    try:
+        os.makedirs("bot_io", exist_ok=True)
+        with _telemetry_lock, open(_TELEMETRY_PATH, "a",
+                                    encoding="utf-8") as f:
+            f.write(json.dumps({
+                "ts": time.time(),
+                "monotonic": _get_now() if "_get_now" in globals() else 0.0,
+                "event": "session_start",
+                "pid": os.getpid(),
+            }) + "\n")
+    except Exception as e:
+        print(f"[autopilot] telemetry init error: {e}")
+
+
+def _telemetry_log(event: str, **fields: Any) -> None:
+    """Append one JSONL line to the telemetry stream.  Never raises
+    into the caller — a failed write prints a warning and moves on."""
+    try:
+        line = json.dumps({
+            "ts": time.time(),
+            "monotonic": _get_now(),
+            "event": event,
+            **fields,
+        })
+        with _telemetry_lock, open(_TELEMETRY_PATH, "a",
+                                    encoding="utf-8") as f:
+            f.write(line + "\n")
+    except Exception as e:
+        print(f"[autopilot] telemetry write error: {e}")
+
+
+def _telemetry_snapshot_fields(state: dict, p: dict) -> dict:
+    """Compact dump of the conditions that drive the FSM.  Used by
+    state_transition + periodic snapshot events so each line is
+    self-contained for offline analysis."""
+    items = (state.get("inventory") or {}).get("items") or {}
+    sitems = (state.get("station_inventory") or {}).get("items") or {}
+    hs = _find_home_station(state) if "_find_home_station" in globals() else None
+    px = float(p.get("x", 0.0))
+    py = float(p.get("y", 0.0))
+    hs_dist = None
+    if hs is not None:
+        hs_dist = math.hypot(
+            float(hs.get("x", 0.0)) - px,
+            float(hs.get("y", 0.0)) - py)
+    now = _get_now()
+    deposit_cooldown_remaining = max(
+        0.0, DEPOSIT_COOLDOWN_S - (now - _state.last_deposit_at))
+    return {
+        "px": round(px, 1),
+        "py": round(py, 1),
+        "ship_iron": int(items.get("iron", 0)),
+        "ship_blueprints": sum(
+            v for k, v in items.items() if k.startswith("bp_")),
+        "ship_modules": sum(
+            v for k, v in items.items() if k.startswith("mod_")),
+        "station_iron": int(sitems.get("iron", 0)),
+        "buildings_count": len(state.get("buildings") or []),
+        "has_home_station": hs is not None,
+        "hs_dist": None if hs_dist is None else round(hs_dist, 1),
+        "asteroids_count": len(state.get("asteroids") or []),
+        "aliens_count": len(state.get("aliens") or []),
+        "iron_pickups_count": len(state.get("iron_pickups") or []),
+        "blueprint_pickups_count": len(state.get("blueprint_pickups") or []),
+        "shields": int(p.get("shields", 0)),
+        "max_shields": int(p.get("max_shields", 1)),
+        "build_done": _state.build_done,
+        "last_deposit_at": _state.last_deposit_at,
+        "deposit_cooldown_remaining_s": round(deposit_cooldown_remaining, 2),
+        "modules_to_craft_left": len(_state.queue.modules_to_craft),
+        "modules_to_install_left": len(_state.queue.modules_to_install),
+        "module_phase_started": _state.queue.module_phase_started,
+        "consumable_phase_started": _state.queue.consumable_phase_started,
+    }
 
 
 # ── Hotkeys ───────────────────────────────────────────────────────────────
@@ -956,6 +1059,22 @@ def _choose_next_state(state: dict, p: dict, cur: str) -> str:
     #    spot.  ``_state.build_done`` flips True after the first attempt.
     #    BUILD_SEEK actively walks toward less-cluttered space when
     #    iron is met but the area isn't clear.
+    #
+    #    Short-circuit: if a Home Station already exists in the
+    #    world (loaded from save, built in a prior session, or
+    #    placed manually), permanently mark build_done so the
+    #    BUILD/BUILD_SEEK branch never fires.  Without this, an
+    #    autopilot starting alongside a pre-existing station with
+    #    >= 1000 iron oscillates: BUILD_SEEK walks the bot away,
+    #    BUILD attempts (every step rejected by max-count, but
+    #    build_done flips True), then DEPOSIT immediately
+    #    retriggers and walks the bot back to the station.
+    if (not _state.build_done
+            and _find_home_station(state) is not None):
+        _state.build_done = True
+        _telemetry_log("build_done_short_circuit",
+                       reason="home_station_already_exists",
+                       **_telemetry_snapshot_fields(state, p))
     if (not _state.build_done
             and _iron_total(state) >= BUILD_IRON_THRESHOLD):
         if _build_area_clear(state, px, py):
@@ -1035,7 +1154,17 @@ def _do_auto(state: dict, p: dict) -> None:
     None) always stamps the timer and is allowed to transition
     freely -- otherwise a fresh process couldn't react to its
     initial observation."""
+    _telemetry_init()
     now = _get_now()
+    # Periodic snapshot so the JSONL stream still has context
+    # during long stable stretches (no transitions = no other
+    # events).  Cheap: ~1 line per 5 s.
+    global _telemetry_last_snapshot_at
+    if now - _telemetry_last_snapshot_at >= TELEMETRY_SNAPSHOT_INTERVAL_S:
+        _telemetry_last_snapshot_at = now
+        _telemetry_log("snapshot",
+                       fsm_state=_fsm["state"],
+                       **_telemetry_snapshot_fields(state, p))
 
     # Stuck watchdog: if the ship has been pinned against either
     # the world boundary OR a station building cluster, override
@@ -1065,6 +1194,12 @@ def _do_auto(state: dict, p: dict) -> None:
         _stuck_state["escape_until"] = 0.0
     if _detect_stuck():
         _stuck_state["escape_until"] = now + STUCK_ESCAPE_MIN_DURATION_S
+        _telemetry_log("stuck_detected",
+                       cause=("building"
+                              if not _ship_clear_of_buildings(p, state)
+                              else "edge"),
+                       fsm_state=_fsm["state"],
+                       **_telemetry_snapshot_fields(state, p))
         # Re-anchor the spiral to the WORLD CENTRE (not just reset
         # to None which would re-anchor at the current edge
         # position).  When the FSM eventually re-enters SEARCH
@@ -1089,6 +1224,7 @@ def _do_auto(state: dict, p: dict) -> None:
         return
 
     cur = _fsm["state"]
+    prev = cur
     desired = _choose_next_state(state, p, cur)
 
     if _fsm["entered_at"] is None:
@@ -1103,6 +1239,9 @@ def _do_auto(state: dict, p: dict) -> None:
             _fsm["state"] = desired
             cur = desired
         _on_enter(cur)
+        _telemetry_log("state_transition", reason="first_tick",
+                       from_state=prev, to_state=cur, desired=desired,
+                       **_telemetry_snapshot_fields(state, p))
     elif desired != cur:
         dwell = now - _fsm["entered_at"]
         # ENGAGE and REGEN are defensive interrupts -- they bypass
@@ -1113,6 +1252,19 @@ def _do_auto(state: dict, p: dict) -> None:
             _fsm["entered_at"] = now
             cur = desired
             _on_enter(cur)
+            _telemetry_log("state_transition", reason="dwell_or_preempt",
+                           from_state=prev, to_state=cur, desired=desired,
+                           dwell_s=round(dwell, 3),
+                           **_telemetry_snapshot_fields(state, p))
+        else:
+            # Desired state changed but MIN_DWELL gating held the
+            # current one — log the suppressed transition so we
+            # can see when the FSM "wants" to change but can't.
+            _telemetry_log("transition_suppressed_by_dwell",
+                           from_state=cur, desired=desired,
+                           dwell_s=round(dwell, 3),
+                           min_dwell_s=MIN_DWELL_S,
+                           **_telemetry_snapshot_fields(state, p))
 
     if cur == S_ENGAGE:
         _act_engage(state, p)
@@ -1250,11 +1402,15 @@ def _act_deposit(state: dict, p: dict) -> None:
         # In range — fire the deposit and stamp cooldown.
         result = _post_deposit_to_station()
         _state.last_deposit_at = _get_now()
-        if result is not None:
-            deposited = result.get("deposited", {}) or {}
-            if deposited:
-                print("[autopilot] DEPOSIT: "
-                      f"{', '.join(f'{k}={v}' for k, v in deposited.items())}")
+        deposited = (result or {}).get("deposited", {}) or {}
+        _telemetry_log("deposit_post",
+                       success=result is not None,
+                       in_range_dist=round(dist, 1),
+                       deposited=deposited,
+                       **_telemetry_snapshot_fields(state, p))
+        if result is not None and deposited:
+            print("[autopilot] DEPOSIT: "
+                  f"{', '.join(f'{k}={v}' for k, v in deposited.items())}")
         return
     # Not yet in range — navigate to the home station, no fire.
     KeyState.hold("space", False)

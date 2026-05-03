@@ -662,6 +662,40 @@ class TestStarterBaseBuildGate:
             "fall through to MINE / SEARCH")
         assert ap._fsm["state"] != ap.S_BUILD
 
+    def test_existing_home_station_short_circuits_build_branch(
+            self, _clock):
+        """User-reported regression: autopilot starting alongside a
+        pre-existing Home Station with >= 1000 iron oscillated
+        between BUILD_SEEK (walk away from station) and DEPOSIT
+        (walk back).  The fix flips ``build_done = True`` on
+        first sight of an existing HS, so the BUILD/BUILD_SEEK
+        branch never fires when a station already exists."""
+        ap._state.build_done = False  # autopilot just started
+        s = _state(
+            iron=ap.BUILD_IRON_THRESHOLD,
+            buildings=[{"x": 3200.0, "y": 3200.0, "hp": 100,
+                        "type": "StationModule",
+                        "building_type": "Home Station"}],
+        )
+        ap._do_auto(s, s["player"])
+        assert ap._state.build_done is True, (
+            "build_done should flip True on first sight of an "
+            "existing Home Station")
+        assert ap._fsm["state"] not in (ap.S_BUILD, ap.S_BUILD_SEEK), (
+            "BUILD/BUILD_SEEK must not fire when a Home Station "
+            "already exists")
+
+    def test_no_home_station_still_triggers_build_normally(
+            self, _clock):
+        """Sanity check: the short-circuit only fires when an HS
+        exists.  Without one, the normal iron-gated build path
+        still works."""
+        ap._state.build_done = False
+        s = _state(iron=ap.BUILD_IRON_THRESHOLD)
+        ap._do_auto(s, s["player"])
+        assert ap._state.build_done is True or \
+               ap._fsm["state"] in (ap.S_BUILD, ap.S_BUILD_SEEK)
+
     def test_act_build_does_not_repost_during_dwell(
             self, _clock, monkeypatch):
         """While the FSM is holding S_BUILD through MIN_DWELL_S,
