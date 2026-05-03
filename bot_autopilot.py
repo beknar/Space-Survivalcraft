@@ -628,24 +628,61 @@ def _detect_stuck() -> bool:
 
 
 def _do_escape_edge(state: dict, p: dict) -> None:
-    """Override movement: rotate toward the world centre and thrust
-    forward to break out of an edge collision.  Used when
-    ``_detect_stuck`` flags the ship as pinned at a map edge."""
+    """Override movement: head AWAY from whatever is pinning the
+    ship — boundary edge, station building, or both.
+
+    The escape direction is the combined repulsion vector
+    (boundary + building); by definition it points away from the
+    obstacle the ship is pressed against.  Picking the world
+    centre as a fixed escape target (the prior behaviour) was
+    unsafe: a station built near the world centre put the cluster
+    BETWEEN the bot and the escape goal, so the override drove
+    the bot straight back into the buildings that pinned it,
+    triggering a re-detect cycle.  Falls back to world centre
+    only when neither field is active (i.e. the watchdog fired
+    for a non-edge / non-building reason like a collision-induced
+    velocity stall).
+    """
     zone = state.get("zone") or {}
     world_w = float(zone.get("world_w", 6400) or 6400)
     world_h = float(zone.get("world_h", 6400) or 6400)
-    cx = world_w * 0.5
-    cy = world_h * 0.5
+
+    rx, ry = _boundary_repulsion(p, zone)
+    bx, by = _building_repulsion(p, state)
+    rx += bx * BUILDING_REPULSION_GAIN
+    ry += by * BUILDING_REPULSION_GAIN
+
+    px = float(p.get("x", 0.0))
+    py = float(p.get("y", 0.0))
+    if abs(rx) > 0.05 or abs(ry) > 0.05:
+        norm = math.hypot(rx, ry)
+        ux = rx / norm
+        uy = ry / norm
+        # Travel a substantial distance along the repulsion
+        # direction so the ship clears the field before the escape
+        # exit-condition re-evaluates.
+        tx = px + ux * BUILD_SEEK_TARGET_DIST_PX
+        ty = py + uy * BUILD_SEEK_TARGET_DIST_PX
+    else:
+        tx = world_w * 0.5
+        ty = world_h * 0.5
+    # Clamp the escape target inside the world rect so it doesn't
+    # itself sit at an edge.
+    tx = max(STUCK_WORLD_MARGIN_PX,
+             min(world_w - STUCK_WORLD_MARGIN_PX, tx))
+    ty = max(STUCK_WORLD_MARGIN_PX,
+             min(world_h - STUCK_WORLD_MARGIN_PX, ty))
     # stop_radius is generous so the escape ends as soon as we're
-    # clearly off the edge, not when we reach the exact centre.
-    _do_goto(state, p, cx, cy, stop_radius=300.0)
+    # clearly off the obstacle, not when we reach the exact target.
+    _do_goto(state, p, tx, ty, stop_radius=300.0)
 
 
 def _ship_clear_of_edges(p: dict, zone: dict) -> bool:
     """True when the ship is at least
     STUCK_ESCAPE_CLEAR_MARGIN_PX from every world edge.  Used as
-    the exit condition for the escape override so the bot doesn't
-    drop back into the FSM while still pinned."""
+    one half of the exit condition for the escape override so the
+    bot doesn't drop back into the FSM while still pinned at a
+    boundary."""
     px = float(p.get("x", 0.0))
     py = float(p.get("y", 0.0))
     world_w = float(zone.get("world_w", 0) or 0)
@@ -659,6 +696,31 @@ def _ship_clear_of_edges(p: dict, zone: dict) -> bool:
         and px < world_w - STUCK_ESCAPE_CLEAR_MARGIN_PX
         and py < world_h - STUCK_ESCAPE_CLEAR_MARGIN_PX
     )
+
+
+def _ship_clear_of_buildings(p: dict, state: dict) -> bool:
+    """True when the ship is outside ``BUILDING_REPULSION_RANGE_PX``
+    of every building.  Used alongside ``_ship_clear_of_edges`` as
+    the second half of the escape exit condition: without it, an
+    escape from a station-corner pin would expire while the ship
+    is still inside the building's repulsion zone, the bot would
+    stall against the next-corner repulsion vector, and stuck
+    detection would re-fire on the same building cluster."""
+    buildings = state.get("buildings") or []
+    if not buildings:
+        return True
+    px = float(p.get("x", 0.0))
+    py = float(p.get("y", 0.0))
+    margin_sq = (
+        BUILDING_REPULSION_RANGE_PX * BUILDING_REPULSION_RANGE_PX)
+    for b in buildings:
+        bx = float(b.get("x", 0.0))
+        by = float(b.get("y", 0.0))
+        dx = bx - px
+        dy = by - py
+        if dx * dx + dy * dy < margin_sq:
+            return False
+    return True
 
 
 def _iron_total(state: dict) -> int:
@@ -975,24 +1037,28 @@ def _do_auto(state: dict, p: dict) -> None:
     initial observation."""
     now = _get_now()
 
-    # Edge-collision watchdog: if the ship has been pinned against
-    # the world boundary by goto/spiral targeting an off-map point,
-    # override the FSM and head toward the world centre.  Has to
-    # run BEFORE the FSM dispatch so it preempts whatever was
-    # driving the ship into the edge.
+    # Stuck watchdog: if the ship has been pinned against either
+    # the world boundary OR a station building cluster, override
+    # the FSM and head along the local repulsion vector toward
+    # open space.  Has to run BEFORE the FSM dispatch so it
+    # preempts whatever was driving the ship into the obstacle.
     _record_position(p)
     zone = state.get("zone") or {}
     if _stuck_state["escape_until"] > 0.0:
-        # Escape is active.  Stay in escape until BOTH:
+        # Escape is active.  Stay in escape until ALL of:
         #  * the minimum duration has elapsed, AND
         #  * the ship is clear of all world edges by the safety
-        #    margin (so a long 180° rotation doesn't drop us out
-        #    of escape mid-pivot, immediately re-pinning).
+        #    margin, AND
+        #  * the ship is clear of all buildings by the building-
+        #    repulsion range (so an escape from a station-corner
+        #    pin doesn't expire while still inside the field that
+        #    will pin us again).
         # Continuously clear position history while in escape so
         # the next detect cycle starts fresh after we exit.
         _stuck_state["history"] = []
         if (now < _stuck_state["escape_until"]
-                or not _ship_clear_of_edges(p, zone)):
+                or not _ship_clear_of_edges(p, zone)
+                or not _ship_clear_of_buildings(p, state)):
             _do_escape_edge(state, p)
             return
         # Exit condition met — clear the override and fall through.
@@ -1012,8 +1078,12 @@ def _do_auto(state: dict, p: dict) -> None:
         _stuck_state["history"] = []
         # Throttle the log so a long escape burst doesn't spam.
         if (now - _stuck_state["last_log"]) >= STUCK_LOG_THROTTLE_S:
-            print("[autopilot] STUCK at edge — escape burst toward "
-                  "world centre + re-anchoring spiral")
+            # Distinguish edge vs building stucks in the log so
+            # repeated firings are easier to diagnose.
+            cause = ("building" if not _ship_clear_of_buildings(p, state)
+                     else "edge")
+            print(f"[autopilot] STUCK at {cause} — escape burst along "
+                  "repulsion vector + re-anchoring spiral")
             _stuck_state["last_log"] = now
         _do_escape_edge(state, p)
         return

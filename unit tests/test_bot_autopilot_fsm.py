@@ -754,10 +754,13 @@ class TestStuckEscape:
         # Inside the escape window now.
         assert ap._stuck_state["escape_until"] > 0.0
 
-    def test_escape_targets_world_centre(self, _clock, monkeypatch):
-        """During the escape override, _do_goto should be called with
-        the world centre as the target — not whatever spiral / mine
-        target was previously aiming off-map."""
+    def test_escape_targets_along_repulsion_vector(
+            self, _clock, monkeypatch):
+        """The escape now heads along the local repulsion vector
+        instead of toward world centre.  Pinned at the south
+        edge: repulsion points pure-north (+y), so the escape
+        target sits ``BUILD_SEEK_TARGET_DIST_PX`` north of the
+        ship — clamped to inside the world."""
         captured: dict = {}
         def _spy(state, p, tx, ty, stop_radius=80.0):
             captured["tx"], captured["ty"] = tx, ty
@@ -770,10 +773,46 @@ class TestStuckEscape:
             })
             ap._do_auto(s, s["player"])
             _clock[0] += 0.1
-        # Most-recent dispatch was the escape — target should be
-        # the world centre (3200, 3200).
+        # Repulsion at y=50 is pure +y; target is 50 + 1000 = 1050
+        # (BUILD_SEEK_TARGET_DIST_PX north of the ship), clamped
+        # to inside [200, 6200].  X is unchanged because the ship
+        # is mid-axis with no X repulsion.
         assert captured.get("tx") == 3200.0
-        assert captured.get("ty") == 3200.0
+        expected_ty = 50.0 + ap.BUILD_SEEK_TARGET_DIST_PX
+        assert captured.get("ty") == expected_ty
+
+    def test_escape_targets_away_from_building_pin(
+            self, _clock, monkeypatch):
+        """The user's reported failure mode: bot pinned outside
+        the player station gets driven INTO the cluster by the
+        old "head to world centre" escape.  New escape uses the
+        building repulsion vector so it heads AWAY from the
+        building, not through it."""
+        captured: dict = {}
+        def _spy(state, p, tx, ty, stop_radius=80.0):
+            captured["tx"], captured["ty"] = tx, ty
+        monkeypatch.setattr(ap, "_do_goto", _spy)
+        # Pin the ship 40 px south of a building near world centre.
+        # World-edge repulsion is zero (mid-axis); building
+        # repulsion at distance 40 / range 80 = 0.5 in direction
+        # (0, -1).  Escape target should be SOUTH of the ship,
+        # not toward world centre (which is north of the ship).
+        for _ in range(20):
+            s = _state(
+                player={"x": 3200.0, "y": 3160.0, "heading": 0.0,
+                        "shields": 150, "max_shields": 150},
+                buildings=[{"x": 3200.0, "y": 3200.0,
+                            "hp": 100, "type": "StationModule",
+                            "building_type": "Home Station"}],
+            )
+            ap._do_auto(s, s["player"])
+            _clock[0] += 0.1
+        # Escape target must be SOUTH (lower y) of the ship's
+        # current position, NOT north (which is where world
+        # centre sits and where the building is).
+        assert captured.get("ty") < 3160.0, (
+            f"escape ty {captured.get('ty')} should be south of "
+            f"ship at 3160 (away from building at 3200), not north")
 
     def test_escape_holds_until_ship_clears_edge_margin(
             self, _clock):
@@ -792,11 +831,35 @@ class TestStuckEscape:
         # Override must NOT clear yet — ship still pinned at top.
         assert ap._stuck_state["escape_until"] > 0.0
 
+    def test_escape_holds_until_ship_clears_buildings(
+            self, _clock):
+        """Even with min duration elapsed AND world edges cleared,
+        the escape must persist while the ship is still inside
+        any building's repulsion zone — otherwise the escape from
+        a station-corner pin would expire while still inside the
+        field that re-pins."""
+        # Trigger stuck somewhere harmless so escape arms.
+        self._drive_ticks_at(_clock, 100.0, 100.0, n=20)
+        assert ap._stuck_state["escape_until"] > 0.0
+        _clock[0] += ap.STUCK_ESCAPE_MIN_DURATION_S + 0.5
+        # Ship is mid-world (clear of edges) but right next to a
+        # building (inside its 80 px repulsion zone).
+        s = _state(
+            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            buildings=[{"x": 3240.0, "y": 3200.0, "hp": 100,
+                        "type": "StationModule",
+                        "building_type": "Service Module"}],
+        )
+        ap._do_auto(s, s["player"])
+        # Escape must NOT clear yet — building still in range.
+        assert ap._stuck_state["escape_until"] > 0.0
+
     def test_escape_clears_when_ship_well_inside_world(
             self, _clock):
         """Once min duration has elapsed AND the ship is clear of
-        all edges by the safety margin, the override drops and the
-        FSM resumes normal flow."""
+        all edges by the safety margin AND clear of all buildings,
+        the override drops and the FSM resumes normal flow."""
         self._drive_ticks_at(_clock, 100.0, 100.0, n=20)
         assert ap._stuck_state["escape_until"] > 0.0
         _clock[0] += ap.STUCK_ESCAPE_MIN_DURATION_S + 0.1
