@@ -475,6 +475,23 @@ PICKUP_BLACKLIST_RADIUS_PX: float = 60.0  # skip any pickup within this distance
 # bot will still chase within the visible region but stops
 # committing to cross-map trips.
 MAX_ASTEROID_CHASE_PX: float = 2000.0
+# Escape hatch for the cap: after the FSM has been continuously
+# in S_SEARCH for this long, drop the chase cap and pursue the
+# nearest visible asteroid regardless of distance.  Without this
+# the bot can spiral indefinitely in a region where the only
+# asteroids sit just past the 2000 px cap (observed: 187 s of
+# continuous SEARCH at one anchor with 3-6 asteroids visible
+# the whole time, all out of chase range).
+SEARCH_GIVEUP_S: float = 60.0
+# Spiral angular advance per tick (radians).  Was 8° / 0.14 rad —
+# at typical orbit radii (200-500 px) that produced tangential
+# target speeds of 280-700 px/s, faster than the player ship
+# can rotate to face.  The bot would stay perpetually re-orienting
+# without ever building forward speed — looked like "rotating
+# endlessly" from the operator's perspective.  4° / 0.07 rad gives
+# tangential speeds the bot can actually follow at typical
+# search-spiral radii.
+SPIRAL_ANGLE_ADVANCE_RAD: float = math.radians(4.0)
 # Asteroid blacklist — same mechanic as the pickup blacklist but
 # for asteroids targeted while in S_MINE.  Diagnosed via the
 # bot_io/autopilot_telemetry.jsonl session that showed 5
@@ -1259,9 +1276,22 @@ def _choose_next_state(state: dict, p: dict, cur: str) -> str:
     #    as out-of-reach so MINE falls through to SEARCH (spiral
     #    around current position) instead of long obstacle-laden
     #    trips across the world.
+    #
+    #    Escape hatch: if SEARCH has been the active state for
+    #    SEARCH_GIVEUP_S, drop the cap and commit to whatever's
+    #    nearest.  A long round trip is better than spiralling
+    #    indefinitely in a region with no in-range asteroids.
     nearest_ast, ast_d = _nearest_asteroid(state, px, py)
-    if nearest_ast is not None and ast_d < MAX_ASTEROID_CHASE_PX:
-        return S_MINE
+    if nearest_ast is not None:
+        in_chase_range = ast_d < MAX_ASTEROID_CHASE_PX
+        search_entered = _fsm.get("entered_at")
+        long_search = (
+            cur == S_SEARCH
+            and search_entered is not None
+            and (now - search_entered) >= SEARCH_GIVEUP_S
+        )
+        if in_chase_range or long_search:
+            return S_MINE
     return S_SEARCH
 
 
@@ -1940,8 +1970,13 @@ def _do_spiral_search(state: dict, p: dict) -> None:
         in_range = (
             nearest_ast is not None and nd < MINING_RANGE_PX)
     KeyState.hold("space", in_range)
-    # Advance the spiral incrementally each tick.
-    _spiral_state["angle"] = (a + math.radians(8.0)) % (2 * math.pi)
+    # Advance the spiral incrementally each tick.  Angle advance
+    # rate is tuned (SPIRAL_ANGLE_ADVANCE_RAD) so the tangential
+    # target speed at typical orbit radii stays under what the
+    # ship can actually rotate to follow — otherwise the bot
+    # perpetually re-orients without thrusting and looks like
+    # it's "rotating endlessly" in place.
+    _spiral_state["angle"] = (a + SPIRAL_ANGLE_ADVANCE_RAD) % (2 * math.pi)
     _spiral_state["radius"] = min(r + 1.5, 3000.0)
     if _spiral_state["radius"] >= 3000.0:
         _spiral_reset()

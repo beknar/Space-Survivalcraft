@@ -2092,6 +2092,68 @@ class TestAsteroidChaseDistanceCap:
         ap._do_auto(s, s["player"])
         assert ap._fsm["state"] == ap.S_SEARCH
 
+    def test_search_giveup_drops_chase_cap(self, _clock):
+        """After the FSM has been in S_SEARCH for SEARCH_GIVEUP_S
+        seconds, the chase cap is dropped so the bot commits to
+        the nearest visible asteroid regardless of distance.
+        Without this escape hatch the bot can spiral indefinitely
+        in a region whose only asteroids sit just past the cap
+        (observed: 187 s of continuous SEARCH at one anchor with
+        3-6 asteroids visible the whole time, all out of chase
+        range)."""
+        ap._state.asteroid_blacklist.clear()
+        # Far asteroid beyond the chase cap.
+        far_x = ap.MAX_ASTEROID_CHASE_PX + 500.0
+        s = _state(asteroids=[
+            {"x": far_x, "y": 0.0, "hp": 100, "type": "Asteroid"}])
+        # Enter SEARCH.
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_SEARCH
+        # Stay in SEARCH for the full giveup window.
+        _clock[0] += ap.SEARCH_GIVEUP_S + ap.MIN_DWELL_S + 0.1
+        ap._do_auto(s, s["player"])
+        # Now the cap drops and MINE fires.
+        assert ap._fsm["state"] == ap.S_MINE
+
+
+class TestSpiralAngleAdvanceTuning:
+    """The spiral's angle-advance rate must stay slow enough that
+    the tangential target speed at typical orbit radii is something
+    the ship can actually rotate to follow — otherwise the bot
+    perpetually re-orients without thrusting (looked like
+    "rotating endlessly in place" in the diagnosed session)."""
+
+    def test_spiral_angle_advance_is_modest(self):
+        """At a typical search radius of 200 px, the tangential
+        speed at 10 Hz must stay under the ship's rotation rate.
+        4°/tick = 40°/s — comfortably below typical player ship
+        turn rates of 60-90°/s — so the bot always catches up."""
+        import math as _math
+        # The tuned constant.  ~4° per tick at 10 Hz = ~40°/s.
+        deg_per_tick = _math.degrees(ap.SPIRAL_ANGLE_ADVANCE_RAD)
+        assert 2.0 < deg_per_tick < 6.0, (
+            f"spiral angle advance {deg_per_tick:.1f}°/tick — "
+            "outside the 2-6° band the bot can follow")
+
+    def test_spiral_advances_by_tuned_constant(self, _clock,
+                                                 monkeypatch):
+        """``_do_spiral_search`` must advance the spiral by exactly
+        ``SPIRAL_ANGLE_ADVANCE_RAD`` per call so the tuning
+        actually takes effect."""
+        # No-op _do_goto so we just measure the spiral state.
+        monkeypatch.setattr(
+            ap, "_do_goto",
+            lambda state, p, tx, ty, stop_radius=80.0: None)
+        ap._spiral_state["anchor"] = (3200.0, 3200.0)
+        ap._spiral_state["angle"] = 0.0
+        ap._spiral_state["radius"] = 200.0
+        s = _state(player={"x": 3200.0, "y": 3200.0,
+                            "heading": 0.0,
+                            "shields": 150, "max_shields": 150})
+        ap._do_spiral_search(s, s["player"])
+        assert abs(ap._spiral_state["angle"]
+                   - ap.SPIRAL_ANGLE_ADVANCE_RAD) < 1e-9
+
 
 class TestBuildDoneShortCircuitIsUnconditional:
     """Regression for the bug where the build_done flip lived
