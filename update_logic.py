@@ -266,146 +266,19 @@ def update_preamble(gv: GameView, dt: float) -> None:
     gv._escape_menu.update(dt)
 
 
-_ALIEN_LASER_SND_INTERVAL: float = 0.12  # max one play per ~120 ms
-
-
-# ═══ Distance-attenuated SFX + alien fire helpers ═══════════════════════
-
-
-def play_sfx_at(
-    gv: GameView,
-    snd,
-    x: float,
-    y: float,
-    base_volume: float = 1.0,
-) -> None:
-    """Play an in-world SFX with linear distance attenuation toward
-    the player.  Sounds further than ``SOUND_HEARING_RADIUS`` away
-    are silenced entirely (no media player created).  Inside the
-    radius the volume scales as ``base_volume * (1 - d / radius)``.
-
-    UI sounds (button clicks, menu confirms, music) should bypass
-    this helper and call ``arcade.play_sound`` directly — they have
-    no spatial source and the user expects them at full slider
-    volume.
-
-    ``snd is None`` is a no-op (safe for soak-test stubs)."""
-    import math as _m
-    from constants import SOUND_HEARING_RADIUS
-    if snd is None:
-        return
-    player = getattr(gv, "player", None)
-    if player is None:
-        # No spatial reference — fall back to unattenuated play so
-        # things like the death-screen explosion still register.
-        arcade.play_sound(snd, volume=base_volume)
-        return
-    d = _m.hypot(x - player.center_x, y - player.center_y)
-    if d >= SOUND_HEARING_RADIUS:
-        return
-    falloff = 1.0 - d / SOUND_HEARING_RADIUS
-    arcade.play_sound(snd, volume=base_volume * falloff)
-
-
-def _nearest_alien_to_player(gv: GameView) -> tuple[float, float] | None:
-    """Return the (x, y) of the alien closest to the player so the
-    throttled alien-laser SFX falls off from the most-likely-fired
-    source.  Walks the active zone's alien lists; returns ``None``
-    if no aliens are present."""
-    player = getattr(gv, "player", None)
-    if player is None:
-        return None
-    px, py = player.center_x, player.center_y
-    best = None
-    best_d2 = float("inf")
-    seen: set[int] = set()
-
-    def _candidates():
-        for a in (getattr(gv, "alien_list", None) or []):
-            yield a
-        zone = getattr(gv, "_zone", None)
-        if zone is not None and hasattr(zone, "iter_enemies"):
-            yield from zone.iter_enemies()
-
-    for a in _candidates():
-        aid = id(a)
-        if aid in seen:
-            continue
-        seen.add(aid)
-        d2 = (a.center_x - px) ** 2 + (a.center_y - py) ** 2
-        if d2 < best_d2:
-            best_d2 = d2
-            best = (a.center_x, a.center_y)
-    return best
-
-
-def _play_throttled_alien_sfx(
-    gv: GameView, snd_attr: str, base_mult: float,
-) -> None:
-    """Shared body for ``play_alien_laser_sound`` +
-    ``play_missile_launch_sound`` — both share the same throttle
-    counter (so total alien audio output stays bounded) and the
-    same nearest-alien spatial source.  Differ only in WHICH sound
-    they play and the per-source volume mix.
-    """
-    snd = getattr(gv, snd_attr, None)
-    if snd is None:
-        return
-    if getattr(gv, "_alien_laser_snd_cd", 0.0) > 0.0:
-        return
-    gv._alien_laser_snd_cd = _ALIEN_LASER_SND_INTERVAL
-    pos = _nearest_alien_to_player(gv)
-    if pos is None:
-        return
-    from settings import audio
-    play_sfx_at(gv, snd, pos[0], pos[1],
-                base_volume=audio.sfx_volume * base_mult)
-
-
-def play_alien_laser_sound(gv: GameView) -> None:
-    """Play the alien-laser fire SFX with a global throttle (so
-    dozens of simultaneous shots don't pile into a wall of audio)
-    AND distance attenuation toward the player (so a laser fired
-    on the far side of the zone doesn't blast at full volume).
-    The throttle counter decays via ``update_timers``."""
-    _play_throttled_alien_sfx(gv, "_alien_laser_snd", 0.4)
-
-
-def play_missile_launch_sound(gv: GameView) -> None:
-    """Play the player's missile-launch SFX (used for stalker fires)
-    with the same global throttle + distance attenuation the alien
-    laser uses.  Distance is measured from the nearest alien-side
-    sprite, so a stalker volley far from the player drops in volume
-    instead of blasting at full slider level."""
-    _play_throttled_alien_sfx(gv, "_missile_launch_snd", 0.5)
-
-
-def emit_alien_shots(
-    gv: GameView, projectile_list, fired, *,
-    use_missile_sound: bool = False,
-) -> None:
-    """Append every projectile in ``fired`` (a list, possibly empty,
-    or a single projectile) to ``projectile_list`` and trigger one
-    throttled fire SFX.  Skips both the append loop and the SFX
-    when ``fired`` is falsy.
-
-    Replaces the four-line ``if fired: for p in fired: list.append;
-    play_alien_laser_sound(gv)`` pattern that was open-coded at five
-    sites across update_logic + zone2 + star_maze.  Stalker-style
-    callers pass ``use_missile_sound=True`` for the missile-launch
-    SFX variant.
-    """
-    if not fired:
-        return
-    if isinstance(fired, list):
-        for p in fired:
-            projectile_list.append(p)
-    else:
-        projectile_list.append(fired)
-    if use_missile_sound:
-        play_missile_launch_sound(gv)
-    else:
-        play_alien_laser_sound(gv)
+# ═══ Distance-attenuated SFX (impl in update_logic_sfx) ═════════════════
+#
+# Re-exported here so existing call sites + tests that read
+# ``update_logic.play_sfx_at`` etc. keep working.
+from update_logic_sfx import (  # noqa: E402
+    _ALIEN_LASER_SND_INTERVAL,
+    play_sfx_at,
+    _nearest_alien_to_player,
+    _play_throttled_alien_sfx,
+    play_alien_laser_sound,
+    play_missile_launch_sound,
+    emit_alien_shots,
+)
 
 
 # ═══ Death state + per-frame timers ═════════════════════════════════════
@@ -1515,232 +1388,22 @@ def update_ability_meter(gv: GameView, dt: float) -> None:
             gv._move_candidate = None
 
 
-# ═══ Null fields / slipspaces / force walls / drones ═══════════════════
-
-
-def active_null_fields(gv: GameView) -> list:
-    """Return the null-field list for the zone the player is currently
-    in. Used by the cloaking gate + the fire-disable hook + drawing.
-
-    Warp zones (meteor / lightning / gas / enemy) never host null
-    fields, so when the player is in one we return ``[]`` rather than
-    falling through to ``gv._null_fields`` (which belongs to Zone 1).
-    """
-    from zones import ZoneID
-    zone = getattr(gv, "_zone", None)
-    zone_fields = getattr(zone, "_null_fields", None)
-    if zone_fields:
-        return zone_fields
-    if getattr(zone, "zone_id", None) is ZoneID.MAIN:
-        return getattr(gv, "_null_fields", None) or []
-    return []
-
-
-def find_null_field_at(gv: GameView, x: float, y: float):
-    """Return the first null field (in the active zone's list) that
-    contains ``(x, y)``, or ``None``. Used by the fire-disable hook."""
-    for nf in active_null_fields(gv):
-        if nf.contains_point(x, y):
-            return nf
-    return None
-
-
-def disable_null_field_around_player(gv: GameView) -> None:
-    """Disable every null field containing the player's current
-    position for `NULL_FIELD_DISABLE_S` seconds. Called whenever the
-    player fires a weapon or triggers an ability from inside one."""
-    px, py = gv.player.center_x, gv.player.center_y
-    for nf in active_null_fields(gv):
-        if nf.contains_point(px, py):
-            nf.trigger_disable()
-
-
-def player_is_cloaked(gv: GameView) -> bool:
-    """True when the player is inside an ACTIVE null field (not one
-    currently serving a 30-second disable penalty)."""
-    if getattr(gv, "_player_dead", False):
-        return False
-    px, py = gv.player.center_x, gv.player.center_y
-    for nf in active_null_fields(gv):
-        if nf.active and nf.contains_point(px, py):
-            return True
-    return False
-
-
-def active_slipspaces(gv: GameView):
-    """Return the slipspace SpriteList for the player's current zone.
-
-    Zone 2 stores its own list on ``zone._slipspaces``; Zone 1 stores
-    them on ``gv._slipspaces``.  Warp zones return ``[]`` because they
-    deliberately don't host slipspaces — same rule as null fields.
-    """
-    from zones import ZoneID
-    zone = getattr(gv, "_zone", None)
-    zone_ss = getattr(zone, "_slipspaces", None)
-    if zone_ss:
-        return zone_ss
-    if getattr(zone, "zone_id", None) is ZoneID.MAIN:
-        return getattr(gv, "_slipspaces", None) or []
-    return []
-
-
-def update_slipspaces(gv: GameView, dt: float) -> None:
-    """Rotate every slipspace in the active zone (plus Zone 1's even
-    when the player is elsewhere, to keep the texture animation stable
-    on zone return — same dual-walk pattern as ``update_null_fields``).
-    Then run the teleport collision check against the active list."""
-    seen: set = set()
-    z1 = getattr(gv, "_slipspaces", None) or []
-    for ss in z1:
-        if id(ss) not in seen:
-            ss.update_slipspace(dt)
-            seen.add(id(ss))
-    zone = getattr(gv, "_zone", None)
-    z2 = getattr(zone, "_slipspaces", None) or []
-    for ss in z2:
-        if id(ss) not in seen:
-            ss.update_slipspace(dt)
-            seen.add(id(ss))
-    _check_slipspace_teleport(gv)
-
-
-def _check_slipspace_teleport(gv: GameView) -> None:
-    """Teleport the player to a random other slipspace if they're
-    inside one and weren't inside it last frame.  Velocity + heading
-    are preserved.  ``gv._inside_slipspace`` blocks re-trigger while
-    the player is still overlapping the destination, so the jump
-    fires exactly once per entry."""
-    if getattr(gv, "_player_dead", False):
-        return
-    active = active_slipspaces(gv)
-    if not active or len(active) < 2:
-        # Need at least one other slipspace to teleport TO.  Also
-        # clear the "inside" flag if the player drifted out of the
-        # current one between frames.
-        gv._inside_slipspace = None
-        return
-    px, py = gv.player.center_x, gv.player.center_y
-
-    # Still inside the same slipspace as last frame? — do nothing.
-    inside = gv._inside_slipspace
-    if inside is not None and inside in active and inside.contains_point(px, py):
-        return
-
-    # Find the slipspace the player has just entered.
-    hit = None
-    for ss in active:
-        if ss.contains_point(px, py):
-            hit = ss
-            break
-    if hit is None:
-        gv._inside_slipspace = None
-        return
-
-    # Pick a random destination that isn't the entry slipspace.
-    import random as _r
-    candidates = [ss for ss in active if ss is not hit]
-    dest = _r.choice(candidates)
-
-    # Teleport — preserve velocity + heading.
-    src_x = gv.player.center_x
-    src_y = gv.player.center_y
-    gv.player.center_x = dest.center_x
-    gv.player.center_y = dest.center_y
-    # Mark the destination as the "currently inside" so we don't
-    # immediately bounce back through another slipspace.
-    gv._inside_slipspace = dest
-    # Keep the shield sprite glued to the player so it doesn't
-    # streak across the screen for one frame.
-    if hasattr(gv, "shield_sprite") and gv.shield_sprite is not None:
-        gv.shield_sprite.center_x = dest.center_x
-        gv.shield_sprite.center_y = dest.center_y
-    # Drag the active drone through the slipspace too — preserve
-    # its offset from the player so it pops out of the destination
-    # in the same relative position.  Without this the drone is
-    # left behind at the entry slipspace and has to trundle back to
-    # the player on its own (often via RETURN_HOME if the gap clears
-    # the 800 px break-off).
-    drone = getattr(gv, "_active_drone", None)
-    if drone is not None:
-        offx = drone.center_x - src_x
-        offy = drone.center_y - src_y
-        drone.center_x = dest.center_x + offx
-        drone.center_y = dest.center_y + offy
-        # Reset the drone's per-frame movement / nudge anchors so
-        # the un-stick tracker doesn't fire on the next frame just
-        # because the drone "teleported" without steering.
-        drone._nudge_anchor_x = drone.center_x
-        drone._nudge_anchor_y = drone.center_y
-        drone._nudge_timer = 0.0
-
-    # Sound — use the cached slipspace SFX loaded in GameView init.
-    snd = getattr(gv, "_slipspace_snd", None)
-    if snd is not None:
-        try:
-            from settings import audio as _audio
-            arcade.play_sound(snd, volume=_audio.sfx_volume)
-        except Exception:
-            pass
-
-
-def update_null_fields(gv: GameView, dt: float) -> None:
-    """Tick disabled-timer animation on every null field in the
-    active zone (and the Zone 1 fields too, so Zone 2 -> Zone 1
-    transitions don't leave a stale disable on a Zone 1 field)."""
-    seen: set = set()
-    # Zone 1 fields on the GameView
-    z1 = getattr(gv, "_null_fields", None) or []
-    for nf in z1:
-        if id(nf) not in seen:
-            nf.update_null_field(dt)
-            seen.add(id(nf))
-    # Zone 2 fields on the zone object
-    zone = getattr(gv, "_zone", None)
-    z2 = getattr(zone, "_null_fields", None) or []
-    for nf in z2:
-        if id(nf) not in seen:
-            nf.update_null_field(dt)
-            seen.add(id(nf))
-
-
-def update_force_walls(gv: GameView, dt: float) -> None:
-    """Update force wall lifetimes and absorb enemy projectiles they block."""
-    for wall in gv._force_walls:
-        wall.update(dt)
-    gv._force_walls = [w for w in gv._force_walls if not w.dead]
-    if not gv._force_walls:
-        return
-    from sprites.explosion import HitSpark
-    walls = gv._force_walls
-    plists = [gv.alien_projectile_list, gv._boss_projectile_list]
-    zone = getattr(gv, '_zone', None)
-    z2_alien_projs = getattr(zone, '_alien_projectiles', None)
-    if z2_alien_projs is not None and z2_alien_projs is not gv.alien_projectile_list:
-        plists.append(z2_alien_projs)
-    for plist in plists:
-        for proj in list(plist):
-            for wall in walls:
-                if wall.blocks_point(proj.center_x, proj.center_y, radius=14.0):
-                    gv.hit_sparks.append(HitSpark(proj.center_x, proj.center_y))
-                    proj.remove_from_sprite_lists()
-                    break
-
-    # Nebula-boss gas clouds also stop at force walls.  These live in
-    # ``gv._nebula_gas_clouds`` (a plain list of ``GasCloudProjectile``
-    # instances, not an arcade.SpriteList), so filter in place.
-    gas_clouds = getattr(gv, "_nebula_gas_clouds", None)
-    if gas_clouds:
-        survivors = []
-        for c in gas_clouds:
-            hit_wall = False
-            for wall in walls:
-                if wall.blocks_point(c.center_x, c.center_y, radius=c.radius):
-                    gv.hit_sparks.append(HitSpark(c.center_x, c.center_y))
-                    hit_wall = True
-                    break
-            if not hit_wall:
-                survivors.append(c)
-        gv._nebula_gas_clouds = survivors
+# ═══ Null fields / slipspaces / force walls (impl in update_logic_zone_effects) ═══
+#
+# Re-exported so the dozens of ``from update_logic import …`` call
+# sites (draw_logic, collisions, combat_helpers, input_handlers,
+# integration tests) keep working unchanged.
+from update_logic_zone_effects import (  # noqa: E402
+    active_null_fields,
+    find_null_field_at,
+    disable_null_field_around_player,
+    player_is_cloaked,
+    active_slipspaces,
+    update_slipspaces,
+    _check_slipspace_teleport,
+    update_null_fields,
+    update_force_walls,
+)
 
 
 def update_drone(gv: GameView, dt: float) -> None:
