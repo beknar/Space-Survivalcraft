@@ -757,14 +757,26 @@ class TestStuckEscape:
     over the window is below STUCK_DETECT_DIST_PX, an escape burst
     toward the world centre is triggered for STUCK_ESCAPE_DURATION_S."""
 
-    def _drive_ticks_at(self, _clock, x, y, n):
-        """Run n ticks with the player frozen at (x, y).  No
-        asteroids/aliens/pickups so the FSM lands in SEARCH."""
+    def _drive_ticks_at(self, _clock, x, y, n,
+                         force_state=None):
+        """Run n ticks with the player frozen at (x, y).  When
+        ``force_state`` is provided, force that FSM state so
+        stuck-detect runs (S_SEARCH is exempt from stuck-detect
+        because its brake-coast spiral motion looks identical to
+        being pinned).  Default seeds an asteroid so the FSM lands
+        in S_MINE — a state that DOES participate in stuck-detect."""
         for _ in range(n):
-            s = _state(player={
-                "x": x, "y": y, "heading": 0.0,
-                "shields": 150, "max_shields": 150,
-            })
+            # Seed an asteroid so the FSM picks S_MINE instead of
+            # S_SEARCH (which is exempt from stuck-detect).
+            s = _state(
+                player={
+                    "x": x, "y": y, "heading": 0.0,
+                    "shields": 150, "max_shields": 150,
+                },
+                asteroids=[{"x": x + 200.0, "y": y, "hp": 50}],
+            )
+            if force_state is not None:
+                ap._fsm["state"] = force_state
             ap._do_auto(s, s["player"])
             _clock[0] += 0.1   # 10 Hz
 
@@ -817,15 +829,19 @@ class TestStuckEscape:
         target sits ``BUILD_SEEK_TARGET_DIST_PX`` north of the
         ship — clamped to inside the world."""
         captured: dict = {}
-        def _spy(state, p, tx, ty, stop_radius=80.0):
+        def _spy(state, p, tx, ty, stop_radius=80.0,
+                 brake_on_arrival=True):
             captured["tx"], captured["ty"] = tx, ty
         monkeypatch.setattr(ap, "_do_goto", _spy)
-        # Pin near the bottom edge of a 6400×6400 world.
+        # Pin near the bottom edge of a 6400×6400 world.  Force
+        # FSM into S_MINE (S_SEARCH is exempt from stuck-detect)
+        # by seeding an in-range asteroid the bot is "chasing".
         for _ in range(20):
-            s = _state(player={
-                "x": 3200.0, "y": 50.0, "heading": 0.0,
-                "shields": 150, "max_shields": 150,
-            })
+            s = _state(
+                player={"x": 3200.0, "y": 50.0, "heading": 0.0,
+                        "shields": 150, "max_shields": 150},
+                asteroids=[{"x": 3200.0, "y": 0.0, "hp": 50}],
+            )
             ap._do_auto(s, s["player"])
             _clock[0] += 0.1
         # Repulsion at y=50 is pure +y; target is 50 + 1000 = 1050
@@ -844,7 +860,8 @@ class TestStuckEscape:
         building repulsion vector so it heads AWAY from the
         building, not through it."""
         captured: dict = {}
-        def _spy(state, p, tx, ty, stop_radius=80.0):
+        def _spy(state, p, tx, ty, stop_radius=80.0,
+                 brake_on_arrival=True):
             captured["tx"], captured["ty"] = tx, ty
         monkeypatch.setattr(ap, "_do_goto", _spy)
         # Pin the ship 40 px south of a building near world centre.
@@ -852,6 +869,8 @@ class TestStuckEscape:
         # repulsion at distance 40 / range 80 = 0.5 in direction
         # (0, -1).  Escape target should be SOUTH of the ship,
         # not toward world centre (which is north of the ship).
+        # Seed an asteroid so the FSM lands in S_MINE — S_SEARCH
+        # is exempt from stuck-detect.
         for _ in range(20):
             s = _state(
                 player={"x": 3200.0, "y": 3160.0, "heading": 0.0,
@@ -859,6 +878,7 @@ class TestStuckEscape:
                 buildings=[{"x": 3200.0, "y": 3200.0,
                             "hp": 100, "type": "StationModule",
                             "building_type": "Home Station"}],
+                asteroids=[{"x": 3200.0, "y": 3100.0, "hp": 50}],
             )
             ap._do_auto(s, s["player"])
             _clock[0] += 0.1
@@ -980,7 +1000,8 @@ class TestSpiralWorldClamp:
     def test_spiral_target_clamped_within_world(
             self, _clock, monkeypatch):
         captured: dict = {}
-        def _spy(state, p, tx, ty, stop_radius=80.0):
+        def _spy(state, p, tx, ty, stop_radius=80.0,
+                 brake_on_arrival=True):
             captured["tx"], captured["ty"] = tx, ty
         monkeypatch.setattr(ap, "_do_goto", _spy)
         # Force the spiral anchor near the SW corner, with a huge
@@ -2242,7 +2263,8 @@ class TestSpiralAngleAdvanceTuning:
         # No-op _do_goto so we just measure the spiral state.
         monkeypatch.setattr(
             ap, "_do_goto",
-            lambda state, p, tx, ty, stop_radius=80.0: None)
+            lambda state, p, tx, ty, stop_radius=80.0,
+                   brake_on_arrival=True: None)
         ap._spiral_state["anchor"] = (3200.0, 3200.0)
         ap._spiral_state["angle"] = 0.0
         ap._spiral_state["radius"] = 200.0
@@ -2311,3 +2333,129 @@ class TestBuildDoneShortCircuitIsUnconditional:
         ap._do_auto(s, s["player"])
         assert ap._fsm["state"] == ap.S_REGEN
         assert ap._state.build_done is True
+
+
+class TestSearchExemptFromStuckDetect:
+    """The spiral search's brake-coast motion at small radii looks
+    indistinguishable from being pinned to the position+rotation
+    watchdog (consecutive spiral targets at r=100 are only ~7 px
+    apart, well inside the 25 px detect threshold).  Telemetry on
+    2026-05-03 showed ~30 false-fire stuck-detect events per session
+    in normal SEARCH operation, each firing a 1.5 s escape burst
+    that marched the bot eastward instead of sweeping the spiral.
+
+    Fix: ``_do_auto`` skips the stuck-detect block while the FSM
+    state is S_SEARCH.  Other states (S_GATHER, S_MINE, S_DEPOSIT,
+    S_INSTALL, S_CRAFT) still get the watchdog because their
+    targets are real chase points where a real pin is meaningful.
+    """
+
+    def test_no_escape_in_search_even_when_pinned(self, _clock):
+        """Pin the bot at a position with no asteroids/aliens — FSM
+        defaults to S_SEARCH.  Run the full detect window: NO
+        escape should fire because S_SEARCH is exempt."""
+        for _ in range(20):
+            s = _state(player={
+                "x": 3200.0, "y": 3200.0, "heading": 0.0,
+                "shields": 150, "max_shields": 150,
+            })
+            ap._do_auto(s, s["player"])
+            _clock[0] += 0.1
+        assert ap._fsm["state"] == ap.S_SEARCH, (
+            "test setup invariant — FSM should be in SEARCH "
+            "when no asteroids / aliens / pickups are visible")
+        assert ap._stuck_state["escape_until"] == 0.0, (
+            "S_SEARCH must be exempt from stuck-detect — the "
+            "brake-coast spiral motion looks identical to being "
+            "pinned to the watchdog")
+
+    def test_escape_still_fires_in_mine(self, _clock):
+        """S_MINE is NOT exempt — pin the bot near an asteroid for
+        the full window and the watchdog must fire."""
+        for _ in range(20):
+            s = _state(
+                player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                        "shields": 150, "max_shields": 150},
+                asteroids=[{"x": 3300.0, "y": 3200.0, "hp": 50}],
+            )
+            ap._do_auto(s, s["player"])
+            _clock[0] += 0.1
+        assert ap._fsm["state"] == ap.S_MINE
+        assert ap._stuck_state["escape_until"] > 0.0, (
+            "S_MINE must still trigger stuck-detect")
+
+    def test_escape_still_fires_in_gather(self, _clock):
+        """S_GATHER is NOT exempt either — same pinning pattern,
+        watchdog must fire."""
+        for _ in range(20):
+            s = _state(
+                player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                        "shields": 150, "max_shields": 150},
+                iron_pickups=[{"x": 3300.0, "y": 3200.0,
+                                "amount": 5, "item_type": "iron"}],
+            )
+            ap._do_auto(s, s["player"])
+            _clock[0] += 0.1
+        assert ap._fsm["state"] == ap.S_GATHER
+        assert ap._stuck_state["escape_until"] > 0.0
+
+
+class TestDoGotoBrakeFlag:
+    """``_do_goto`` accepts ``brake_on_arrival`` to control whether
+    the ``s`` reverse-thrust key engages on arrival.  Spiral search
+    passes False so the bot coasts through close-spaced targets
+    instead of braking-then-recovering."""
+
+    def _record_keys(self, monkeypatch):
+        """Replace the stub ``KeyState.hold`` with a recording dict
+        so the test can observe what was set."""
+        keys: dict[str, bool] = {}
+        monkeypatch.setattr(
+            ap.KeyState, "hold",
+            staticmethod(lambda key, down: keys.__setitem__(key, down)))
+        return keys
+
+    def test_default_brakes_on_arrival(self, monkeypatch):
+        keys = self._record_keys(monkeypatch)
+        s = _state(player={"x": 100.0, "y": 100.0, "heading": 0.0,
+                            "shields": 150, "max_shields": 150})
+        ap._do_goto(s, s["player"], 100.0, 100.0, stop_radius=200.0)
+        assert keys.get("s") is True
+        assert keys.get("w") is False
+
+    def test_brake_disabled_no_s_key(self, monkeypatch):
+        keys = self._record_keys(monkeypatch)
+        s = _state(player={"x": 100.0, "y": 100.0, "heading": 0.0,
+                            "shields": 150, "max_shields": 150})
+        ap._do_goto(s, s["player"], 100.0, 100.0, stop_radius=200.0,
+                    brake_on_arrival=False)
+        # 's' is explicitly NOT engaged — bot coasts.
+        assert keys.get("s") is False
+        assert keys.get("w") is False
+
+
+class TestSpiralStopRadiusReduced:
+    """The spiral search's stop_radius dropped from 120 to 40 px so
+    consecutive close-spaced targets at small radii aren't already
+    'arrived' the moment the spiral advances."""
+
+    def test_spiral_uses_small_stop_radius(self, _clock, monkeypatch):
+        """Capture the stop_radius `_do_spiral_search` passes to
+        `_do_goto` and assert it's ≤ 40 px."""
+        captured: dict = {}
+        def _spy(state, p, tx, ty, stop_radius=80.0,
+                 brake_on_arrival=True):
+            captured["stop_radius"] = stop_radius
+            captured["brake_on_arrival"] = brake_on_arrival
+        monkeypatch.setattr(ap, "_do_goto", _spy)
+        ap._spiral_state["anchor"] = (3200.0, 3200.0)
+        ap._spiral_state["radius"] = 200.0
+        s = _state(player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                            "shields": 150, "max_shields": 150})
+        ap._do_spiral_search(s, s["player"])
+        assert captured["stop_radius"] <= 40.0, (
+            f"spiral stop_radius is {captured['stop_radius']}; "
+            "must stay ≤ 40 px so consecutive spiral targets at "
+            "small radii aren't already inside it")
+        assert captured["brake_on_arrival"] is False, (
+            "spiral search must coast through targets, not brake")

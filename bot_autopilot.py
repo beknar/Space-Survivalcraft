@@ -1108,7 +1108,18 @@ def _do_auto(state: dict, p: dict) -> None:
             float(p.get("x", 0.0)), float(p.get("y", 0.0)))
         _spiral_state["angle"] = 0.0
         _spiral_state["radius"] = 100.0
-    if _detect_stuck():
+    # Skip stuck-detect when in S_SEARCH.  The spiral's brake-coast
+    # motion at small radii looks indistinguishable from "pinned"
+    # to the position+rotation watchdog (consecutive spiral targets
+    # at r=100 are only ~7 px apart in tangent — well inside the
+    # 25 px detect threshold), so the watchdog fired ~30 times per
+    # session in normal SEARCH operation, each firing a 1.5s escape
+    # burst that marched the bot toward world centre instead of
+    # sweeping the spiral.  GATHER / MINE / DEPOSIT / etc still get
+    # stuck-detect protection — those states call _do_goto with
+    # brake_on_arrival=True against single targets, so a real pin
+    # (collision, building corner) cleanly fires the watchdog.
+    if _detect_stuck() and _fsm["state"] != S_SEARCH:
         _stuck_state["escape_until"] = now + STUCK_ESCAPE_MIN_DURATION_S
         # Blacklist whichever target the bot was trying to reach —
         # if we got stuck WHILE in S_GATHER, the pickup is
@@ -1692,7 +1703,15 @@ def _do_spiral_search(state: dict, p: dict) -> None:
     # phase is just positioning, but staying on the picked weapon
     # avoids a Tab the moment we find a target.
     _ensure_weapon(state, _state.mining_weapon_pick)
-    _do_goto(state, p, tx, ty, stop_radius=120.0)
+    # stop_radius=40 px (down from 120) so consecutive spiral
+    # targets — which can be only ~7 px apart in tangent at small
+    # radii — aren't already "arrived" the moment the spiral
+    # advances; brake_on_arrival=False so the bot coasts through
+    # nearby targets instead of braking-then-recovering.  Together
+    # these two changes eliminate the brake-coast pattern that
+    # was triggering ~30 false-fire stuck-detect events per session.
+    _do_goto(state, p, tx, ty, stop_radius=40.0,
+             brake_on_arrival=False)
     # Only fire when an asteroid is actually in mining range.
     # Used to fire continuously as a "drift past extraction lag"
     # safety net, but that ended up making the bot mine empty
@@ -1730,7 +1749,8 @@ _steered_heading = _nav.steered_heading
 
 
 def _do_goto(state: dict, p: dict, tx: float, ty: float,
-             stop_radius: float = 80.0) -> None:
+             stop_radius: float = 80.0,
+             brake_on_arrival: bool = True) -> None:
     """Rotate toward (tx, ty) and thrust until within ``stop_radius``.
 
     The heading is blended through ``_steered_heading`` so the
@@ -1739,16 +1759,26 @@ def _do_goto(state: dict, p: dict, tx: float, ty: float,
     constants for tuning.  Without this the bot would chase
     edge-adjacent targets right into the wall and rely on the
     reactive stuck-detect watchdog to pull it out.
+
+    ``brake_on_arrival`` (default True) engages the ``s`` reverse-
+    thrust key the moment the bot enters the stop radius, so chase
+    targets stop cleanly.  Spiral search passes False so the bot
+    coasts through consecutive close-spaced targets instead of
+    braking-then-recovering for each one (the brake-coast pattern
+    matched the stuck-detect criteria and triggered ~30 false-fire
+    escape bursts per session).
     """
     dx = tx - p.get("x", 0)
     dy = ty - p.get("y", 0)
     dist = math.hypot(dx, dy)
     if dist < stop_radius:
-        # Arrived — release thrust + rotation, drift in place.
+        # Arrived — release thrust + rotation.  Engage brake only
+        # if the caller asked for it; spiral search wants the bot
+        # to coast, not brake.
         KeyState.hold("w", False)
         KeyState.hold("a", False)
         KeyState.hold("d", False)
-        KeyState.hold("s", True)         # gentle brake
+        KeyState.hold("s", brake_on_arrival)
         return
     KeyState.hold("s", False)
     target = _steered_heading(state, p, dx, dy, dist)
