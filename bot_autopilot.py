@@ -365,7 +365,13 @@ BUILD_IRON_THRESHOLD = 1000
 # DEPOSIT_RANGE_PX is how close the bot must be to the home
 # station before the deposit fires.  DEPOSIT_COOLDOWN_S avoids
 # re-triggering the moment the bot starts a new mining run.
-DEPOSIT_IRON_THRESHOLD = 200
+# Lowered from 200 → 100 on 2026-05-03: telemetry showed the bot
+# capping out at 195 ship iron between station visits and never
+# reaching the old 200 threshold — only ONE deposit fired in a
+# 10-minute session.  At 100, deposits run more often, station
+# iron grows steadily, and the post-install consumable phase
+# stops stalling.
+DEPOSIT_IRON_THRESHOLD = 100
 DEPOSIT_RANGE_PX       = 200.0
 DEPOSIT_COOLDOWN_S     = 30.0
 # Single radius for "clear and quiet" — no asteroids, aliens,
@@ -400,8 +406,20 @@ ASTEROID_BLACKLIST_RADIUS_PX = _bl.ASTEROID_BLACKLIST_RADIUS_PX
 # before entering the module-craft phase.  Modules cost a total of
 # 700 iron (50+75+100+125+150+200) — the 2000 cushion gives the bot
 # headroom for any extra building work and for the consumable phase
-# that follows.  Mirrored as the gate for the consumable phase too.
+# that follows.
 CRAFT_PHASE_IRON_THRESHOLD: int = 2000
+# Lower threshold for the consumable phase.  The original 2000 gate
+# was the same for both phases, but by the time module crafting
+# completes (consuming 700 iron) the buffer has dropped below 2000 —
+# and deposits between modules don't always recover it.  The bot
+# then sat in a Mine→Search→Mine loop forever, waiting for the
+# station iron to climb back to 2000 before consumables could start.
+# 500 iron is plenty: 5 repair-pack batches cost 500 total
+# (100/each), 5 shield-recharge batches cost 1000, and incremental
+# mining covers the rest while the crafter ticks.  Diagnosed via
+# 2026-05-03 telemetry (10-minute session, post-install station
+# iron stalled at 1335 with cp=False).
+CONSUMABLE_PHASE_IRON_THRESHOLD: int = 500
 # Distance below which the bot is "at" the Basic Crafter and can
 # fire the /craft API call.  Wider than the player click range
 # (300 px) so the bot doesn't have to inch the last few pixels.
@@ -1384,14 +1402,20 @@ def _next_craft_target(state: dict) -> str | None:
     the queue is empty / preconditions aren't met.  Encapsulates
     the three-phase workflow:
 
-      1. Modules from MODULE_CRAFT_QUEUE (gated by 2000 iron on
-         entry, then by per-module cost + matching blueprint).
-      2. Repair packs (after install queue is drained).
+      1. Modules from MODULE_CRAFT_QUEUE (gated by
+         CRAFT_PHASE_IRON_THRESHOLD = 2000 iron on entry, then by
+         per-module cost + matching blueprint).
+      2. Repair packs (after install queue is drained, gated by
+         CONSUMABLE_PHASE_IRON_THRESHOLD = 500 on entry; the latch
+         then auto-flips so a subsequent iron dip can't stall).
       3. Shield recharges (after repair packs are done).
 
-    The 2000-iron gate sticks once the phase has started — so the
-    bot doesn't stall mid-queue if iron drops below 2000 after the
-    first craft pays out.
+    Each phase's entry gate sticks once the phase has started — so
+    the bot doesn't stall mid-queue if iron drops below the entry
+    threshold after the first craft pays out.  The consumable
+    threshold is much lower than the module threshold because
+    consumables are cheap (100 iron each) and incremental mining
+    covers them while the crafter ticks down its 60 s timer.
     """
     from constants import MODULE_TYPES, CRAFT_IRON_COST  # local import: kept off the
                                                           # autopilot's hot path; this
@@ -1426,10 +1450,27 @@ def _next_craft_target(state: dict) -> str | None:
     if q.modules_to_install:
         return None
 
+    # Auto-flip the consumable-phase latch the moment the install
+    # queue empties IF station iron is past the entry buffer.  This
+    # latches the phase started so a later iron dip doesn't re-
+    # gate.  Without the auto-flip the bot deadlocked when station
+    # iron sat between CRAFT_IRON_COST (100) and
+    # CONSUMABLE_PHASE_IRON_THRESHOLD (500): per-craft cost was
+    # met but the entry gate held forever.
+    if (not q.consumable_phase_started
+            and iron >= CONSUMABLE_PHASE_IRON_THRESHOLD):
+        q.consumable_phase_started = True
+
     if q.repair_packs_remaining > 0:
-        # 2000-iron gate on the FIRST consumable craft only.
+        # Consumable phase uses CONSUMABLE_PHASE_IRON_THRESHOLD
+        # (500) as the entry gate — much lower than the module
+        # phase's 2000 because consumables are cheap (100 iron
+        # per batch) and incremental mining covers them while
+        # the crafter ticks.  Once the phase has started the
+        # gate stops applying so a transient iron dip can't
+        # stall the queue.
         if (not q.consumable_phase_started
-                and iron < CRAFT_PHASE_IRON_THRESHOLD):
+                and iron < CONSUMABLE_PHASE_IRON_THRESHOLD):
             return None
         if iron < CRAFT_IRON_COST:
             return None
@@ -1438,7 +1479,7 @@ def _next_craft_target(state: dict) -> str | None:
     # ── Shield recharge phase ─────────────────────────────────────
     if q.shield_recharges_remaining > 0:
         if (not q.consumable_phase_started
-                and iron < CRAFT_PHASE_IRON_THRESHOLD):
+                and iron < CONSUMABLE_PHASE_IRON_THRESHOLD):
             return None
         if iron < CRAFT_IRON_COST:
             return None

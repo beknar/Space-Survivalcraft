@@ -2459,3 +2459,111 @@ class TestSpiralStopRadiusReduced:
             "small radii aren't already inside it")
         assert captured["brake_on_arrival"] is False, (
             "spiral search must coast through targets, not brake")
+
+
+# ── Consumable-phase deadlock fixes (2026-05-03 telemetry) ────────────
+
+class TestConsumablePhaseThreshold:
+    """The consumable phase uses CONSUMABLE_PHASE_IRON_THRESHOLD
+    (500) as its entry gate, not the module phase's 2000.  Without
+    this distinction the bot deadlocked at "install queue empty +
+    station iron in [100, 2000)" forever — observed in 2026-05-03
+    telemetry, post-install station iron stuck at 1335 with
+    consumable_phase_started never flipping True."""
+
+    def test_consumable_threshold_is_500(self):
+        assert ap.CONSUMABLE_PHASE_IRON_THRESHOLD == 500
+
+    def test_consumable_threshold_is_below_module_threshold(self):
+        """The consumable gate must be much lower than the module
+        gate — by the time modules drain, station iron has dropped
+        from the buffer and the bot needs the lower gate to keep
+        moving."""
+        assert (ap.CONSUMABLE_PHASE_IRON_THRESHOLD
+                < ap.CRAFT_PHASE_IRON_THRESHOLD)
+
+    def test_consumable_phase_starts_at_lower_threshold(self, _clock):
+        """500 station iron is enough to enter the consumable phase
+        even though the module-phase 2000 gate would have blocked."""
+        ap._state.queue.modules_to_craft.clear()
+        ap._state.queue.modules_to_install.clear()
+        s = _state(
+            buildings=[_hs_building(), _crafter_building()],
+            station_inventory_items={"iron": 500},
+        )
+        # 500 < CRAFT_PHASE_IRON_THRESHOLD (2000) — old code would
+        # have returned None.  New code returns repair_pack.
+        assert ap._next_craft_target(s) == "repair_pack"
+
+    def test_consumable_phase_blocked_below_500(self, _clock):
+        """Just below the consumable threshold — the bot still
+        waits."""
+        ap._state.queue.modules_to_craft.clear()
+        ap._state.queue.modules_to_install.clear()
+        s = _state(
+            buildings=[_hs_building(), _crafter_building()],
+            station_inventory_items={"iron": 499},
+        )
+        assert ap._next_craft_target(s) is None
+
+    def test_consumable_phase_started_latch_persists(self, _clock):
+        """Once started, an iron dip below 500 doesn't re-gate —
+        per-craft cost (100) is the only check.  This is the
+        sticky-latch behaviour."""
+        ap._state.queue.modules_to_craft.clear()
+        ap._state.queue.modules_to_install.clear()
+        ap._state.queue.consumable_phase_started = True
+        s = _state(
+            buildings=[_hs_building(), _crafter_building()],
+            station_inventory_items={"iron": 200},  # < 500 threshold
+        )
+        # Latch is True so the threshold gate is bypassed.
+        assert ap._next_craft_target(s) == "repair_pack"
+
+    def test_auto_flip_when_install_empty_and_iron_above_threshold(
+            self, _clock):
+        """The auto-flip mechanism: when install queue is empty AND
+        iron is past the consumable threshold, latch flips to True
+        on the next call to _next_craft_target so subsequent dips
+        don't re-gate."""
+        ap._state.queue.modules_to_craft.clear()
+        ap._state.queue.modules_to_install.clear()
+        assert ap._state.queue.consumable_phase_started is False
+        s = _state(
+            buildings=[_hs_building(), _crafter_building()],
+            station_inventory_items={"iron": 600},
+        )
+        ap._next_craft_target(s)
+        assert ap._state.queue.consumable_phase_started is True
+
+
+class TestDepositThresholdLowered:
+    """DEPOSIT_IRON_THRESHOLD dropped from 200 → 100 on 2026-05-03
+    after telemetry showed the bot capping out at 195 ship iron
+    between station visits and never reaching the old threshold —
+    only ONE deposit fired in a 10-minute session."""
+
+    def test_deposit_threshold_is_100(self):
+        assert ap.DEPOSIT_IRON_THRESHOLD == 100
+
+    def test_deposit_fires_at_100_iron(self, _clock):
+        """Bot has exactly 100 ship iron — should trigger DEPOSIT."""
+        ap._state.last_deposit_at = 0.0  # cooldown ok
+        _clock[0] = ap.DEPOSIT_COOLDOWN_S + 1.0
+        s = _state(
+            iron=100,
+            buildings=[_hs_building()],
+        )
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_DEPOSIT
+
+    def test_no_deposit_at_99_iron(self, _clock):
+        """Just below — no deposit yet."""
+        ap._state.last_deposit_at = 0.0
+        _clock[0] = ap.DEPOSIT_COOLDOWN_S + 1.0
+        s = _state(
+            iron=99,
+            buildings=[_hs_building()],
+        )
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] != ap.S_DEPOSIT
