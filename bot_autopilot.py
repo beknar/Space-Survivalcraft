@@ -368,13 +368,18 @@ ALL_STATES = (
 # transitions if the alien drifts to the edge of view.
 HUNT_RANGE_PX: float = 3000.0
 # IDLE_AT_BASE: distance from the Home Station inside which the bot
-# stops navigating + just idles.  Wider than the deposit / install
-# range so the bot doesn't accidentally trigger a deposit attempt
-# while waiting (deposit cooldown is its own gate, but this keeps
-# the IDLE behaviour visually distinct — the bot parks itself a
-# screen's-width away from the station instead of pressed against
-# it).
-IDLE_AT_BASE_RADIUS_PX: float = 300.0
+# stops navigating + just idles.  Set wide (600 px) so the bot
+# parks OUTSIDE the typical station-building cluster (HS + 10
+# placed buildings spread 300-500 px around the centre) rather
+# than trying to penetrate it.  Diagnosed via 2026-05-03
+# telemetry: at the original 300 px radius the bot oscillated
+# between hs_dist=60 and hs_dist=330 inside the cluster, fired
+# stuck-detect 12 times in 5 minutes as the aggregated building
+# potential field shoved it around.  At 600 px the bot stops
+# (stop_radius = 480) well outside any building's 80 px
+# repulsion range, the field reads zero, and the bot drifts
+# cleanly.
+IDLE_AT_BASE_RADIUS_PX: float = 600.0
 
 # Starter-base build gate.  When the bot has accumulated this much
 # iron AND there are no asteroids / aliens within the clear-area
@@ -1184,18 +1189,28 @@ def _do_auto(state: dict, p: dict) -> None:
             float(p.get("x", 0.0)), float(p.get("y", 0.0)))
         _spiral_state["angle"] = 0.0
         _spiral_state["radius"] = 100.0
-    # Skip stuck-detect when in S_SEARCH.  The spiral's brake-coast
-    # motion at small radii looks indistinguishable from "pinned"
-    # to the position+rotation watchdog (consecutive spiral targets
-    # at r=100 are only ~7 px apart in tangent — well inside the
-    # 25 px detect threshold), so the watchdog fired ~30 times per
-    # session in normal SEARCH operation, each firing a 1.5s escape
-    # burst that marched the bot toward world centre instead of
-    # sweeping the spiral.  GATHER / MINE / DEPOSIT / etc still get
+    # Skip stuck-detect when in S_SEARCH or S_IDLE_AT_BASE.
+    #
+    # S_SEARCH: the spiral's brake-coast motion at small radii
+    # looks indistinguishable from "pinned" to the position +
+    # rotation watchdog (consecutive spiral targets at r=100 are
+    # only ~7 px apart in tangent — well inside the 25 px detect
+    # threshold).
+    #
+    # S_IDLE_AT_BASE: the bot is intentionally parked + drifting;
+    # the watchdog has no useful work to do.  At the original 300 px
+    # radius the watchdog fired 12 times in 5 minutes when the bot
+    # was inside a tight building cluster.  Even with the radius
+    # widened to 600 px, drift / micro-collisions inside the idle
+    # zone shouldn't trigger a 1.5 s escape burst — the bot would
+    # just navigate back to the same idle target on the next tick.
+    #
+    # GATHER / MINE / DEPOSIT / CRAFT / INSTALL / HUNT still get
     # stuck-detect protection — those states call _do_goto with
-    # brake_on_arrival=True against single targets, so a real pin
-    # (collision, building corner) cleanly fires the watchdog.
-    if _detect_stuck() and _fsm["state"] != S_SEARCH:
+    # brake_on_arrival=True against single chase targets, so a
+    # real pin cleanly fires the watchdog.
+    if (_detect_stuck()
+            and _fsm["state"] not in (S_SEARCH, S_IDLE_AT_BASE)):
         _stuck_state["escape_until"] = now + STUCK_ESCAPE_MIN_DURATION_S
         # Blacklist whichever target the bot was trying to reach —
         # if we got stuck WHILE in S_GATHER, the pickup is

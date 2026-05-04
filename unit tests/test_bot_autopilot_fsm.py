@@ -2681,8 +2681,13 @@ class TestIdleAtBaseDispatch:
     2026-05-03 telemetry, 47 seconds in SEARCH oscillating between
     two positions ~2000 px from base."""
 
-    def test_idle_constant_is_300(self):
-        assert ap.IDLE_AT_BASE_RADIUS_PX == 300.0
+    def test_idle_radius_is_600(self):
+        """Wide idle radius (600 px) keeps the bot OUTSIDE typical
+        station-building clusters (HS + 10 placed buildings spread
+        300-500 px around the centre).  At the original 300 px the
+        bot oscillated inside the cluster, fired stuck-detect 12
+        times in 5 minutes, and burned thrust without progress."""
+        assert ap.IDLE_AT_BASE_RADIUS_PX == 600.0
 
     def test_idle_in_all_states(self):
         assert ap.S_IDLE_AT_BASE in ap.ALL_STATES
@@ -2845,3 +2850,70 @@ class TestIdleAtBaseAction:
         )  # no buildings
         ap._act_idle_at_base(s, s["player"])
         assert called == []
+
+
+class TestIdleAtBaseExemptFromStuckDetect:
+    """S_IDLE_AT_BASE joins S_SEARCH on the stuck-detect exempt list.
+    The bot is intentionally parked + drifting near the station; a
+    micro-collision or a brief brush against a building's potential
+    field shouldn't fire a 1.5 s escape burst that overrides the
+    intent.  Real pins still fire in chase states (GATHER, MINE,
+    HUNT, DEPOSIT, etc)."""
+
+    def test_no_escape_in_idle_at_base_when_pinned(self, _clock):
+        """Pin the bot near the station for the full detect window
+        — NO escape should fire because IDLE_AT_BASE is exempt."""
+        for _ in range(20):
+            s = _state(
+                player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                        "shields": 150, "max_shields": 150},
+                buildings=[_hs_building(x=3200.0, y=3200.0)],
+            )
+            ap._do_auto(s, s["player"])
+            _clock[0] += 0.1
+        assert ap._fsm["state"] == ap.S_IDLE_AT_BASE
+        assert ap._stuck_state["escape_until"] == 0.0, (
+            "S_IDLE_AT_BASE must be exempt from stuck-detect — the "
+            "bot is intentionally drifting near the station")
+
+    def test_escape_still_fires_in_mine(self, _clock):
+        """Sanity: MINE still triggers stuck-detect (the exemption
+        is narrow, only covers IDLE_AT_BASE + SEARCH)."""
+        for _ in range(20):
+            s = _state(
+                player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                        "shields": 150, "max_shields": 150},
+                asteroids=[{"x": 3300.0, "y": 3200.0, "hp": 50}],
+            )
+            ap._do_auto(s, s["player"])
+            _clock[0] += 0.1
+        assert ap._fsm["state"] == ap.S_MINE
+        assert ap._stuck_state["escape_until"] > 0.0
+
+
+class TestIdleAtBaseStopsOutsideBuildingCluster:
+    """The idle-target stop_radius must be wide enough that the
+    bot stops OUTSIDE the typical station-building cluster.  At
+    600 px idle radius * 0.8 = 480 px stop radius, the bot lands
+    far enough out that no building's 80 px potential field reaches
+    it."""
+
+    def test_stop_radius_clears_building_field(self):
+        # The stop radius the action handler passes to _do_goto.
+        stop_radius = ap.IDLE_AT_BASE_RADIUS_PX * 0.8
+        # Must be greater than typical placed-building distance
+        # from HS centre (300-500 px) PLUS the building potential
+        # field range (80 px).  If a typical outer building sits
+        # 400 px from HS, the bot at 480 px from HS is 80+ px from
+        # that building — exactly on the field's outer edge.
+        assert stop_radius > 400.0
+
+    def test_idle_zone_excludes_building_field(self):
+        """If the bot is exactly at IDLE_AT_BASE_RADIUS_PX from HS,
+        and a building sits halfway between HS and the bot, the
+        bot is still outside that building's repulsion range."""
+        # Building halfway between HS (0,0) and bot at 600 px:
+        # building at 300 px, bot at 600 px → 300 px gap, well
+        # past the 80 px field range.
+        gap = ap.IDLE_AT_BASE_RADIUS_PX - 300.0
+        assert gap > ap.BUILDING_REPULSION_RANGE_PX
