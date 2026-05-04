@@ -2669,3 +2669,179 @@ class TestHuntMode:
         s = _state(aliens=[{"x": 500.0, "y": 0.0, "hp": 50}])
         ap._do_auto(s, s["player"])
         assert ap._fsm["state"] == ap.S_ENGAGE
+
+
+# ── IDLE_AT_BASE (return-to-base when nothing visible, 2026-05-03) ────
+
+class TestIdleAtBaseDispatch:
+    """When no asteroid is visible AND no alien is within
+    HUNT_RANGE_PX AND a Home Station exists, the bot routes to
+    IDLE_AT_BASE instead of falling through to SEARCH.  Without
+    this the bot circled empty space forever — observed in
+    2026-05-03 telemetry, 47 seconds in SEARCH oscillating between
+    two positions ~2000 px from base."""
+
+    def test_idle_constant_is_300(self):
+        assert ap.IDLE_AT_BASE_RADIUS_PX == 300.0
+
+    def test_idle_in_all_states(self):
+        assert ap.S_IDLE_AT_BASE in ap.ALL_STATES
+
+    def test_idle_fires_when_nothing_visible_and_hs_exists(self, _clock):
+        """No asteroids, no aliens, HS exists — IDLE_AT_BASE fires."""
+        s = _state(buildings=[_hs_building()])
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_IDLE_AT_BASE
+
+    def test_search_fallback_when_no_hs(self, _clock):
+        """Early-game (no HS yet): no asteroids + no aliens still
+        falls back to SEARCH so the bot roams to find resources
+        for the starter base."""
+        s = _state()  # no buildings
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_SEARCH
+
+    def test_mine_preempts_idle(self, _clock):
+        """Asteroid in chase range — MINE wins."""
+        s = _state(
+            buildings=[_hs_building()],
+            asteroids=[{"x": 200.0, "y": 0.0, "hp": 100}],
+        )
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_MINE
+
+    def test_hunt_preempts_idle(self, _clock):
+        """Alien in HUNT_RANGE_PX — HUNT wins (no asteroid to mine)."""
+        s = _state(
+            buildings=[_hs_building()],
+            aliens=[{"x": 1500.0, "y": 0.0, "hp": 50}],
+        )
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_HUNT
+
+    def test_engage_preempts_idle(self, _clock):
+        """Alien close enough for ENGAGE — ENGAGE wins."""
+        s = _state(
+            buildings=[_hs_building()],
+            aliens=[{"x": 500.0, "y": 0.0, "hp": 50}],
+        )
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_ENGAGE
+
+    def test_regen_preempts_idle(self, _clock):
+        """Low shields — REGEN preempts everything including IDLE."""
+        s = _state(
+            buildings=[_hs_building()],
+            player={"x": 0.0, "y": 0.0, "heading": 0.0,
+                    "shields": 20, "max_shields": 150},
+        )
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_REGEN
+
+    def test_idle_yields_to_mine_when_asteroid_appears(self, _clock):
+        """Bot is idling at base; an asteroid spawns within chase
+        range — FSM transitions to MINE on the next tick."""
+        s = _state(buildings=[_hs_building()])
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_IDLE_AT_BASE
+        _clock[0] += ap.MIN_DWELL_S + 0.1
+        # Asteroid appears.
+        s = _state(
+            buildings=[_hs_building()],
+            asteroids=[{"x": 200.0, "y": 0.0, "hp": 100}],
+        )
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_MINE
+
+    def test_idle_yields_to_hunt_when_alien_appears(self, _clock):
+        """Bot is idling at base; an alien spawns within
+        HUNT_RANGE_PX — FSM transitions to HUNT."""
+        s = _state(buildings=[_hs_building()])
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_IDLE_AT_BASE
+        _clock[0] += ap.MIN_DWELL_S + 0.1
+        s = _state(
+            buildings=[_hs_building()],
+            aliens=[{"x": 1500.0, "y": 0.0, "hp": 50}],
+        )
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_HUNT
+
+
+class TestIdleAtBaseAction:
+    """``_act_idle_at_base`` navigates the bot to within
+    ``IDLE_AT_BASE_RADIUS_PX`` of the Home Station, then idles
+    (releases all keys)."""
+
+    def _record_keys(self, monkeypatch):
+        keys: dict[str, bool] = {}
+        monkeypatch.setattr(
+            ap.KeyState, "hold",
+            staticmethod(lambda key, down: keys.__setitem__(key, down)))
+        return keys
+
+    def test_navigates_to_base_when_far(self, monkeypatch):
+        captured: dict = {}
+        def _spy(state, p, tx, ty, stop_radius=80.0,
+                 brake_on_arrival=True):
+            captured["tx"], captured["ty"] = tx, ty
+            captured["stop_radius"] = stop_radius
+        monkeypatch.setattr(ap, "_do_goto", _spy)
+        s = _state(
+            player={"x": 0.0, "y": 0.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            buildings=[_hs_building(x=3200.0, y=3200.0)],
+        )
+        ap._act_idle_at_base(s, s["player"])
+        # Heads toward HS center.
+        assert captured["tx"] == 3200.0
+        assert captured["ty"] == 3200.0
+        # Stop radius is < IDLE_AT_BASE_RADIUS_PX so the bot lands
+        # comfortably inside the idle zone.
+        assert captured["stop_radius"] < ap.IDLE_AT_BASE_RADIUS_PX
+
+    def test_idles_when_close_to_base(self, monkeypatch):
+        keys = self._record_keys(monkeypatch)
+        # Block _do_goto to make sure it isn't called.
+        called = []
+        monkeypatch.setattr(
+            ap, "_do_goto",
+            lambda *a, **kw: called.append("_do_goto"))
+        s = _state(
+            player={"x": 3300.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            buildings=[_hs_building(x=3200.0, y=3200.0)],
+        )
+        # Player is 100 px from HS — well inside the 300 px idle radius.
+        ap._act_idle_at_base(s, s["player"])
+        # No navigation call.
+        assert called == []
+        # Fire is explicitly off; KeyState releases happen via _do_idle.
+        assert keys.get("space") is False
+
+    def test_does_not_fire_weapon_while_navigating(self, monkeypatch):
+        keys = self._record_keys(monkeypatch)
+        # _do_goto stub so the test is hermetic.
+        monkeypatch.setattr(ap, "_do_goto",
+                            lambda *a, **kw: None)
+        s = _state(
+            player={"x": 0.0, "y": 0.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            buildings=[_hs_building(x=3200.0, y=3200.0)],
+        )
+        ap._act_idle_at_base(s, s["player"])
+        assert keys.get("space") is False
+
+    def test_no_hs_falls_back_to_idle(self, monkeypatch):
+        """Defensive: HS vanished mid-tick — bot just idles, no
+        navigation call (FSM re-evaluates next tick)."""
+        called = []
+        monkeypatch.setattr(
+            ap, "_do_goto",
+            lambda *a, **kw: called.append("_do_goto"))
+        s = _state(
+            player={"x": 0.0, "y": 0.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+        )  # no buildings
+        ap._act_idle_at_base(s, s["player"])
+        assert called == []

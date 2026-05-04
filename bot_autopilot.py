@@ -344,11 +344,21 @@ S_INSTALL    = "install"
 # dispatch logic differs (HUNT triggers proactively, ENGAGE
 # defensively).
 S_HUNT       = "hunt"
+# S_IDLE_AT_BASE: when no asteroid is visible (or all are blacklisted)
+# AND no alien is within HUNT_RANGE_PX AND a Home Station exists,
+# the bot navigates to the station and idles there waiting for
+# respawns.  Replaces the old SEARCH fallback in this case —
+# spiralling in empty space wastes time + thrust.  Once a target
+# appears, normal FSM priority resumes (asteroid -> MINE; alien ->
+# HUNT or ENGAGE).  Falls back to SEARCH when no Home Station
+# exists yet (early-game: still need to spiral to find resources
+# for the starter base).
+S_IDLE_AT_BASE = "idle_at_base"
 
 ALL_STATES = (
     S_ENGAGE, S_GATHER, S_REGEN, S_MINE, S_SEARCH,
     S_BUILD, S_BUILD_SEEK, S_DEPOSIT, S_CRAFT, S_INSTALL,
-    S_HUNT,
+    S_HUNT, S_IDLE_AT_BASE,
 )
 
 # Maximum range at which the bot will commit to chasing an alien
@@ -357,6 +367,14 @@ ALL_STATES = (
 # during the chase, and a longer leash means fewer SEARCH/HUNT
 # transitions if the alien drifts to the edge of view.
 HUNT_RANGE_PX: float = 3000.0
+# IDLE_AT_BASE: distance from the Home Station inside which the bot
+# stops navigating + just idles.  Wider than the deposit / install
+# range so the bot doesn't accidentally trigger a deposit attempt
+# while waiting (deposit cooldown is its own gate, but this keeps
+# the IDLE behaviour visually distinct — the bot parks itself a
+# screen's-width away from the station instead of pressed against
+# it).
+IDLE_AT_BASE_RADIUS_PX: float = 300.0
 
 # Starter-base build gate.  When the bot has accumulated this much
 # iron AND there are no asteroids / aliens within the clear-area
@@ -1061,12 +1079,21 @@ def _choose_next_state(state: dict, p: dict, cur: str) -> str:
     #    800 px engage band) AND no asteroid is reachable.  Action
     #    handler reuses _act_engage so the close-and-fight behaviour
     #    is identical — only the dispatch differs (HUNT proactively,
-    #    ENGAGE defensively).  Diagnosed via 2026-05-03 telemetry
-    #    showing 53% of session time in SEARCH with 5 aliens
-    #    permanently visible but ignored because all sat outside the
-    #    800 px engage band.
+    #    ENGAGE defensively).
     if threat is not None and td < HUNT_RANGE_PX:
         return S_HUNT
+
+    # 8. IDLE_AT_BASE — nothing actionable is visible.  When a Home
+    #    Station exists, head there and wait for respawns rather
+    #    than spiralling forever in empty space (observed:
+    #    2026-05-03 session, 47 s of SEARCH with 0 aliens visible
+    #    + 1 distant blacklisted asteroid, bot oscillated between
+    #    two positions).  When no Home Station exists yet
+    #    (early-game), fall back to the original SEARCH spiral —
+    #    the bot still needs to roam to find resources for the
+    #    starter base.
+    if hs is not None:
+        return S_IDLE_AT_BASE
     return S_SEARCH
 
 
@@ -1300,6 +1327,8 @@ def _do_auto(state: dict, p: dict) -> None:
         # distinction (HUNT vs ENGAGE) only matters for telemetry
         # and dispatch priority.
         _act_engage(state, p)
+    elif cur == S_IDLE_AT_BASE:
+        _act_idle_at_base(state, p)
     else:  # S_SEARCH
         _do_spiral_search(state, p)
 
@@ -1746,6 +1775,38 @@ def _act_gather(state: dict, p: dict) -> None:
     KeyState.hold("space", False)
     _do_goto(state, p, pickup["x"], pickup["y"],
              stop_radius=PICKUP_STOP_RADIUS)
+
+
+def _act_idle_at_base(state: dict, p: dict) -> None:
+    """IDLE_AT_BASE: navigate to within ``IDLE_AT_BASE_RADIUS_PX``
+    of the Home Station and idle there.  Called when no asteroids
+    or aliens are visible — instead of wasting thrust spiralling
+    in empty space, the bot parks near base and waits.  As soon
+    as a target spawns, the FSM's normal priority (REGEN >
+    ENGAGE > GATHER > BUILD/DEPOSIT/CRAFT/INSTALL > MINE > HUNT)
+    pulls the bot back into action.
+    """
+    hs = _find_home_station(state)
+    if hs is None:
+        # Defensive: caller (_choose_next_state) only routes here
+        # when an HS exists, but if it disappeared mid-tick fall
+        # back to a clean idle so the FSM re-evaluates next tick.
+        _do_idle()
+        return
+    px = float(p.get("x", 0.0))
+    py = float(p.get("y", 0.0))
+    hx = float(hs.get("x", 0.0))
+    hy = float(hs.get("y", 0.0))
+    dist = math.hypot(hx - px, hy - py)
+    KeyState.hold("space", False)  # never fire while idle
+    if dist <= IDLE_AT_BASE_RADIUS_PX:
+        # In position — release everything and drift.
+        _do_idle()
+        return
+    # Far from base — head home.  brake_on_arrival=True so the bot
+    # stops cleanly inside the idle radius instead of overshooting.
+    _do_goto(state, p, hx, hy,
+             stop_radius=IDLE_AT_BASE_RADIUS_PX * 0.8)
 
 
 def _do_spiral_search(state: dict, p: dict) -> None:
