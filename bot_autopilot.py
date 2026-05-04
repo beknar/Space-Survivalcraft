@@ -335,11 +335,28 @@ S_BUILD_SEEK = "build_seek"
 S_DEPOSIT    = "deposit"
 S_CRAFT      = "craft"
 S_INSTALL    = "install"
+# S_HUNT: when no asteroid is visible, extend engagement range to
+# HUNT_RANGE_PX so the bot pursues aliens for resources instead of
+# circling in empty space.  Lower priority than ENGAGE (which still
+# fires on close threats regardless of asteroid availability) and
+# higher priority than SEARCH.  Action handler reuses _act_engage
+# since the close-and-fight behaviour is identical — only the
+# dispatch logic differs (HUNT triggers proactively, ENGAGE
+# defensively).
+S_HUNT       = "hunt"
 
 ALL_STATES = (
     S_ENGAGE, S_GATHER, S_REGEN, S_MINE, S_SEARCH,
     S_BUILD, S_BUILD_SEEK, S_DEPOSIT, S_CRAFT, S_INSTALL,
+    S_HUNT,
 )
+
+# Maximum range at which the bot will commit to chasing an alien
+# in S_HUNT.  Mirrors MAX_ASTEROID_CHASE_PX (2000 px) but slightly
+# higher because aliens are mobile — they may close on the bot
+# during the chase, and a longer leash means fewer SEARCH/HUNT
+# transitions if the alien drifts to the edge of view.
+HUNT_RANGE_PX: float = 3000.0
 
 # Starter-base build gate.  When the bot has accumulated this much
 # iron AND there are no asteroids / aliens within the clear-area
@@ -1036,6 +1053,20 @@ def _choose_next_state(state: dict, p: dict, cur: str) -> str:
         # in /state) — clear the commitment so the next time an
         # asteroid appears we start fresh.
         _state.chase_committed = False
+
+    # 7. HUNT — no asteroid available but an alien is in HUNT_RANGE_PX.
+    #    The bot needs resources (iron drops on alien kills) and
+    #    sitting in SEARCH circling empty space wastes time.
+    #    Triggered only when ENGAGE didn't fire (alien out of the
+    #    800 px engage band) AND no asteroid is reachable.  Action
+    #    handler reuses _act_engage so the close-and-fight behaviour
+    #    is identical — only the dispatch differs (HUNT proactively,
+    #    ENGAGE defensively).  Diagnosed via 2026-05-03 telemetry
+    #    showing 53% of session time in SEARCH with 5 aliens
+    #    permanently visible but ignored because all sat outside the
+    #    800 px engage band.
+    if threat is not None and td < HUNT_RANGE_PX:
+        return S_HUNT
     return S_SEARCH
 
 
@@ -1264,6 +1295,11 @@ def _do_auto(state: dict, p: dict) -> None:
         _act_craft(state, p)
     elif cur == S_INSTALL:
         _act_install(state, p)
+    elif cur == S_HUNT:
+        # Reuses ENGAGE's close-and-fight action; the FSM-level
+        # distinction (HUNT vs ENGAGE) only matters for telemetry
+        # and dispatch priority.
+        _act_engage(state, p)
     else:  # S_SEARCH
         _do_spiral_search(state, p)
 

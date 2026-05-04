@@ -2567,3 +2567,105 @@ class TestDepositThresholdLowered:
         )
         ap._do_auto(s, s["player"])
         assert ap._fsm["state"] != ap.S_DEPOSIT
+
+
+# ── HUNT mode (no-asteroid alien hunting, 2026-05-03 telemetry) ──────
+
+class TestHuntMode:
+    """When no asteroid is visible AND an alien is within
+    HUNT_RANGE_PX (3000 px), the bot enters S_HUNT to pursue
+    aliens for resources instead of circling in empty space.
+    Telemetry from 2026-05-03 showed the bot spending 53% of a
+    217-second session in SEARCH with 5 aliens permanently visible
+    but ignored because all sat outside the 800 px ENGAGE band."""
+
+    def test_hunt_constant_is_3000(self):
+        assert ap.HUNT_RANGE_PX == 3000.0
+
+    def test_hunt_in_all_states(self):
+        assert ap.S_HUNT in ap.ALL_STATES
+
+    def test_hunt_fires_when_no_asteroid_alien_in_range(self, _clock):
+        """No asteroids, alien at 1500 px (outside ENGAGE 800 px,
+        inside HUNT 3000 px) — bot should HUNT."""
+        s = _state(
+            aliens=[{"x": 1500.0, "y": 0.0, "hp": 50}],
+        )
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_HUNT
+
+    def test_engage_still_preempts_close_alien(self, _clock):
+        """Alien within ENGAGE_ENTER_PX (800 px) — ENGAGE wins
+        even when no asteroids."""
+        s = _state(
+            aliens=[{"x": 500.0, "y": 0.0, "hp": 50}],
+        )
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_ENGAGE
+
+    def test_mine_preempts_hunt_when_asteroid_available(self, _clock):
+        """Asteroid in chase range — MINE wins over HUNT even if
+        an alien is also visible."""
+        s = _state(
+            asteroids=[{"x": 200.0, "y": 0.0, "hp": 100}],
+            aliens=[{"x": 1500.0, "y": 0.0, "hp": 50}],
+        )
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_MINE
+
+    def test_hunt_does_not_fire_when_alien_too_far(self, _clock):
+        """Alien at 3500 px — beyond HUNT_RANGE_PX (3000), so
+        SEARCH is the fallback."""
+        s = _state(
+            aliens=[{"x": 3500.0, "y": 0.0, "hp": 50}],
+        )
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_SEARCH
+
+    def test_hunt_does_not_fire_when_no_aliens(self, _clock):
+        """No asteroids and no aliens — bot falls through to
+        SEARCH."""
+        s = _state()
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_SEARCH
+
+    def test_regen_preempts_hunt(self, _clock):
+        """Low shields — REGEN preempts HUNT just like it preempts
+        every other state."""
+        s = _state(
+            player={"x": 0.0, "y": 0.0, "heading": 0.0,
+                    "shields": 20, "max_shields": 150},
+            aliens=[{"x": 1500.0, "y": 0.0, "hp": 50}],
+        )
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_REGEN
+
+    def test_hunt_uses_act_engage(self, _clock, monkeypatch):
+        """S_HUNT dispatches through _act_engage so the bot closes
+        + fires the same way it would for a defensive engagement."""
+        called: list = []
+        real_act_engage = ap._act_engage
+        def _spy(state, p):
+            called.append("act_engage")
+            real_act_engage(state, p)
+        monkeypatch.setattr(ap, "_act_engage", _spy)
+        s = _state(
+            aliens=[{"x": 1500.0, "y": 0.0, "hp": 50}],
+        )
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_HUNT
+        assert called == ["act_engage"]
+
+    def test_hunt_yields_to_engage_when_alien_closes(self, _clock):
+        """If the alien drifts closer than ENGAGE_ENTER_PX during a
+        HUNT chase, the FSM transitions to ENGAGE on the next tick
+        (after MIN_DWELL_S elapses)."""
+        # Start with an alien at 1500 — HUNT fires.
+        s = _state(aliens=[{"x": 1500.0, "y": 0.0, "hp": 50}])
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_HUNT
+        _clock[0] += ap.MIN_DWELL_S + 0.1
+        # Alien now within ENGAGE band — ENGAGE preempts.
+        s = _state(aliens=[{"x": 500.0, "y": 0.0, "hp": 50}])
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_ENGAGE

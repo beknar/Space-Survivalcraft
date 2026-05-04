@@ -127,7 +127,8 @@ it idles.
 | `INSTALL` | head to Home Station, POST `/install_module` for the head of the install queue (broadside → shield_booster → shield_enhancer → armor_plate); pops queue on success | a `mod_<key>` for the install queue head is sitting in station inventory | post-install — falls through to next FSM tick |
 | `CRAFT` | head to a non-busy Basic Crafter, POST `/craft` for the head of the craft queue (modules first: armor_plate → engine_booster → shield_booster → shield_enhancer → damage_absorber → broadside; then 5× repair pack; then 5× shield recharge) and pop on success | every blueprint in `MODULE_CRAFT_QUEUE` deposited at station, station iron `≥ 2000` (sticky after first craft), no Basic Crafter currently mid-cycle | POST returns; the 60 s craft timer ticks down on the building while the FSM falls back to MINE / GATHER / SEARCH |
 | `MINE` | head to nearest asteroid, hold Mining Beam | asteroids visible and safe | no asteroids visible |
-| `SEARCH` | outward spiral from current position, Mining Beam held; re-anchors at 3000 px | no asteroids visible and not in any other state | asteroid appears |
+| `HUNT` | close on nearest alien (reuses `_act_engage`'s close-and-fight) | no asteroid visible AND alien within `HUNT_RANGE_PX` (3000 px) AND not in REGEN/ENGAGE/etc | asteroid appears OR alien drifts past 3000 px (then `SEARCH`) OR alien closes inside 800 px (then `ENGAGE`) |
+| `SEARCH` | outward spiral from current position, Mining Beam held; re-anchors at 3000 px | no asteroid visible AND no alien within 3000 px | asteroid appears OR alien comes into HUNT range |
 
 **Post-build workflow** (`CraftQueue`).  Once the starter base is
 up and a Basic Crafter exists, the bot drives a serial three-phase
