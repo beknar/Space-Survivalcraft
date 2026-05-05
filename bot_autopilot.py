@@ -401,6 +401,20 @@ HUNT_STUCK_WINDOW_S:   float = 10.0
 HUNT_STUCK_THRESHOLD:  int   = 3
 HUNT_GIVEUP_S:         float = 30.0
 
+# Long-term per-anchor hunt-stuck tracking: catches the SLOW
+# repeated-pin pattern that the acute window above misses.  When a
+# stuck event fires in S_HUNT, the anchor (rounded to a 100 px grid)
+# is recorded with a 5-min TTL.  Once an anchor accumulates
+# HUNT_ANCHOR_MAX_HITS hits, the giveup latch fires for the
+# extended HUNT_LONG_GIVEUP_S window.  Caught from 2026-05-04
+# telemetry: same (3101, 3816) cluster anchor produced 3 stuck
+# events spread over 250 s — never tripped the acute 10 s window
+# but burned ~5 % of the session in repeat pins.
+HUNT_ANCHOR_TTL_S:      float = 300.0
+HUNT_ANCHOR_GRID_PX:    float = 100.0
+HUNT_ANCHOR_MAX_HITS:   int   = 3
+HUNT_LONG_GIVEUP_S:     float = 120.0
+
 # Starter-base build gate.  When the bot has accumulated this much
 # iron AND there are no asteroids / aliens within the clear-area
 # radius, it transitions into S_BUILD once and POSTs the build
@@ -531,6 +545,11 @@ BOUNDARY_REPULSION_RANGE_PX = _nav.BOUNDARY_REPULSION_RANGE_PX
 BOUNDARY_REPULSION_GAIN = _nav.BOUNDARY_REPULSION_GAIN
 BUILDING_REPULSION_RANGE_PX = _nav.BUILDING_REPULSION_RANGE_PX
 BUILDING_REPULSION_GAIN = _nav.BUILDING_REPULSION_GAIN
+BUILDING_REPULSION_TYPE_MULTIPLIER = _nav.BUILDING_REPULSION_TYPE_MULTIPLIER
+REPULSION_TARGET_SUPPRESS_PX = _nav.REPULSION_TARGET_SUPPRESS_PX
+CLUSTER_DETOUR_MARGIN_PX = _nav.CLUSTER_DETOUR_MARGIN_PX
+CLUSTER_DETOUR_TARGET_INSIDE_PX = _nav.CLUSTER_DETOUR_TARGET_INSIDE_PX
+CLUSTER_MIN_BUILDINGS = _nav.CLUSTER_MIN_BUILDINGS
 
 
 # ── BotState — all persistent runtime state in one place ─────────────────
@@ -638,6 +657,12 @@ class BotState:
     # latches the FSM out of HUNT for HUNT_GIVEUP_S seconds.
     hunt_stuck_times: list = field(default_factory=list)
     hunt_giveup_until: float = 0.0
+    # Per-anchor hit counts for the long-term hunt-stuck tracker.
+    # Maps (rounded_x, rounded_y) -> [hit_count, expiry_ts].
+    # Catches the slow repeated-pin pattern (stuck events spread
+    # over minutes at the same cluster anchor) that the acute
+    # 10 s window above won't see.
+    hunt_anchor_hits: dict = field(default_factory=dict)
 
     def reset(self) -> None:
         """Restore every field to its default.  Mutates dict fields
@@ -661,6 +686,7 @@ class BotState:
         self.chase_committed = False
         self.hunt_stuck_times.clear()
         self.hunt_giveup_until = 0.0
+        self.hunt_anchor_hits.clear()
 
 
 _state = BotState()
@@ -1296,10 +1322,10 @@ def _do_auto(state: dict, p: dict) -> None:
                       f"(stuck while mining, ttl "
                       f"{int(ASTEROID_BLACKLIST_TTL_S)}s)")
         elif _fsm["state"] == S_HUNT:
-            # Hunt-stuck giveup: track recent stuck events, and if
-            # the threshold trips inside the window, latch HUNT off
-            # for HUNT_GIVEUP_S so the FSM falls through to
-            # IDLE_AT_BASE and re-routes from clear space.
+            # Hunt-stuck giveup (acute): track recent stuck events,
+            # and if the threshold trips inside the window, latch
+            # HUNT off for HUNT_GIVEUP_S so the FSM falls through
+            # to IDLE_AT_BASE and re-routes from clear space.
             times = _state.hunt_stuck_times
             cutoff = now - HUNT_STUCK_WINDOW_S
             _state.hunt_stuck_times = [t for t in times if t >= cutoff]
@@ -1311,6 +1337,35 @@ def _do_auto(state: dict, p: dict) -> None:
                       f"{HUNT_STUCK_THRESHOLD} stuck events in "
                       f"{HUNT_STUCK_WINDOW_S:.0f}s — suppressing "
                       f"S_HUNT for {HUNT_GIVEUP_S:.0f}s")
+            # Hunt-stuck giveup (long-term per-anchor): catches the
+            # slow repeated-pin pattern (3 stucks at the same cluster
+            # anchor spread over 250 s — never trips the acute window
+            # but burns sessions on repeated pins).  Anchor is
+            # rounded to a HUNT_ANCHOR_GRID_PX grid; once it
+            # accumulates HUNT_ANCHOR_MAX_HITS within HUNT_ANCHOR_TTL_S
+            # the long-giveup latches for HUNT_LONG_GIVEUP_S.
+            anchor = (round(sx / HUNT_ANCHOR_GRID_PX) * HUNT_ANCHOR_GRID_PX,
+                      round(sy / HUNT_ANCHOR_GRID_PX) * HUNT_ANCHOR_GRID_PX)
+            # Evict expired anchors inline so the dict stays bounded.
+            expired = [k for k, (_n, exp) in _state.hunt_anchor_hits.items()
+                       if now >= exp]
+            for k in expired:
+                del _state.hunt_anchor_hits[k]
+            entry = _state.hunt_anchor_hits.get(anchor)
+            if entry is None:
+                _state.hunt_anchor_hits[anchor] = [1, now + HUNT_ANCHOR_TTL_S]
+            else:
+                entry[0] += 1
+                entry[1] = now + HUNT_ANCHOR_TTL_S
+                if entry[0] >= HUNT_ANCHOR_MAX_HITS:
+                    _state.hunt_giveup_until = max(
+                        _state.hunt_giveup_until,
+                        now + HUNT_LONG_GIVEUP_S)
+                    del _state.hunt_anchor_hits[anchor]
+                    print(f"[autopilot] HUNT-LONG-GIVEUP: anchor "
+                          f"{anchor} hit {HUNT_ANCHOR_MAX_HITS}× — "
+                          f"suppressing S_HUNT for "
+                          f"{HUNT_LONG_GIVEUP_S:.0f}s")
         _telemetry_log("stuck_detected",
                        cause=("building"
                               if not _ship_clear_of_buildings(p, state)
@@ -1989,6 +2044,8 @@ def _do_spiral_search(state: dict, p: dict) -> None:
 _boundary_repulsion = _nav.boundary_repulsion
 _building_repulsion = _nav.building_repulsion
 _steered_heading = _nav.steered_heading
+_cluster_centroid_and_radius = _nav.cluster_centroid_and_radius
+_cluster_detour_waypoint = _nav.cluster_detour_waypoint
 
 
 def _do_goto(state: dict, p: dict, tx: float, ty: float,
@@ -2010,9 +2067,24 @@ def _do_goto(state: dict, p: dict, tx: float, ty: float,
     braking-then-recovering for each one (the brake-coast pattern
     matched the stuck-detect criteria and triggered ~30 false-fire
     escape bursts per session).
+
+    Cluster detour: if the straight-line path to (tx, ty) crosses
+    the placed-building cluster, the immediate goto target is
+    redirected to a tangent waypoint on the cluster boundary.  Once
+    the bot reaches the waypoint the next tick re-evaluates and
+    typically routes straight to the original target from the new
+    (cluster-clear) angle.  Suppressed when the destination IS
+    inside the cluster (deposit / craft / install) so docking
+    actions complete normally.
     """
-    dx = tx - p.get("x", 0)
-    dy = ty - p.get("y", 0)
+    px = float(p.get("x", 0.0))
+    py = float(p.get("y", 0.0))
+    final_target = (tx, ty)  # remember for repulsion suppression
+    waypoint = _cluster_detour_waypoint(state, px, py, tx, ty)
+    if waypoint is not None:
+        tx, ty = waypoint
+    dx = tx - px
+    dy = ty - py
     dist = math.hypot(dx, dy)
     if dist < stop_radius:
         # Arrived — release thrust + rotation.  Engage brake only
@@ -2024,7 +2096,8 @@ def _do_goto(state: dict, p: dict, tx: float, ty: float,
         KeyState.hold("s", brake_on_arrival)
         return
     KeyState.hold("s", False)
-    target = _steered_heading(state, p, dx, dy, dist)
+    target = _steered_heading(state, p, dx, dy, dist,
+                              target=final_target)
     delta = heading_delta(p.get("heading", 0.0), target)
     if delta < -5.0:
         KeyState.hold("a", True);  KeyState.hold("d", False)
@@ -2055,7 +2128,7 @@ def _do_hold_distance(state: dict, p: dict, tx: float, ty: float,
     dy = ty - p.get("y", 0)
     dist = math.hypot(dx, dy)
     # Always rotate to face the target so the swing arc covers it.
-    target = _steered_heading(state, p, dx, dy, dist)
+    target = _steered_heading(state, p, dx, dy, dist, target=(tx, ty))
     delta = heading_delta(p.get("heading", 0.0), target)
     if delta < -5.0:
         KeyState.hold("a", True);  KeyState.hold("d", False)

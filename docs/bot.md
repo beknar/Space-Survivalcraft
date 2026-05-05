@@ -195,6 +195,47 @@ Combat assist (`bot_combat_assist.py`) still owns aim + fire
 override during `ENGAGE`; the FSM owns thrust + weapon
 selection.
 
+# Cluster avoidance + corner-pin mitigations
+
+The bot has a layered stack for navigating the player-built
+station without pinning on its own corners.  Listed by when each
+layer fires, from proactive (avoid the corner) to reactive
+(recover from being pinned):
+
+1. **Per-building potential field** (`building_repulsion`,
+   `BUILDING_REPULSION_RANGE_PX = 150 px` base).  Each building
+   contributes a repulsion vector scaled by `1 - dist/range`;
+   adjacent buildings (a corner) sum automatically.
+2. **Per-building-type range multiplier**
+   (`BUILDING_REPULSION_TYPE_MULTIPLIER`).  Home Station gets
+   `1.5x` (= 225 px) — wider field for the cluster centre.
+3. **Target-aware suppression** (`REPULSION_TARGET_SUPPRESS_PX
+   = 50 px`).  Buildings within 50 px of the goto target are
+   excluded from the repulsion sum so deposit / craft / install
+   can dock with their target building without being pushed
+   back out by the wider field.
+4. **Cluster aggregate detour** (`cluster_detour_waypoint`).
+   When the goto path crosses within `r + CLUSTER_DETOUR_MARGIN_PX
+   = 250 px` of the building cluster centroid, the immediate
+   target is redirected to a tangent waypoint on the cluster
+   boundary.  Suppressed when the destination IS inside the
+   cluster (so docking actions complete normally).
+5. **`IDLE_AT_BASE` outer-ring parking** — idle target sits
+   `IDLE_AT_BASE_RADIUS_PX = 600 px` from HS on the player→HS
+   ray, so the bot parks *outside* the cluster.
+6. **Stuck-detect watchdog + escape burst** — rolling 1.5 s
+   position+heading window; on stuck, navigates toward the
+   pure repulsion vector until clear of buildings AND edges.
+7. **Pickup blacklist** (5 min TTL) and **asteroid blacklist**
+   (60 s TTL) — skip targets that caused a prior stuck event.
+8. **Acute hunt-stuck giveup** — 3 stuck events in S_HUNT inside
+   `HUNT_STUCK_WINDOW_S = 10 s` latches `HUNT_GIVEUP_S = 30 s`.
+9. **Long-term per-anchor hunt-stuck giveup** — 3 stuck events
+   at the same `HUNT_ANCHOR_GRID_PX = 100 px` cell within
+   `HUNT_ANCHOR_TTL_S = 5 min` latches `HUNT_LONG_GIVEUP_S =
+   2 min`.  Catches the slow repeated-pin pattern that the
+   acute window doesn't see.
+
 # State JSON schema (`GET /state`)
 
 ```json

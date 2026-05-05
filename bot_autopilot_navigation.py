@@ -62,21 +62,59 @@ BOUNDARY_REPULSION_RANGE_PX: float = 400.0
 # so a chase target through the edge ends up deflected ~45° along
 # the wall instead of pinning.
 BOUNDARY_REPULSION_GAIN: float = 1.0
-# Per-building repulsion range.  Intentionally small (well past
-# the building's collision radius of ~30 px but still inside the
-# deposit / install / craft stop radii of 200-250 px) so navigation
-# TO a building still completes.
-BUILDING_REPULSION_RANGE_PX: float = 80.0
+# Per-building repulsion base range.  Bumped from 80 → 150 in the
+# 2026-05-04 hardening cycle: at 80 px a chase trajectory entering
+# the cluster from 500+ px out had no time to deflect (telemetry
+# showed the bot pinning inside the cluster while HUNT navigated
+# toward an alien on the far side).  The wider range is safe because
+# repulsion is now ALSO target-aware — buildings within
+# ``REPULSION_TARGET_SUPPRESS_PX`` of the goto target are excluded
+# from the sum so deposit / craft / install navigation isn't blocked
+# from docking with their target building.
+BUILDING_REPULSION_RANGE_PX: float = 150.0
 # Slightly softer than world-edge repulsion: a single building's
 # push shouldn't fully overwhelm a chase vector when there's only
 # 50 px of clearance.  Adjacent buildings (a corner) stack and
 # recover the strong-deflect behaviour automatically.
 BUILDING_REPULSION_GAIN: float = 0.7
+# Per-building-type range multiplier.  The Home Station is a larger
+# physical sprite at the centre of every cluster; giving it a wider
+# field steers transit paths around the cluster instead of through
+# it.  Other types fall back to the default 1.0× multiplier (i.e.
+# the base BUILDING_REPULSION_RANGE_PX).
+BUILDING_REPULSION_TYPE_MULTIPLIER: dict = {
+    "Home Station": 1.5,
+}
+# Buildings within this radius of the goto target are excluded from
+# the repulsion sum.  Without this gate the wider 150 px field would
+# block deposit (200 px range), craft (200 px), and install (250 px)
+# from docking with their target building — the field would push
+# the bot back out of the action zone before the trigger fires.
+REPULSION_TARGET_SUPPRESS_PX: float = 50.0
 
 # Distance the bot walks per tick when seeking a clear spot or
 # heading along the escape vector.  Re-exported here because
 # ``do_escape_edge`` uses it as the escape target offset.
 BUILD_SEEK_TARGET_DIST_PX = 1000.0
+
+
+# ── Cluster avoidance (2026-05-04 hardening) ────────────────────────────
+
+# A goto path that crosses within (cluster_radius +
+# CLUSTER_DETOUR_MARGIN_PX) of the cluster centroid is detoured via
+# a tangent waypoint on the cluster boundary.  Margin is wider than
+# BUILDING_REPULSION_RANGE_PX so the detour kicks in BEFORE the
+# field starts fighting the goto, and is wide enough that the
+# waypoint itself sits in clear space.
+CLUSTER_DETOUR_MARGIN_PX: float = 250.0
+# Detour suppressed when the goto target is inside (cluster_radius +
+# this margin) of the centroid — the bot is intentionally heading
+# into the cluster (deposit / craft / install) so don't redirect it.
+CLUSTER_DETOUR_TARGET_INSIDE_PX: float = 100.0
+# Minimum number of buildings required to consider them a "cluster"
+# worth detouring around.  A single isolated building doesn't form
+# the kind of pin trap that motivates the detour.
+CLUSTER_MIN_BUILDINGS: int = 3
 
 
 # ── Geometry ────────────────────────────────────────────────────────────
@@ -130,31 +168,57 @@ def boundary_repulsion(p: dict, zone: dict) -> tuple[float, float]:
     return (rx, ry)
 
 
-def building_repulsion(p: dict, state: dict) -> tuple[float, float]:
+def building_repulsion(p: dict, state: dict,
+                       target: tuple[float, float] | None = None
+                       ) -> tuple[float, float]:
     """Per-building potential-field repulsion summed across every
     building visible in /state.  Same linear ramp as
     ``boundary_repulsion`` but the source is the player's own
     structures instead of the world walls.
 
-    Each building within ``BUILDING_REPULSION_RANGE_PX`` of the
-    ship contributes a unit-vector pointing from the building
-    center to the ship, scaled by ``1 - dist/range``.  Two adjacent
-    buildings (a station corner) sum their contributions
-    automatically, recovering the strong-deflect behaviour the
-    boundary field gets at world corners.
+    Each building within its per-type range of the ship contributes
+    a unit-vector pointing from the building center to the ship,
+    scaled by ``1 - dist/range``.  Two adjacent buildings (a station
+    corner) sum their contributions automatically, recovering the
+    strong-deflect behaviour the boundary field gets at world
+    corners.
+
+    Per-type range multiplier (``BUILDING_REPULSION_TYPE_MULTIPLIER``)
+    lets the Home Station project a wider field than ordinary
+    modules — physically larger sprite, conceptually the centre of
+    every cluster.
+
+    ``target``: optional (tx, ty) of the bot's goto target.
+    Buildings within ``REPULSION_TARGET_SUPPRESS_PX`` of the target
+    are excluded — the bot is intentionally going there (deposit,
+    craft, install dock with their target building) so the field
+    must not push it back out.
     """
     buildings = state.get("buildings") or []
     if not buildings:
         return (0.0, 0.0)
     px = float(p.get("x", 0.0))
     py = float(p.get("y", 0.0))
-    rng = BUILDING_REPULSION_RANGE_PX
-    rng_sq = rng * rng
+    suppress_sq = (REPULSION_TARGET_SUPPRESS_PX
+                   * REPULSION_TARGET_SUPPRESS_PX)
     rx = 0.0
     ry = 0.0
     for b in buildings:
         bx = float(b.get("x", 0.0))
         by = float(b.get("y", 0.0))
+        # Target-aware suppression: building is the bot's destination
+        # (or right next to it).  Skip its repulsion so the bot can
+        # actually dock.
+        if target is not None:
+            tdx = bx - target[0]
+            tdy = by - target[1]
+            if tdx * tdx + tdy * tdy < suppress_sq:
+                continue
+        # Per-type range multiplier.
+        bt = b.get("building_type", "") or ""
+        mult = BUILDING_REPULSION_TYPE_MULTIPLIER.get(bt, 1.0)
+        rng = BUILDING_REPULSION_RANGE_PX * mult
+        rng_sq = rng * rng
         dx_b = px - bx
         dy_b = py - by
         d_sq = dx_b * dx_b + dy_b * dy_b
@@ -170,8 +234,94 @@ def building_repulsion(p: dict, state: dict) -> tuple[float, float]:
     return (rx, ry)
 
 
+# ── Cluster avoidance: aggregate the station as a single obstacle ──────
+
+def cluster_centroid_and_radius(state: dict
+                                ) -> tuple[float | None, float | None,
+                                           float | None]:
+    """Compute centroid (cx, cy) and bounding radius (r) of the
+    placed-building cluster in /state.buildings.  Returns
+    (None, None, None) if there are fewer than
+    ``CLUSTER_MIN_BUILDINGS`` placed.
+
+    Used to decide whether a goto path crosses the cluster (i.e.
+    needs detour routing) instead of relying on the per-building
+    field to deflect a trajectory that's already too close to escape.
+    """
+    buildings = state.get("buildings") or []
+    if len(buildings) < CLUSTER_MIN_BUILDINGS:
+        return (None, None, None)
+    cx = sum(float(b.get("x", 0.0)) for b in buildings) / len(buildings)
+    cy = sum(float(b.get("y", 0.0)) for b in buildings) / len(buildings)
+    r = 0.0
+    for b in buildings:
+        dx = float(b.get("x", 0.0)) - cx
+        dy = float(b.get("y", 0.0)) - cy
+        d = math.hypot(dx, dy)
+        if d > r:
+            r = d
+    return (cx, cy, r)
+
+
+def cluster_detour_waypoint(state: dict, px: float, py: float,
+                            tx: float, ty: float
+                            ) -> tuple[float, float] | None:
+    """If the line from (px, py) to (tx, ty) passes within
+    (cluster_radius + ``CLUSTER_DETOUR_MARGIN_PX``) of the cluster
+    centroid, return a tangent waypoint on the cluster boundary
+    that detours around it.  Otherwise return None.
+
+    Suppressed when the target is inside the cluster's expanded
+    radius — the bot is intentionally heading into the cluster
+    (deposit / craft / install) so don't redirect it.
+    """
+    cx, cy, r = cluster_centroid_and_radius(state)
+    if cx is None:
+        return None
+    R_path = r + CLUSTER_DETOUR_MARGIN_PX
+    R_target = r + CLUSTER_DETOUR_TARGET_INSIDE_PX
+    # Target is inside the cluster — it's our destination, no detour.
+    target_to_centre = math.hypot(tx - cx, ty - cy)
+    if target_to_centre < R_target:
+        return None
+    dx = tx - px
+    dy = ty - py
+    seg_len = math.hypot(dx, dy)
+    if seg_len < 1.0:
+        return None
+    # Project centroid onto the segment from start→target.
+    sx = cx - px
+    sy = cy - py
+    t_proj = (sx * dx + sy * dy) / (seg_len * seg_len)
+    # Centroid not between start and end — straight path doesn't
+    # really cross the cluster, no detour needed.
+    if t_proj <= 0.0 or t_proj >= 1.0:
+        return None
+    nearest_x = px + t_proj * dx
+    nearest_y = py + t_proj * dy
+    perp_dx = nearest_x - cx
+    perp_dy = nearest_y - cy
+    perp_len = math.hypot(perp_dx, perp_dy)
+    # Path clears the cluster — straight line is fine.
+    if perp_len >= R_path:
+        return None
+    # Path penetrates the cluster.  Pick a perpendicular waypoint at
+    # distance R_path from the centroid, on the side the path is
+    # currently closer to (so the detour is the smaller arc).
+    if perp_len < 0.5:
+        # Segment passes essentially through centroid — pick a
+        # perpendicular axis arbitrarily (rotate +90° from segment).
+        ux = -dy / seg_len
+        uy = dx / seg_len
+    else:
+        ux = perp_dx / perp_len
+        uy = perp_dy / perp_len
+    return (cx + ux * R_path, cy + uy * R_path)
+
+
 def steered_heading(state: dict, p: dict, dx: float, dy: float,
-                    dist: float) -> float:
+                    dist: float,
+                    target: tuple[float, float] | None = None) -> float:
     """Return the heading (degrees) the bot should rotate toward,
     after blending in the boundary + building repulsion fields.
 
@@ -180,10 +330,15 @@ def steered_heading(state: dict, p: dict, dx: float, dy: float,
     so the blended heading is identical to the unmodified one.
     Closer to an edge / building the field pushes the heading along
     that wall instead of through it.
+
+    ``target``: optional (tx, ty) of the bot's intended destination.
+    When provided, ``building_repulsion`` excludes buildings within
+    ``REPULSION_TARGET_SUPPRESS_PX`` of the target so the bot can
+    actually dock with it (deposit / craft / install).
     """
     zone = state.get("zone") or {}
     rx, ry = boundary_repulsion(p, zone)
-    bx, by = building_repulsion(p, state)
+    bx, by = building_repulsion(p, state, target=target)
     rx += bx * BUILDING_REPULSION_GAIN
     ry += by * BUILDING_REPULSION_GAIN
     if rx == 0.0 and ry == 0.0:
