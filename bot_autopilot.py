@@ -678,6 +678,13 @@ class BotState:
     # over minutes at the same cluster anchor) that the acute
     # 10 s window above won't see.
     hunt_anchor_hits: dict = field(default_factory=dict)
+    # Last shields value seen during S_REGEN — the escape valve
+    # in _choose_next_state compares the current value against this
+    # to detect "shields not recovering" (i.e., still being shot)
+    # and lets ENGAGE preempt REGEN to break the deadlock.  Reset
+    # to 0 on REGEN exit so the trend check restarts cleanly on
+    # next entry.
+    last_regen_shields: int = 0
 
     def reset(self) -> None:
         """Restore every field to its default.  Mutates dict fields
@@ -702,6 +709,7 @@ class BotState:
         self.hunt_stuck_times.clear()
         self.hunt_giveup_until = 0.0
         self.hunt_anchor_hits.clear()
+        self.last_regen_shields = 0
 
 
 _state = BotState()
@@ -1112,19 +1120,50 @@ def _choose_next_state(state: dict, p: dict, cur: str) -> str:
     # 1. REGEN — shields hurt; sit still and recover.  Preempts
     #    ENGAGE/GATHER/MINE so the bot actually idles instead of
     #    burning thrust while shields are low.
+    #
+    #    REGEN escape valve (added 2026-05-04): the original "always
+    #    return REGEN while shields < REGEN_EXIT_PCT" rule deadlocks
+    #    when the bot starts already low on shields with nearby
+    #    aliens still firing — the bot sits idle, takes damage, can
+    #    never reach the exit threshold, and dies.  Telemetry caught
+    #    this clearly: 78 s session, 23 stuck_detected events all in
+    #    REGEN with shields=0, 0 iron collected.
+    #    Fix: if a threat is within ENGAGE_ENTER_PX AND shields are
+    #    NOT recovering between ticks, fall through and let ENGAGE
+    #    (or other priorities) take over — better to fight back at
+    #    low HP than die idling.
     sh = int(p.get("shields", 0))
     sh_max = max(1, int(p.get("max_shields", 1)))
     pct = sh / sh_max
+    aliens = state.get("aliens") or []
+    threat, td = nearest(aliens, px, py)
     if cur == S_REGEN:
         if pct < REGEN_EXIT_PCT:
-            return S_REGEN
+            shields_recovering = (sh > _state.last_regen_shields)
+            threatened = (threat is not None
+                          and td < ENGAGE_ENTER_PX)
+            if threatened and not shields_recovering:
+                # Escape valve — let priority cascade pick ENGAGE
+                # (or whatever fits) instead of sitting in REGEN
+                # forever.  Don't update last_regen_shields here so
+                # if we re-enter REGEN later the trend check starts
+                # fresh.
+                pass
+            else:
+                _state.last_regen_shields = sh
+                return S_REGEN
+        else:
+            # Shields fully recovered — leave REGEN cleanly.
+            _state.last_regen_shields = 0
     else:
         if pct < REGEN_ENTER_PCT:
+            # Entering REGEN — initialize the trend baseline.
+            _state.last_regen_shields = sh
             return S_REGEN
 
     # 2. ENGAGE — alien within band.  Preempts the rest.
-    aliens = state.get("aliens") or []
-    threat, td = nearest(aliens, px, py)
+    # ``threat, td`` already loaded above for the REGEN escape
+    # valve so we don't re-walk the alien list here.
     if cur == S_ENGAGE:
         if threat is not None and td < ENGAGE_EXIT_PX:
             return S_ENGAGE

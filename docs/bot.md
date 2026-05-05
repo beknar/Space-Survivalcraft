@@ -166,7 +166,7 @@ it idles.
 
 | State | Action | Enter when | Exit when |
 |---|---|---|---|
-| `REGEN` | idle, release all keys, let shields recover.  Combat assist still auto-fires at anything in range. | shields `< 40 %` (any state) | shields `≥ 60 %` |
+| `REGEN` | idle, release all keys, let shields recover.  Combat assist still auto-fires at anything in range. | shields `< 40 %` (any state) | shields `≥ 60 %`, OR (escape valve) close threat within `ENGAGE_ENTER_PX` AND shields not recovering since last tick — prevents the deadlock where a bot starting low-shields surrounded by aliens can never reach 60% and dies idling |
 | `ENGAGE` | If the in-process combat assist has rolled into a melee commitment for this engagement (`state.assist.melee_engaged`), close to ~50 px and let the assist swing the lightsabre.  Otherwise hold ~380 px stand-off with Basic Laser.  Combat assist owns aim + fire + melee weapon-lock. | nearest alien `< 800 px` and not in REGEN | no alien `< 1000 px` |
 | `GATHER` | fly to nearest pickup (blueprints win on tie); 60 px stop radius | pickup `< 1500 px` and not in REGEN/ENGAGE | no pickup `< 1700 px` |
 | `BUILD` / `BUILD_SEEK` | one-shot starter base (HS + SM + PR + SA2 + RM + 2× T2 + west extension + Basic Crafter); SEEK walks toward less-cluttered space first | ship iron `≥ 1000` and area is clear of asteroids/aliens/pickups within 800 px | `_state.build_done` flips True after first POST |
