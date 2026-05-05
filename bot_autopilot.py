@@ -1157,9 +1157,31 @@ def _choose_next_state(state: dict, p: dict, cur: str) -> str:
             _state.last_regen_shields = 0
     else:
         if pct < REGEN_ENTER_PCT:
-            # Entering REGEN — initialize the trend baseline.
-            _state.last_regen_shields = sh
-            return S_REGEN
+            # Entry-side mirror of the escape valve: don't enter
+            # REGEN if a close threat is already engaging us.  The
+            # escape valve in the cur==S_REGEN branch above would
+            # immediately exit on the very next tick anyway, so
+            # entering and exiting in a 0.1 s loop just burns FSM
+            # cycles + telemetry without doing useful work.
+            #
+            # Telemetry from the previous session caught the
+            # pathology: 111 REGEN <-> ENGAGE transitions in a
+            # single combat encounter, median dwell 0.09 s (one
+            # tick — both states bypass MIN_DWELL as defensive
+            # interrupts).  Plus 14 stuck_detected misfires in the
+            # tiny REGEN visits since REGEN action is _do_idle().
+            #
+            # Better: stay in ENGAGE for the duration of combat,
+            # let combat assist + character bonuses keep firing,
+            # transition to REGEN only after disengaging.
+            threatened = (threat is not None
+                          and td < ENGAGE_ENTER_PX)
+            if threatened:
+                pass  # stay in current state; ENGAGE/etc preempts
+            else:
+                # Entering REGEN — initialize the trend baseline.
+                _state.last_regen_shields = sh
+                return S_REGEN
 
     # 2. ENGAGE — alien within band.  Preempts the rest.
     # ``threat, td`` already loaded above for the REGEN escape
