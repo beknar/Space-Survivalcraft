@@ -3518,3 +3518,201 @@ class TestHuntAnchorLongTermGiveup:
         ap._state.hunt_anchor_hits[(100.0, 100.0)] = [2, 9999.0]
         ap._fsm_reset()
         assert ap._state.hunt_anchor_hits == {}
+
+
+# ── 2026-05-04 hardening: world-edge-aware navigation ─────────────────
+
+class TestClampToWorld:
+    def test_inside_world_unchanged(self):
+        zone = {"world_w": 6400, "world_h": 6400}
+        cx, cy, clamped = ap._clamp_to_world(3000.0, 3000.0, zone)
+        assert cx == 3000.0 and cy == 3000.0 and clamped is False
+
+    def test_past_north_edge_clamped(self):
+        zone = {"world_w": 6400, "world_h": 6400}
+        cx, cy, clamped = ap._clamp_to_world(3000.0, 6500.0, zone)
+        assert cx == 3000.0
+        assert cy == 6400.0 - ap.STUCK_WORLD_MARGIN_PX
+        assert clamped is True
+
+    def test_past_corner_clamped_both_axes(self):
+        zone = {"world_w": 6400, "world_h": 6400}
+        cx, cy, clamped = ap._clamp_to_world(7000.0, 7000.0, zone)
+        margin = ap.STUCK_WORLD_MARGIN_PX
+        assert cx == 6400.0 - margin
+        assert cy == 6400.0 - margin
+        assert clamped is True
+
+
+class TestFindClearRingPoint:
+    """``find_clear_ring_point`` returns a point on the ring around
+    HS that's INSIDE the world rect, preferring the supplied
+    direction.  Critical for IDLE_AT_BASE when HS is near a world
+    edge — the naive player→HS projection can land outside the
+    world."""
+
+    def test_preferred_direction_used_when_inside(self):
+        zone = {"world_w": 6400, "world_h": 6400}
+        # HS at world centre, plenty of room.  Preferred direction
+        # is east (+x); ring point should land directly east of HS.
+        tx, ty = ap._find_clear_ring_point(
+            3200.0, 3200.0, 600.0, zone, 1.0, 0.0)
+        assert abs(tx - 3800.0) < 0.5
+        assert abs(ty - 3200.0) < 0.5
+
+    def test_preferred_direction_outside_world_swept(self):
+        """HS near upper-right corner; preferred direction is NE
+        (+x, +y).  The projected target lands outside the world,
+        so the function sweeps to find an interior alternative
+        (south or west)."""
+        zone = {"world_w": 6400, "world_h": 6400}
+        # HS at (6100, 6100), 600 px ring extends to (6700, 6700) —
+        # outside the world.  Find an interior point.
+        tx, ty = ap._find_clear_ring_point(
+            6100.0, 6100.0, 600.0, zone, 1.0, 1.0)
+        margin = ap.STUCK_WORLD_MARGIN_PX
+        assert margin <= tx <= 6400.0 - margin
+        assert margin <= ty <= 6400.0 - margin
+        # Distance from HS should still be approximately 600 px
+        # (one of the swept rotations landed inside).
+        import math as _m
+        d = _m.hypot(tx - 6100.0, ty - 6100.0)
+        assert abs(d - 600.0) < 0.5
+
+    def test_hs_in_corner_falls_back_to_clamped(self):
+        """HS so close to a corner that NO direction on the ring
+        lands inside.  Function falls back to the clamped
+        preferred direction so the bot still gets close to the
+        ring."""
+        zone = {"world_w": 600, "world_h": 600}
+        tx, ty = ap._find_clear_ring_point(
+            500.0, 500.0, 600.0, zone, 1.0, 0.0)
+        margin = ap.STUCK_WORLD_MARGIN_PX
+        assert margin <= tx <= 600.0 - margin
+        assert margin <= ty <= 600.0 - margin
+
+
+class TestIdleAtBaseEdgeAware:
+    """``_act_idle_at_base`` now uses ``find_clear_ring_point`` so
+    HS near a world edge produces an interior outer-ring target,
+    not one past the boundary.  Regression caught from 2026-05-04
+    telemetry: HS in upper-right of 6400×6400 world produced 12
+    HUNT stucks at y=5500-6200 (within 200-700 px of the north
+    edge)."""
+
+    def test_outer_ring_target_inside_world(self, monkeypatch):
+        captured: dict = {}
+        monkeypatch.setattr(
+            ap, "_do_goto",
+            lambda state, p, tx, ty, stop_radius=80.0,
+            brake_on_arrival=True: captured.update(tx=tx, ty=ty))
+        # HS in upper-right corner; player south of HS so the
+        # naive ring projection (player→HS direction = north)
+        # would land at y > 6400.
+        s = _state(
+            player={"x": 6000.0, "y": 4000.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            buildings=[_hs_building(x=6000.0, y=6000.0)],
+            world_w=6400, world_h=6400,
+        )
+        ap._act_idle_at_base(s, s["player"])
+        # Target must be inside the world.
+        margin = ap.STUCK_WORLD_MARGIN_PX
+        assert margin <= captured["tx"] <= 6400.0 - margin
+        assert margin <= captured["ty"] <= 6400.0 - margin
+
+
+class TestEngageChaseClampedToWorld:
+    """ENGAGE / HUNT chase target clamps to inside the world rect
+    so a chase toward an alien sitting at the edge doesn't pin
+    the bot.  Combat assist still hits through the boundary —
+    the bot just stops short."""
+
+    def test_chase_target_clamped_when_alien_outside_margin(self, monkeypatch):
+        captured: dict = {}
+        monkeypatch.setattr(
+            ap, "_do_goto",
+            lambda state, p, tx, ty, stop_radius=80.0,
+            brake_on_arrival=True: captured.update(tx=tx, ty=ty))
+        monkeypatch.setattr(ap, "_ensure_weapon", lambda *a, **kw: None)
+        # Alien at y=6450 — past the world boundary (6400).
+        s = _state(
+            player={"x": 3200.0, "y": 5000.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            aliens=[{"x": 3200.0, "y": 6450.0, "hp": 50}],
+            world_w=6400, world_h=6400,
+        )
+        ap._act_engage(s, s["player"])
+        margin = ap.STUCK_WORLD_MARGIN_PX
+        assert captured["ty"] <= 6400.0 - margin
+
+    def test_chase_target_unchanged_when_alien_inside(self, monkeypatch):
+        """Sanity: alien inside world → no clamp."""
+        captured: dict = {}
+        monkeypatch.setattr(
+            ap, "_do_goto",
+            lambda state, p, tx, ty, stop_radius=80.0,
+            brake_on_arrival=True: captured.update(tx=tx, ty=ty))
+        monkeypatch.setattr(ap, "_ensure_weapon", lambda *a, **kw: None)
+        s = _state(
+            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            aliens=[{"x": 3700.0, "y": 3200.0, "hp": 50}],
+            world_w=6400, world_h=6400,
+        )
+        ap._act_engage(s, s["player"])
+        assert captured["tx"] == 3700.0
+        assert captured["ty"] == 3200.0
+
+
+class TestNearestAsteroidEdgeFilter:
+    """``_nearest_asteroid`` now skips asteroids within
+    ``ASTEROID_EDGE_SKIP_PX`` of a world boundary at selection
+    time so the bot doesn't ram the wall trying to circle them.
+    Falls back to the edge-adjacent candidate when no interior
+    asteroid is available."""
+
+    def test_edge_adjacent_skipped_when_interior_available(self):
+        # Asteroid just inside north margin (250 px) and one near
+        # the world centre.  Interior one should win even though
+        # the edge one is closer to the player.
+        s = _state(
+            player={"x": 3200.0, "y": 6300.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            asteroids=[
+                {"x": 3200.0, "y": 6350.0, "hp": 50},  # 50px from north edge
+                {"x": 3200.0, "y": 4000.0, "hp": 50},  # interior
+            ],
+            world_w=6400, world_h=6400,
+        )
+        nearest, _d = ap._nearest_asteroid(s, 3200.0, 6300.0)
+        assert nearest["y"] == 4000.0  # interior wins
+
+    def test_edge_adjacent_used_when_only_option(self):
+        """If every asteroid is edge-adjacent, fall back to the
+        closest one — bot will probably stuck-detect, blacklist
+        it, and try the next."""
+        s = _state(
+            player={"x": 3200.0, "y": 6300.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            asteroids=[
+                {"x": 3200.0, "y": 6350.0, "hp": 50},  # edge
+                {"x": 3300.0, "y": 6360.0, "hp": 50},  # edge
+            ],
+            world_w=6400, world_h=6400,
+        )
+        nearest, _d = ap._nearest_asteroid(s, 3200.0, 6300.0)
+        assert nearest is not None
+        # Should be the closer of the two.
+        assert nearest["y"] == 6350.0
+
+    def test_no_asteroids_returns_none(self):
+        s = _state(asteroids=[], world_w=6400, world_h=6400)
+        nearest, _d = ap._nearest_asteroid(s, 3200.0, 3200.0)
+        assert nearest is None
+
+    def test_edge_skip_constant_wider_than_world_margin(self):
+        """ASTEROID_EDGE_SKIP_PX must exceed STUCK_WORLD_MARGIN_PX
+        so the bot has room to circle the asteroid before the
+        boundary repulsion field starts pushing back."""
+        assert ap.ASTEROID_EDGE_SKIP_PX > ap.STUCK_WORLD_MARGIN_PX
