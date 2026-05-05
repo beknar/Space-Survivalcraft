@@ -293,11 +293,19 @@ layer fires, from proactive (avoid the corner) to reactive
     boundary; the helper sweeps the ring until it finds an
     interior point so the bot doesn't pin trying to navigate
     off-world.
-11. **World-edge-aware HUNT/ENGAGE chase** — `_act_engage`
-    clamps the chase target to inside `[STUCK_WORLD_MARGIN_PX,
-    world_dim - STUCK_WORLD_MARGIN_PX]` so a chase toward an
-    edge-spawned alien doesn't ram the bot into the boundary.
-    Combat assist's 60 FPS aim still hits through the edge.
+11. **World-edge-aware chase clamping** — `_act_engage`,
+    `_do_attack_nearest`, `_do_mine_nearest`, and `_act_gather`
+    all clamp the chase target to inside `[STUCK_WORLD_MARGIN_PX,
+    world_dim - STUCK_WORLD_MARGIN_PX]` so an edge-adjacent alien /
+    asteroid / pickup doesn't pull the bot into the boundary
+    repulsion local-minimum trap (goto + repulsion cancel along
+    the wall-perpendicular axis → bot drifts along the wall →
+    long oscillation before random thrust noise pops it out).
+    Mining beam range (400 px) and basic laser (FIRE_RANGE_PX)
+    both exceed the 200 px margin so the bot fires through the
+    boundary from inside the safety zone.  The fire trigger uses
+    the REAL (unclamped) distance so weapon range gating stays
+    accurate.
 12. **Edge-asteroid pre-filter in `_nearest_asteroid`**
     (`ASTEROID_EDGE_SKIP_PX = 250 px`) — asteroids spawned
     within 250 px of any world boundary are skipped at

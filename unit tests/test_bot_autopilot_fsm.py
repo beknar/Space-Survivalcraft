@@ -3868,3 +3868,171 @@ class TestClusterAwareRepulsionSuppression:
             {"x": 3420.0, "y": 3200.0}, s, target=(3700.0, 3200.0))
         # East building NOT suppressed → push from it.
         assert rx > 0.0
+
+
+# ── 2026-05-04 hardening: MINE/GATHER chase clamped to world ──────────
+
+class TestMineChaseClampedToWorld:
+    """``_do_mine_nearest`` clamps the asteroid chase target to
+    inside the world rect.  An edge-adjacent asteroid would
+    otherwise pull the bot into the boundary repulsion local-minimum
+    trap (goto vs repulsion cancellation along the wall-perpendicular
+    axis → bot drifts along the wall instead of reaching the
+    asteroid → 30+ s of oscillation per asteroid).  Mining Beam range
+    is 400 px vs world margin 200 px, so clamping leaves plenty of
+    reach to mine the asteroid from inside the safety zone."""
+
+    def test_mining_beam_chase_clamped_when_asteroid_past_margin(self, monkeypatch):
+        captured: dict = {}
+        monkeypatch.setattr(
+            ap, "_do_goto",
+            lambda state, p, tx, ty, stop_radius=80.0,
+            brake_on_arrival=True: captured.update(tx=tx, ty=ty))
+        monkeypatch.setattr(ap, "_ensure_weapon", lambda *a, **kw: None)
+        ap._state.mining_weapon_pick = "Mining Beam"
+        # Asteroid at y=50 — well past the 200 px south margin in
+        # a 6400×6400 world.
+        s = _state(
+            player={"x": 3200.0, "y": 800.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            asteroids=[{"x": 3200.0, "y": 50.0, "hp": 50}],
+            world_w=6400, world_h=6400,
+        )
+        ap._do_mine_nearest(s, s["player"])
+        # Y must be clamped to >= STUCK_WORLD_MARGIN_PX.
+        assert captured["ty"] >= ap.STUCK_WORLD_MARGIN_PX
+
+    def test_mining_beam_chase_unchanged_when_asteroid_inside(self, monkeypatch):
+        """Sanity: interior asteroid passes through unchanged."""
+        captured: dict = {}
+        monkeypatch.setattr(
+            ap, "_do_goto",
+            lambda state, p, tx, ty, stop_radius=80.0,
+            brake_on_arrival=True: captured.update(tx=tx, ty=ty))
+        monkeypatch.setattr(ap, "_ensure_weapon", lambda *a, **kw: None)
+        ap._state.mining_weapon_pick = "Mining Beam"
+        s = _state(
+            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            asteroids=[{"x": 3500.0, "y": 3200.0, "hp": 50}],
+            world_w=6400, world_h=6400,
+        )
+        ap._do_mine_nearest(s, s["player"])
+        assert captured["tx"] == 3500.0
+        assert captured["ty"] == 3200.0
+
+    def test_pickaxe_chase_also_clamped(self, monkeypatch):
+        """Energy Pickaxe path uses ``_do_hold_distance`` instead
+        of ``_do_goto`` — it should also receive the clamped
+        target."""
+        captured: dict = {}
+        monkeypatch.setattr(
+            ap, "_do_hold_distance",
+            lambda state, p, tx, ty, hold_radius, dead_band=10.0:
+                captured.update(tx=tx, ty=ty))
+        monkeypatch.setattr(ap, "_ensure_weapon", lambda *a, **kw: None)
+        ap._state.mining_weapon_pick = "Energy Pickaxe"
+        s = _state(
+            player={"x": 3200.0, "y": 800.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            asteroids=[{"x": 3200.0, "y": 50.0, "hp": 50}],
+            world_w=6400, world_h=6400,
+        )
+        ap._do_mine_nearest(s, s["player"])
+        assert captured["ty"] >= ap.STUCK_WORLD_MARGIN_PX
+
+    def test_fire_gate_uses_unclamped_distance(self, monkeypatch):
+        """The fire trigger uses the REAL (unclamped) distance to
+        the asteroid so weapon range gating remains accurate.
+        Pin via the captured ``space`` key."""
+        keys: dict = {}
+        monkeypatch.setattr(
+            ap.KeyState, "hold",
+            staticmethod(lambda key, down: keys.__setitem__(key, down)))
+        monkeypatch.setattr(ap, "_do_goto", lambda *a, **kw: None)
+        monkeypatch.setattr(ap, "_ensure_weapon", lambda *a, **kw: None)
+        ap._state.mining_weapon_pick = "Mining Beam"
+        # Asteroid at y=50, bot at y=300 — 250 px real distance.
+        # Inside MINING_RANGE_PX (400) → fire.
+        s = _state(
+            player={"x": 3200.0, "y": 300.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            asteroids=[{"x": 3200.0, "y": 50.0, "hp": 50}],
+            world_w=6400, world_h=6400,
+        )
+        ap._do_mine_nearest(s, s["player"])
+        assert keys.get("space") is True
+
+
+class TestGatherChaseClampedToWorld:
+    """``_act_gather`` clamps the pickup chase target to the world
+    rect.  Same rationale as the asteroid case: an edge-adjacent
+    pickup that the bot can't actually reach (because boundary
+    repulsion blocks the approach) shouldn't trap the bot in
+    oscillation.  Pickup either drifts into reach or expires."""
+
+    def test_pickup_chase_clamped_when_past_margin(self, monkeypatch):
+        captured: dict = {}
+        monkeypatch.setattr(
+            ap, "_do_goto",
+            lambda state, p, tx, ty, stop_radius=80.0,
+            brake_on_arrival=True: captured.update(tx=tx, ty=ty))
+        s = _state(
+            player={"x": 3200.0, "y": 800.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            iron_pickups=[{"x": 3200.0, "y": 50.0,
+                           "item_type": "iron"}],
+            world_w=6400, world_h=6400,
+        )
+        # Disable the edge filter for this test by adding a closer
+        # interior pickup so _nearest_pickup returns the edge one
+        # via fallback.  Actually simpler: mock _nearest_pickup
+        # directly to force the edge candidate.
+        monkeypatch.setattr(
+            ap, "_nearest_pickup",
+            lambda *a, **kw: ({"x": 3200.0, "y": 50.0,
+                              "item_type": "iron"}, 750.0))
+        ap._act_gather(s, s["player"])
+        assert captured["ty"] >= ap.STUCK_WORLD_MARGIN_PX
+
+    def test_pickup_chase_unchanged_when_inside(self, monkeypatch):
+        captured: dict = {}
+        monkeypatch.setattr(
+            ap, "_do_goto",
+            lambda state, p, tx, ty, stop_radius=80.0,
+            brake_on_arrival=True: captured.update(tx=tx, ty=ty))
+        monkeypatch.setattr(
+            ap, "_nearest_pickup",
+            lambda *a, **kw: ({"x": 3500.0, "y": 3200.0,
+                              "item_type": "iron"}, 300.0))
+        s = _state(
+            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            world_w=6400, world_h=6400,
+        )
+        ap._act_gather(s, s["player"])
+        assert captured["tx"] == 3500.0
+        assert captured["ty"] == 3200.0
+
+
+class TestAttackNearestChaseClampedToWorld:
+    """``_do_attack_nearest`` (intent-driven, separate from
+    ``_act_engage``) also clamps its chase target to the world rect.
+    Mirrors the ENGAGE clamp from PR #25 so direct-attack intents
+    posted via the bot API don't pin the bot against an edge alien."""
+
+    def test_attack_chase_clamped_when_alien_past_margin(self, monkeypatch):
+        captured: dict = {}
+        monkeypatch.setattr(
+            ap, "_do_goto",
+            lambda state, p, tx, ty, stop_radius=80.0,
+            brake_on_arrival=True: captured.update(tx=tx, ty=ty))
+        monkeypatch.setattr(ap, "_ensure_weapon", lambda *a, **kw: None)
+        s = _state(
+            player={"x": 3200.0, "y": 800.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            aliens=[{"x": 3200.0, "y": 50.0, "hp": 50}],
+            world_w=6400, world_h=6400,
+        )
+        ap._do_attack_nearest(s, s["player"])
+        assert captured["ty"] >= ap.STUCK_WORLD_MARGIN_PX

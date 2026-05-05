@@ -2028,7 +2028,20 @@ def _act_engage(state: dict, p: dict) -> None:
 
 
 def _act_gather(state: dict, p: dict) -> None:
-    """GATHER: head toward the nearest pickup, no fire."""
+    """GATHER: head toward the nearest pickup, no fire.
+
+    Chase target is clamped to the world rect via ``_clamp_to_world``
+    so a pickup sitting past the safety margin doesn't pull the bot
+    into the boundary repulsion field's local-minimum trap (the
+    classical edge-resource oscillation: goto pulls toward the wall,
+    boundary repulsion pushes back, leftover force is wall-parallel,
+    bot drifts along the edge instead of toward the resource).  When
+    the pickup is inside the margin the clamp is a no-op.  When it's
+    past the margin the bot navigates to the boundary edge — if the
+    pickup hasn't drifted into reach, stuck-detect + the pickup
+    blacklist let the bot move on to the next pickup instead of
+    grinding for tens of seconds.
+    """
     px, py = p.get("x", 0.0), p.get("y", 0.0)
     pickup, _pd = _nearest_pickup(state, px, py)
     if pickup is None:
@@ -2036,7 +2049,10 @@ def _act_gather(state: dict, p: dict) -> None:
         KeyState.hold("space", False)
         return
     KeyState.hold("space", False)
-    _do_goto(state, p, pickup["x"], pickup["y"],
+    zone = state.get("zone") or {}
+    chase_x, chase_y, _ = _clamp_to_world(
+        pickup["x"], pickup["y"], zone)
+    _do_goto(state, p, chase_x, chase_y,
              stop_radius=PICKUP_STOP_RADIUS)
 
 
@@ -2284,17 +2300,28 @@ def _do_mine_nearest(state: dict, p: dict) -> None:
         _do_idle()
         return
     _ensure_weapon(state, _state.mining_weapon_pick)
+    # Clamp the chase target to inside the world rect so an
+    # edge-adjacent asteroid doesn't pull the bot into the
+    # boundary repulsion local minimum.  Mining Beam range is
+    # 400 px vs the 200 px world margin — plenty of reach to
+    # mine from inside the safety zone.  ``dist`` (used for the
+    # fire gate) is NOT clamped — that's still the real distance
+    # to the asteroid so the fire trigger respects the actual
+    # weapon range.
+    zone = state.get("zone") or {}
+    chase_x, chase_y, _ = _clamp_to_world(
+        target["x"], target["y"], zone)
     if _state.mining_weapon_pick == "Energy Pickaxe":
         # Pickaxe is melee — hold optimal swing distance instead
         # of closing all the way and ramming the asteroid.  After
         # the asteroid is destroyed the FSM transitions to GATHER,
         # which uses _do_goto to close on the iron pickup.
-        _do_hold_distance(state, p, target["x"], target["y"],
+        _do_hold_distance(state, p, chase_x, chase_y,
                           hold_radius=PICKAXE_HOLD_DISTANCE_PX)
         KeyState.hold("space", dist < PICKAXE_MINING_RANGE_PX)
     else:
         # Mining Beam — ranged, stand off and fire from afar.
-        _do_goto(state, p, target["x"], target["y"], stop_radius=200.0)
+        _do_goto(state, p, chase_x, chase_y, stop_radius=200.0)
         KeyState.hold("space", dist < MINING_RANGE_PX)
 
 
@@ -2308,7 +2335,14 @@ def _do_attack_nearest(state: dict, p: dict) -> None:
         _ensure_weapon(state, "Melee")
     else:
         _ensure_weapon(state, "Basic Laser")
-    _do_goto(state, p, target["x"], target["y"], stop_radius=300.0)
+    # Clamp chase target to the world rect (mirrors _act_engage and
+    # the mine/gather actions) so an edge-adjacent alien doesn't
+    # pull the bot into the boundary repulsion oscillation trap.
+    # Combat assist's 60 FPS aim still hits through the boundary.
+    zone = state.get("zone") or {}
+    chase_x, chase_y, _ = _clamp_to_world(
+        target["x"], target["y"], zone)
+    _do_goto(state, p, chase_x, chase_y, stop_radius=300.0)
     KeyState.hold("space", dist < FIRE_RANGE_PX)
 
 
