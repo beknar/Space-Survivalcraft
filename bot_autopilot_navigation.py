@@ -236,6 +236,75 @@ def building_repulsion(p: dict, state: dict,
 
 # ── Cluster avoidance: aggregate the station as a single obstacle ──────
 
+def clamp_to_world(tx: float, ty: float, zone: dict,
+                   margin: float = STUCK_WORLD_MARGIN_PX
+                   ) -> tuple[float, float, bool]:
+    """Clamp (tx, ty) to inside ``[margin, world_dim - margin]``.
+    Returns (clamped_x, clamped_y, was_clamped).  Used by HUNT and
+    IDLE_AT_BASE navigation to keep goto targets inside the world
+    so the bot doesn't pin against the boundary chasing an
+    unreachable point.
+    """
+    world_w = float(zone.get("world_w", 6400) or 6400)
+    world_h = float(zone.get("world_h", 6400) or 6400)
+    cx = max(margin, min(world_w - margin, tx))
+    cy = max(margin, min(world_h - margin, ty))
+    was_clamped = (cx != tx) or (cy != ty)
+    return (cx, cy, was_clamped)
+
+
+def find_clear_ring_point(hx: float, hy: float, radius: float,
+                          zone: dict,
+                          preferred_dx: float, preferred_dy: float,
+                          margin: float = STUCK_WORLD_MARGIN_PX
+                          ) -> tuple[float, float]:
+    """Return a point on the circle of given ``radius`` around
+    (``hx``, ``hy``) that is INSIDE the world rect (with the safety
+    ``margin``).  The preferred direction is (``preferred_dx``,
+    ``preferred_dy``) — the function tries that first, then sweeps
+    around the ring in 30° increments until it finds an interior
+    point.
+
+    Used by ``_act_idle_at_base`` so a Home Station built near a
+    world edge doesn't produce an outer-ring target that sits past
+    the boundary.  2026-05-04 telemetry caught the regression: HS
+    near the upper-right of a 6400×6400 world produced 12 HUNT
+    stucks all clustered at y=5500-6200 (within 200-700 px of the
+    north edge) because the outer-ring projection along the
+    player→HS ray put the target at y≈6600, outside the world.
+    """
+    world_w = float(zone.get("world_w", 6400) or 6400)
+    world_h = float(zone.get("world_h", 6400) or 6400)
+    pref_len = math.hypot(preferred_dx, preferred_dy)
+    if pref_len < 1e-6:
+        # Degenerate: no preferred direction.  Default east.
+        ux, uy = 1.0, 0.0
+    else:
+        ux = preferred_dx / pref_len
+        uy = preferred_dy / pref_len
+    # Try preferred direction first, then sweep ±30° increments.
+    angles_deg = [0.0, 30.0, -30.0, 60.0, -60.0, 90.0, -90.0,
+                  120.0, -120.0, 150.0, -150.0, 180.0]
+    for a_deg in angles_deg:
+        a = math.radians(a_deg)
+        cos_a, sin_a = math.cos(a), math.sin(a)
+        # Rotate (ux, uy) by a.
+        rux = ux * cos_a - uy * sin_a
+        ruy = ux * sin_a + uy * cos_a
+        tx = hx + rux * radius
+        ty = hy + ruy * radius
+        if (margin <= tx <= world_w - margin
+                and margin <= ty <= world_h - margin):
+            return (tx, ty)
+    # Every direction is clamped — HS itself is too close to a
+    # corner.  Fall back to the clamped preferred direction; the
+    # bot will still get close enough to the ring to be "near base".
+    tx = hx + ux * radius
+    ty = hy + uy * radius
+    cx, cy, _ = clamp_to_world(tx, ty, zone, margin=margin)
+    return (cx, cy)
+
+
 def cluster_centroid_and_radius(state: dict
                                 ) -> tuple[float | None, float | None,
                                            float | None]:

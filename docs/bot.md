@@ -235,6 +235,23 @@ layer fires, from proactive (avoid the corner) to reactive
    `HUNT_ANCHOR_TTL_S = 5 min` latches `HUNT_LONG_GIVEUP_S =
    2 min`.  Catches the slow repeated-pin pattern that the
    acute window doesn't see.
+10. **World-edge-aware IDLE_AT_BASE outer ring**
+    (`find_clear_ring_point`) — when HS sits near a world edge
+    the naive player→HS ring projection can land past the
+    boundary; the helper sweeps the ring until it finds an
+    interior point so the bot doesn't pin trying to navigate
+    off-world.
+11. **World-edge-aware HUNT/ENGAGE chase** — `_act_engage`
+    clamps the chase target to inside `[STUCK_WORLD_MARGIN_PX,
+    world_dim - STUCK_WORLD_MARGIN_PX]` so a chase toward an
+    edge-spawned alien doesn't ram the bot into the boundary.
+    Combat assist's 60 FPS aim still hits through the edge.
+12. **Edge-asteroid pre-filter in `_nearest_asteroid`**
+    (`ASTEROID_EDGE_SKIP_PX = 250 px`) — asteroids spawned
+    within 250 px of any world boundary are skipped at
+    selection time so MINE doesn't ram the wall trying to
+    circle them.  Falls back to edge-adjacent picks when no
+    interior asteroid is reachable.
 
 # State JSON schema (`GET /state`)
 

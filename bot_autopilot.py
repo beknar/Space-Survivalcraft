@@ -415,6 +415,14 @@ HUNT_ANCHOR_GRID_PX:    float = 100.0
 HUNT_ANCHOR_MAX_HITS:   int   = 3
 HUNT_LONG_GIVEUP_S:     float = 120.0
 
+# ``_nearest_asteroid`` skips asteroids within this distance of any
+# world boundary at selection time.  Wider than STUCK_WORLD_MARGIN_PX
+# (200) so the bot has room to circle the asteroid + brake before
+# the boundary repulsion field engages.  The reactive 60 s asteroid
+# blacklist is the fallback for the (rare) case where every
+# remaining asteroid is edge-adjacent.
+ASTEROID_EDGE_SKIP_PX:  float = 250.0
+
 # Starter-base build gate.  When the bot has accumulated this much
 # iron AND there are no asteroids / aliens within the clear-area
 # radius, it transitions into S_BUILD once and POSTs the build
@@ -759,8 +767,55 @@ def _blacklist_asteroid(ast: dict) -> None:
 
 def _nearest_asteroid(state: dict, px: float, py: float
                       ) -> tuple[dict | None, float]:
-    return _bl.nearest_asteroid(
+    """Return (nearest_asteroid, distance) skipping blacklisted
+    asteroids AND those sitting within ``ASTEROID_EDGE_SKIP_PX`` of
+    a world boundary.
+
+    Edge filter rationale: asteroids spawned right against the
+    world wall can't be circled (the bot rams the wall when trying
+    to position).  The reactive blacklist (60 s TTL) eventually
+    catches each one but the user pays one stuck event per
+    asteroid; pre-filtering at selection skips them up front.
+    Caught from 2026-05-04 telemetry: 10 MINE stucks at edge-
+    adjacent asteroids over a 45-min session.
+    """
+    candidate, d = _bl.nearest_asteroid(
         state, px, py, _state.asteroid_blacklist, _get_now)
+    if candidate is None:
+        return (None, d)
+    zone = state.get("zone") or {}
+    world_w = float(zone.get("world_w", 6400) or 6400)
+    world_h = float(zone.get("world_h", 6400) or 6400)
+    ax = float(candidate.get("x", 0.0))
+    ay = float(candidate.get("y", 0.0))
+    margin = ASTEROID_EDGE_SKIP_PX
+    if (ax >= margin and ax <= world_w - margin
+            and ay >= margin and ay <= world_h - margin):
+        return (candidate, d)
+    # Edge-adjacent.  Try the next-nearest by temporarily
+    # blacklisting (with a short TTL) and re-querying.  Cheaper
+    # to inline-filter the asteroids list once.
+    asteroids = state.get("asteroids", []) or []
+    best = None
+    best_d = float("inf")
+    for ast in asteroids:
+        bx = float(ast.get("x", 0.0))
+        by = float(ast.get("y", 0.0))
+        if (bx < margin or bx > world_w - margin
+                or by < margin or by > world_h - margin):
+            continue
+        if _bl.asteroid_is_blacklisted(
+                ast, _state.asteroid_blacklist, _get_now):
+            continue
+        d2 = math.hypot(bx - px, by - py)
+        if d2 < best_d:
+            best, best_d = ast, d2
+    if best is None:
+        # Fall back to the original (edge-adjacent) candidate.  No
+        # interior asteroid is reachable; let the existing
+        # blacklist + stuck-detect cycle handle it as before.
+        return (candidate, d)
+    return (best, best_d)
 
 
 # ── Stuck detect + escape wrappers (impl in bot_autopilot_navigation) ───
@@ -1880,6 +1935,16 @@ def _act_engage(state: dict, p: dict) -> None:
         KeyState.hold("space", False)
         return
 
+    # Clamp the chase target inside the world rect so a chase
+    # toward an alien sitting at / past a world edge doesn't pin
+    # the bot against the boundary.  Combat assist (60 FPS aim +
+    # fire) still hits the alien through the boundary.  2026-05-04
+    # telemetry: 12 HUNT stucks within 200-700 px of the north
+    # edge before this clamp.
+    zone = state.get("zone") or {}
+    chase_x, chase_y, _ = _clamp_to_world(
+        threat["x"], threat["y"], zone)
+
     melee_committed = bool(
         (state.get("assist") or {}).get("melee_engaged", False))
     if melee_committed:
@@ -1887,7 +1952,7 @@ def _act_engage(state: dict, p: dict) -> None:
         # call _ensure_weapon -- the in-process combat assist has
         # locked the Energy Blade and would just fight us at
         # 60 FPS vs our 10 Hz Tab presses.
-        _do_goto(state, p, threat["x"], threat["y"],
+        _do_goto(state, p, chase_x, chase_y,
                  stop_radius=MELEE_STOP_RADIUS_PX)
         KeyState.hold("space", True)
         return
@@ -1906,7 +1971,7 @@ def _act_engage(state: dict, p: dict) -> None:
             _ensure_weapon(state, "Melee")
         else:
             _ensure_weapon(state, "Basic Laser")
-    _do_goto(state, p, threat["x"], threat["y"], stop_radius=380.0)
+    _do_goto(state, p, chase_x, chase_y, stop_radius=380.0)
     KeyState.hold("space", td < FIRE_RANGE_PX)
 
 
@@ -1960,12 +2025,17 @@ def _act_idle_at_base(state: dict, p: dict) -> None:
         # an escape burst.
         _do_idle()
         return
-    # Outside the idle ring — head to the nearest point on the
-    # ring (on the station-to-player ray, at IDLE_AT_BASE_RADIUS_PX
-    # from HS).  This keeps the bot OUTSIDE the building cluster
-    # at the centre of the station.
-    target_x = hx + (dx / dist) * IDLE_AT_BASE_RADIUS_PX
-    target_y = hy + (dy / dist) * IDLE_AT_BASE_RADIUS_PX
+    # Outside the idle ring — head to a point on the ring around HS
+    # that's INSIDE the world rect.  Preferred direction is the
+    # player→HS ray (so the bot parks on the side it's coming from);
+    # if that point is past the world boundary (HS near a corner),
+    # ``find_clear_ring_point`` sweeps the ring for an interior
+    # alternative.  Caught from 2026-05-04 telemetry: HS in the
+    # upper-right of the world produced 12 HUNT stucks at y≈5500-6200
+    # because the projected outer-ring target sat at y≈6600.
+    zone = state.get("zone") or {}
+    target_x, target_y = _find_clear_ring_point(
+        hx, hy, IDLE_AT_BASE_RADIUS_PX, zone, dx, dy)
     _do_goto(state, p, target_x, target_y, stop_radius=80.0)
 
 
@@ -2046,6 +2116,8 @@ _building_repulsion = _nav.building_repulsion
 _steered_heading = _nav.steered_heading
 _cluster_centroid_and_radius = _nav.cluster_centroid_and_radius
 _cluster_detour_waypoint = _nav.cluster_detour_waypoint
+_clamp_to_world = _nav.clamp_to_world
+_find_clear_ring_point = _nav.find_clear_ring_point
 
 
 def _do_goto(state: dict, p: dict, tx: float, ty: float,
