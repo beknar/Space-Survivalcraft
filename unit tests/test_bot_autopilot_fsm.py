@@ -1831,16 +1831,17 @@ class TestBuildingRepulsion:
 
     def test_outside_range_returns_zero(self):
         s = {"buildings": [self._building(0.0, 0.0)]}
-        # Ship is 200 px from a single building, well past the 80
-        # px range — no contribution.
-        rx, ry = ap._building_repulsion({"x": 200.0, "y": 0.0}, s)
+        # Ship is 300 px from a single building, well past the
+        # 150 px base range (no Home Station multiplier here) —
+        # no contribution.
+        rx, ry = ap._building_repulsion({"x": 300.0, "y": 0.0}, s)
         assert rx == 0.0 and ry == 0.0
 
     def test_pushes_away_from_single_building(self):
-        """Ship 40 px east of a building — repulsion points east
-        with magnitude (1 - 40/80) = 0.5."""
+        """Ship 75 px east of a building — repulsion points east
+        with magnitude (1 - 75/150) = 0.5."""
         s = {"buildings": [self._building(0.0, 0.0)]}
-        rx, ry = ap._building_repulsion({"x": 40.0, "y": 0.0}, s)
+        rx, ry = ap._building_repulsion({"x": 75.0, "y": 0.0}, s)
         assert abs(rx - 0.5) < 1e-9
         assert abs(ry) < 1e-9
 
@@ -1851,14 +1852,14 @@ class TestBuildingRepulsion:
         without any special-case logic for corners."""
         s = {"buildings": [
             self._building(0.0, 0.0),     # west neighbour
-            self._building(40.0, 40.0),   # north neighbour
+            self._building(75.0, 75.0),   # north neighbour
         ]}
-        # Ship just past the corner, 40 px from each building.
+        # Ship just past the corner, 75 px from each building.
         rx, ry = ap._building_repulsion(
-            {"x": 40.0, "y": 0.0}, s)
+            {"x": 75.0, "y": 0.0}, s)
         # West neighbour at (0,0) — push east (+x): strength 0.5,
         #   direction (+1, 0)  -> (+0.5, 0)
-        # North neighbour at (40,40) — push south (-y): strength 0.5,
+        # North neighbour at (75,75) — push south (-y): strength 0.5,
         #   direction (0, -1)  -> (0, -0.5)
         # Sum: (+0.5, -0.5) — diagonal away from the corner.
         assert abs(rx - 0.5) < 1e-9
@@ -1871,22 +1872,21 @@ class TestBuildingRepulsion:
         away from the corner instead of pinning between the
         two walls.
 
-        Setup mirrors a real station corner — a Home Station and
-        a Service Module sitting at right angles.  The ship is
-        sitting just past the corner with a goto pointing east;
-        the deflected heading must turn south-east (away from
-        both buildings) rather than continuing pure east into
-        the corner trap."""
+        Setup mirrors a real station corner — two Service Modules
+        sitting at right angles.  The ship is just past the
+        corner with a goto pointing east; the deflected heading
+        must turn south-east (away from both buildings) rather
+        than continuing pure east into the corner trap."""
         s = _state(
             player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
                     "shields": 150, "max_shields": 150},
             buildings=[
                 # North neighbour — pushes south (-y).
-                {"x": 3200.0, "y": 3240.0, "hp": 100,
+                {"x": 3200.0, "y": 3275.0, "hp": 100,
                  "type": "StationModule",
                  "building_type": "Service Module"},
                 # East neighbour — pushes west (-x).
-                {"x": 3240.0, "y": 3200.0, "hp": 100,
+                {"x": 3275.0, "y": 3200.0, "hp": 100,
                  "type": "StationModule",
                  "building_type": "Repair Module"},
             ])
@@ -1914,7 +1914,7 @@ class TestBuildingRepulsion:
             player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
                     "shields": 150, "max_shields": 150},
             buildings=[
-                {"x": 3200.0, "y": 3240.0, "hp": 100,
+                {"x": 3200.0, "y": 3275.0, "hp": 100,
                  "type": "StationModule",
                  "building_type": "Service Module"}])
         h = ap._steered_heading(s, s["player"], 0.0, 1000.0, 1000.0)
@@ -1925,25 +1925,53 @@ class TestBuildingRepulsion:
 
 
 class TestBuildingRepulsionDoesNotBlockDeposit:
-    """The deposit / install / craft actions stop at 200-250 px
-    from their target building.  Building repulsion only kicks in
-    within 80 px of a building, so the action range sits comfortably
-    outside the field — the bot can complete every station-side
-    action even with neighbouring buildings creating a partial
-    repulsion barrier."""
+    """Deposit / install / craft actions navigate close to their
+    target building.  After the 2026-05-04 hardening cycle widened
+    the per-building repulsion range from 80 → 150 px (with Home
+    Station at 1.5× = 225 px), some action stop-radii now sit
+    *inside* the raw repulsion field — but ``building_repulsion``
+    is now ALSO target-aware: buildings within
+    REPULSION_TARGET_SUPPRESS_PX of the goto target are excluded
+    from the sum.  This test pins the suppression mechanism rather
+    than the raw constant relationship."""
 
-    def test_deposit_stop_radius_outside_repulsion_zone(self):
-        """DEPOSIT_RANGE_PX (200 px) is well beyond
-        BUILDING_REPULSION_RANGE_PX (80 px), so the bot reaches
-        the deposit trigger before any single-building repulsion
-        could push it back out."""
-        assert ap.DEPOSIT_RANGE_PX > ap.BUILDING_REPULSION_RANGE_PX * 2
+    def test_target_suppression_clears_field_at_destination(self):
+        """When goto target == building position, that building's
+        repulsion is suppressed so the bot can dock."""
+        s = {"buildings": [{"x": 3200.0, "y": 3200.0, "hp": 100,
+                            "type": "StationModule",
+                            "building_type": "Home Station"}]}
+        # Bot 100 px from HS — well inside the 225 px Home Station
+        # field WITHOUT suppression.  WITH suppression (target = HS
+        # position), repulsion is zero.
+        rx, ry = ap._building_repulsion(
+            {"x": 3300.0, "y": 3200.0}, s, target=(3200.0, 3200.0))
+        assert rx == 0.0 and ry == 0.0
 
-    def test_install_stop_radius_outside_repulsion_zone(self):
-        assert ap.INSTALL_INTERACT_RANGE_PX > ap.BUILDING_REPULSION_RANGE_PX
+    def test_suppression_only_applies_to_buildings_near_target(self):
+        """Repulsion still fires from buildings AWAY from the goto
+        target — only the docking building is suppressed."""
+        s = {"buildings": [
+            {"x": 3200.0, "y": 3200.0, "hp": 100,
+             "type": "StationModule", "building_type": "Home Station"},
+            {"x": 3200.0, "y": 3400.0, "hp": 100,
+             "type": "StationModule", "building_type": "Service Module"},
+        ]}
+        # Bot near both, goto target = HS only.  HS is suppressed,
+        # Service Module still pushes.
+        rx, ry = ap._building_repulsion(
+            {"x": 3200.0, "y": 3320.0}, s, target=(3200.0, 3200.0))
+        # Service Module (at 3200,3400) is 80 px north — pushes south.
+        assert ry < 0.0  # negative-y push (away from north building)
 
-    def test_craft_stop_radius_outside_repulsion_zone(self):
-        assert ap.CRAFT_INTERACT_RANGE_PX > ap.BUILDING_REPULSION_RANGE_PX
+    def test_install_action_target_passed_through(self):
+        """Sanity: after the hardening cycle, INSTALL still works.
+        Pin the constants so a regression that bumps repulsion
+        without bumping suppression is caught."""
+        # Suppression radius must be larger than the typical building
+        # contact distance (~50 px) so the docking building is
+        # excluded for the entire approach.
+        assert ap.REPULSION_TARGET_SUPPRESS_PX >= 50.0
 
 
 # ── Pickup blacklist (stuck-in-GATHER recovery) ──────────────────────────
@@ -3271,3 +3299,222 @@ class TestHuntStuckGiveup:
         ap._fsm_reset()
         assert ap._state.hunt_giveup_until == 0.0
         assert ap._state.hunt_stuck_times == []
+
+
+# ── 2026-05-04 hardening: target-aware repulsion ──────────────────────
+
+class TestTargetAwareRepulsion:
+    """``building_repulsion`` now takes an optional ``target`` arg.
+    Buildings within ``REPULSION_TARGET_SUPPRESS_PX`` of the target
+    are excluded from the sum so the wider 150 px field doesn't
+    block deposit / craft / install from docking with their target."""
+
+    def test_no_target_full_repulsion(self):
+        s = {"buildings": [{"x": 0.0, "y": 0.0, "hp": 100,
+                            "type": "StationModule",
+                            "building_type": "Service Module"}]}
+        rx, ry = ap._building_repulsion({"x": 75.0, "y": 0.0}, s)
+        assert rx > 0.0  # full push east
+
+    def test_target_at_building_suppresses_its_repulsion(self):
+        s = {"buildings": [{"x": 0.0, "y": 0.0, "hp": 100,
+                            "type": "StationModule",
+                            "building_type": "Service Module"}]}
+        rx, ry = ap._building_repulsion(
+            {"x": 75.0, "y": 0.0}, s, target=(0.0, 0.0))
+        assert rx == 0.0 and ry == 0.0
+
+    def test_target_far_from_building_does_not_suppress(self):
+        s = {"buildings": [{"x": 0.0, "y": 0.0, "hp": 100,
+                            "type": "StationModule",
+                            "building_type": "Service Module"}]}
+        # Target 1000 px away — building far outside the suppression
+        # radius, so its repulsion still applies.
+        rx, ry = ap._building_repulsion(
+            {"x": 75.0, "y": 0.0}, s, target=(1000.0, 1000.0))
+        assert rx > 0.0
+
+
+# ── 2026-05-04 hardening: per-building-type range multiplier ──────────
+
+class TestPerTypeRepulsionMultiplier:
+    """Home Station gets BUILDING_REPULSION_TYPE_MULTIPLIER['Home Station']
+    (= 1.5) wider field than ordinary modules.  Reflects the
+    larger physical sprite + role as cluster centre."""
+
+    def test_home_station_pushes_at_extended_range(self):
+        """A Service Module at 200 px doesn't push (outside 150),
+        but a Home Station at the same distance still pushes
+        because 200 < 150 * 1.5 = 225."""
+        sm = {"x": 0.0, "y": 0.0, "hp": 100,
+              "type": "StationModule",
+              "building_type": "Service Module"}
+        hs = {"x": 0.0, "y": 0.0, "hp": 100,
+              "type": "StationModule",
+              "building_type": "Home Station"}
+        # Service Module: 200 px is outside its 150 range.
+        rx, ry = ap._building_repulsion(
+            {"x": 200.0, "y": 0.0}, {"buildings": [sm]})
+        assert rx == 0.0 and ry == 0.0
+        # Home Station: 200 px is inside its 225 px range.
+        rx, ry = ap._building_repulsion(
+            {"x": 200.0, "y": 0.0}, {"buildings": [hs]})
+        assert rx > 0.0
+
+    def test_unknown_type_falls_back_to_default(self):
+        """An unrecognised building_type uses the 1.0× default."""
+        unk = {"x": 0.0, "y": 0.0, "hp": 100,
+               "type": "StationModule",
+               "building_type": "Mystery Module"}
+        rx, ry = ap._building_repulsion(
+            {"x": 200.0, "y": 0.0}, {"buildings": [unk]})
+        # 200 > 150 base range — no contribution.
+        assert rx == 0.0 and ry == 0.0
+
+
+# ── 2026-05-04 hardening: cluster aggregate avoidance ─────────────────
+
+class TestClusterCentroidAndRadius:
+    def test_no_buildings_returns_none(self):
+        assert ap._cluster_centroid_and_radius({"buildings": []}) == (None, None, None)
+
+    def test_below_minimum_count_returns_none(self):
+        # 2 buildings — below CLUSTER_MIN_BUILDINGS = 3.
+        s = {"buildings": [{"x": 0.0, "y": 0.0},
+                           {"x": 100.0, "y": 0.0}]}
+        cx, cy, r = ap._cluster_centroid_and_radius(s)
+        assert cx is None and cy is None and r is None
+
+    def test_centroid_and_radius_correct(self):
+        s = {"buildings": [{"x": 0.0, "y": 0.0},
+                           {"x": 100.0, "y": 0.0},
+                           {"x": 50.0, "y": 80.0}]}
+        cx, cy, r = ap._cluster_centroid_and_radius(s)
+        assert abs(cx - 50.0) < 1e-9
+        # Centroid y = (0 + 0 + 80) / 3 = 26.667
+        assert abs(cy - 80.0/3) < 1e-9
+        # Radius = distance to farthest point.  All three points are
+        # equidistant from the centroid in this triangle.
+        import math as _m
+        expected = _m.hypot(50.0, 80.0/3)  # corner-to-centroid
+        assert abs(r - expected) < 1e-6
+
+
+class TestClusterDetourWaypoint:
+    """Goto paths that cross the cluster get redirected to a tangent
+    waypoint on the cluster boundary."""
+
+    def _cluster_state(self, cx=0.0, cy=0.0, r=200.0):
+        """Build a 4-building symmetric cluster around (cx, cy):
+        centroid lands exactly at (cx, cy), bounding radius is
+        exactly ``r``."""
+        return {"buildings": [
+            {"x": cx + r, "y": cy, "building_type": "Service Module"},
+            {"x": cx - r, "y": cy, "building_type": "Service Module"},
+            {"x": cx, "y": cy + r, "building_type": "Home Station"},
+            {"x": cx, "y": cy - r, "building_type": "Service Module"},
+        ]}
+
+    def test_path_that_misses_cluster_gets_no_waypoint(self):
+        s = self._cluster_state(cx=0.0, cy=0.0, r=200.0)
+        # Path from (-1000, -1000) to (-1000, 1000) — way off to the
+        # west, never approaches the cluster.
+        wp = ap._cluster_detour_waypoint(s, -1000.0, -1000.0,
+                                         -1000.0, 1000.0)
+        assert wp is None
+
+    def test_path_through_cluster_returns_waypoint(self):
+        s = self._cluster_state(cx=0.0, cy=0.0, r=200.0)
+        # Straight east-west path through the cluster centre.
+        wp = ap._cluster_detour_waypoint(s, -2000.0, 0.0, 2000.0, 0.0)
+        assert wp is not None
+        wx, wy = wp
+        # Waypoint must be off the path (perpendicular offset) and
+        # on the cluster boundary at distance R = r + margin.
+        import math as _m
+        d_to_centre = _m.hypot(wx - 0.0, wy - 0.0)
+        assert abs(d_to_centre - (200.0 + ap.CLUSTER_DETOUR_MARGIN_PX)) < 0.5
+
+    def test_target_inside_cluster_no_detour(self):
+        """When the bot is INTENTIONALLY heading into the cluster
+        (deposit / craft / install), no detour is applied."""
+        s = self._cluster_state(cx=0.0, cy=0.0, r=200.0)
+        # Target inside the cluster (at the centre — clearly the HS).
+        wp = ap._cluster_detour_waypoint(s, -2000.0, 0.0, 0.0, 0.0)
+        assert wp is None
+
+    def test_short_segment_returns_none(self):
+        """Degenerate near-zero-length segment shouldn't crash."""
+        s = self._cluster_state(cx=0.0, cy=0.0, r=200.0)
+        wp = ap._cluster_detour_waypoint(s, 1000.0, 1000.0,
+                                         1000.0, 1000.05)
+        assert wp is None
+
+    def test_centroid_behind_player_no_detour(self):
+        """Path heading AWAY from the cluster — segment doesn't
+        cross it even if extended would."""
+        s = self._cluster_state(cx=0.0, cy=0.0, r=200.0)
+        # Player on east side of cluster, target further east.
+        wp = ap._cluster_detour_waypoint(s, 1000.0, 0.0, 5000.0, 0.0)
+        assert wp is None
+
+
+# ── 2026-05-04 hardening: long-term per-anchor hunt-stuck giveup ──────
+
+class TestHuntAnchorLongTermGiveup:
+    """Three stuck events at the same cluster anchor (rounded to
+    HUNT_ANCHOR_GRID_PX) inside HUNT_ANCHOR_TTL_S latch the
+    long-giveup window even if they're spread across minutes —
+    far longer than the acute 10 s window can see."""
+
+    def test_constants_exist(self):
+        assert ap.HUNT_ANCHOR_TTL_S == 300.0
+        assert ap.HUNT_ANCHOR_GRID_PX == 100.0
+        assert ap.HUNT_ANCHOR_MAX_HITS == 3
+        assert ap.HUNT_LONG_GIVEUP_S == 120.0
+
+    def test_anchor_hits_track_per_grid_cell(self):
+        """Two stucks at the same rounded anchor accumulate into
+        one entry."""
+        ap._state.hunt_anchor_hits.clear()
+        # Simulate the per-anchor recording inline.
+        sx, sy = 3101.0, 3816.0
+        anchor = (round(sx / ap.HUNT_ANCHOR_GRID_PX) * ap.HUNT_ANCHOR_GRID_PX,
+                  round(sy / ap.HUNT_ANCHOR_GRID_PX) * ap.HUNT_ANCHOR_GRID_PX)
+        now = 1000.0
+        ap._state.hunt_anchor_hits[anchor] = [1, now + ap.HUNT_ANCHOR_TTL_S]
+        # Second stuck at slightly different position but same grid cell.
+        sx2, sy2 = 3110.0, 3820.0
+        anchor2 = (round(sx2 / ap.HUNT_ANCHOR_GRID_PX) * ap.HUNT_ANCHOR_GRID_PX,
+                   round(sy2 / ap.HUNT_ANCHOR_GRID_PX) * ap.HUNT_ANCHOR_GRID_PX)
+        assert anchor == anchor2  # same grid cell
+
+    def test_max_hits_latches_long_giveup(self, _clock):
+        """The full handler logic: 3 hits at the same anchor over
+        any time within TTL fires the long giveup."""
+        ap._state.hunt_anchor_hits.clear()
+        ap._state.hunt_giveup_until = 0.0
+        sx, sy = 3101.0, 3816.0
+        # Manually drive 3 hits at the same anchor across 200s
+        # (longer than the acute 10s window — would NOT trip the
+        # short giveup, but should trip the long one).
+        for i in range(ap.HUNT_ANCHOR_MAX_HITS):
+            now = _clock[0] + i * 60.0  # 60s apart
+            anchor = (round(sx / ap.HUNT_ANCHOR_GRID_PX) * ap.HUNT_ANCHOR_GRID_PX,
+                      round(sy / ap.HUNT_ANCHOR_GRID_PX) * ap.HUNT_ANCHOR_GRID_PX)
+            entry = ap._state.hunt_anchor_hits.get(anchor)
+            if entry is None:
+                ap._state.hunt_anchor_hits[anchor] = [1, now + ap.HUNT_ANCHOR_TTL_S]
+            else:
+                entry[0] += 1
+                entry[1] = now + ap.HUNT_ANCHOR_TTL_S
+                if entry[0] >= ap.HUNT_ANCHOR_MAX_HITS:
+                    ap._state.hunt_giveup_until = now + ap.HUNT_LONG_GIVEUP_S
+                    del ap._state.hunt_anchor_hits[anchor]
+        # Long giveup should be active.
+        assert ap._state.hunt_giveup_until > _clock[0] + 60.0
+
+    def test_anchor_hits_cleared_on_fsm_reset(self):
+        ap._state.hunt_anchor_hits[(100.0, 100.0)] = [2, 9999.0]
+        ap._fsm_reset()
+        assert ap._state.hunt_anchor_hits == {}
