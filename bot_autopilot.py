@@ -1114,13 +1114,22 @@ def _choose_next_state(state: dict, p: dict, cur: str) -> str:
     #    is identical — only the dispatch differs (HUNT proactively,
     #    ENGAGE defensively).
     #
-    #    When CURRENTLY in S_IDLE_AT_BASE, use the wider
-    #    IDLE_HUNT_RANGE_PX gate: the bot is parked at base,
-    #    healed, and adjacent to the crafter — no reason to be
-    #    picky about distance.  Once HUNT fires the chase falls
-    #    back to the normal HUNT_RANGE_PX cap on subsequent ticks
-    #    (we only widen at the IDLE → HUNT boundary).
-    hunt_gate = (IDLE_HUNT_RANGE_PX if cur == S_IDLE_AT_BASE
+    #    Use the wider IDLE_HUNT_RANGE_PX gate when CURRENTLY in
+    #    either S_IDLE_AT_BASE (bot parked at base, healed, adjacent
+    #    to crafter — no reason to be picky) OR S_HUNT (already
+    #    committed to a chase — finish it instead of bouncing back
+    #    to idle).  The S_HUNT case is the symmetric-exit half of
+    #    the hysteresis: without it, an alien sitting between
+    #    HUNT_RANGE_PX (3000) and IDLE_HUNT_RANGE_PX (9000) creates
+    #    a thrash band where IDLE keeps re-entering HUNT and HUNT
+    #    keeps falling out — the 2026-05-04-evening telemetry
+    #    captured 52 IDLE↔HUNT bounces in 5.9 minutes (one every
+    #    7 s, 22/23 dwells right at the MIN_DWELL_S floor) before
+    #    this fix.  Other states (MINE / SEARCH / GATHER) still
+    #    use the tight 3000 px gate so they only divert to a chase
+    #    when the alien is genuinely close.
+    hunt_gate = (IDLE_HUNT_RANGE_PX
+                 if cur in (S_IDLE_AT_BASE, S_HUNT)
                  else HUNT_RANGE_PX)
     if (threat is not None and td < hunt_gate
             and now >= _state.hunt_giveup_until):

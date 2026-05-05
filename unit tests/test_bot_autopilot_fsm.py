@@ -3122,6 +3122,78 @@ class TestIdleHuntRange:
         assert ap._fsm["state"] == ap.S_HUNT
 
 
+# ── Fix #5: symmetric HUNT gate (no IDLE↔HUNT thrash) ─────────────────
+
+class TestHuntGateSymmetric:
+    """Once in S_HUNT, the HUNT exit threshold must equal the
+    IDLE_HUNT_RANGE_PX entry threshold — otherwise an alien sitting
+    in the (HUNT_RANGE_PX, IDLE_HUNT_RANGE_PX) band creates a thrash
+    zone where IDLE re-enters HUNT and HUNT falls back to IDLE
+    every MIN_DWELL_S.
+
+    2026-05-04-evening telemetry caught this regression: 52
+    IDLE↔HUNT transitions in 5.9 minutes (22/23 HUNT→IDLE dwells
+    landed in 0.6-0.8s — right at the MIN_DWELL_S floor).
+    """
+
+    def test_hunt_persists_when_alien_inside_idle_range(self, _clock):
+        """Bot in S_HUNT, alien at 5000 px (between HUNT_RANGE_PX
+        3000 and IDLE_HUNT_RANGE_PX 9000) — must STAY in HUNT,
+        not fall back to IDLE_AT_BASE."""
+        ap._fsm["state"] = ap.S_HUNT
+        ap._fsm["entered_at"] = _clock[0] - 10.0
+        s = _state(
+            player={"x": 0.0, "y": 0.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            aliens=[{"x": 5000.0, "y": 0.0, "hp": 50}],
+            buildings=[_hs_building(x=0.0, y=0.0)],
+        )
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_HUNT
+
+    def test_hunt_exits_when_alien_past_idle_range(self, _clock):
+        """Bot in S_HUNT, alien at 9500 px (just past
+        IDLE_HUNT_RANGE_PX 9000) — HUNT must exit to IDLE_AT_BASE
+        because the alien is now genuinely out of range."""
+        ap._fsm["state"] = ap.S_HUNT
+        ap._fsm["entered_at"] = _clock[0] - 10.0
+        s = _state(
+            player={"x": 0.0, "y": 0.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            aliens=[{"x": 9500.0, "y": 0.0, "hp": 50}],
+            buildings=[_hs_building(x=0.0, y=0.0)],
+        )
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_IDLE_AT_BASE
+
+    def test_no_idle_hunt_thrash_over_many_ticks(self, _clock):
+        """Drive 30 ticks with a stationary alien at 5000 px
+        (inside IDLE_HUNT_RANGE_PX, outside HUNT_RANGE_PX) — the
+        FSM must NOT bounce.  Before the symmetric-gate fix, this
+        loop produced 30 transitions; after the fix it produces 1
+        (the initial IDLE → HUNT) and stays in HUNT forever.
+        """
+        ap._fsm["state"] = ap.S_IDLE_AT_BASE
+        ap._fsm["entered_at"] = _clock[0] - 10.0
+        transitions: list = []
+        for _ in range(30):
+            prev = ap._fsm["state"]
+            s = _state(
+                player={"x": 0.0, "y": 0.0, "heading": 0.0,
+                        "shields": 150, "max_shields": 150},
+                aliens=[{"x": 5000.0, "y": 0.0, "hp": 50}],
+                buildings=[_hs_building(x=0.0, y=0.0)],
+            )
+            ap._do_auto(s, s["player"])
+            if ap._fsm["state"] != prev:
+                transitions.append((prev, ap._fsm["state"]))
+            _clock[0] += 0.1 + ap.MIN_DWELL_S  # past dwell every tick
+        assert len(transitions) <= 1, (
+            f"FSM bounced {len(transitions)} times — symmetric "
+            f"HUNT gate broken: {transitions}")
+        assert ap._fsm["state"] == ap.S_HUNT
+
+
 # ── Fix #4: hunt-stuck giveup ─────────────────────────────────────────
 
 class TestHuntStuckGiveup:
