@@ -189,10 +189,18 @@ def building_repulsion(p: dict, state: dict,
     every cluster.
 
     ``target``: optional (tx, ty) of the bot's goto target.
-    Buildings within ``REPULSION_TARGET_SUPPRESS_PX`` of the target
-    are excluded — the bot is intentionally going there (deposit,
-    craft, install dock with their target building) so the field
-    must not push it back out.
+    Two-tier suppression:
+      * **Tight suppression** (``REPULSION_TARGET_SUPPRESS_PX``,
+        ~50 px) excludes the docking building itself for normal
+        approaches (deposit, craft, install).
+      * **Cluster suppression** kicks in when the target is INSIDE
+        the cluster centroid radius — the bot is heading into the
+        station for a target that sits between multiple buildings
+        (e.g. a pickup that spawned among the cluster).  All
+        buildings in the cluster are excluded so the bot can thread
+        through.  Caught from 2026-05-04 telemetry: GATHER stuck
+        at hs_dist=58 trying to reach a pickup wedged inside the
+        cluster while the OTHER buildings around it pushed back.
     """
     buildings = state.get("buildings") or []
     if not buildings:
@@ -201,18 +209,40 @@ def building_repulsion(p: dict, state: dict,
     py = float(p.get("y", 0.0))
     suppress_sq = (REPULSION_TARGET_SUPPRESS_PX
                    * REPULSION_TARGET_SUPPRESS_PX)
+    # Cluster-suppression check: when target is inside the cluster
+    # core, suppress every building in the cluster.  Computed once
+    # up front to avoid per-building overhead.
+    cluster_suppress_active = False
+    cx_cluster = cy_cluster = r_cluster = 0.0
+    if target is not None and len(buildings) >= CLUSTER_MIN_BUILDINGS:
+        ccx, ccy, cr = cluster_centroid_and_radius(state)
+        if ccx is not None:
+            target_to_centre = math.hypot(target[0] - ccx,
+                                          target[1] - ccy)
+            if target_to_centre < cr + CLUSTER_DETOUR_TARGET_INSIDE_PX:
+                cluster_suppress_active = True
+                cx_cluster, cy_cluster, r_cluster = ccx, ccy, cr
     rx = 0.0
     ry = 0.0
     for b in buildings:
         bx = float(b.get("x", 0.0))
         by = float(b.get("y", 0.0))
-        # Target-aware suppression: building is the bot's destination
-        # (or right next to it).  Skip its repulsion so the bot can
-        # actually dock.
+        # Tier 1 — tight target-aware suppression: building is the
+        # bot's destination (or right next to it).  Skip its
+        # repulsion so the bot can actually dock.
         if target is not None:
             tdx = bx - target[0]
             tdy = by - target[1]
             if tdx * tdx + tdy * tdy < suppress_sq:
+                continue
+        # Tier 2 — cluster suppression: target is inside the cluster
+        # core, so any building in the cluster gets excluded so the
+        # bot can thread through to the target without being pushed
+        # back out by the surrounding buildings.
+        if cluster_suppress_active:
+            cdx = bx - cx_cluster
+            cdy = by - cy_cluster
+            if cdx * cdx + cdy * cdy <= r_cluster * r_cluster:
                 continue
         # Per-type range multiplier.
         bt = b.get("building_type", "") or ""

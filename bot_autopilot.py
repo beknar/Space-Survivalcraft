@@ -422,6 +422,13 @@ HUNT_LONG_GIVEUP_S:     float = 120.0
 # blacklist is the fallback for the (rare) case where every
 # remaining asteroid is edge-adjacent.
 ASTEROID_EDGE_SKIP_PX:  float = 250.0
+# ``_nearest_pickup`` skips pickups within this distance of any
+# world boundary.  Pickups spawn wherever an alien dies — including
+# right against the wall.  Slightly tighter than the asteroid
+# margin because pickups have a despawn timer (the bot can wait for
+# the next one) and a stationary pickup is easier to circle than
+# an asteroid that the bot has to physically push.
+PICKUP_EDGE_SKIP_PX:    float = 200.0
 
 # Starter-base build gate.  When the bot has accumulated this much
 # iron AND there are no asteroids / aliens within the clear-area
@@ -752,8 +759,53 @@ def _blacklist_pickup(pu: dict) -> None:
 
 def _nearest_pickup(state: dict, px: float, py: float
                     ) -> tuple[dict | None, float]:
-    return _bl.nearest_pickup(
+    """Return (nearest_pickup, distance) skipping blacklisted pickups
+    AND those sitting within ``PICKUP_EDGE_SKIP_PX`` of a world
+    boundary.
+
+    Edge filter rationale: pickups spawn wherever an alien dies —
+    sometimes right against the world wall.  GATHER chasing one
+    pins the bot against the boundary the same way edge-adjacent
+    asteroids do.  Mirrors the fix added for ``_nearest_asteroid``
+    in PR #25.  Pre-filtering at selection skips the stuck event
+    entirely; the existing blacklist + 60 s TTL catches any pickup
+    we DO try to reach that turns out to be unreachable.
+    """
+    candidate, d = _bl.nearest_pickup(
         state, px, py, _state.pickup_blacklist, _get_now)
+    if candidate is None:
+        return (None, d)
+    zone = state.get("zone") or {}
+    world_w = float(zone.get("world_w", 6400) or 6400)
+    world_h = float(zone.get("world_h", 6400) or 6400)
+    cx = float(candidate.get("x", 0.0))
+    cy = float(candidate.get("y", 0.0))
+    margin = PICKUP_EDGE_SKIP_PX
+    if (cx >= margin and cx <= world_w - margin
+            and cy >= margin and cy <= world_h - margin):
+        return (candidate, d)
+    # Edge-adjacent.  Inline-filter the pickup lists for an interior
+    # alternative; fall back to the edge candidate if every pickup
+    # is edge-adjacent (rare — let the blacklist handle it).
+    iron = state.get("iron_pickups", []) or []
+    bps = state.get("blueprint_pickups", []) or []
+    best = None
+    best_d = float("inf")
+    for pu in (list(bps) + list(iron)):  # blueprints sort first like _bl
+        bx = float(pu.get("x", 0.0))
+        by = float(pu.get("y", 0.0))
+        if (bx < margin or bx > world_w - margin
+                or by < margin or by > world_h - margin):
+            continue
+        if _bl.pickup_is_blacklisted(
+                pu, _state.pickup_blacklist, _get_now):
+            continue
+        d2 = math.hypot(bx - px, by - py)
+        if d2 < best_d:
+            best, best_d = pu, d2
+    if best is None:
+        return (candidate, d)
+    return (best, best_d)
 
 
 def _asteroid_is_blacklisted(ast: dict) -> bool:
