@@ -81,6 +81,16 @@ class Weapon:
         # Sound throttle: cap sound creation rate to reduce media-player stutter
         self._snd_min_interval: float = max(0.15, cooldown)
         self._snd_cd: float = 0.0
+        # Immutable baselines so character-bonus application is
+        # idempotent — _apply_character_weapon_bonuses can recompute
+        # absolute totals as ``baseline + bonus`` instead of stacking
+        # additively across loads.  Without this, loading save A then
+        # save B applied A's bonuses then B's bonuses on top, leaving
+        # the bot with both characters' bonuses fused.
+        self._base_damage: float = damage
+        self._base_cooldown: float = cooldown
+        self._base_proj_speed: float = projectile_speed
+        self._base_max_range: float = max_range
 
     def update(self, dt: float) -> None:
         self._timer = max(0.0, self._timer - dt)

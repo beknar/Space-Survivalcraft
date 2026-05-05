@@ -930,11 +930,16 @@ def restore_state(view: GameView, data: dict) -> None:
     if saved_unlocked and isinstance(saved_unlocked, list):
         view._craft_menu._unlocked = set(saved_unlocked)
 
-    # Character
+    # Character — unconditionally write the saved name to the global
+    # so an empty/missing field explicitly resets to "default character"
+    # instead of silently inheriting from the previous load (which
+    # caused the load-after-load character bleed: loading save B left
+    # audio.character_name still pointing at save A's character).
+    # When called via load_game() this is also handled in the GV
+    # constructor; doing it here too makes restore_state safe to call
+    # standalone (test code paths).
     from settings import audio
-    saved_char = data.get("character_name", "")
-    if saved_char:
-        audio.character_name = saved_char
+    audio.character_name = data.get("character_name", "")
     from character_data import level_for_xp
     view._char_xp = data.get("character_xp", 0)
     view._char_level = level_for_xp(view._char_xp)
@@ -1079,6 +1084,7 @@ def load_game(gv: GameView, slot: int) -> None:
     gc.collect()
     from game_view import GameView as GV
     view = GV(faction=data.get("faction"), ship_type=data.get("ship_type"),
-              ship_level=data.get("ship_level", 1))
+              ship_level=data.get("ship_level", 1),
+              character_name=data.get("character_name", ""))
     restore_state(view, data)
     gv.window.show_view(view)

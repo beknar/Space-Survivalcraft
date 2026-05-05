@@ -108,12 +108,25 @@ class GameView(arcade.View):
         ship_type: Optional[str] = None,
         skip_music: bool = False,
         ship_level: int = 1,
+        character_name: Optional[str] = None,
     ) -> None:
         super().__init__()
         self._skip_music = skip_music
         self._faction = faction
         self._ship_type = ship_type
         self._ship_level: int = ship_level
+        # Set the global character_name BEFORE any helper that reads
+        # it (weapons_and_audio calls _apply_character_weapon_bonuses
+        # which looks up the bonus from audio.character_name).  When
+        # the constructor is called from load_game(), passing the
+        # save's character_name here means the very first weapon
+        # bonus calculation uses the loaded character — not whatever
+        # character was previously global.  Catches save-load bleed
+        # where loading save B left audio.character_name pointing at
+        # save A's character.
+        if character_name is not None:
+            from settings import audio as _audio
+            _audio.character_name = character_name
 
         # Sectioned init — each helper sets up one cohesive group of state
         # so the constructor stays scannable.
@@ -803,6 +816,14 @@ class GameView(arcade.View):
 
     # ── Character progression ──────────────────────────────────────────────
     def _apply_character_weapon_bonuses(self) -> None:
+        """Recompute Basic Laser stats as ``baseline + character_bonus``.
+
+        Idempotent: each weapon's ``_base_*`` attrs (set in
+        ``Weapon.__init__``) are the ground truth, so calling this
+        twice in a row leaves the same final values.  Without this,
+        loading save A then save B stacked both characters' bonuses
+        on the same weapon (each call did ``wpn.damage += dmg``).
+        """
         from character_data import (laser_damage_bonus, laser_cooldown_bonus,
                                     laser_speed_bonus, laser_range_bonus)
         name = audio.character_name
@@ -813,10 +834,10 @@ class GameView(arcade.View):
         rng = laser_range_bonus(name, lvl)
         for wpn in self._weapons:
             if wpn.name == "Basic Laser":
-                wpn.damage += dmg
-                wpn.cooldown = max(0.05, wpn.cooldown - cd)
-                wpn._proj_speed += spd
-                wpn._max_range += rng
+                wpn.damage = wpn._base_damage + dmg
+                wpn.cooldown = max(0.05, wpn._base_cooldown - cd)
+                wpn._proj_speed = wpn._base_proj_speed + spd
+                wpn._max_range = wpn._base_max_range + rng
 
     @property
     def _active_weapon(self) -> Weapon:
