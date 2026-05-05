@@ -209,11 +209,16 @@ layer fires, from proactive (avoid the corner) to reactive
 2. **Per-building-type range multiplier**
    (`BUILDING_REPULSION_TYPE_MULTIPLIER`).  Home Station gets
    `1.5x` (= 225 px) — wider field for the cluster centre.
-3. **Target-aware suppression** (`REPULSION_TARGET_SUPPRESS_PX
-   = 50 px`).  Buildings within 50 px of the goto target are
-   excluded from the repulsion sum so deposit / craft / install
-   can dock with their target building without being pushed
-   back out by the wider field.
+3. **Two-tier target-aware suppression**.
+   *Tight tier:* buildings within
+   `REPULSION_TARGET_SUPPRESS_PX = 50 px` of the goto target are
+   excluded so deposit / craft / install can dock with their
+   target building.
+   *Cluster tier:* when the goto target is INSIDE the cluster
+   centroid radius, ALL buildings in the cluster are excluded so
+   the bot can thread through to a target wedged between multiple
+   cluster buildings (e.g. a pickup that spawned among the
+   station).
 4. **Cluster aggregate detour** (`cluster_detour_waypoint`).
    When the goto path crosses within `r + CLUSTER_DETOUR_MARGIN_PX
    = 250 px` of the building cluster centroid, the immediate
@@ -252,6 +257,12 @@ layer fires, from proactive (avoid the corner) to reactive
     selection time so MINE doesn't ram the wall trying to
     circle them.  Falls back to edge-adjacent picks when no
     interior asteroid is reachable.
+13. **Edge-pickup pre-filter in `_nearest_pickup`**
+    (`PICKUP_EDGE_SKIP_PX = 200 px`) — same idea for pickups
+    that spawned where an alien died right against the world
+    boundary.  Slightly tighter margin than the asteroid skip
+    because pickups have a despawn timer and are easier to
+    wait out than asteroids.
 
 # State JSON schema (`GET /state`)
 

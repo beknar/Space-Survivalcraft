@@ -3716,3 +3716,155 @@ class TestNearestAsteroidEdgeFilter:
         so the bot has room to circle the asteroid before the
         boundary repulsion field starts pushing back."""
         assert ap.ASTEROID_EDGE_SKIP_PX > ap.STUCK_WORLD_MARGIN_PX
+
+
+# ── Fix A (2026-05-04): pickup edge filter ────────────────────────────
+
+class TestNearestPickupEdgeFilter:
+    """``_nearest_pickup`` skips pickups within ``PICKUP_EDGE_SKIP_PX``
+    (200 px) of any world boundary.  Pickups spawn wherever an alien
+    dies — including against the wall — and chasing one pins the bot
+    against the boundary the same way edge-adjacent asteroids do.
+    Mirrors the asteroid filter from PR #25.  Pinned by a real
+    GATHER stuck event in the 2026-05-04 telemetry."""
+
+    def test_edge_adjacent_pickup_skipped_when_interior_available(self):
+        s = _state(
+            player={"x": 3200.0, "y": 6300.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            iron_pickups=[
+                {"x": 3200.0, "y": 6350.0,         # 50 px from north edge
+                 "item_type": "iron"},
+                {"x": 3200.0, "y": 4000.0,         # interior
+                 "item_type": "iron"},
+            ],
+            world_w=6400, world_h=6400,
+        )
+        nearest, _d = ap._nearest_pickup(s, 3200.0, 6300.0)
+        assert nearest["y"] == 4000.0  # interior wins
+
+    def test_edge_pickup_used_when_only_option(self):
+        """If every pickup is edge-adjacent, fall back to the closest
+        — bot will probably stuck-detect, blacklist it, try another."""
+        s = _state(
+            player={"x": 3200.0, "y": 6300.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            iron_pickups=[
+                {"x": 3200.0, "y": 6350.0, "item_type": "iron"},
+                {"x": 3300.0, "y": 6360.0, "item_type": "iron"},
+            ],
+            world_w=6400, world_h=6400,
+        )
+        nearest, _d = ap._nearest_pickup(s, 3200.0, 6300.0)
+        assert nearest is not None  # falls back
+
+    def test_blueprints_still_prioritised_over_iron(self):
+        """The base ``_bl.nearest_pickup`` sorts blueprints first
+        on tie; the edge-filter wrapper must preserve that."""
+        s = _state(
+            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            iron_pickups=[{"x": 3300.0, "y": 3200.0,
+                           "item_type": "iron"}],
+            blueprint_pickups=[{"x": 3300.0, "y": 3200.0,
+                                "item_type": "blueprint"}],
+            world_w=6400, world_h=6400,
+        )
+        nearest, _d = ap._nearest_pickup(s, 3200.0, 3200.0)
+        # _bl.nearest_pickup puts blueprints before iron in the
+        # candidate list; on tie it picks the first → blueprint.
+        assert nearest.get("item_type") == "blueprint"
+
+    def test_no_pickups_returns_none(self):
+        s = _state(world_w=6400, world_h=6400)
+        nearest, _d = ap._nearest_pickup(s, 3200.0, 3200.0)
+        assert nearest is None
+
+    def test_pickup_edge_skip_constant_set(self):
+        assert ap.PICKUP_EDGE_SKIP_PX == 200.0
+        # Must be at least the world margin so the pickup edge skip
+        # zone covers the boundary repulsion danger zone.  Equal is
+        # fine; pickups have a despawn timer and are easier to wait
+        # out than asteroids (which is why the asteroid skip is
+        # wider at 250 px).
+        assert ap.PICKUP_EDGE_SKIP_PX >= ap.STUCK_WORLD_MARGIN_PX
+
+
+# ── Fix B (2026-05-04): cluster-aware repulsion suppression ──────────
+
+class TestClusterAwareRepulsionSuppression:
+    """When the goto target is INSIDE the cluster centroid radius,
+    ALL buildings in the cluster get excluded from repulsion (not
+    just the docking building's tight 50 px radius).  Catches the
+    case where a pickup spawns wedged among multiple cluster
+    buildings — the bot needs to thread through, but the surrounding
+    buildings push back through the narrow tight-suppression gap."""
+
+    def _cluster_state(self, cx=3200.0, cy=3200.0, r=200.0):
+        """Symmetric 4-building cluster: centroid at (cx, cy),
+        bounding radius r."""
+        return {"buildings": [
+            {"x": cx + r, "y": cy, "building_type": "Service Module"},
+            {"x": cx - r, "y": cy, "building_type": "Service Module"},
+            {"x": cx, "y": cy + r, "building_type": "Home Station"},
+            {"x": cx, "y": cy - r, "building_type": "Service Module"},
+        ]}
+
+    def test_target_inside_cluster_suppresses_all_cluster_buildings(self):
+        """Target at the cluster centre.  Bot near one of the cluster
+        buildings.  WITHOUT cluster suppression the bot would feel
+        the surrounding buildings' push.  WITH it, the field is
+        zero — bot can thread through."""
+        s = self._cluster_state(cx=3200.0, cy=3200.0, r=200.0)
+        # Bot near the east cluster building, target at centre.
+        rx, ry = ap._building_repulsion(
+            {"x": 3380.0, "y": 3200.0}, s, target=(3200.0, 3200.0))
+        assert abs(rx) < 1e-9 and abs(ry) < 1e-9
+
+    def test_target_outside_cluster_no_cluster_suppression(self):
+        """Sanity: target far from cluster → cluster suppression
+        does NOT activate, normal per-building repulsion fires.
+
+        Note: ``building_repulsion`` returns a vector pointing FROM
+        the building TO the ship (i.e. the direction the ship is
+        being pushed).  Bot east of building → push east (rx > 0).
+        """
+        s = self._cluster_state(cx=3200.0, cy=3200.0, r=200.0)
+        # Bot 20 px east of east cluster building.
+        rx, ry = ap._building_repulsion(
+            {"x": 3420.0, "y": 3200.0}, s, target=(5000.0, 5000.0))
+        # East building at (3400, 3200), bot 20 px east → push east.
+        assert rx > 0.0
+
+    def test_below_cluster_min_buildings_no_suppression(self):
+        """If there aren't enough buildings to count as a cluster
+        (CLUSTER_MIN_BUILDINGS = 3), the cluster-suppression logic
+        skips and only tight target suppression applies."""
+        s = {"buildings": [
+            {"x": 3400.0, "y": 3200.0,
+             "building_type": "Service Module"},
+            {"x": 3000.0, "y": 3200.0,
+             "building_type": "Service Module"},
+        ]}  # only 2 — below threshold
+        # Bot near east building; target at (3200, 3200) — between
+        # the two buildings.  WITHOUT cluster suppression, only the
+        # tight 50 px target-suppression kicks in (excludes neither
+        # building since both are >50 px from target).
+        rx, ry = ap._building_repulsion(
+            {"x": 3380.0, "y": 3200.0}, s, target=(3200.0, 3200.0))
+        # West building at (3000, 3200) is 380 px away — outside its
+        # 150 px range, no contribution.
+        # East building at (3400, 3200) is 20 px away — strong push west.
+        assert rx < 0.0  # west push from east building
+
+    def test_target_far_outside_cluster_radius_no_suppression(self):
+        """Target outside cluster AND outside the 100 px
+        CLUSTER_DETOUR_TARGET_INSIDE_PX margin → no cluster
+        suppression."""
+        s = self._cluster_state(cx=3200.0, cy=3200.0, r=200.0)
+        # Target 500 px from cluster centre — well outside r + 100 = 300.
+        # Bot near east cluster building.
+        rx, ry = ap._building_repulsion(
+            {"x": 3420.0, "y": 3200.0}, s, target=(3700.0, 3200.0))
+        # East building NOT suppressed → push from it.
+        assert rx > 0.0
