@@ -174,34 +174,47 @@ class TestRegenEscapeValve:
     0 iron collected."""
 
     def test_close_threat_and_falling_shields_breaks_regen(self, _clock):
-        # Enter REGEN at 33%.
+        """Bot enters REGEN cleanly (no threat), then a threat
+        appears mid-regen and shields aren't recovering — the
+        escape valve fires and ENGAGE preempts.
+
+        (The entry-side mirror now also suppresses REGEN entry
+        when threatened, so the original "enter REGEN with threat
+        already close" path is gone — see TestRegenEntryWhileThreatenedSuppressed.
+        This test exercises the in-REGEN escape valve for the
+        case where the threat appears AFTER REGEN entry.)"""
+        # Step 1: enter REGEN cleanly with no close threat.
         s = _state(
             player={"x": 0, "y": 0, "heading": 0,
                     "shields": 50, "max_shields": 150},
-            aliens=[{"x": 500, "y": 0, "hp": 50}],  # inside ENGAGE_ENTER_PX
+            aliens=[{"x": 5000, "y": 0, "hp": 50}],  # far
         )
         ap._do_auto(s, s["player"])
         assert ap._fsm["state"] == ap.S_REGEN
-        # Next tick: alien still close, shields LOWER (under attack).
+        # Step 2: an alien closes in mid-regen, shields drop.
         _clock[0] += ap.MIN_DWELL_S + 0.1
+        s["aliens"] = [{"x": 500, "y": 0, "hp": 50}]  # now close
         s["player"]["shields"] = 40  # dropped from 50
         ap._do_auto(s, s["player"])
-        # Escape valve fires — ENGAGE preempts REGEN.
+        # In-REGEN escape valve fires — ENGAGE preempts REGEN.
         assert ap._fsm["state"] == ap.S_ENGAGE, (
             "REGEN deadlock — bot took damage but stayed in REGEN")
 
     def test_close_threat_but_shields_recovering_stays_regen(self, _clock):
         """Sanity: if shields ARE recovering despite a close alien
-        (e.g., alien out of fire range), REGEN holds normally."""
+        appearing mid-regen, REGEN holds normally."""
+        # Enter REGEN cleanly first.
         s = _state(
             player={"x": 0, "y": 0, "heading": 0,
                     "shields": 50, "max_shields": 150},
-            aliens=[{"x": 500, "y": 0, "hp": 50}],
+            aliens=[{"x": 5000, "y": 0, "hp": 50}],
         )
         ap._do_auto(s, s["player"])
         assert ap._fsm["state"] == ap.S_REGEN
-        # Next tick: alien close, shields HIGHER (recovering).
+        # Alien closes in but shields are RECOVERING (alien firing
+        # past us, missing — combat assist in our favour).
         _clock[0] += ap.MIN_DWELL_S + 0.1
+        s["aliens"] = [{"x": 500, "y": 0, "hp": 50}]
         s["player"]["shields"] = 60  # rose from 50
         ap._do_auto(s, s["player"])
         assert ap._fsm["state"] == ap.S_REGEN
@@ -243,6 +256,97 @@ class TestRegenEscapeValve:
         ap._state.last_regen_shields = 99
         ap._fsm_reset()
         assert ap._state.last_regen_shields == 0
+
+
+# ── REGEN entry-side mirror (2026-05-04 anti-thrash) ─────────────────
+
+class TestRegenEntryWhileThreatenedSuppressed:
+    """Entry-side mirror of the escape valve.  When the bot is in
+    a non-REGEN state with a close threat, dipping below
+    REGEN_ENTER_PCT must NOT transition into REGEN — the escape
+    valve would just send it right back next tick, and the resulting
+    11/s flip wastes CPU + triggers 14 stuck_detected misfires per
+    combat encounter.  Telemetry (2026-05-04 evening) captured
+    111 REGEN<->ENGAGE transitions in a single fight, median dwell
+    0.09 s (one tick).  Fix: stay in ENGAGE while threatened, even
+    at low shields.
+    """
+
+    def test_engage_at_low_shields_with_close_threat_does_not_enter_regen(
+            self, _clock):
+        # Bot already in ENGAGE.
+        s = _state(
+            player={"x": 0, "y": 0, "heading": 0,
+                    "shields": 150, "max_shields": 150},
+            aliens=[{"x": 400, "y": 0, "hp": 50}],
+        )
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_ENGAGE
+        # Shields drop into REGEN territory while alien is still close.
+        _clock[0] += ap.MIN_DWELL_S + 0.1
+        s["player"]["shields"] = 50  # 33 % — below REGEN_ENTER_PCT
+        ap._do_auto(s, s["player"])
+        # Entry-side mirror suppresses REGEN — bot stays in ENGAGE.
+        assert ap._fsm["state"] == ap.S_ENGAGE, (
+            "REGEN entry should be suppressed when a close threat "
+            "is engaging — escape valve would just send us back")
+
+    def test_low_shields_no_close_threat_does_enter_regen(self, _clock):
+        """Sanity: with no close threat, low shields DOES trigger
+        REGEN normally (the suppression is gated on threat presence).
+        """
+        s = _state(
+            player={"x": 0, "y": 0, "heading": 0,
+                    "shields": 50, "max_shields": 150},
+            aliens=[{"x": 5000, "y": 0, "hp": 50}],  # far away
+        )
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_REGEN
+
+    def test_low_shields_far_threat_does_enter_regen(self, _clock):
+        """Threat exists but is past ENGAGE_ENTER_PX — REGEN should
+        fire normally."""
+        s = _state(
+            player={"x": 0, "y": 0, "heading": 0,
+                    "shields": 50, "max_shields": 150},
+            aliens=[{"x": 1500, "y": 0, "hp": 50}],
+        )
+        ap._do_auto(s, s["player"])
+        # 1500 px > ENGAGE_ENTER_PX (800 px), so REGEN fires.
+        assert ap._fsm["state"] == ap.S_REGEN
+
+    def test_no_regen_engage_thrash_over_many_ticks(self, _clock):
+        """End-to-end pin for the headline pathology: 30 ticks of
+        sustained low-shields combat must produce AT MOST a couple
+        of state transitions, NOT 30 REGEN<->ENGAGE flips.
+
+        Pre-fix, this loop produced ~30 transitions (one per tick
+        because both states bypass MIN_DWELL).  Post-fix, the bot
+        stays in ENGAGE the entire time."""
+        # Start in ENGAGE.
+        s = _state(
+            player={"x": 0, "y": 0, "heading": 0,
+                    "shields": 100, "max_shields": 150},
+            aliens=[{"x": 400, "y": 0, "hp": 50}],
+        )
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_ENGAGE
+        transitions: list = []
+        # Sustained combat: shields hover around 25-30%, alien
+        # stays close.  Drive 30 ticks (3 s of game time).
+        for i in range(30):
+            prev = ap._fsm["state"]
+            _clock[0] += 0.1
+            # Shields wobble between 25-35% (actively under fire).
+            s["player"]["shields"] = 40 + (i % 5) - 2
+            ap._do_auto(s, s["player"])
+            if ap._fsm["state"] != prev:
+                transitions.append((prev, ap._fsm["state"]))
+        # Pre-fix: ~30 transitions.  Post-fix: 0 (stays in ENGAGE).
+        assert len(transitions) <= 2, (
+            f"REGEN<->ENGAGE thrash regression: {len(transitions)} "
+            f"transitions in 30 ticks: {transitions}")
+        assert ap._fsm["state"] == ap.S_ENGAGE
 
 
 # ── GATHER hysteresis ─────────────────────────────────────────────────────
@@ -328,42 +432,53 @@ class TestEngagePreemption:
 
     def test_regen_holds_against_alien_threat_when_shields_recovering(
             self, _clock):
-        """REGEN sits above ENGAGE in the priority order when the
-        bot is safely recovering: shields below 40 %, alien in
-        range, BUT shields ticking up between calls (the alien
-        isn't actually hitting us — maybe out of fire range, maybe
-        firing past us).  Combat assist still aims + fires every
-        frame so the bot isn't defenseless — it just doesn't burn
-        thrust chasing a fight at low health.
+        """REGEN holds against a threat that appears mid-regen when
+        shields are recovering (alien isn't actually hitting us —
+        maybe out of fire range, maybe firing past us).  Combat
+        assist still aims + fires every frame so the bot isn't
+        defenseless — it just doesn't burn thrust chasing a fight
+        at low health.
+
+        Note: the entry-side mirror suppresses REGEN entry while
+        a close threat is engaging us, so this test enters REGEN
+        cleanly first (no threat) before introducing the alien.
 
         Counter-test (REGEN escape valve): see
         ``TestRegenEscapeValve.test_close_threat_and_falling_shields_breaks_regen``
-        — when shields are NOT recovering with a close threat, the
-        valve fires and ENGAGE preempts REGEN to break the deadlock.
+        — when shields are NOT recovering with a mid-regen threat,
+        the in-REGEN valve fires and ENGAGE preempts REGEN.
         """
+        # Step 1: enter REGEN cleanly with no threat.
         s = _state(
             player={
                 "x": 0, "y": 0, "heading": 0,
                 "shields": 30, "max_shields": 150,
             },
-            aliens=[{"x": 400, "y": 0, "hp": 50}],
+            aliens=[{"x": 5000, "y": 0, "hp": 50}],  # far
         )
         ap._do_auto(s, s["player"])
         assert ap._fsm["state"] == ap.S_REGEN
-        # Hold for several ticks: shields recover slowly each tick
-        # (the alien isn't actually hitting us).  REGEN must persist
-        # until shields cross the 60 % exit band.
+        # Step 2: alien now closes in, but shields tick up (alien
+        # missing) — REGEN must hold for several ticks.
+        s["aliens"] = [{"x": 400, "y": 0, "hp": 50}]
         for i in range(3):
             _clock[0] += 0.1
             s["player"]["shields"] = 30 + (i + 1)  # 31, 32, 33
             ap._do_auto(s, s["player"])
             assert ap._fsm["state"] == ap.S_REGEN
 
-    def test_engage_drops_to_regen_when_shields_collapse(self, _clock):
-        """Active engagement; shields drop into REGEN territory --
-        the FSM must abandon the chase and idle.  REGEN preempts
-        MIN_DWELL just like ENGAGE does, so the switch lands on
-        the same tick the shields cross the 40 % enter band."""
+    def test_engage_drops_to_regen_when_shields_collapse_and_alien_leaves(
+            self, _clock):
+        """Active engagement; shields drop into REGEN territory.
+        With the entry-side mirror, REGEN entry is suppressed
+        while the threat is still close — the bot stays in ENGAGE
+        and fights through.  Once the alien drifts out of
+        ENGAGE_ENTER_PX, REGEN can fire normally.
+
+        (Pre-2026-05-04: this test asserted REGEN fires immediately
+        when shields collapse.  That created the REGEN<->ENGAGE
+        thrash pathology; see ``TestRegenEntryWhileThreatenedSuppressed``.)
+        """
         s = _state(
             aliens=[{"x": 400, "y": 0, "hp": 50}],
             player={
@@ -373,12 +488,19 @@ class TestEngagePreemption:
         )
         ap._do_auto(s, s["player"])
         assert ap._fsm["state"] == ap.S_ENGAGE
-        # Shields collapse mid-engagement.
+        # Shields collapse, alien still close — REGEN entry
+        # suppressed by the mirror, bot stays in ENGAGE.
         s["player"]["shields"] = 30
-        _clock[0] += 0.05    # well inside MIN_DWELL_S
+        _clock[0] += 0.05
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_ENGAGE
+        # Alien now drifts out of engagement range — bot can
+        # safely transition to REGEN.
+        s["aliens"][0]["x"] = 5000
+        _clock[0] += ap.MIN_DWELL_S + 0.1
         ap._do_auto(s, s["player"])
         assert ap._fsm["state"] == ap.S_REGEN, (
-            "REGEN must preempt ENGAGE without waiting for dwell")
+            "REGEN must fire once threat is past ENGAGE_ENTER_PX")
 
 
 # ── Post-engage gather ────────────────────────────────────────────────────
