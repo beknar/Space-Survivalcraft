@@ -367,6 +367,14 @@ ALL_STATES = (
 # during the chase, and a longer leash means fewer SEARCH/HUNT
 # transitions if the alien drifts to the edge of view.
 HUNT_RANGE_PX: float = 3000.0
+# Hunt range while parked at base (S_IDLE_AT_BASE).  Wider than the
+# normal 3000 px so the bot proactively sorties from base when an
+# alien spawns anywhere on the typical 6400×6400 zone — sitting at
+# full HP/shields adjacent to the crafter, there's no downside to a
+# longer leash.  2026-05-04 telemetry: the bot sat parked for 95 s
+# while aliens roamed at >3000 px because the standard HUNT gate
+# never fired.
+IDLE_HUNT_RANGE_PX: float = 9000.0
 # IDLE_AT_BASE: distance from the Home Station inside which the bot
 # stops navigating + just idles.  Set wide (600 px) so the bot
 # parks OUTSIDE the typical station-building cluster (HS + 10
@@ -380,6 +388,18 @@ HUNT_RANGE_PX: float = 3000.0
 # repulsion range, the field reads zero, and the bot drifts
 # cleanly.
 IDLE_AT_BASE_RADIUS_PX: float = 600.0
+
+# Hunt-stuck giveup: if S_HUNT logs HUNT_STUCK_THRESHOLD or more
+# stuck-detect events inside HUNT_STUCK_WINDOW_S seconds, suppress
+# further HUNT transitions for HUNT_GIVEUP_S seconds.  Triggered by
+# the 2026-05-04 telemetry where the bot fired stuck_detected 14
+# times in 85 s while the FSM kept re-routing it from inside the
+# station building cluster toward an alien on the far side.  The
+# giveup gives the bot a chance to fall through to IDLE_AT_BASE,
+# regroup at the outer ring, and try the chase from clear space.
+HUNT_STUCK_WINDOW_S:   float = 10.0
+HUNT_STUCK_THRESHOLD:  int   = 3
+HUNT_GIVEUP_S:         float = 30.0
 
 # Starter-base build gate.  When the bot has accumulated this much
 # iron AND there are no asteroids / aliens within the clear-area
@@ -612,6 +632,12 @@ class BotState:
     # FSM bounces SEARCH ↔ MINE every MIN_DWELL_S because the
     # giveup condition only holds while ``cur == S_SEARCH``.
     chase_committed: bool = False
+    # Rolling timestamps of recent S_HUNT stuck_detected events
+    # (capped at HUNT_STUCK_THRESHOLD entries).  When the list
+    # fills inside HUNT_STUCK_WINDOW_S, ``hunt_giveup_until``
+    # latches the FSM out of HUNT for HUNT_GIVEUP_S seconds.
+    hunt_stuck_times: list = field(default_factory=list)
+    hunt_giveup_until: float = 0.0
 
     def reset(self) -> None:
         """Restore every field to its default.  Mutates dict fields
@@ -633,6 +659,8 @@ class BotState:
         self.pickup_blacklist.clear()
         self.asteroid_blacklist.clear()
         self.chase_committed = False
+        self.hunt_stuck_times.clear()
+        self.hunt_giveup_until = 0.0
 
 
 _state = BotState()
@@ -1085,7 +1113,17 @@ def _choose_next_state(state: dict, p: dict, cur: str) -> str:
     #    handler reuses _act_engage so the close-and-fight behaviour
     #    is identical — only the dispatch differs (HUNT proactively,
     #    ENGAGE defensively).
-    if threat is not None and td < HUNT_RANGE_PX:
+    #
+    #    When CURRENTLY in S_IDLE_AT_BASE, use the wider
+    #    IDLE_HUNT_RANGE_PX gate: the bot is parked at base,
+    #    healed, and adjacent to the crafter — no reason to be
+    #    picky about distance.  Once HUNT fires the chase falls
+    #    back to the normal HUNT_RANGE_PX cap on subsequent ticks
+    #    (we only widen at the IDLE → HUNT boundary).
+    hunt_gate = (IDLE_HUNT_RANGE_PX if cur == S_IDLE_AT_BASE
+                 else HUNT_RANGE_PX)
+    if (threat is not None and td < hunt_gate
+            and now >= _state.hunt_giveup_until):
         return S_HUNT
 
     # 8. IDLE_AT_BASE — nothing actionable is visible.  When a Home
@@ -1248,6 +1286,22 @@ def _do_auto(state: dict, p: dict) -> None:
                 print(f"[autopilot] ASTEROID-BLACKLIST: {blacklisted_ast} "
                       f"(stuck while mining, ttl "
                       f"{int(ASTEROID_BLACKLIST_TTL_S)}s)")
+        elif _fsm["state"] == S_HUNT:
+            # Hunt-stuck giveup: track recent stuck events, and if
+            # the threshold trips inside the window, latch HUNT off
+            # for HUNT_GIVEUP_S so the FSM falls through to
+            # IDLE_AT_BASE and re-routes from clear space.
+            times = _state.hunt_stuck_times
+            cutoff = now - HUNT_STUCK_WINDOW_S
+            _state.hunt_stuck_times = [t for t in times if t >= cutoff]
+            _state.hunt_stuck_times.append(now)
+            if len(_state.hunt_stuck_times) >= HUNT_STUCK_THRESHOLD:
+                _state.hunt_giveup_until = now + HUNT_GIVEUP_S
+                _state.hunt_stuck_times.clear()
+                print(f"[autopilot] HUNT-GIVEUP: "
+                      f"{HUNT_STUCK_THRESHOLD} stuck events in "
+                      f"{HUNT_STUCK_WINDOW_S:.0f}s — suppressing "
+                      f"S_HUNT for {HUNT_GIVEUP_S:.0f}s")
         _telemetry_log("stuck_detected",
                        cause=("building"
                               if not _ship_clear_of_buildings(p, state)
@@ -1291,6 +1345,10 @@ def _do_auto(state: dict, p: dict) -> None:
         if desired != cur:
             _fsm["state"] = desired
             cur = desired
+            # Clear stale position history so the new state's first
+            # tick doesn't inherit the old state's "no progress"
+            # signature — see the dwell-or-preempt branch below.
+            _stuck_state["history"] = []
         _on_enter(cur)
         _telemetry_log("state_transition", reason="first_tick",
                        from_state=prev, to_state=cur, desired=desired,
@@ -1303,6 +1361,15 @@ def _do_auto(state: dict, p: dict) -> None:
         if desired in (S_ENGAGE, S_REGEN) or dwell >= MIN_DWELL_S:
             _fsm["state"] = desired
             _fsm["entered_at"] = now
+            # Clear stale position history at every state boundary.
+            # Without this, leaving an exempt state (S_SEARCH /
+            # S_IDLE_AT_BASE) carries forward a window of near-zero
+            # motion samples and stuck-detect false-fires on the
+            # very first tick of the new (non-exempt) state.
+            # 2026-05-04 telemetry caught this: a 42 s IDLE_AT_BASE
+            # park into HUNT logged stuck_detected one tick after
+            # the transition with the bot in clear space.
+            _stuck_state["history"] = []
             cur = desired
             _on_enter(cur)
             _telemetry_log("state_transition", reason="dwell_or_preempt",
@@ -1793,13 +1860,17 @@ def _act_gather(state: dict, p: dict) -> None:
 
 
 def _act_idle_at_base(state: dict, p: dict) -> None:
-    """IDLE_AT_BASE: navigate to within ``IDLE_AT_BASE_RADIUS_PX``
-    of the Home Station and idle there.  Called when no asteroids
-    or aliens are visible — instead of wasting thrust spiralling
-    in empty space, the bot parks near base and waits.  As soon
-    as a target spawns, the FSM's normal priority (REGEN >
-    ENGAGE > GATHER > BUILD/DEPOSIT/CRAFT/INSTALL > MINE > HUNT)
-    pulls the bot back into action.
+    """IDLE_AT_BASE: navigate to the *outer ring* of the idle zone
+    (one ``IDLE_AT_BASE_RADIUS_PX`` from the Home Station, on the
+    line from the player toward the station) and idle there.
+
+    Why the outer ring instead of the station centre: 2026-05-04
+    telemetry showed the bot drifting all the way to hs_dist 58 —
+    deep inside the 11-building station cluster.  When an alien
+    later spawned and HUNT fired, the bot couldn't escape the
+    cluster (14 ``stuck_detected`` events, all anchored at the
+    same cluster-interior position, zero combat).  Parking at the
+    outer ring instead means HUNT can launch from clear space.
     """
     hs = _find_home_station(state)
     if hs is None:
@@ -1812,16 +1883,26 @@ def _act_idle_at_base(state: dict, p: dict) -> None:
     py = float(p.get("y", 0.0))
     hx = float(hs.get("x", 0.0))
     hy = float(hs.get("y", 0.0))
-    dist = math.hypot(hx - px, hy - py)
     KeyState.hold("space", False)  # never fire while idle
+    # Vector from station to player — the outer-ring target is on
+    # this ray at distance IDLE_AT_BASE_RADIUS_PX from the station.
+    dx = px - hx
+    dy = py - hy
+    dist = math.hypot(dx, dy)
     if dist <= IDLE_AT_BASE_RADIUS_PX:
-        # In position — release everything and drift.
+        # Already inside the idle zone — release everything and
+        # drift.  Stuck-detect is exempt for IDLE_AT_BASE so a
+        # nudge from a building's potential field won't trigger
+        # an escape burst.
         _do_idle()
         return
-    # Far from base — head home.  brake_on_arrival=True so the bot
-    # stops cleanly inside the idle radius instead of overshooting.
-    _do_goto(state, p, hx, hy,
-             stop_radius=IDLE_AT_BASE_RADIUS_PX * 0.8)
+    # Outside the idle ring — head to the nearest point on the
+    # ring (on the station-to-player ray, at IDLE_AT_BASE_RADIUS_PX
+    # from HS).  This keeps the bot OUTSIDE the building cluster
+    # at the centre of the station.
+    target_x = hx + (dx / dist) * IDLE_AT_BASE_RADIUS_PX
+    target_y = hy + (dy / dist) * IDLE_AT_BASE_RADIUS_PX
+    _do_goto(state, p, target_x, target_y, stop_radius=80.0)
 
 
 def _do_spiral_search(state: dict, p: dict) -> None:
