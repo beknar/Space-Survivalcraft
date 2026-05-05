@@ -2785,7 +2785,14 @@ class TestIdleAtBaseAction:
             staticmethod(lambda key, down: keys.__setitem__(key, down)))
         return keys
 
-    def test_navigates_to_base_when_far(self, monkeypatch):
+    def test_navigates_to_outer_ring_when_far(self, monkeypatch):
+        """Target is the nearest point on the IDLE_AT_BASE_RADIUS_PX
+        ring around HS, not HS centre.  Parking on the outer ring
+        keeps the bot OUTSIDE the station building cluster — see
+        the 2026-05-04 telemetry incident where parking at
+        hs_dist=58 trapped the bot inside the cluster during a
+        subsequent HUNT."""
+        import math as _m
         captured: dict = {}
         def _spy(state, p, tx, ty, stop_radius=80.0,
                  brake_on_arrival=True):
@@ -2798,12 +2805,18 @@ class TestIdleAtBaseAction:
             buildings=[_hs_building(x=3200.0, y=3200.0)],
         )
         ap._act_idle_at_base(s, s["player"])
-        # Heads toward HS center.
-        assert captured["tx"] == 3200.0
-        assert captured["ty"] == 3200.0
-        # Stop radius is < IDLE_AT_BASE_RADIUS_PX so the bot lands
-        # comfortably inside the idle zone.
-        assert captured["stop_radius"] < ap.IDLE_AT_BASE_RADIUS_PX
+        # Target is on the line from HS toward player at distance
+        # IDLE_AT_BASE_RADIUS_PX from HS — i.e. on the outer ring
+        # facing the player.
+        d_target_to_hs = _m.hypot(captured["tx"] - 3200.0,
+                                  captured["ty"] - 3200.0)
+        assert abs(d_target_to_hs - ap.IDLE_AT_BASE_RADIUS_PX) < 0.5
+        # And on the player → HS ray, so dx/dy match the unit
+        # vector from HS toward player.
+        ux = (0.0 - 3200.0) / _m.hypot(3200.0, 3200.0)
+        uy = (0.0 - 3200.0) / _m.hypot(3200.0, 3200.0)
+        assert abs(captured["tx"] - (3200.0 + ux * ap.IDLE_AT_BASE_RADIUS_PX)) < 0.5
+        assert abs(captured["ty"] - (3200.0 + uy * ap.IDLE_AT_BASE_RADIUS_PX)) < 0.5
 
     def test_idles_when_close_to_base(self, monkeypatch):
         keys = self._record_keys(monkeypatch)
@@ -2917,3 +2930,272 @@ class TestIdleAtBaseStopsOutsideBuildingCluster:
         # past the 80 px field range.
         gap = ap.IDLE_AT_BASE_RADIUS_PX - 300.0
         assert gap > ap.BUILDING_REPULSION_RANGE_PX
+
+
+# ── Fix #1: outer-ring idle target (2026-05-04 cluster-trap fix) ──────
+
+class TestIdleAtBaseOuterRingTarget:
+    """``_act_idle_at_base`` must aim for the OUTER RING of the
+    idle zone (one radius from HS, on the player→HS ray) — never
+    HS centre — so the bot parks in clear space outside the
+    station building cluster.  Caught from 2026-05-04 telemetry:
+    the bot drifted to hs_dist=58, deep inside an 11-building
+    cluster, and 14 stuck_detected events fired during the next
+    HUNT cycle without ever reaching an enemy."""
+
+    def test_target_is_one_radius_from_station(self, monkeypatch):
+        import math as _m
+        captured: dict = {}
+        def _spy(state, p, tx, ty, stop_radius=80.0,
+                 brake_on_arrival=True):
+            captured["tx"], captured["ty"] = tx, ty
+        monkeypatch.setattr(ap, "_do_goto", _spy)
+        s = _state(
+            player={"x": 1000.0, "y": 1000.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            buildings=[_hs_building(x=3200.0, y=3200.0)],
+        )
+        ap._act_idle_at_base(s, s["player"])
+        d = _m.hypot(captured["tx"] - 3200.0, captured["ty"] - 3200.0)
+        assert abs(d - ap.IDLE_AT_BASE_RADIUS_PX) < 0.5
+
+    def test_target_is_on_player_to_station_ray(self, monkeypatch):
+        """Target should sit on the line from player toward HS,
+        not on some arbitrary axis."""
+        import math as _m
+        captured: dict = {}
+        monkeypatch.setattr(
+            ap, "_do_goto",
+            lambda state, p, tx, ty, stop_radius=80.0,
+            brake_on_arrival=True: captured.update(tx=tx, ty=ty))
+        # Player off to the upper-right of HS.
+        s = _state(
+            player={"x": 5000.0, "y": 5000.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            buildings=[_hs_building(x=3200.0, y=3200.0)],
+        )
+        ap._act_idle_at_base(s, s["player"])
+        # Target must be between player and HS, with positive
+        # offset from HS in both x and y (player is upper-right).
+        assert captured["tx"] > 3200.0
+        assert captured["ty"] > 3200.0
+        # And on the diagonal: dx == dy because player→HS ray is 45°.
+        assert abs((captured["tx"] - 3200.0)
+                   - (captured["ty"] - 3200.0)) < 0.5
+
+    def test_no_navigation_when_inside_idle_radius(self, monkeypatch):
+        """Already inside the radius → idle, no goto call."""
+        called: list = []
+        monkeypatch.setattr(
+            ap, "_do_goto",
+            lambda *a, **kw: called.append("called"))
+        # Player 400 px from HS — inside the 600 px radius.
+        s = _state(
+            player={"x": 3600.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            buildings=[_hs_building(x=3200.0, y=3200.0)],
+        )
+        ap._act_idle_at_base(s, s["player"])
+        assert called == []
+
+    def test_target_never_inside_cluster(self, monkeypatch):
+        """Even from 5000 px away, the target distance from HS
+        equals exactly IDLE_AT_BASE_RADIUS_PX — never penetrates
+        the cluster (which sits within ~500 px of HS centre)."""
+        import math as _m
+        captured: dict = {}
+        monkeypatch.setattr(
+            ap, "_do_goto",
+            lambda state, p, tx, ty, stop_radius=80.0,
+            brake_on_arrival=True: captured.update(tx=tx, ty=ty))
+        s = _state(
+            player={"x": -1000.0, "y": -1000.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            buildings=[_hs_building(x=3200.0, y=3200.0)],
+        )
+        ap._act_idle_at_base(s, s["player"])
+        d = _m.hypot(captured["tx"] - 3200.0, captured["ty"] - 3200.0)
+        # Must be at the ring, not closer.  500 px is the typical
+        # outer-building distance — target must be beyond.
+        assert d >= 500.0
+
+
+# ── Fix #2: stuck-history clears on FSM transition ────────────────────
+
+class TestStuckHistoryClearedOnTransition:
+    """Every state transition must clear ``_stuck_state['history']``
+    so the new state's first detect-stuck pass starts with a fresh
+    motion window.  Without this, leaving an exempt state
+    (S_SEARCH / S_IDLE_AT_BASE) carries forward a window of
+    near-zero motion and stuck_detected false-fires immediately
+    on the next state's first tick.  2026-05-04 telemetry caught
+    this on a 42 s IDLE_AT_BASE → HUNT transition."""
+
+    def test_history_cleared_when_transition_fires(self, _clock):
+        # Manually fill history to look like a long pin window.
+        ap._stuck_state["history"] = [
+            (_clock[0] - 1.5 + i * 0.1, 100.0, 100.0, 0.0)
+            for i in range(20)
+        ]
+        # Force a state change: park the bot, then introduce an
+        # in-range alien so the FSM wants HUNT.
+        s = _state(
+            player={"x": 100.0, "y": 100.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            aliens=[{"x": 1500.0, "y": 100.0, "hp": 50}],
+        )
+        ap._do_auto(s, s["player"])
+        # On state transition the history should be wiped.
+        assert ap._stuck_state["history"] == []
+
+    def test_history_preserved_when_no_transition(self, _clock):
+        """If no transition fires, history grows normally."""
+        # Seed an asteroid so the FSM stays in MINE.
+        for _ in range(5):
+            s = _state(
+                player={"x": 0.0, "y": 0.0, "heading": 0.0,
+                        "shields": 150, "max_shields": 150},
+                asteroids=[{"x": 200.0, "y": 0.0, "hp": 50}],
+            )
+            ap._do_auto(s, s["player"])
+            _clock[0] += 0.1
+        assert ap._fsm["state"] == ap.S_MINE
+        # History should have accumulated samples.
+        assert len(ap._stuck_state["history"]) > 1
+
+
+# ── Fix #3: wider hunt range when in IDLE_AT_BASE ─────────────────────
+
+class TestIdleHuntRange:
+    """While parked at base (S_IDLE_AT_BASE), the FSM uses
+    ``IDLE_HUNT_RANGE_PX`` (wider) to decide HUNT eligibility.
+    From the parked-at-base state the bot is healed, supplied,
+    and adjacent to the crafter — no reason to be picky about
+    distance.  2026-05-04 telemetry: bot sat parked for 95 s
+    while aliens roamed at >3000 px because the standard HUNT
+    gate never fired."""
+
+    def test_idle_hunt_range_constant_is_wider(self):
+        assert ap.IDLE_HUNT_RANGE_PX > ap.HUNT_RANGE_PX
+
+    def test_distant_alien_triggers_hunt_from_idle(self, _clock):
+        """Bot in S_IDLE_AT_BASE, alien at 5000 px (well beyond
+        normal 3000 HUNT_RANGE_PX but inside 9000 IDLE_HUNT_RANGE_PX)
+        — HUNT should fire."""
+        ap._fsm["state"] = ap.S_IDLE_AT_BASE
+        ap._fsm["entered_at"] = _clock[0] - 10.0  # past dwell
+        s = _state(
+            player={"x": 0.0, "y": 0.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            aliens=[{"x": 5000.0, "y": 0.0, "hp": 50}],
+            buildings=[_hs_building(x=0.0, y=0.0)],
+        )
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_HUNT
+
+    def test_distant_alien_does_not_trigger_hunt_from_other_states(self, _clock):
+        """Bot in S_SEARCH (not idle), same 5000 px alien — HUNT
+        must NOT fire because the wider gate only applies from
+        S_IDLE_AT_BASE."""
+        ap._fsm["state"] = ap.S_SEARCH
+        ap._fsm["entered_at"] = _clock[0] - 10.0
+        s = _state(
+            player={"x": 0.0, "y": 0.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            aliens=[{"x": 5000.0, "y": 0.0, "hp": 50}],
+        )
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] != ap.S_HUNT
+
+    def test_in_range_alien_still_triggers_hunt_from_idle(self, _clock):
+        """Sanity: a normal-range alien still triggers HUNT from
+        IDLE (the wider gate is a superset)."""
+        ap._fsm["state"] = ap.S_IDLE_AT_BASE
+        ap._fsm["entered_at"] = _clock[0] - 10.0
+        s = _state(
+            player={"x": 0.0, "y": 0.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            aliens=[{"x": 1500.0, "y": 0.0, "hp": 50}],
+            buildings=[_hs_building(x=0.0, y=0.0)],
+        )
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_HUNT
+
+
+# ── Fix #4: hunt-stuck giveup ─────────────────────────────────────────
+
+class TestHuntStuckGiveup:
+    """If S_HUNT logs HUNT_STUCK_THRESHOLD or more stuck_detected
+    events inside HUNT_STUCK_WINDOW_S, ``hunt_giveup_until`` latches
+    the FSM out of HUNT for HUNT_GIVEUP_S seconds.  Triggered by
+    2026-05-04 telemetry: 14 stuck_detected events in 85 s while
+    HUNT kept routing the bot from inside the station cluster."""
+
+    def test_constants_exist(self):
+        assert ap.HUNT_STUCK_THRESHOLD == 3
+        assert ap.HUNT_STUCK_WINDOW_S == 10.0
+        assert ap.HUNT_GIVEUP_S == 30.0
+
+    def test_giveup_latches_after_threshold_events(self, _clock):
+        """Three stuck events in 10 s → giveup latch fires."""
+        ap._fsm["state"] = ap.S_HUNT
+        # Each call records one stuck event in the rolling window.
+        for i in range(ap.HUNT_STUCK_THRESHOLD):
+            now = _clock[0] + i * 0.1
+            times = ap._state.hunt_stuck_times
+            cutoff = now - ap.HUNT_STUCK_WINDOW_S
+            ap._state.hunt_stuck_times = [t for t in times if t >= cutoff]
+            ap._state.hunt_stuck_times.append(now)
+        # Simulate the threshold trip from inside the handler.
+        if len(ap._state.hunt_stuck_times) >= ap.HUNT_STUCK_THRESHOLD:
+            ap._state.hunt_giveup_until = _clock[0] + ap.HUNT_GIVEUP_S
+        assert ap._state.hunt_giveup_until > _clock[0]
+
+    def test_giveup_suppresses_hunt_transition(self, _clock):
+        """While ``hunt_giveup_until > now``, _choose_next_state
+        must NOT return S_HUNT even if an alien is in range."""
+        ap._state.hunt_giveup_until = _clock[0] + 10.0
+        s = _state(
+            player={"x": 0.0, "y": 0.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            aliens=[{"x": 1500.0, "y": 0.0, "hp": 50}],
+            buildings=[_hs_building(x=0.0, y=0.0)],
+        )
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] != ap.S_HUNT
+
+    def test_giveup_expires_after_window(self, _clock):
+        """After HUNT_GIVEUP_S elapses, HUNT can fire again."""
+        ap._state.hunt_giveup_until = _clock[0] + 10.0
+        # Advance past the giveup window.
+        _clock[0] += 11.0
+        s = _state(
+            player={"x": 0.0, "y": 0.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            aliens=[{"x": 1500.0, "y": 0.0, "hp": 50}],
+        )
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_HUNT
+
+    def test_old_stuck_events_evicted_from_window(self, _clock):
+        """Events older than HUNT_STUCK_WINDOW_S must be dropped
+        so two old events + one new event don't trip the latch."""
+        # Two events from far in the past.
+        ap._state.hunt_stuck_times = [_clock[0] - 100.0, _clock[0] - 50.0]
+        # Simulate one new event right now: prune + append.
+        now = _clock[0]
+        cutoff = now - ap.HUNT_STUCK_WINDOW_S
+        ap._state.hunt_stuck_times = [
+            t for t in ap._state.hunt_stuck_times if t >= cutoff]
+        ap._state.hunt_stuck_times.append(now)
+        # Old entries should have been evicted.
+        assert ap._state.hunt_stuck_times == [now]
+
+    def test_giveup_state_resets_with_fsm_reset(self):
+        """``_fsm_reset`` must clear hunt-stuck tracking so a new
+        process starts with no carry-over."""
+        ap._state.hunt_giveup_until = 9999.0
+        ap._state.hunt_stuck_times = [1.0, 2.0, 3.0]
+        ap._fsm_reset()
+        assert ap._state.hunt_giveup_until == 0.0
+        assert ap._state.hunt_stuck_times == []
