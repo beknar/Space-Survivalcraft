@@ -162,6 +162,89 @@ class TestRegenHysteresis:
         assert ap._fsm["state"] != ap.S_REGEN
 
 
+# ── REGEN escape valve (2026-05-04 deadlock fix) ─────────────────────
+
+class TestRegenEscapeValve:
+    """When the bot is in S_REGEN with a close threat AND shields
+    aren't recovering between ticks, the FSM must let ENGAGE preempt
+    REGEN.  Without this the bot deadlocks: shields can't reach the
+    60% exit threshold while being shot, REGEN keeps the bot idle,
+    bot keeps taking damage forever.  Telemetry caught this clearly:
+    78 s session, 23 stuck_detected events all in REGEN at shields=0,
+    0 iron collected."""
+
+    def test_close_threat_and_falling_shields_breaks_regen(self, _clock):
+        # Enter REGEN at 33%.
+        s = _state(
+            player={"x": 0, "y": 0, "heading": 0,
+                    "shields": 50, "max_shields": 150},
+            aliens=[{"x": 500, "y": 0, "hp": 50}],  # inside ENGAGE_ENTER_PX
+        )
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_REGEN
+        # Next tick: alien still close, shields LOWER (under attack).
+        _clock[0] += ap.MIN_DWELL_S + 0.1
+        s["player"]["shields"] = 40  # dropped from 50
+        ap._do_auto(s, s["player"])
+        # Escape valve fires — ENGAGE preempts REGEN.
+        assert ap._fsm["state"] == ap.S_ENGAGE, (
+            "REGEN deadlock — bot took damage but stayed in REGEN")
+
+    def test_close_threat_but_shields_recovering_stays_regen(self, _clock):
+        """Sanity: if shields ARE recovering despite a close alien
+        (e.g., alien out of fire range), REGEN holds normally."""
+        s = _state(
+            player={"x": 0, "y": 0, "heading": 0,
+                    "shields": 50, "max_shields": 150},
+            aliens=[{"x": 500, "y": 0, "hp": 50}],
+        )
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_REGEN
+        # Next tick: alien close, shields HIGHER (recovering).
+        _clock[0] += ap.MIN_DWELL_S + 0.1
+        s["player"]["shields"] = 60  # rose from 50
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_REGEN
+
+    def test_no_close_threat_stays_regen_even_if_shields_flat(self, _clock):
+        """Sanity: no alien nearby → no escape valve, REGEN holds
+        even if shields plateau briefly (regen tick boundary)."""
+        s = _state(
+            player={"x": 0, "y": 0, "heading": 0,
+                    "shields": 50, "max_shields": 150},
+            aliens=[{"x": 5000, "y": 0, "hp": 50}],  # far
+        )
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_REGEN
+        _clock[0] += ap.MIN_DWELL_S + 0.1
+        s["player"]["shields"] = 50  # unchanged
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_REGEN
+
+    def test_last_regen_shields_resets_on_exit(self, _clock):
+        """When REGEN exits cleanly (shields recovered past 60%),
+        ``last_regen_shields`` resets to 0 so a future REGEN entry
+        starts the trend-tracking fresh."""
+        s = _state(
+            player={"x": 0, "y": 0, "heading": 0,
+                    "shields": 50, "max_shields": 150},
+        )
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_REGEN
+        assert ap._state.last_regen_shields == 50
+        # Shields recover past exit threshold.
+        _clock[0] += ap.MIN_DWELL_S + 0.1
+        s["player"]["shields"] = 100  # 67%
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] != ap.S_REGEN
+        assert ap._state.last_regen_shields == 0
+
+    def test_last_regen_shields_resets_on_fsm_reset(self):
+        ap._state.last_regen_shields = 99
+        ap._fsm_reset()
+        assert ap._state.last_regen_shields == 0
+
+
 # ── GATHER hysteresis ─────────────────────────────────────────────────────
 
 
@@ -243,12 +326,21 @@ class TestEngagePreemption:
         assert ap._fsm["state"] == ap.S_ENGAGE, (
             "ENGAGE must preempt MIN_DWELL")
 
-    def test_regen_holds_against_alien_threat(self, _clock):
-        """REGEN now sits *above* ENGAGE in the priority order: when
-        shields are below 40 %, the bot stays idle even with an
-        alien within engagement range.  Combat assist still aims +
-        fires every frame so the bot isn't defenseless -- it just
-        doesn't burn thrust chasing a fight at low health."""
+    def test_regen_holds_against_alien_threat_when_shields_recovering(
+            self, _clock):
+        """REGEN sits above ENGAGE in the priority order when the
+        bot is safely recovering: shields below 40 %, alien in
+        range, BUT shields ticking up between calls (the alien
+        isn't actually hitting us — maybe out of fire range, maybe
+        firing past us).  Combat assist still aims + fires every
+        frame so the bot isn't defenseless — it just doesn't burn
+        thrust chasing a fight at low health.
+
+        Counter-test (REGEN escape valve): see
+        ``TestRegenEscapeValve.test_close_threat_and_falling_shields_breaks_regen``
+        — when shields are NOT recovering with a close threat, the
+        valve fires and ENGAGE preempts REGEN to break the deadlock.
+        """
         s = _state(
             player={
                 "x": 0, "y": 0, "heading": 0,
@@ -258,10 +350,12 @@ class TestEngagePreemption:
         )
         ap._do_auto(s, s["player"])
         assert ap._fsm["state"] == ap.S_REGEN
-        # Hold for several ticks: even with the alien still present,
-        # REGEN must persist until shields cross the 60 % exit band.
-        for _ in range(3):
+        # Hold for several ticks: shields recover slowly each tick
+        # (the alien isn't actually hitting us).  REGEN must persist
+        # until shields cross the 60 % exit band.
+        for i in range(3):
             _clock[0] += 0.1
+            s["player"]["shields"] = 30 + (i + 1)  # 31, 32, 33
             ap._do_auto(s, s["player"])
             assert ap._fsm["state"] == ap.S_REGEN
 
