@@ -380,3 +380,83 @@ GameView overlays:
   +-- BuildMenu (does NOT pause)
   +-- StationInventory, CraftMenu, TradeMenu, ShipStats, StationInfo
 ```
+
+## Save / load persistence
+
+`game_save.py` writes save slots to `saves/save_slot_NN.json`
+(JSON with no compression, ~hundreds of KB).  Two design rules
+govern what gets persisted:
+
+1. **State that the player can change** is serialized so loading
+   restores it bit-for-bit — HP, position, cargo, station
+   buildings, kill flags, etc.
+2. **State that's deterministic from the world seed** is NOT
+   serialized.  On load it's regenerated from the seed so the
+   layout matches the original session.  This keeps save files
+   small and avoids version-skew issues with sprite-internal
+   fields.
+
+### Persisted (round-tripped through JSON)
+
+| Entity / state | Serializer | Notes |
+|---|---|---|
+| **Player ship** | inline in `save_to_dict` | Position, heading, velocity, HP, shields, shield accumulator, weapon index |
+| **Faction / ship type / level** | inline | Drives the constructor on load (`PlayerShip` texture chosen from these) |
+| **Character + XP** | inline | `audio.character_name`, `_char_xp` (level recomputed from XP) |
+| **Cargo inventory** | inline | Per-cell `(row, col, type, count)` |
+| **Station inventory** | `StationInventory.to_save_data` | All deposited items |
+| **Module slots** | inline | Installed modules list |
+| **Quick-use slots** | inline | HUD quick-use bar |
+| **Unlocked craft recipes** | inline | Set of recipe keys |
+| **Trade credits** | inline | `TradeMenu.credits` |
+| **Player buildings** | `_serialize_building` | Per-building: type, position, HP, angle, disabled.  Includes Home Station, Service Modules, Solar Arrays, Turrets, Crafters, Repair Modules, Generators |
+| **Trade station** | `_serialize_trade_station` | Position only (no internal state) |
+| **Asteroids** (Zone 1) | `_serialize_asteroid` | Position + HP — partially-mined rocks remember their damage |
+| **Aliens** (Zone 1) | `_serialize_alien` | Position, velocity, HP, heading, AI state, home position |
+| **Iron pickups** (Zone 1) | `_serialize_pickup` | Position |
+| **Boss** | `_serialize_boss` | Position, velocity, HP, shields, phase, current target |
+| **Wormholes** | `_serialize_wormhole` | Position + zone target |
+| **Boss flags** | inline | `_boss_spawned`, `_boss_defeated` |
+| **Respawn timers** | inline | Asteroid + alien respawn timers (so cadence survives load) |
+| **Fog of war** | inline | Per-cell revealed grid |
+| **Zone 2 (Nebula) state** | `_save_zone2_state` | World seed + fog + aliens + iron/double-iron/copper asteroids + wanderers + buildings + trade station + nebula boss flag |
+| **Star Maze state** | `_save_star_maze_state` | World seed + populated flag + per-spawner state + fog + buildings + trade station + nebula boss flag |
+| **Parked ships** (multi-ship) | `_serialize_parked_ships` | Faction, type, level, position, heading, HP/shields, cargo, modules |
+| **Active drone** | `_serialize_active_drone` | Variant (mining/combat), position, HP, shields, reaction setting, direct order |
+| **Refugee NPC + Debra quest** | inline | `_station_shield_hp/_max_hp`, `_refugee_spawned`, `_met_refugee`, refugee NPC position + arrived flag, full `_quest_flags` dict |
+| **Current zone** | inline | `zone_id` so load resumes in the correct zone |
+
+### Regenerated from world seed (NOT persisted)
+
+| Entity / state | Where regenerated | Why not saved |
+|---|---|---|
+| **Slipspaces** (Star Maze + Nebula) | `_regenerate_slipspaces` from `populate_slipspaces` | No destructible state; layout deterministic from world seed |
+| **Null fields** (Nebula) | `_regenerate_null_fields` from `populate_null_fields` | Same — pure stealth zones with no per-instance state |
+| **Gas areas** (Nebula) | `_regenerate_gas_areas` | Same — environmental hazards with no destructible state |
+| **Force walls** (boss arena) | regenerated from boss state | Tied to boss phase, not a separate persistable entity |
+| **Maze room layout + walls** (Star Maze) | `_generate` from saved `world_seed` | Procedural — same seed produces identical rooms |
+| **Maze aliens** (Star Maze) | spawn naturally from spawners post-load | Spawner state (HP, killed-count, cooldown) IS saved; the aliens themselves aren't |
+| **Wormhole spawn pattern** (Zone 2 → Star Maze) | controlled by `nebula_boss_defeated` flag | Visibility derived from quest progress, not entity-level |
+
+### Transient runtime state (not saved, not regenerated)
+
+These are intentionally cleared on load — restoring them mid-flight
+would either be visually wrong or risk physics glitches:
+
+* **In-flight projectiles** (`turret_projectile_list`, player + alien lasers) — re-fire on the next frame from live shooters.
+* **Active explosions** (`_explosion_list`) — short-lived animations.
+* **Contrails** (`_contrail_list`) — particle effects.
+* **Active melee swings** (`MeleeBlade` instances) — re-trigger from input.
+* **Sound state** (currently-playing SFX, `_sound_tracking`) — restart from scratch.
+* **Dialogue overlay state** — closed on load.
+* **Bot autopilot FSM state** (`_state.fsm`, blacklists, hunt giveup) — owned by the autopilot process, not the game; re-initialized when the autopilot reconnects.
+
+### Save schema versioning
+
+There is no explicit schema version field.  The loader uses
+`data.get("key", default)` with conservative defaults
+throughout, so newer fields added to saves don't break older
+load code paths and older saves load with reasonable defaults
+for newly-added state.  Codec-pair docblock at the top of
+`game_save.py` lists which `_serialize_X` corresponds to which
+`_restore_X` so additions stay paired.
