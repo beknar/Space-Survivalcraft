@@ -57,6 +57,53 @@ before launching `main.py` as a detached subprocess, drives the
 splash → faction (Earth) → ship (Aegis) → character flow, then
 loads a random music video from the first 15 in `./yvideos/`.
 
+## `COO_BOT_API` environment variable — the master gate
+
+Two in-process pieces of the bot stack are gated on the
+`COO_BOT_API` env var; both check via:
+
+```python
+os.environ.get("COO_BOT_API", "").strip() not in ("", "0", "false")
+```
+
+| Component | Where | Effect when `COO_BOT_API=1` |
+|---|---|---|
+| HTTP `/state` + `/intent` server (`bot_api.py`) | starts on `127.0.0.1:8765` from `bot_api.maybe_start()` (`bot_api.py:600`) | The autopilot can poll game state and post intents |
+| Combat assist (`bot_combat_assist.py`) | monkey-patches `update_logic.update_weapons` from `bot_combat_assist.install(gv)` (`bot_combat_assist.py:283`) | The ship auto-aims + auto-fires at the nearest hostile every frame |
+
+**Important gotcha — combat assist runs even without
+`bot_autopilot.py`.**  The two pieces install independently.  If
+`COO_BOT_API` is set in your shell when you launch `python main.py`
+manually (no autopilot, no `bot_kickoff.py`):
+
+* The HTTP API starts (harmless if nothing polls it).
+* The combat assist hooks into `update_weapons`.
+* You will play a game where **the ship shoots at enemies on its
+  own without you pressing Space** — even though there's no bot
+  process running and no movement keystrokes are being injected.
+
+The reason it's gated this way: the assist deliberately runs at
+the game's native ~60 FPS so that bot autopilot (which polls at
+10 Hz over HTTP) can rely on accurate weapon timing.  Tying the
+assist to the same env var as the API ensures they're enabled /
+disabled together.
+
+**To disable the combat assist for normal play**, clear the env
+var before launching the game:
+
+```bash
+unset COO_BOT_API           # bash / zsh
+set COO_BOT_API=            # cmd
+$env:COO_BOT_API=$null      # PowerShell
+```
+
+`bot_kickoff.py` sets `COO_BOT_API=1` only on the spawned game
+**subprocess** (`bot_kickoff.py:50`, `env["COO_BOT_API"] = "1"`),
+so a normal kickoff does not leak the variable into the parent
+shell.  If you find the variable persistently set in your shell,
+check `~/.bashrc` / `~/.zshrc` / Windows User Environment
+Variables — something else set it.
+
 # Hotkeys (global, work even with the game focused)
 
 * `Ctrl+Shift+P`  pause / resume the bot
