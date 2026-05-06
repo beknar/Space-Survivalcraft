@@ -281,9 +281,9 @@ layer fires, from proactive (avoid the corner) to reactive
 7. **Pickup blacklist** (5 min TTL) and **asteroid blacklist**
    (60 s TTL) — skip targets that caused a prior stuck event.
 8. **Acute hunt-stuck giveup** — 3 stuck events in S_HUNT inside
-   `HUNT_STUCK_WINDOW_S = 10 s` latches `HUNT_GIVEUP_S = 30 s`.
+   `HUNT_STUCK_WINDOW_S = 30 s` latches `HUNT_GIVEUP_S = 30 s`.
 9. **Long-term per-anchor hunt-stuck giveup** — 3 stuck events
-   at the same `HUNT_ANCHOR_GRID_PX = 100 px` cell within
+   at the same `HUNT_ANCHOR_GRID_PX = 200 px` cell within
    `HUNT_ANCHOR_TTL_S = 5 min` latches `HUNT_LONG_GIVEUP_S =
    2 min`.  Catches the slow repeated-pin pattern that the
    acute window doesn't see.

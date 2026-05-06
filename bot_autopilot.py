@@ -397,21 +397,34 @@ IDLE_AT_BASE_RADIUS_PX: float = 600.0
 # station building cluster toward an alien on the far side.  The
 # giveup gives the bot a chance to fall through to IDLE_AT_BASE,
 # regroup at the outer ring, and try the chase from clear space.
-HUNT_STUCK_WINDOW_S:   float = 10.0
+#
+# Window widened from 10 s to 30 s after 2026-05-05 telemetry: a
+# 5-stuck cluster spread over 22 s never tripped the original
+# 10 s acute window — every 3-event slice spanned 10.8-11.0 s,
+# just barely over the threshold.  30 s catches realistic clusters
+# without false-positives during normal hunts (a clean kill chain
+# does not produce 3 stucks in any 30 s window).
+HUNT_STUCK_WINDOW_S:   float = 30.0
 HUNT_STUCK_THRESHOLD:  int   = 3
 HUNT_GIVEUP_S:         float = 30.0
 
 # Long-term per-anchor hunt-stuck tracking: catches the SLOW
 # repeated-pin pattern that the acute window above misses.  When a
-# stuck event fires in S_HUNT, the anchor (rounded to a 100 px grid)
+# stuck event fires in S_HUNT, the anchor (rounded to a 200 px grid)
 # is recorded with a 5-min TTL.  Once an anchor accumulates
 # HUNT_ANCHOR_MAX_HITS hits, the giveup latch fires for the
 # extended HUNT_LONG_GIVEUP_S window.  Caught from 2026-05-04
 # telemetry: same (3101, 3816) cluster anchor produced 3 stuck
 # events spread over 250 s — never tripped the acute 10 s window
 # but burned ~5 % of the session in repeat pins.
+#
+# Grid widened from 100 px to 200 px after 2026-05-05 telemetry: a
+# tight wall-pin cluster around (2600-2700, 4700-4800) generated 8
+# stucks but the 100 px grid split them across 3 cells (2+3+3 hits)
+# so no single bucket reached the 3-hit threshold.  At 200 px the
+# whole cluster collapses into one anchor and trips on the third hit.
 HUNT_ANCHOR_TTL_S:      float = 300.0
-HUNT_ANCHOR_GRID_PX:    float = 100.0
+HUNT_ANCHOR_GRID_PX:    float = 200.0
 HUNT_ANCHOR_MAX_HITS:   int   = 3
 HUNT_LONG_GIVEUP_S:     float = 120.0
 

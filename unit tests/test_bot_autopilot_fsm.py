@@ -3449,7 +3449,7 @@ class TestHuntStuckGiveup:
 
     def test_constants_exist(self):
         assert ap.HUNT_STUCK_THRESHOLD == 3
-        assert ap.HUNT_STUCK_WINDOW_S == 10.0
+        assert ap.HUNT_STUCK_WINDOW_S == 30.0
         assert ap.HUNT_GIVEUP_S == 30.0
 
     def test_giveup_latches_after_threshold_events(self, _clock):
@@ -3685,7 +3685,7 @@ class TestHuntAnchorLongTermGiveup:
 
     def test_constants_exist(self):
         assert ap.HUNT_ANCHOR_TTL_S == 300.0
-        assert ap.HUNT_ANCHOR_GRID_PX == 100.0
+        assert ap.HUNT_ANCHOR_GRID_PX == 200.0
         assert ap.HUNT_ANCHOR_MAX_HITS == 3
         assert ap.HUNT_LONG_GIVEUP_S == 120.0
 
