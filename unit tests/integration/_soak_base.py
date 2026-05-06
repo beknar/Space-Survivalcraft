@@ -93,6 +93,22 @@ def run_soak(
     """
     dt = 1 / 60
 
+    # Aggressive multi-pass GC before measuring the baseline.  When
+    # the full soak suite runs sequentially in a single Python
+    # process, prior tests' GameView teardown leaves cycles that a
+    # single gc.collect() doesn't always reach (deferred __del__
+    # finalizers, weakref dicts, etc).  Three passes catch the
+    # second-order references freed after the first pass, giving the
+    # current test a clean baseline so its mem_start isn't inflated
+    # by prior-test garbage.  Caught from 2026-05-04 cycle: the boss
+    # phase 1 soak hit +55 MB vs the +50 MB threshold when running
+    # 9th in the full suite, but +12 MB when run alone.  Per-test
+    # RSS budget is tight (50 MB) on purpose — bumping it to mask
+    # accumulation would hide real leaks; pre-emptive GC keeps the
+    # threshold tight without false positives.
+    for _ in range(3):
+        gc.collect()
+
     for _ in range(WARMUP_FRAMES):
         churn_tick(dt)
 

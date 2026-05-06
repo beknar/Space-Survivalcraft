@@ -92,6 +92,18 @@ def _enter_star_maze(gv):
     # FOLLOW / RETURN_HOME for the test's full duration.  Spawners
     # are flagged ``killed`` (they have a respawn flow that
     # ``remove_from_sprite_lists`` would corrupt).
+    #
+    # ``just_respawned`` MUST be cleared too: ``MazeSpawner.__init__``
+    # sets it True so the first ``_update_spawners`` tick drops a
+    # 10-MazeAlien entourage around each spawner (the "spawner came
+    # online" content).  Killed alone doesn't gate this — the
+    # entourage block in ``_update_spawners`` runs on every spawner
+    # regardless of ``killed``.  Without clearing the latch, the
+    # very first ``gv.on_update()`` after this setup spawns aliens,
+    # the drone enters ATTACK mode on one of them, and ATTACK ==
+    # "hold station" pins the drone wherever it was placed.  Caught
+    # from 3 cycles of test_drone_does_not_park_on_doorway_midpoint
+    # failures (the `live` doorway test).
     zone = gv._zone
     for attr in ("_maze_aliens", "_stalkers", "_aliens"):
         lst = getattr(zone, attr, None)
@@ -99,6 +111,13 @@ def _enter_star_maze(gv):
             lst.clear()
     for sp in getattr(zone, "_spawners", ()):
         sp.killed = True
+        sp.just_respawned = False
+        # ``_respawn_cd`` defaults to 0.0 — without this push, the
+        # very first ``update_spawner`` tick decrements it to <0,
+        # auto-resurrects the spawner, sets ``just_respawned`` True
+        # again, and the zone drops a 10-MazeAlien entourage on the
+        # next tick.  Push it out past the test's ~10 s window.
+        sp._respawn_cd = 9999.0
 
 
 # ═══════════════════════════════════════════════════════════════════════════

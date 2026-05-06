@@ -29,6 +29,25 @@ MIN_FPS = 40
 from integration.conftest import measure_fps as _measure_fps
 
 
+def _measure_fps_robust(gv, samples: int = 3) -> float:
+    """Take ``samples`` FPS measurements and return the median.
+
+    Robust to single-shot system stalls (video decoder reload, GC
+    pause, OS scheduler hiccup) that occasionally halve the reading
+    on a real machine.  2026-05-04 cycle: the heaviest scenario
+    (Zone 2 + 4 AI ships + 2 concurrent videos) measured 62 FPS on
+    4 of 5 runs but 33.6 FPS on the 5th — well below the 40 FPS
+    threshold despite no actual regression.  Median of 3 filters
+    that out without hiding genuine drops (a real regression takes
+    every sample down, so the median follows).
+
+    Used only for the heaviest perf scenarios; the lighter ones
+    keep the simpler one-shot ``_measure_fps`` for speed.
+    """
+    readings = sorted(_measure_fps(gv) for _ in range(samples))
+    return readings[len(readings) // 2]
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 #  Video helpers — start/stop char + music videos
 # ═══════════════════════════════════════════════════════════════════════════
@@ -162,10 +181,14 @@ class TestAIPilotZone2WithVideos:
         _spawn_ai_parked_ships(gv, home, count=4)
         _start_both_videos_or_skip(gv)
         try:
-            fps = _measure_fps(gv)
+            # Heaviest perf scenario in the suite (Zone 2 + 4 AI
+            # ships + 2 concurrent videos).  Median-of-3 instead of
+            # single-shot to survive occasional system-level stalls
+            # — see _measure_fps_robust docstring.
+            fps = _measure_fps_robust(gv)
             assert fps >= MIN_FPS, (
                 f"Zone 2 + 4 AI ships + both videos: "
-                f"{fps:.1f} FPS < {MIN_FPS}"
+                f"median {fps:.1f} FPS < {MIN_FPS}"
             )
         finally:
             _stop_both_videos(gv)
