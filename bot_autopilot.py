@@ -1443,7 +1443,7 @@ def _do_auto(state: dict, p: dict) -> None:
             float(p.get("x", 0.0)), float(p.get("y", 0.0)))
         _spiral_state["angle"] = 0.0
         _spiral_state["radius"] = 100.0
-    # Skip stuck-detect when in S_SEARCH or S_IDLE_AT_BASE.
+    # Skip stuck-detect when in S_SEARCH, S_IDLE_AT_BASE, or S_REGEN.
     #
     # S_SEARCH: the spiral's brake-coast motion at small radii
     # looks indistinguishable from "pinned" to the position +
@@ -1459,12 +1459,22 @@ def _do_auto(state: dict, p: dict) -> None:
     # zone shouldn't trigger a 1.5 s escape burst — the bot would
     # just navigate back to the same idle target on the next tick.
     #
+    # S_REGEN: action is ``_do_idle()`` — bot intentionally parks
+    # and waits for shields to recover.  Zero movement is the
+    # whole point, so the watchdog fires every cycle.  2026-05-05
+    # telemetry caught the pathology cleanly: a single 40 s REGEN
+    # run produced 8 stuck_detected events; each escape burst
+    # shoved the bot ~700 px (4 successive bursts moved it 2052 px
+    # north along x≈3050) before pinning it against an edge for
+    # the final 12 s.  Shields still recovered (54 → 88) but the
+    # ship ended up far from where REGEN started.
+    #
     # GATHER / MINE / DEPOSIT / CRAFT / INSTALL / HUNT still get
     # stuck-detect protection — those states call _do_goto with
     # brake_on_arrival=True against single chase targets, so a
     # real pin cleanly fires the watchdog.
     if (_detect_stuck()
-            and _fsm["state"] not in (S_SEARCH, S_IDLE_AT_BASE)):
+            and _fsm["state"] not in (S_SEARCH, S_IDLE_AT_BASE, S_REGEN)):
         _stuck_state["escape_until"] = now + STUCK_ESCAPE_MIN_DURATION_S
         # Blacklist whichever target the bot was trying to reach —
         # if we got stuck WHILE in S_GATHER, the pickup is

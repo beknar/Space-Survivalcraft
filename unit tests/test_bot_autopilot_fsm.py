@@ -3135,7 +3135,7 @@ class TestIdleAtBaseExemptFromStuckDetect:
 
     def test_escape_still_fires_in_mine(self, _clock):
         """Sanity: MINE still triggers stuck-detect (the exemption
-        is narrow, only covers IDLE_AT_BASE + SEARCH)."""
+        is narrow, only covers IDLE_AT_BASE + SEARCH + REGEN)."""
         for _ in range(20):
             s = _state(
                 player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
@@ -3146,6 +3146,36 @@ class TestIdleAtBaseExemptFromStuckDetect:
             _clock[0] += 0.1
         assert ap._fsm["state"] == ap.S_MINE
         assert ap._stuck_state["escape_until"] > 0.0
+
+
+class TestRegenExemptFromStuckDetect:
+    """S_REGEN's action is ``_do_idle()`` — the bot intentionally
+    parks and waits for shields to recover.  Zero movement is the
+    point, so the watchdog fires every cycle if not exempt.  Caught
+    from 2026-05-05 telemetry: a single 40 s REGEN run produced 8
+    stuck_detected events; each escape burst shoved the bot ~700 px
+    until it pinned against an edge."""
+
+    def test_no_escape_in_regen_when_idle(self, _clock):
+        """Drop shields below REGEN_ENTER_PCT with no close threat —
+        FSM enters REGEN.  Run the full detect window: NO escape
+        should fire because REGEN is exempt."""
+        # Shields at 30% — below REGEN_ENTER_PCT (0.40) — and no
+        # alien within ENGAGE_ENTER_PX so the entry gate opens.
+        for _ in range(20):
+            s = _state(player={
+                "x": 3200.0, "y": 3200.0, "heading": 0.0,
+                "shields": 45, "max_shields": 150,
+            })
+            ap._do_auto(s, s["player"])
+            _clock[0] += 0.1
+        assert ap._fsm["state"] == ap.S_REGEN, (
+            "test setup invariant — FSM should enter REGEN when "
+            "shields < 40% and no close threat is visible")
+        assert ap._stuck_state["escape_until"] == 0.0, (
+            "S_REGEN must be exempt from stuck-detect — the bot is "
+            "intentionally idling so the watchdog's zero-movement "
+            "criterion always fires otherwise")
 
 
 class TestIdleAtBaseStopsOutsideBuildingCluster:
