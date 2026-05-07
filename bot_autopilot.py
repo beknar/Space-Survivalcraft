@@ -435,6 +435,23 @@ HUNT_GIVEUP_S:         float = 30.0
 # trip the guard cleanly at t+3 s instead of t+1 s.
 HUNT_CLUSTER_PIN_DELAY_S: float = 3.0
 
+# Pin-escape lockout: when EITHER the wall-pin escape (helper
+# returns None on currently_hunting=True with bot+aliens edge-
+# adjacent) OR the cluster-pin guard fires, also push out
+# ``_state.hunt_giveup_until`` so the FSM can't re-enter HUNT for
+# this many seconds.  Without this, the suppression only stops
+# the CURRENT HUNT — the very next tick from IDLE_AT_BASE has
+# ``currently_hunting=False``, takes the helper's unfiltered
+# fallback path, sees the same edge alien, and re-fires HUNT.
+# 2026-05-06 follow-up #4 telemetry caught the result: 107
+# IDLE↔HUNT toggles in 3 minutes (54 + 53), median dwell 1.01 s
+# in both states (right at MIN_DWELL_S floor), bot wall-pinned
+# at px=48 for 146 s straight while visibly oscillating to the
+# user.  10 s converts a 1-per-second thrash into 1-per-10-seconds
+# probing — the same pin still trips the same lockout, but the
+# user-visible oscillation drops by 90 %.
+HUNT_PIN_GIVEUP_S: float = 10.0
+
 # Long-term per-anchor hunt-stuck tracking: catches the SLOW
 # repeated-pin pattern that the acute window above misses.  When a
 # stuck event fires in S_HUNT, the anchor (rounded to a 200 px grid)
@@ -1491,6 +1508,21 @@ def _choose_next_state(state: dict, p: dict, cur: str) -> str:
             and hunt_time >= HUNT_CLUSTER_PIN_DELAY_S
             and not _ship_clear_of_buildings(p, state)):
         hunt_target = None
+    # Pin-escape lockout (2026-05-06 follow-up #4): if either pin-
+    # escape path zeroed hunt_target while aliens were still visible,
+    # block HUNT re-entry from IDLE_AT_BASE for HUNT_PIN_GIVEUP_S so
+    # the next tick doesn't immediately re-fire (currently_hunting
+    # would be False from IDLE, taking the helper's fallback path).
+    # Without this lockout the bot oscillated IDLE↔HUNT 107 times in
+    # 3 minutes during a wall-pin (median dwell 1.01 s in both
+    # states).  hunt_target is None here only when aliens are
+    # visible AND we were in HUNT (no-aliens case has empty list,
+    # legitimate alien-out-of-range case has non-None target with
+    # hunt_td >= hunt_gate); both gates fail-closed for safety.
+    if (cur == S_HUNT and hunt_target is None
+            and (state.get("aliens") or [])):
+        _state.hunt_giveup_until = max(
+            _state.hunt_giveup_until, now + HUNT_PIN_GIVEUP_S)
     if (hunt_target is not None and hunt_td < hunt_gate
             and now >= _state.hunt_giveup_until):
         return S_HUNT
