@@ -3426,7 +3426,10 @@ class TestHuntGateSymmetric:
             player={"x": 8000.0, "y": 8000.0, "heading": 0.0,
                     "shields": 150, "max_shields": 150},
             aliens=[{"x": 13000.0, "y": 8000.0, "hp": 50}],
-            buildings=[_hs_building(x=8000.0, y=8000.0)],
+            # HS far from bot (>BUILDING_REPULSION_RANGE_PX) so the
+            # building-cluster pin escape stays out of the way of
+            # the symmetric-gate behaviour this test pins.
+            buildings=[_hs_building(x=1000.0, y=1000.0)],
             world_w=16000, world_h=16000,
         )
         ap._do_auto(s, s["player"])
@@ -3468,7 +3471,9 @@ class TestHuntGateSymmetric:
                 player={"x": 8000.0, "y": 8000.0, "heading": 0.0,
                         "shields": 150, "max_shields": 150},
                 aliens=[{"x": 13000.0, "y": 8000.0, "hp": 50}],
-                buildings=[_hs_building(x=8000.0, y=8000.0)],
+                # HS placed far from bot to keep building-cluster
+                # escape out of the symmetric-gate test's way.
+                buildings=[_hs_building(x=1000.0, y=1000.0)],
                 world_w=16000, world_h=16000,
             )
             ap._do_auto(s, s["player"])
@@ -4221,6 +4226,105 @@ class TestNearestHuntableAlienEdgeFilter:
         assert ap._fsm["state"] == ap.S_IDLE_AT_BASE, (
             "FSM should fall through to IDLE_AT_BASE so the bot "
             "navigates away from the wall.")
+
+
+# ── Fix (2026-05-06 #2): HUNT building-cluster pin escape ─────────────
+
+class TestHuntBuildingClusterEscape:
+    """Symmetric to the wall-pin escape: when the bot is already in
+    S_HUNT and has wandered INSIDE the home-station building
+    repulsion field, the FSM must release HUNT instead of re-firing
+    every tick.  Caught from 2026-05-06 follow-up #2 telemetry: a
+    55 s pin at px≈220 / hsd≈230 inside the cluster while chasing
+    an interior alien.  The wall-pin escape doesn't engage there
+    because the alien target is interior (not edge-adjacent), so a
+    parallel building-cluster guard is needed.
+
+    The check uses ``_ship_clear_of_buildings`` (already used by the
+    escape exit condition) to keep the cluster boundary definition
+    consistent across the navigation + FSM layers."""
+
+    def _close_building(self, x=3200.0, y=3200.0):
+        """A non-Home-Station building inside the cluster radius
+        used to stuff the bot inside the building-repulsion field
+        without the bot literally overlapping the HS."""
+        return {"x": x, "y": y, "hp": 100, "type": "StationModule",
+                "building_type": "Service Module"}
+
+    def test_hunt_releases_when_bot_inside_building_cluster(
+            self, _clock):
+        """Bot already in HUNT, inside the home-station cluster
+        (within BUILDING_REPULSION_RANGE_PX of a building) — FSM
+        must transition out of HUNT to IDLE_AT_BASE.  Pre-fix this
+        scenario looped indefinitely chasing aliens through the
+        cluster's repulsion field."""
+        ap._fsm["state"] = ap.S_HUNT
+        ap._fsm["entered_at"] = _clock[0] - 10.0
+        # Bot at (3220, 3200) — 20 px from the HS at (3200, 3200),
+        # well inside the 150 px building-repulsion range.  Alien
+        # at (4500, 3200) — interior, in HUNT_RANGE_PX, so the
+        # wall-pin escape would NOT fire here.
+        s = _state(
+            player={"x": 3220.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            aliens=[{"x": 4500.0, "y": 3200.0, "hp": 50}],
+            buildings=[_hs_building(x=3200.0, y=3200.0)],
+            world_w=6400, world_h=6400,
+        )
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] != ap.S_HUNT, (
+            "HUNT must release when bot is inside the building "
+            "cluster — the wall-pin escape doesn't catch this "
+            "because the alien is interior.")
+        assert ap._fsm["state"] == ap.S_IDLE_AT_BASE, (
+            "FSM should fall to IDLE_AT_BASE; its 600 px outer-"
+            "ring navigation pulls the bot OUT of the cluster.")
+
+    def test_hunt_persists_when_bot_outside_cluster(self, _clock):
+        """Inverse: bot already in HUNT, but parked OUTSIDE the
+        building cluster — HUNT must continue firing.  Pin escape
+        is conditional on cluster-interior position, not just
+        currently-hunting state."""
+        ap._fsm["state"] = ap.S_HUNT
+        ap._fsm["entered_at"] = _clock[0] - 10.0
+        # Bot at (4000, 3200) — 800 px from the HS, far clear of
+        # the 150 px building-repulsion range.
+        s = _state(
+            player={"x": 4000.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            aliens=[{"x": 5500.0, "y": 3200.0, "hp": 50}],
+            buildings=[_hs_building(x=3200.0, y=3200.0)],
+            world_w=6400, world_h=6400,
+        )
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_HUNT, (
+            "HUNT must persist when bot is clear of the cluster "
+            "even when currently_hunting=True.")
+
+    def test_initial_hunt_entry_from_inside_cluster_still_fires(
+            self, _clock):
+        """The cluster guard, like the wall-pin escape, only
+        suppresses HUNT *re-entries* (cur == S_HUNT).  An initial
+        HUNT trigger from IDLE_AT_BASE — even with the bot inside
+        the cluster — must still fire.  Otherwise IDLE_AT_BASE
+        would never be able to launch a chase from its own parking
+        spot near the station, defeating the IDLE→HUNT cascade
+        altogether."""
+        ap._fsm["state"] = ap.S_IDLE_AT_BASE
+        ap._fsm["entered_at"] = _clock[0] - 10.0
+        s = _state(
+            player={"x": 3220.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            aliens=[{"x": 4500.0, "y": 3200.0, "hp": 50}],
+            buildings=[_hs_building(x=3200.0, y=3200.0)],
+            world_w=6400, world_h=6400,
+        )
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_HUNT, (
+            "Initial HUNT entry from IDLE_AT_BASE must still fire "
+            "even from inside the cluster — cluster guard is a "
+            "re-entry-only suppression, mirroring the wall-pin "
+            "escape's cur==S_HUNT gate.")
 
 
 # ── Fix B (2026-05-04): cluster-aware repulsion suppression ──────────
