@@ -4228,6 +4228,160 @@ class TestNearestHuntableAlienEdgeFilter:
             "navigates away from the wall.")
 
 
+# ── Fix (2026-05-06 #4): HUNT pin-escape lockout ──────────────────────
+
+class TestHuntPinEscapeLockout:
+    """When the wall-pin escape (PR #36) or cluster-pin guard (PR #37)
+    suppresses HUNT, the FSM also pushes ``_state.hunt_giveup_until``
+    forward by ``HUNT_PIN_GIVEUP_S`` so the next tick from
+    IDLE_AT_BASE can't immediately re-fire HUNT.  Without this, the
+    suppression only stops the CURRENT HUNT — IDLE→HUNT runs the
+    helper with ``currently_hunting=False``, takes the unfiltered
+    fallback path, picks up the same edge alien, and fires HUNT
+    again on the very next tick.
+
+    2026-05-06 follow-up #4 telemetry caught the result: 107
+    IDLE↔HUNT toggles in 3 minutes, both states pinned to the
+    MIN_DWELL_S floor, bot wall-pinned at px=48 for 146 s while
+    visibly oscillating.  The lockout converts a 1-per-second
+    thrash into 1-per-10-seconds probing — 90 % less visible
+    oscillation."""
+
+    def test_wall_pin_escape_sets_lockout(self, _clock):
+        """Wall-pin escape fires (cur == S_HUNT, bot at edge, every
+        alien edge-adjacent) → ``_state.hunt_giveup_until`` must be
+        pushed at least HUNT_PIN_GIVEUP_S into the future."""
+        ap._fsm_reset()
+        ap._fsm["state"] = ap.S_HUNT
+        ap._fsm["entered_at"] = _clock[0] - 5.0
+        ap._state.hunt_giveup_until = 0.0
+        s = _state(
+            player={"x": 48.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            aliens=[
+                {"x": 100.0, "y": 5000.0, "hp": 50},
+                {"x": 150.0, "y": 1000.0, "hp": 50},
+            ],
+            buildings=[_hs_building()],
+            world_w=6400, world_h=6400,
+        )
+        ap._do_auto(s, s["player"])
+        assert ap._state.hunt_giveup_until >= (
+            _clock[0] + ap.HUNT_PIN_GIVEUP_S - 0.01), (
+            "Wall-pin suppression must arm the HUNT_PIN_GIVEUP_S "
+            "lockout so IDLE_AT_BASE can't re-fire HUNT immediately.")
+
+    def test_cluster_pin_guard_sets_lockout(self, _clock):
+        """Cluster guard fires (cur == S_HUNT, hunt_time past delay,
+        bot inside cluster) → lockout must be armed."""
+        ap._fsm_reset()
+        ap._fsm["state"] = ap.S_HUNT
+        ap._fsm["entered_at"] = _clock[0] - 10.0  # past delay
+        ap._state.hunt_giveup_until = 0.0
+        s = _state(
+            player={"x": 3220.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            aliens=[{"x": 4500.0, "y": 3200.0, "hp": 50}],
+            buildings=[_hs_building(x=3200.0, y=3200.0)],
+            world_w=6400, world_h=6400,
+        )
+        ap._do_auto(s, s["player"])
+        assert ap._state.hunt_giveup_until >= (
+            _clock[0] + ap.HUNT_PIN_GIVEUP_S - 0.01)
+
+    def test_lockout_prevents_idle_to_hunt_re_entry(self, _clock):
+        """End-to-end pin for the user-reported oscillation.  After
+        the wall-pin escape fires (HUNT → IDLE_AT_BASE), the next
+        tick from IDLE_AT_BASE — even with the same edge alien
+        visible — must NOT re-fire HUNT until the lockout expires."""
+        ap._fsm_reset()
+        ap._fsm["state"] = ap.S_HUNT
+        ap._fsm["entered_at"] = _clock[0] - 5.0
+        ap._state.hunt_giveup_until = 0.0
+        s = _state(
+            player={"x": 48.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            aliens=[
+                {"x": 100.0, "y": 5000.0, "hp": 50},
+                {"x": 150.0, "y": 1000.0, "hp": 50},
+            ],
+            buildings=[_hs_building()],
+            world_w=6400, world_h=6400,
+        )
+        # Tick 1: wall-pin escape fires, FSM → IDLE_AT_BASE.
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_IDLE_AT_BASE
+        # Tick 2: same state, past MIN_DWELL_S — pre-fix this would
+        # bounce back to HUNT because helper's fallback returns the
+        # edge alien.  With lockout, HUNT must stay suppressed.
+        _clock[0] += ap.MIN_DWELL_S + 0.1
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] != ap.S_HUNT, (
+            "IDLE_AT_BASE re-fired HUNT immediately — lockout is "
+            "not engaging.  This is the user-reported oscillation.")
+        # Tick 3: also blocked.
+        _clock[0] += ap.MIN_DWELL_S + 0.1
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] != ap.S_HUNT
+
+    def test_lockout_expires_after_giveup_window(self, _clock):
+        """Once HUNT_PIN_GIVEUP_S elapses the lockout releases and
+        HUNT can fire again.  Without expiry the bot would never
+        re-attempt the chase even after the alien moved or the bot
+        drifted clear of the wall."""
+        ap._fsm_reset()
+        ap._fsm["state"] = ap.S_HUNT
+        ap._fsm["entered_at"] = _clock[0] - 5.0
+        ap._state.hunt_giveup_until = 0.0
+        s_pinned = _state(
+            player={"x": 48.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            aliens=[
+                {"x": 100.0, "y": 5000.0, "hp": 50},
+                {"x": 150.0, "y": 1000.0, "hp": 50},
+            ],
+            buildings=[_hs_building()],
+            world_w=6400, world_h=6400,
+        )
+        ap._do_auto(s_pinned, s_pinned["player"])
+        # Jump past the lockout window with the bot now in clear
+        # space and an interior alien visible.
+        _clock[0] += ap.HUNT_PIN_GIVEUP_S + 0.5
+        s_clear = _state(
+            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            aliens=[{"x": 4500.0, "y": 3200.0, "hp": 50}],
+            buildings=[_hs_building()],
+            world_w=6400, world_h=6400,
+        )
+        ap._do_auto(s_clear, s_clear["player"])
+        assert ap._fsm["state"] == ap.S_HUNT, (
+            "Lockout must expire after HUNT_PIN_GIVEUP_S so the bot "
+            "can resume hunting once the pin condition clears.")
+
+    def test_lockout_not_set_when_no_aliens_visible(self, _clock):
+        """The lockout's gate (``aliens visible AND hunt_target is
+        None``) must not fire when there are simply no aliens — that
+        case is benign (no thrash to prevent), and arming an
+        unnecessary lockout would suppress legitimate HUNT entries
+        once aliens DO appear."""
+        ap._fsm_reset()
+        ap._fsm["state"] = ap.S_HUNT
+        ap._fsm["entered_at"] = _clock[0] - 5.0
+        ap._state.hunt_giveup_until = 0.0
+        s = _state(
+            player={"x": 48.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            aliens=[],
+            buildings=[_hs_building()],
+            world_w=6400, world_h=6400,
+        )
+        ap._do_auto(s, s["player"])
+        assert ap._state.hunt_giveup_until == 0.0, (
+            "No-aliens case must not arm the lockout — the gate "
+            "is conditional on aliens being visible.")
+
+
 # ── Fix (2026-05-06 #2): HUNT building-cluster pin escape ─────────────
 
 class TestHuntBuildingClusterEscape:
