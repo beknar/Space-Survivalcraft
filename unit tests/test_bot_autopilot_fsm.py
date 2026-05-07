@@ -5339,12 +5339,16 @@ def _fresh_bot_state(monkeypatch):
     ap._state.consumables_equipped = False
     ap._state.qwi_placed = False
     ap._state.last_consumable_use_at = 0.0
+    ap._state.heal_hp_active = False
+    ap._state.heal_shield_active = False
     ap._state.queue = ap.CraftQueue()
     ap._state.build_done = True   # skip the BUILD branch
     yield
     ap._state.consumables_equipped = False
     ap._state.qwi_placed = False
     ap._state.last_consumable_use_at = 0.0
+    ap._state.heal_hp_active = False
+    ap._state.heal_shield_active = False
     ap._state.queue = ap.CraftQueue()
 
 
@@ -5713,3 +5717,299 @@ class TestMaybeUseConsumables:
         _clock[0] += ap.CONSUMABLE_USE_COOLDOWN_S * 1.5
         ap._maybe_use_consumables(s, s["player"])
         assert captured == [0, 0]
+
+
+class TestHealActiveLatch:
+    """Heal-active latches keep firing until the bar reaches max,
+    matching the user spec ("use until 100%").  Without the latch
+    one 50%-heal use would leave the bot at e.g. 80% HP — above the
+    50% re-trigger threshold, so no second fire."""
+
+    def test_hp_latch_arms_when_threshold_crosses(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        monkeypatch.setattr(ap, "_post_use_quick_use",
+                            lambda slot: {"ok": True})
+        s = _state(
+            player={"x": 0, "y": 0, "heading": 0,
+                    "hp": 30, "max_hp": 100,
+                    "shields": 150, "max_shields": 150},
+        )
+        s["quick_use_slots"] = [
+            {"item_type": "repair_pack", "count": 25},
+        ]
+        ap._maybe_use_consumables(s, s["player"])
+        assert ap._state.heal_hp_active is True
+
+    def test_hp_latch_disarms_when_full(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        monkeypatch.setattr(ap, "_post_use_quick_use",
+                            lambda slot: {"ok": True})
+        # Pre-arm the latch then feed full HP — must disarm.
+        ap._state.heal_hp_active = True
+        s = _state(
+            player={"x": 0, "y": 0, "heading": 0,
+                    "hp": 100, "max_hp": 100,
+                    "shields": 150, "max_shields": 150},
+        )
+        s["quick_use_slots"] = [
+            {"item_type": "repair_pack", "count": 25},
+        ]
+        ap._maybe_use_consumables(s, s["player"])
+        assert ap._state.heal_hp_active is False
+
+    def test_hp_latch_stays_armed_at_intermediate_hp(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """If HP rose to 80 % (above 50 % threshold but below max),
+        the latch must STAY armed so the next tick still fires.
+        This is the spec-correctness test — under the old
+        threshold-only logic the latch never existed and the bot
+        would stop firing here."""
+        captured: list = []
+        monkeypatch.setattr(
+            ap, "_post_use_quick_use",
+            lambda slot: captured.append(slot) or {"ok": True})
+        ap._state.heal_hp_active = True
+        s = _state(
+            player={"x": 0, "y": 0, "heading": 0,
+                    "hp": 80, "max_hp": 100,
+                    "shields": 150, "max_shields": 150},
+        )
+        s["quick_use_slots"] = [
+            {"item_type": "repair_pack", "count": 25},
+        ]
+        ap._maybe_use_consumables(s, s["player"])
+        assert ap._state.heal_hp_active is True
+        assert captured == [0]   # fires even at 80 % because latch armed
+
+    def test_shield_latch_independent_from_hp_latch(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """Arming one latch must not affect the other."""
+        monkeypatch.setattr(ap, "_post_use_quick_use",
+                            lambda slot: {"ok": True})
+        s = _state(
+            player={"x": 0, "y": 0, "heading": 0,
+                    "hp": 100, "max_hp": 100,    # full HP
+                    "shields": 30, "max_shields": 150},
+        )
+        s["quick_use_slots"] = [
+            {"item_type": "repair_pack", "count": 25},
+            {"item_type": "shield_recharge", "count": 25},
+        ]
+        ap._maybe_use_consumables(s, s["player"])
+        assert ap._state.heal_hp_active is False
+        assert ap._state.heal_shield_active is True
+
+    def test_latch_keeps_firing_across_ticks_until_full(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """Simulates the user's exact spec: HP drops to 30 %, the
+        bot must fire repeatedly (not just once) until HP reaches
+        100 %.  Each fire bumps HP by 50 % of max in the test
+        harness, mirroring the in-game heal."""
+        captured: list = []
+
+        def fake_post(slot):
+            captured.append(slot)
+            # Simulate the heal landing — bump HP by 50 %.
+            s["player"]["hp"] = min(
+                s["player"]["max_hp"],
+                s["player"]["hp"] + int(s["player"]["max_hp"] * 0.5))
+            return {"ok": True}
+
+        monkeypatch.setattr(ap, "_post_use_quick_use", fake_post)
+        s = _state(
+            player={"x": 0, "y": 0, "heading": 0,
+                    "hp": 30, "max_hp": 100,
+                    "shields": 150, "max_shields": 150},
+        )
+        s["quick_use_slots"] = [
+            {"item_type": "repair_pack", "count": 25},
+        ]
+        # Tick 1: arm + fire (hp 30 -> 80).
+        ap._maybe_use_consumables(s, s["player"])
+        assert captured == [0]
+        assert s["player"]["hp"] == 80
+        # Tick 2 after cooldown: latch still armed, fire again
+        # (hp 80 -> 100).
+        _clock[0] += ap.CONSUMABLE_USE_COOLDOWN_S + 0.1
+        ap._maybe_use_consumables(s, s["player"])
+        assert captured == [0, 0]
+        assert s["player"]["hp"] == 100
+        # Tick 3 after cooldown: latch disarms, no fire.
+        _clock[0] += ap.CONSUMABLE_USE_COOLDOWN_S + 0.1
+        ap._maybe_use_consumables(s, s["player"])
+        assert captured == [0, 0]
+        assert ap._state.heal_hp_active is False
+
+    def test_latch_stops_firing_when_consumable_runs_out(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """If the consumable count drops to 0 mid-heal, the auto-use
+        loop must NOT spam the endpoint — _find_quick_use_slot
+        returns None for count=0 slots."""
+        captured: list = []
+        monkeypatch.setattr(
+            ap, "_post_use_quick_use",
+            lambda slot: captured.append(slot) or {"ok": True})
+        ap._state.heal_hp_active = True
+        s = _state(
+            player={"x": 0, "y": 0, "heading": 0,
+                    "hp": 30, "max_hp": 100,
+                    "shields": 150, "max_shields": 150},
+        )
+        s["quick_use_slots"] = [
+            {"item_type": "repair_pack", "count": 0},
+        ]
+        ap._maybe_use_consumables(s, s["player"])
+        # Latch stays armed (HP < max), but no fire.
+        assert captured == []
+        assert ap._state.heal_hp_active is True
+
+
+class TestActAtStationHelper:
+    """The shared travel-and-post helper produces telemetry events
+    for both success and failure paths, and the failure-keyword
+    matcher latches the right field on known failure modes."""
+
+    def test_emits_post_success_telemetry(
+            self, _fresh_bot_state, monkeypatch):
+        events: list = []
+        monkeypatch.setattr(
+            ap, "_telemetry_log",
+            lambda evt, **kw: events.append((evt, kw)))
+        monkeypatch.setattr(ap, "_post_equip_consumables",
+                            lambda: {"ok": True, "repair_pack": 25,
+                                     "shield_recharge": 25})
+
+        class _FakeKey:
+            @staticmethod
+            def hold(name, on): pass
+            @staticmethod
+            def release_all(): pass
+
+        monkeypatch.setattr(ap, "KeyState", _FakeKey)
+        s = _state(
+            buildings=[{"x": 1000.0, "y": 1000.0,
+                        "building_type": "Home Station"}],
+            player={"x": 1050.0, "y": 1000.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+        )
+        ap._act_equip_consumables(s, s["player"])
+        success_events = [e for (e, _) in events
+                          if e == "equip_post_success"]
+        assert len(success_events) == 1
+
+    def test_emits_post_failure_telemetry_with_latched_flag(
+            self, _fresh_bot_state, monkeypatch):
+        events: list = []
+        monkeypatch.setattr(
+            ap, "_telemetry_log",
+            lambda evt, **kw: events.append((evt, kw)))
+        monkeypatch.setattr(
+            ap, "_post_equip_consumables",
+            lambda: {"ok": False,
+                     "reason": "no consumables in station inventory"})
+
+        class _FakeKey:
+            @staticmethod
+            def hold(name, on): pass
+            @staticmethod
+            def release_all(): pass
+
+        monkeypatch.setattr(ap, "KeyState", _FakeKey)
+        s = _state(
+            buildings=[{"x": 1000.0, "y": 1000.0,
+                        "building_type": "Home Station"}],
+            player={"x": 1050.0, "y": 1000.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+        )
+        ap._act_equip_consumables(s, s["player"])
+        # Locate the equip_post_failure event and confirm it
+        # captures latched=True.
+        fails = [kw for (e, kw) in events
+                 if e == "equip_post_failure"]
+        assert len(fails) == 1
+        assert fails[0]["latched"] is True
+
+    def test_unknown_failure_does_not_latch(
+            self, _fresh_bot_state, monkeypatch):
+        events: list = []
+        monkeypatch.setattr(
+            ap, "_telemetry_log",
+            lambda evt, **kw: events.append((evt, kw)))
+        # A "transport failure" reason isn't in the equip latch
+        # keyword list, so the latch must NOT flip.
+        monkeypatch.setattr(
+            ap, "_post_equip_consumables",
+            lambda: None)   # transport failure
+
+        class _FakeKey:
+            @staticmethod
+            def hold(name, on): pass
+            @staticmethod
+            def release_all(): pass
+
+        monkeypatch.setattr(ap, "KeyState", _FakeKey)
+        s = _state(
+            buildings=[{"x": 1000.0, "y": 1000.0,
+                        "building_type": "Home Station"}],
+            player={"x": 1050.0, "y": 1000.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+        )
+        ap._act_equip_consumables(s, s["player"])
+        assert ap._state.consumables_equipped is False
+        fails = [kw for (e, kw) in events
+                 if e == "equip_post_failure"]
+        assert len(fails) == 1
+        assert fails[0]["latched"] is False
+
+
+class TestEngageBossDodgeTelemetry:
+    """The Phase-2 charge dodge in _act_engage_boss now emits a
+    telemetry event so live runs can be analyzed."""
+
+    def test_dodge_emits_event_when_charging(self, monkeypatch):
+        events: list = []
+        monkeypatch.setattr(
+            ap, "_telemetry_log",
+            lambda evt, **kw: events.append((evt, kw)))
+        monkeypatch.setattr(ap, "_do_goto", lambda *a, **kw: None)
+        monkeypatch.setattr(ap, "_ensure_weapon", lambda *a, **kw: None)
+
+        class _FakeKey:
+            @staticmethod
+            def hold(name, on): pass
+
+        monkeypatch.setattr(ap, "KeyState", _FakeKey)
+        s = _state(
+            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+        )
+        s["boss"] = _boss(x=3400.0, y=3200.0, phase=2,
+                          charging=True, windup=2.0)
+        ap._act_engage_boss(s, s["player"])
+        dodge_events = [kw for (e, kw) in events
+                        if e == "engage_boss_dodge"]
+        assert len(dodge_events) == 1
+        assert dodge_events[0]["phase"] == 2
+
+    def test_no_dodge_event_when_not_charging(self, monkeypatch):
+        events: list = []
+        monkeypatch.setattr(
+            ap, "_telemetry_log",
+            lambda evt, **kw: events.append((evt, kw)))
+        monkeypatch.setattr(ap, "_do_goto", lambda *a, **kw: None)
+        monkeypatch.setattr(ap, "_ensure_weapon", lambda *a, **kw: None)
+
+        class _FakeKey:
+            @staticmethod
+            def hold(name, on): pass
+
+        monkeypatch.setattr(ap, "KeyState", _FakeKey)
+        s = _state(
+            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+        )
+        s["boss"] = _boss(x=3400.0, y=3200.0, phase=1)
+        ap._act_engage_boss(s, s["player"])
+        dodge_events = [e for (e, _) in events
+                        if e == "engage_boss_dodge"]
+        assert dodge_events == []

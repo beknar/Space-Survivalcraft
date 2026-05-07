@@ -865,19 +865,29 @@ class BotState:
     # so the auto-use tick doesn't spam the endpoint between the
     # POST and the heal landing.
     last_consumable_use_at: float = 0.0
-    # Wall+cluster trap detector (2026-05-06 follow-up #7).  The
-    # position-history stuck detector in bot_autopilot_navigation
-    # is defeated when the bot rotates to track aliens while wall-
-    # pinned (rotation gate >30° prevents the "stuck" classification
-    # even when net displacement is well under 25 px).  This pair
-    # of fields is a geometry-aware backstop: when the bot sits in
-    # the wall+cluster trap geometry (wall_pinned + cluster centroid
-    # blocking the inland path) AND has not moved more than
+    # Wall+cluster trap detector (PR #44).  The position-history
+    # stuck detector in bot_autopilot_navigation is defeated when
+    # the bot rotates to track aliens while wall-pinned (rotation
+    # gate >30° prevents the "stuck" classification even when net
+    # displacement is well under 25 px).  This pair of fields is a
+    # geometry-aware backstop: when the bot sits in the wall+cluster
+    # trap geometry (wall_pinned + cluster centroid blocking the
+    # inland path) AND has not moved more than
     # WALL_PIN_TRAP_PROGRESS_PX over WALL_PIN_TRAP_WINDOW_S, force-
     # arm the existing escape mechanism so compute_escape_target's
     # wall-tangent path (PR #42) takes over.
     wall_pin_anchor: tuple = (0.0, 0.0)
     wall_pin_anchor_at: float = 0.0
+    # Heal-active latches (PR #45 follow-up).  Once HP / shields
+    # drop past CONSUMABLE_USE_*_PCT, the matching latch arms and
+    # stays armed until the bar refills to 100 %.  Without these,
+    # one 50 %-heal use leaves the bot at e.g. 80 % HP if HP
+    # dropped to 30 % between ticks — above the 50 % re-trigger
+    # threshold, so no second use would fire.  The latch makes the
+    # auto-use loop keep firing on each cooldown tick until the
+    # bar is fully filled, matching the user spec ("use until 100 %").
+    heal_hp_active: bool = False
+    heal_shield_active: bool = False
 
     def reset(self) -> None:
         """Restore every field to its default.  Mutates dict fields
@@ -908,6 +918,8 @@ class BotState:
         self.last_consumable_use_at = 0.0
         self.wall_pin_anchor = (0.0, 0.0)
         self.wall_pin_anchor_at = 0.0
+        self.heal_hp_active = False
+        self.heal_shield_active = False
 
 
 _state = BotState()
@@ -2715,6 +2727,12 @@ def _act_engage_boss(state: dict, p: dict) -> None:
         sign = 1.0 if (int(windup * 10) % 2 == 0) else -1.0
         kite_x += -uy * sign * BOSS_DODGE_PERP_PX
         kite_y += ux * sign * BOSS_DODGE_PERP_PX
+        _telemetry_log("engage_boss_dodge",
+                       phase=phase,
+                       charging=bool(charging),
+                       windup=round(float(windup), 3),
+                       sign=sign,
+                       boss_dist=round(bdist, 1))
 
     # World-edge clamp — same pattern as _act_engage so a corner
     # boss doesn't pull the bot into the boundary repulsion field.
@@ -2827,15 +2845,68 @@ def _post_place_qwi(timeout_s: float = 10.0) -> dict | None:
         return None
 
 
-def _maybe_use_consumables(state: dict, p: dict) -> None:
-    """Per-tick check: if HP <= 50 % and a repair pack is in a
-    quick-use slot, fire it.  Same for shields and shield recharge.
-    Runs every ``_do_auto`` tick before the FSM dispatch so the
-    response is independent of whatever state the bot is in (combat,
-    mining, building, boss fight — all of them benefit from auto-heal).
+def _find_quick_use_slot(slots: list, item_type: str) -> int | None:
+    """First quick-use slot that holds ``item_type`` with count > 0,
+    or None if no such slot exists."""
+    for i, s in enumerate(slots):
+        if s.get("item_type") == item_type \
+                and int(s.get("count", 0)) > 0:
+            return i
+    return None
 
-    Cooldown ``CONSUMABLE_USE_COOLDOWN_S`` prevents spamming the
-    endpoint between the POST and the heal landing."""
+
+def _maybe_use_consumables(state: dict, p: dict) -> None:
+    """Per-tick auto-heal hook: fire repair pack / shield recharge
+    based on HP / shield thresholds.  Runs every ``_do_auto`` tick
+    before the FSM dispatch so the response is independent of which
+    state the bot is in.
+
+    The user spec is "use until 100 %", so each consumable is
+    governed by a heal-active latch:
+
+      * Latch ARMS when current value crosses below
+        ``CONSUMABLE_USE_*_PCT`` of max.
+      * Latch DISARMS when current value reaches max.
+      * While the latch is armed, the auto-use loop fires on every
+        tick (subject to ``CONSUMABLE_USE_COOLDOWN_S``) until either
+        max is reached or the matching consumable runs out.
+
+    Without the latch a single 50 %-heal use only refills the deficit
+    that tripped the threshold — if HP dropped to 30 % between ticks,
+    one use lands at 80 %, the next tick reads ``80/100 > 0.5`` and
+    no further use fires until the bar drops below 50 % again.  The
+    latch closes that gap.
+
+    Repair pack takes priority over shield recharge when both
+    latches are armed on the same tick (HP can't passively regen;
+    shields do)."""
+    hp = int(p.get("hp", 0))
+    max_hp = max(1, int(p.get("max_hp", 1)))
+    sh = int(p.get("shields", 0))
+    max_sh = max(1, int(p.get("max_shields", 1)))
+    hp_frac = hp / max_hp
+    sh_frac = sh / max_sh
+
+    # Edge transitions on the latches — log on arm + disarm so
+    # telemetry shows the heal window boundaries.
+    if not _state.heal_hp_active and hp_frac <= CONSUMABLE_USE_HP_PCT:
+        _state.heal_hp_active = True
+        _telemetry_log("heal_hp_arm",
+                       hp=hp, max_hp=max_hp, hp_frac=round(hp_frac, 3))
+    if _state.heal_hp_active and hp >= max_hp:
+        _state.heal_hp_active = False
+        _telemetry_log("heal_hp_disarm",
+                       hp=hp, max_hp=max_hp)
+    if not _state.heal_shield_active and sh_frac <= CONSUMABLE_USE_SHIELD_PCT:
+        _state.heal_shield_active = True
+        _telemetry_log("heal_shield_arm",
+                       shields=sh, max_shields=max_sh,
+                       sh_frac=round(sh_frac, 3))
+    if _state.heal_shield_active and sh >= max_sh:
+        _state.heal_shield_active = False
+        _telemetry_log("heal_shield_disarm",
+                       shields=sh, max_shields=max_sh)
+
     now = _get_now()
     if (now - _state.last_consumable_use_at) < CONSUMABLE_USE_COOLDOWN_S:
         return
@@ -2844,33 +2915,64 @@ def _maybe_use_consumables(state: dict, p: dict) -> None:
     if not slots:
         return
 
-    hp = int(p.get("hp", 0))
-    max_hp = max(1, int(p.get("max_hp", 1)))
-    sh = int(p.get("shields", 0))
-    max_sh = max(1, int(p.get("max_shields", 1)))
+    # HP first — HP loss is harder to recover (no passive regen).
+    if _state.heal_hp_active:
+        slot = _find_quick_use_slot(slots, "repair_pack")
+        if slot is not None:
+            _post_use_quick_use(slot)
+            _state.last_consumable_use_at = now
+            _telemetry_log("heal_hp_fire",
+                           slot=slot, hp=hp, max_hp=max_hp)
+            return
 
-    # Repair pack first — HP loss is harder to recover from than
-    # shield loss (no passive regen on HP) so prioritise it when
-    # both thresholds tripped on the same tick.
-    if (hp / max_hp) <= CONSUMABLE_USE_HP_PCT:
-        for i, s in enumerate(slots):
-            if s.get("item_type") == "repair_pack" and int(s.get("count", 0)) > 0:
-                _post_use_quick_use(i)
-                _state.last_consumable_use_at = now
-                return
-
-    if (sh / max_sh) <= CONSUMABLE_USE_SHIELD_PCT:
-        for i, s in enumerate(slots):
-            if s.get("item_type") == "shield_recharge" and int(s.get("count", 0)) > 0:
-                _post_use_quick_use(i)
-                _state.last_consumable_use_at = now
-                return
+    if _state.heal_shield_active:
+        slot = _find_quick_use_slot(slots, "shield_recharge")
+        if slot is not None:
+            _post_use_quick_use(slot)
+            _state.last_consumable_use_at = now
+            _telemetry_log("heal_shield_fire",
+                           slot=slot, shields=sh, max_shields=max_sh)
+            return
 
 
-def _act_equip_consumables(state: dict, p: dict) -> None:
-    """S_EQUIP_CONSUMABLES: navigate to the Home Station, then POST
-    /equip_consumables.  Flips ``_state.consumables_equipped`` on
-    success so the FSM doesn't re-fire."""
+def _act_at_station(
+        state: dict,
+        p: dict,
+        *,
+        label: str,
+        post_fn,
+        on_success_log,
+        latch_setter,
+        latch_failure_keywords: tuple[str, ...] = (),
+        ) -> None:
+    """Shared "travel to Home Station, POST a one-shot endpoint,
+    latch on success" helper for the boss-prep pipeline action
+    handlers.  Both ``_act_equip_consumables`` and ``_act_build_qwi``
+    share the same shape — only the POST function, success log, and
+    the latch field differ.
+
+    Args:
+      label: short string for the log prefix (e.g. ``"EQUIP"``).
+      post_fn: zero-arg callable returning the POST response dict.
+      on_success_log: callable taking the response dict, returns the
+                      log line to print on success.
+      latch_setter: zero-arg callable that flips the latch field on
+                    ``_state``.  Called both on success AND on a
+                    failure response whose reason string contains any
+                    of ``latch_failure_keywords`` (default empty).
+      latch_failure_keywords: substrings to match against the
+                              response's ``reason`` field.  When any
+                              matches, the latch is set so the FSM
+                              moves on instead of looping forever
+                              (e.g. ``"no consumables"`` after
+                              consumables already withdrawn).
+
+    Telemetry events emitted:
+      * ``<label>_post_failure`` — POST returned ``ok=False`` or
+        transport failed.  Payload includes ``reason`` and whether
+        the failure latched.
+      * ``<label>_post_success`` — POST returned ``ok=True``.
+    """
     hs = _find_home_station(state)
     if hs is None:
         _do_idle()
@@ -2886,56 +2988,68 @@ def _act_equip_consumables(state: dict, p: dict) -> None:
                  stop_radius=INSTALL_INTERACT_RANGE_PX * 0.8)
         return
     KeyState.release_all()
-    result = _post_equip_consumables()
+    result = post_fn()
     if result is None or not result.get("ok", False):
-        reason = (result or {}).get("reason", "transport failure")
-        print(f"[autopilot] EQUIP: rejected ({reason})")
-        # If the station inventory is empty (already equipped or
-        # somebody picked up the consumables), latch the flag so
-        # the FSM moves on instead of re-firing forever.
-        if reason and "no consumables" in str(reason):
-            _state.consumables_equipped = True
+        reason = str((result or {}).get("reason", "transport failure"))
+        print(f"[autopilot] {label}: rejected ({reason})")
+        latched = False
+        if any(kw in reason for kw in latch_failure_keywords):
+            latch_setter()
+            latched = True
+        _telemetry_log(f"{label.lower()}_post_failure",
+                       reason=reason, latched=latched)
         return
-    _state.consumables_equipped = True
-    print(f"[autopilot] EQUIP: rp={result.get('repair_pack')} "
-          f"sr={result.get('shield_recharge')} "
-          f"slots=({result.get('repair_slot')},{result.get('shield_slot')})")
+    latch_setter()
+    msg = on_success_log(result)
+    print(f"[autopilot] {label}: {msg}")
+    _telemetry_log(f"{label.lower()}_post_success",
+                   **{k: result.get(k) for k in result if k != "ok"})
+
+
+def _act_equip_consumables(state: dict, p: dict) -> None:
+    """S_EQUIP_CONSUMABLES: navigate to the Home Station, then POST
+    /equip_consumables.  Flips ``_state.consumables_equipped`` on
+    success so the FSM doesn't re-fire.  Also flips the latch on
+    the "no consumables" failure (already withdrawn)."""
+    def _set_latch():
+        _state.consumables_equipped = True
+
+    _act_at_station(
+        state, p,
+        label="EQUIP",
+        post_fn=_post_equip_consumables,
+        on_success_log=lambda r: (
+            f"rp={r.get('repair_pack')} "
+            f"sr={r.get('shield_recharge')} "
+            f"slots=({r.get('repair_slot')},{r.get('shield_slot')})"),
+        latch_setter=_set_latch,
+        latch_failure_keywords=("no consumables",),
+    )
 
 
 def _act_build_qwi(state: dict, p: dict) -> None:
     """S_BUILD_QWI: navigate to the Home Station, then POST
     /place_qwi.  Auto-spawns the Double Star boss on success.  Flips
     ``_state.qwi_placed`` so the FSM doesn't re-fire even if the
-    next-tick state snapshot hasn't refreshed yet."""
-    hs = _find_home_station(state)
-    if hs is None:
-        _do_idle()
-        return
-    px = float(p.get("x", 0.0))
-    py = float(p.get("y", 0.0))
-    hx = float(hs.get("x", 0.0))
-    hy = float(hs.get("y", 0.0))
-    dist = math.hypot(hx - px, hy - py)
-    if dist > INSTALL_INTERACT_RANGE_PX:
-        KeyState.hold("space", False)
-        _do_goto(state, p, hx, hy,
-                 stop_radius=INSTALL_INTERACT_RANGE_PX * 0.8)
-        return
-    KeyState.release_all()
-    result = _post_place_qwi()
-    if result is None or not result.get("ok", False):
-        reason = (result or {}).get("reason", "transport failure")
-        print(f"[autopilot] BUILD_QWI: rejected ({reason})")
-        # If the QWI was already built (player or earlier bot run),
-        # latch so the FSM falls through to S_ENGAGE_BOSS / normal
-        # priorities.
-        if reason and "already" in str(reason).lower():
-            _state.qwi_placed = True
-        return
-    _state.qwi_placed = True
-    print(f"[autopilot] BUILD_QWI: placed at "
-          f"{result.get('placed_at')} "
-          f"boss_spawned={result.get('boss_spawned', False)}")
+    next-tick state snapshot hasn't refreshed yet.  Also flips the
+    latch on the "already placed" failure path."""
+    def _set_latch():
+        _state.qwi_placed = True
+
+    _act_at_station(
+        state, p,
+        label="BUILD_QWI",
+        post_fn=_post_place_qwi,
+        on_success_log=lambda r: (
+            f"placed at {r.get('placed_at')} "
+            f"boss_spawned={r.get('boss_spawned', False)}"),
+        latch_setter=_set_latch,
+        # The bot_builder helper returns "QWI already placed";
+        # match case-insensitively via the lowered reason from the
+        # test in _act_at_station — easiest is to include both
+        # casings as keywords since the comparison is substring.
+        latch_failure_keywords=("already placed", "already"),
+    )
 
 
 def _qwi_ready_to_build(state: dict) -> tuple[bool, str]:
