@@ -4873,3 +4873,307 @@ class TestAttackNearestChaseClampedToWorld:
         )
         ap._do_attack_nearest(s, s["player"])
         assert captured["ty"] >= ap.STUCK_WORLD_MARGIN_PX
+
+
+# ── Double Star boss engagement (Choices 2-4) ─────────────────────────────
+
+
+def _boss(x=5800.0, y=5800.0, hp=2000, max_hp=2000, phase=1,
+          charging=False, windup=0.0):
+    """Build a /state ``boss`` dict for the FSM tests."""
+    return {
+        "x": x, "y": y, "hp": hp, "max_hp": max_hp, "phase": phase,
+        "charging": charging, "charge_windup": windup,
+        "charge_timer": 0.0,
+    }
+
+
+class TestBossEngagementStateRouting:
+    """Boss alive => FSM enters S_ENGAGE_BOSS regardless of small
+    aliens or other priorities (REGEN still preempts)."""
+
+    def test_boss_routes_to_engage_boss_state(self, _clock, monkeypatch):
+        monkeypatch.setattr(ap, "_act_engage_boss", lambda s, p: None)
+        s = _state(
+            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+        )
+        s["boss"] = _boss()
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_ENGAGE_BOSS
+
+    def test_boss_preempts_small_alien_engage(self, _clock, monkeypatch):
+        """A close small alien (within 800 px) would normally trigger
+        S_ENGAGE.  Boss routing must override it."""
+        monkeypatch.setattr(ap, "_act_engage_boss", lambda s, p: None)
+        s = _state(
+            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            aliens=[{"x": 3300.0, "y": 3200.0, "hp": 50}],
+        )
+        s["boss"] = _boss()
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_ENGAGE_BOSS
+
+    def test_regen_still_preempts_boss(self, _clock, monkeypatch):
+        """Shield collapse routes to S_REGEN even with boss alive,
+        unless the threat-near + not-recovering escape valve fires."""
+        monkeypatch.setattr(ap, "_act_engage_boss", lambda s, p: None)
+        s = _state(
+            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 30, "max_shields": 150},  # 20 % < 40 %
+        )
+        # Boss far enough away that the entry-side mirror doesn't
+        # fire (boss > ENGAGE_ENTER_PX).
+        s["boss"] = _boss(x=5800.0, y=5800.0)
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_REGEN
+
+    def test_boss_state_bypasses_min_dwell(self, _clock, monkeypatch):
+        """Boss appearing mid-MINE must route to S_ENGAGE_BOSS even
+        before MIN_DWELL_S elapses — defensive interrupt, like
+        ENGAGE / REGEN."""
+        monkeypatch.setattr(ap, "_act_engage_boss", lambda s, p: None)
+        s = _state(
+            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            asteroids=[{"x": 3300.0, "y": 3200.0, "hp": 100}],
+        )
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_MINE
+        # Boss appears next tick — barely 0.05 s later, well below
+        # MIN_DWELL_S.
+        _clock[0] += 0.05
+        s["boss"] = _boss()
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_ENGAGE_BOSS
+
+
+class TestBossKiteAtRange:
+    """``_act_engage_boss`` holds the bot at ``BOSS_KITE_RANGE_PX``
+    from the boss (just outside cannon range 700)."""
+
+    def test_kite_target_lies_outside_cannon_range(self, monkeypatch):
+        captured: dict = {}
+        monkeypatch.setattr(
+            ap, "_do_goto",
+            lambda state, p, tx, ty, stop_radius=80.0,
+            brake_on_arrival=True: captured.update(tx=tx, ty=ty))
+        monkeypatch.setattr(ap, "_ensure_weapon", lambda *a, **kw: None)
+        s = _state(
+            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+        )
+        # Boss 100 px east of bot; no Home Station — pure kite.
+        s["boss"] = _boss(x=3300.0, y=3200.0)
+        ap._act_engage_boss(s, s["player"])
+        # Kite target must be on the boss→bot ray, BOSS_KITE_RANGE_PX
+        # from the boss.  Bot was west of boss (x=3200 < x=3300), so
+        # kite target is also west of the boss.
+        import math
+        d = math.hypot(captured["tx"] - 3300.0,
+                       captured["ty"] - 3200.0)
+        assert abs(d - ap.BOSS_KITE_RANGE_PX) < 1.0
+        assert captured["tx"] < 3300.0  # west side preserved
+
+    def test_kite_holds_fire_within_basic_laser_range(self, monkeypatch):
+        """KeyState.hold('space', True) only when bot is within
+        ``BOSS_FIRE_RANGE_PX`` of the boss."""
+        recorded: dict = {}
+
+        class _FakeKey:
+            @staticmethod
+            def hold(name, on):
+                recorded[name] = on
+
+        monkeypatch.setattr(ap, "KeyState", _FakeKey)
+        monkeypatch.setattr(ap, "_do_goto", lambda *a, **kw: None)
+        monkeypatch.setattr(ap, "_ensure_weapon", lambda *a, **kw: None)
+        s = _state(
+            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+        )
+        # Boss within fire range — fire ON.
+        s["boss"] = _boss(x=3500.0, y=3200.0)
+        ap._act_engage_boss(s, s["player"])
+        assert recorded["space"] is True
+        # Boss past fire range — fire OFF.
+        recorded.clear()
+        s["boss"] = _boss(x=3200.0 + ap.BOSS_FIRE_RANGE_PX + 50.0,
+                          y=3200.0)
+        ap._act_engage_boss(s, s["player"])
+        assert recorded["space"] is False
+
+
+class TestBossKiteStationAnchor:
+    """When a Home Station exists, the kite target prefers the side
+    of the boss closest to the station so friendly turrets share DPS."""
+
+    def test_kite_target_pulls_toward_station_when_default_too_far(
+            self, monkeypatch):
+        captured: dict = {}
+        monkeypatch.setattr(
+            ap, "_do_goto",
+            lambda state, p, tx, ty, stop_radius=80.0,
+            brake_on_arrival=True: captured.update(tx=tx, ty=ty))
+        monkeypatch.setattr(ap, "_ensure_weapon", lambda *a, **kw: None)
+        # Bot east of boss; station WEST of boss.  Default kite
+        # target (boss→bot ray) sits east — far from station.  The
+        # station-tether logic should pull the kite point west to
+        # the station-side of the boss instead.
+        s = _state(
+            player={"x": 4500.0, "y": 4000.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            buildings=[{"x": 2000.0, "y": 4000.0,
+                        "building_type": "Home Station"}],
+        )
+        s["boss"] = _boss(x=4000.0, y=4000.0)
+        ap._act_engage_boss(s, s["player"])
+        # Pulled west — kite x must be less than the boss x, not
+        # east on the bot side.
+        assert captured["tx"] < 4000.0
+
+
+class TestBossPhase2ChargeDodge:
+    """Phase 2 charge windup => bot strafes perpendicular."""
+
+    def test_charge_windup_displaces_kite_target_perpendicular(
+            self, monkeypatch):
+        captured: dict = {}
+        monkeypatch.setattr(
+            ap, "_do_goto",
+            lambda state, p, tx, ty, stop_radius=80.0,
+            brake_on_arrival=True: captured.update(tx=tx, ty=ty))
+        monkeypatch.setattr(ap, "_ensure_weapon", lambda *a, **kw: None)
+        s = _state(
+            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+        )
+        # Phase 2 boss directly east, charging.  Bot is west of boss
+        # along +x axis, so default kite is at (3200 - extra, 3200)
+        # — the perpendicular dodge must change y by BOSS_DODGE_PERP.
+        s["boss"] = _boss(x=3400.0, y=3200.0, phase=2,
+                          charging=True, windup=2.0)
+        ap._act_engage_boss(s, s["player"])
+        # Default kite y would be 3200; dodge displaces it by
+        # ±BOSS_DODGE_PERP_PX.
+        assert abs(captured["ty"] - 3200.0) >= ap.BOSS_DODGE_PERP_PX - 1.0
+
+    def test_phase1_charge_fields_ignored_no_dodge(self, monkeypatch):
+        """charging=True at phase=1 (impossible in-game, defensive
+        check) must NOT trigger the dodge — bot stays on the kite ray."""
+        captured: dict = {}
+        monkeypatch.setattr(
+            ap, "_do_goto",
+            lambda state, p, tx, ty, stop_radius=80.0,
+            brake_on_arrival=True: captured.update(tx=tx, ty=ty))
+        monkeypatch.setattr(ap, "_ensure_weapon", lambda *a, **kw: None)
+        s = _state(
+            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+        )
+        s["boss"] = _boss(x=3400.0, y=3200.0, phase=1,
+                          charging=True, windup=2.0)
+        ap._act_engage_boss(s, s["player"])
+        # Kite stays on the y=3200 axis (no perpendicular displacement).
+        assert abs(captured["ty"] - 3200.0) < 1.0
+
+
+class TestBossPhase3Press:
+    """Phase 3 (no shield regen) => bot closes to ``BOSS_PHASE3_PRESS_RANGE_PX``."""
+
+    def test_phase3_uses_press_range(self, monkeypatch):
+        captured: dict = {}
+        monkeypatch.setattr(
+            ap, "_do_goto",
+            lambda state, p, tx, ty, stop_radius=80.0,
+            brake_on_arrival=True: captured.update(tx=tx, ty=ty))
+        monkeypatch.setattr(ap, "_ensure_weapon", lambda *a, **kw: None)
+        s = _state(
+            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+        )
+        s["boss"] = _boss(x=3400.0, y=3200.0, phase=3)
+        ap._act_engage_boss(s, s["player"])
+        import math
+        d = math.hypot(captured["tx"] - 3400.0,
+                       captured["ty"] - 3200.0)
+        # Phase 3 uses BOSS_PHASE3_PRESS_RANGE_PX (600), not the
+        # 750 px default kite.
+        assert abs(d - ap.BOSS_PHASE3_PRESS_RANGE_PX) < 1.0
+
+
+class TestQwiStagingGate:
+    """``_qwi_ready_to_build`` predicate — Choice 1 staging gate."""
+
+    def test_no_home_station_blocks(self):
+        s = _state()
+        ready, reason = ap._qwi_ready_to_build(s)
+        assert ready is False
+        assert reason == "no_home_station"
+
+    def test_too_few_defenders_blocks(self):
+        s = _state(
+            buildings=[{"x": 3200.0, "y": 3200.0,
+                        "building_type": "Home Station"}],
+            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150,
+                    "ship_level": 2},
+        )
+        ready, reason = ap._qwi_ready_to_build(s)
+        assert ready is False
+        assert reason.startswith("defenders_")
+
+    def test_low_ship_level_blocks(self):
+        s = _state(
+            buildings=[
+                {"x": 3200.0, "y": 3200.0, "building_type": "Home Station"},
+                {"x": 3300.0, "y": 3300.0, "building_type": "Turret 2"},
+                {"x": 3100.0, "y": 3100.0, "building_type": "Turret 2"},
+            ],
+            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150,
+                    "ship_level": 1},
+        )
+        ready, reason = ap._qwi_ready_to_build(s)
+        assert ready is False
+        assert reason.startswith("ship_level_")
+
+    def test_all_conditions_met_returns_ready(self):
+        s = _state(
+            buildings=[
+                {"x": 3200.0, "y": 3200.0, "building_type": "Home Station"},
+                {"x": 3300.0, "y": 3300.0, "building_type": "Turret 2"},
+                {"x": 3100.0, "y": 3100.0, "building_type": "Missile Array"},
+            ],
+            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150,
+                    "ship_level": 2},
+        )
+        ready, reason = ap._qwi_ready_to_build(s)
+        assert ready is True
+        assert reason == "ok"
+
+
+class TestBossEngageWeaponAndIntent:
+    """Intent-driven ``engage_boss`` (sent via /intent) still routes
+    through the new station-anchor handler — keeps the public API
+    surface stable."""
+
+    def test_engage_boss_intent_uses_basic_laser(self, monkeypatch):
+        ensured: list = []
+        monkeypatch.setattr(
+            ap, "_ensure_weapon",
+            lambda state, name: ensured.append(name))
+        monkeypatch.setattr(ap, "_do_goto", lambda *a, **kw: None)
+
+        class _FakeKey:
+            @staticmethod
+            def hold(name, on):
+                pass
+
+        monkeypatch.setattr(ap, "KeyState", _FakeKey)
+        s = _state()
+        s["boss"] = _boss(x=3400.0, y=3200.0)
+        ap._do_engage_boss(s, s["player"])
+        assert ensured == ["Basic Laser"]

@@ -155,19 +155,20 @@ Unknown types are logged and the autopilot falls back to `idle`.
 
 ## `auto` finite state machine (default)
 
-`_do_auto` is a nine-state FSM with **asymmetric enter/exit
+`_do_auto` is a ten-state FSM with **asymmetric enter/exit
 thresholds** (hysteresis) plus a **MIN_DWELL_S = 0.6 s** gate
-on transitions.  `REGEN` and `ENGAGE` are defensive interrupts:
-they preempt dwell from any state.  `REGEN` sits at the top of
-the priority order so the bot pauses to recover shields rather
-than chasing a fight at low health; combat assist keeps aiming
-+ firing every frame so the bot is still shooting back while
-it idles.
+on transitions.  `REGEN`, `ENGAGE`, and `ENGAGE_BOSS` are
+defensive interrupts: they preempt dwell from any state.  `REGEN`
+sits at the top of the priority order so the bot pauses to
+recover shields rather than chasing a fight at low health; combat
+assist keeps aiming + firing every frame so the bot is still
+shooting back while it idles.
 
 | State | Action | Enter when | Exit when |
 |---|---|---|---|
 | `REGEN` | idle, release all keys, let shields recover.  Combat assist still auto-fires at anything in range. | shields `< 40 %` AND no close threat within `ENGAGE_ENTER_PX` — entry-side mirror suppresses REGEN while engaged so the bot doesn't ping-pong with ENGAGE every tick (telemetry caught 111 transitions in one fight at 0.09 s median dwell pre-fix) | shields `≥ 60 %`, OR (in-REGEN escape valve) close threat appears mid-regen AND shields not recovering since last tick — prevents the deadlock where a bot starting low-shields surrounded by aliens can never reach 60% and dies idling |
-| `ENGAGE` | If the in-process combat assist has rolled into a melee commitment for this engagement (`state.assist.melee_engaged`), close to ~50 px and let the assist swing the lightsabre.  Otherwise hold ~380 px stand-off with Basic Laser.  Combat assist owns aim + fire + melee weapon-lock. | nearest alien `< 800 px` and not in REGEN | no alien `< 1000 px` |
+| `ENGAGE_BOSS` | station-anchor kite + phase-aware strafe.  Hold at `BOSS_KITE_RANGE_PX` (750 px) from the boss — outside cannon range (700) but inside Basic Laser range — and within `BOSS_KITE_STATION_TETHER_PX` (600 px) of the Home Station so friendly Defense Turrets / Missile Array share DPS.  Phase 2 charge windup => strafe `BOSS_DODGE_PERP_PX` (250 px) perpendicular to the boss-to-bot vector (the 0.8 s × 600 px/s dash misses comfortably).  Phase 3 (no shield regen, halved cooldowns) => press in to `BOSS_PHASE3_PRESS_RANGE_PX` (600 px, just outside spread range).  REGEN entry-side mirror still applies — shield collapse falls out to S_REGEN. | `state.boss` is alive (set by `_boss_state` in `bot_api.py`).  Above ENGAGE so a small alien at 200 px doesn't pull the bot into the boss's cannon range. | boss dies / `state.boss` becomes None |
+| `ENGAGE` | If the in-process combat assist has rolled into a melee commitment for this engagement (`state.assist.melee_engaged`), close to ~50 px and let the assist swing the lightsabre.  Otherwise hold ~380 px stand-off with Basic Laser.  Combat assist owns aim + fire + melee weapon-lock. | nearest alien `< 800 px` and not in REGEN/ENGAGE_BOSS | no alien `< 1000 px` |
 | `GATHER` | fly to nearest pickup (blueprints win on tie); 60 px stop radius | pickup `< 1500 px` and not in REGEN/ENGAGE | no pickup `< 1700 px` |
 | `BUILD` / `BUILD_SEEK` | one-shot starter base (HS + SM + PR + SA2 + RM + 2× T2 + west extension + Basic Crafter); SEEK walks toward less-cluttered space first | ship iron `≥ 1000` and area is clear of asteroids/aliens/pickups within 800 px | `_state.build_done` flips True after first POST |
 | `DEPOSIT` | head to Home Station, POST `/deposit_to_station` to dump every item type from ship into station inventory | ship iron `≥ 200` OR any blueprint in ship; cooldown `30 s` since last deposit | POST returns; cooldown re-arms |
@@ -241,6 +242,29 @@ that the old priority cascade had to mask with ad-hoc timers:
 Combat assist (`bot_combat_assist.py`) still owns aim + fire
 override during `ENGAGE`; the FSM owns thrust + weapon
 selection.
+
+## Boss fight (`ENGAGE_BOSS`)
+
+The Double Star and Nebula bosses share one engagement handler
+(`_act_engage_boss`) because their movement + weapon profiles
+are similar (Phase 1 cannon + spread, Phase 2 charge dash, Phase
+3 enraged) and the player ship's countermeasures don't change
+between them.  The handler embodies four design choices, each
+tunable via a constant near the top of `bot_autopilot.py`:
+
+| # | Choice | Where |
+|---|---|---|
+| 1 | **Pre-trigger staging gate** — `_qwi_ready_to_build(state)` predicate.  Returns `(False, reason)` until a Home Station + at least `QWI_STAGE_MIN_TURRETS` (default 2) Defense Turret / Turret 2 / Missile Array are placed, and the ship has been upgraded to `QWI_STAGE_MIN_SHIP_LEVEL` (default 2).  Future build sequences that auto-place the QWI must call this first — the spawn flag is one-shot. | `bot_autopilot.py` |
+| 2 | **Station-anchor kite** — when a Home Station exists, the kite target is pulled to the side of the boss closest to the station so friendly turret + missile DPS overlaps the bot's Basic Laser line.  Tether: `BOSS_KITE_STATION_TETHER_PX` (default 600 px). | `_act_engage_boss` |
+| 3 | **Phase-aware behavior** — Phase 2: when `boss.charging` or `boss.charge_windup > 0`, displace the kite target by `BOSS_DODGE_PERP_PX` (250 px) perpendicular to the boss-to-bot vector.  Sign alternates with windup time so back-to-back charges don't lock to one side.  Phase 3: drop the kite range to `BOSS_PHASE3_PRESS_RANGE_PX` (600 px) — boss has no shield regen, so press the DPS. | `_act_engage_boss` |
+| 4 | **REGEN escape valve** — reuses the existing entry-side mirror + in-REGEN escape valve.  Shield collapse during a boss kite drops the bot to S_REGEN; the entry-side mirror prevents thrash with ENGAGE_BOSS the same way it does with ENGAGE. | `_choose_next_state` |
+
+The boss telegraph fields (`charging`, `charge_windup`,
+`charge_timer`) are exposed on `/state` by `_boss_state` in
+`bot_api.py` — the autopilot reads them to drive the Phase 2
+strafe.  The 2 s windup is more than enough lead time for the
+10 Hz autopilot loop to react before the 0.8 s × 600 px/s dash
+fires.
 
 # Cluster avoidance + corner-pin mitigations
 

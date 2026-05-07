@@ -232,12 +232,18 @@ def _boss_state(gv) -> dict | None:
     boss = getattr(gv, "_boss", None)
     if boss is None or not getattr(boss, "alive", True):
         return None
+    # Charge telegraph fields are only meaningful in Phase 2+ — the
+    # boss class always exposes the attributes (set in __init__) so
+    # the ``getattr`` defaults are belt-and-braces, not a real path.
     return {
         "x": _safe(lambda: float(boss.center_x), 0.0),
         "y": _safe(lambda: float(boss.center_y), 0.0),
         "hp": _safe(lambda: int(boss.hp), 0),
         "max_hp": _safe(lambda: int(boss.max_hp), 0),
         "phase": _safe(lambda: int(getattr(boss, "_phase", 1)), 1),
+        "charging":      _safe(lambda: bool(getattr(boss, "_charging", False)), False),
+        "charge_windup": _safe(lambda: float(getattr(boss, "_charge_windup", 0.0)), 0.0),
+        "charge_timer":  _safe(lambda: float(getattr(boss, "_charge_timer", 0.0)), 0.0),
     }
 
 
