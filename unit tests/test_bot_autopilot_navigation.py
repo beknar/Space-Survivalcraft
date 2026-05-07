@@ -303,3 +303,136 @@ class TestComputeEscapeTarget:
         assert ty >= nav.STUCK_WORLD_MARGIN_PX
         assert tx <= 6400.0 - nav.STUCK_WORLD_MARGIN_PX
         assert ty <= 6400.0 - nav.STUCK_WORLD_MARGIN_PX
+
+
+# ── Wall + cluster trap escape (2026-05-06 follow-up #6) ──────────────
+
+class TestComputeEscapeTargetWallClusterTrap:
+    """Pins the wall+cluster trap escape: when the bot is inside
+    ``STUCK_ESCAPE_CLEAR_MARGIN_PX`` of a world edge AND the
+    building cluster's centroid sits between the bot and the
+    world interior on that axis, ``compute_escape_target`` must
+    return a target ALONG the wall tangent (away from the cluster
+    centroid) instead of the legacy gradient/world-centre target
+    which the cluster physically blocks.
+
+    Caught from 2026-05-06 follow-up #6 telemetry: bot frozen at
+    exactly (48.0, 3983.8) in S_HUNT for 117+ seconds while
+    ``stuck_detected`` fired and escape mode kept computing
+    targets the cluster blocked.
+    """
+
+    ZONE = {"zone": {"world_w": 6400.0, "world_h": 6400.0}}
+
+    def test_west_wall_cluster_inland_uses_y_tangent(self):
+        """Bot at west wall, cluster centroid at higher px (inland).
+        Escape must move along ±y, NOT toward the cluster (+x)."""
+        s = {**self.ZONE, "buildings": [
+            {"x": 290.0, "y": 3984.0, "building_type": "Home Station"},
+            {"x": 200.0, "y": 3950.0, "building_type": "Service Module"},
+            {"x": 380.0, "y": 4020.0, "building_type": "Service Module"},
+        ]}
+        p = {"x": 48.0, "y": 3984.0}
+        tx, ty = nav.compute_escape_target(s, p)
+        # Target stays at the wall x-coordinate (no +x push into cluster).
+        assert abs(tx - 48.0) < 1.0, (
+            f"Tangent escape must NOT push the bot into the cluster — "
+            f"got tx={tx}, expected px={p['x']}.")
+        # Target moves significantly in y (along the wall).
+        assert abs(ty - p["y"]) > 100.0, (
+            f"Tangent escape must produce significant y-displacement — "
+            f"got ty={ty}, py={p['y']}.")
+
+    def test_east_wall_cluster_inland_uses_y_tangent(self):
+        """Mirror of the west case for the east wall."""
+        s = {**self.ZONE, "buildings": [
+            {"x": 6110.0, "y": 3984.0, "building_type": "Home Station"},
+            {"x": 6200.0, "y": 3950.0, "building_type": "Service Module"},
+        ]}
+        p = {"x": 6352.0, "y": 3984.0}
+        tx, ty = nav.compute_escape_target(s, p)
+        assert abs(tx - 6352.0) < 1.0
+        assert abs(ty - p["y"]) > 100.0
+
+    def test_south_wall_cluster_inland_uses_x_tangent(self):
+        """Bot at south wall (low py), cluster centroid at higher
+        py.  Tangent direction is ±x."""
+        s = {**self.ZONE, "buildings": [
+            {"x": 3200.0, "y": 290.0, "building_type": "Home Station"},
+            {"x": 3150.0, "y": 200.0, "building_type": "Service Module"},
+        ]}
+        p = {"x": 3200.0, "y": 48.0}
+        tx, ty = nav.compute_escape_target(s, p)
+        assert abs(ty - 48.0) < 1.0
+        assert abs(tx - p["x"]) > 100.0
+
+    def test_tangent_direction_picks_away_from_cluster_in_y(self):
+        """West-wall scenario with cluster ABOVE the bot's y → bot
+        should slide DOWN (-y), not up.  This is the disambiguating
+        rule: tangent sign should move the bot AWAY from the
+        cluster's y centroid."""
+        s = {**self.ZONE, "buildings": [
+            {"x": 290.0, "y": 4500.0, "building_type": "Home Station"},
+            {"x": 290.0, "y": 4400.0, "building_type": "Service Module"},
+        ]}
+        # Bot below the cluster centroid (cy ≈ 4450).
+        p = {"x": 48.0, "y": 4000.0}
+        tx, ty = nav.compute_escape_target(s, p)
+        assert ty < p["y"], (
+            f"Cluster is north of bot — tangent must go SOUTH; "
+            f"got ty={ty}, py={p['y']}.")
+
+    def test_no_buildings_falls_back_to_legacy_gradient(self):
+        """The wall-tangent path is gated on actual buildings
+        existing.  An empty cluster with bot at wall must keep
+        the legacy boundary-gradient behaviour (head into the
+        world)."""
+        s = {**self.ZONE, "buildings": []}
+        p = {"x": 0.0, "y": 3200.0}
+        tx, ty = nav.compute_escape_target(s, p)
+        # Legacy gradient still pushes the bot east.
+        assert tx > 100.0, (
+            f"Wall-tangent must NOT activate without buildings — "
+            f"legacy gradient should still move bot east; got tx={tx}.")
+
+    def test_cluster_outside_inland_keeps_legacy_gradient(self):
+        """Bot at west wall, cluster centroid at LOWER px (between
+        bot and the wall).  Cluster doesn't block the inland path,
+        so legacy gradient (push +x toward interior) applies."""
+        s = {**self.ZONE, "buildings": [
+            # Cluster sits at the wall itself, not inland.
+            {"x": 30.0, "y": 3984.0, "building_type": "Home Station"},
+        ]}
+        p = {"x": 100.0, "y": 3984.0}
+        tx, ty = nav.compute_escape_target(s, p)
+        # Cluster cx (30) < px (100) — cluster is NOT inland of bot.
+        # Legacy gradient should fire (boundary push +x).
+        assert tx > p["x"], (
+            f"Cluster behind bot, not inland — tangent must NOT "
+            f"override the gradient; got tx={tx}, px={p['x']}.")
+
+
+class TestBuildingClusterCentroid:
+    """Helper used by the wall+cluster escape path."""
+
+    def test_no_buildings_returns_fallback(self):
+        cx, cy = nav._building_cluster_centroid(
+            {"buildings": []}, fallback=(123.0, 456.0))
+        assert (cx, cy) == (123.0, 456.0)
+
+    def test_single_building_returns_its_position(self):
+        cx, cy = nav._building_cluster_centroid(
+            {"buildings": [{"x": 200.0, "y": 300.0}]},
+            fallback=(0.0, 0.0))
+        assert (cx, cy) == (200.0, 300.0)
+
+    def test_multiple_buildings_returns_arithmetic_mean(self):
+        cx, cy = nav._building_cluster_centroid(
+            {"buildings": [
+                {"x": 100.0, "y": 100.0},
+                {"x": 200.0, "y": 300.0},
+                {"x": 300.0, "y": 200.0},
+            ]},
+            fallback=(0.0, 0.0))
+        assert cx == pytest.approx(200.0)
+        assert cy == pytest.approx(200.0)
