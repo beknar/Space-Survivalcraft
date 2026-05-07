@@ -918,7 +918,8 @@ def _nearest_asteroid(state: dict, px: float, py: float
     return (best, best_d)
 
 
-def _nearest_huntable_alien(state: dict, px: float, py: float
+def _nearest_huntable_alien(state: dict, px: float, py: float,
+                            *, currently_hunting: bool = False
                             ) -> tuple[dict | None, float]:
     """Return (nearest_alien, distance) for HUNT target selection,
     skipping aliens within ``ALIEN_EDGE_SKIP_PX`` of a world
@@ -933,6 +934,22 @@ def _nearest_huntable_alien(state: dict, px: float, py: float
     keep using the unfiltered ``nearest`` over ``state['aliens']``
     so an attacker pressing us from the wall still triggers a
     response — only the proactive HUNT chase is gated.
+
+    Wall-pin escape: when ``currently_hunting`` is True (the FSM
+    is already in S_HUNT) AND the bot is itself inside the same
+    edge margin AND every visible alien is edge-adjacent, return
+    ``None`` instead of falling back.  This is the wall-pin re-
+    commit pattern caught from 2026-05-06 follow-up telemetry: the
+    bot pinned at px=48 in S_HUNT for 95 s because combat had
+    herded every alien against the wall and the helper kept
+    re-selecting them.  No ``stuck_detected`` fired (the 40 px
+    py-oscillation + turn-to-face rotation defeated the position-
+    history detector) so the giveup latch never armed.  Returning
+    ``None`` lets the FSM cascade reach IDLE_AT_BASE / SEARCH
+    which navigates AWAY from the wall and breaks the loop.
+    Initial HUNT entries (``currently_hunting=False``) still get
+    the fallback so a one-shot proactive chase from open space
+    isn't suppressed.
     """
     aliens = state.get("aliens") or []
     if not aliens:
@@ -954,11 +971,17 @@ def _nearest_huntable_alien(state: dict, px: float, py: float
             best, best_d = a, d
     if best is not None:
         return (best, best_d)
-    # Every visible alien is edge-adjacent; return the unfiltered
-    # nearest so HUNT can still fire.  The bot will likely wall-pin
-    # in this case but at least it won't sit idle when there's
-    # nothing else to do; the existing hunt-stuck giveup latch
-    # (HUNT_STUCK_WINDOW_S / HUNT_LONG_GIVEUP_S) is the backstop.
+    # Every visible alien is edge-adjacent.  Suppress the fallback
+    # only when we're already in S_HUNT and the bot is itself
+    # inside the edge margin — that's the wall-pin re-commit
+    # signature.  Otherwise fall back so initial proactive chases
+    # from open space (or from interior positions) still fire.
+    if currently_hunting:
+        bot_near_edge = (
+            px < margin or px > world_w - margin
+            or py < margin or py > world_h - margin)
+        if bot_near_edge:
+            return (None, float("inf"))
     return nearest(aliens, px, py)
 
 
@@ -1416,7 +1439,8 @@ def _choose_next_state(state: dict, p: dict, cur: str) -> str:
     # ENGAGE / REGEN above keep using the unfiltered ``threat``
     # because defensive responses must react to any attacker
     # regardless of position.
-    hunt_target, hunt_td = _nearest_huntable_alien(state, px, py)
+    hunt_target, hunt_td = _nearest_huntable_alien(
+        state, px, py, currently_hunting=(cur == S_HUNT))
     if (hunt_target is not None and hunt_td < hunt_gate
             and now >= _state.hunt_giveup_until):
         return S_HUNT
