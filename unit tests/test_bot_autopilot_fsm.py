@@ -3413,14 +3413,21 @@ class TestHuntGateSymmetric:
     def test_hunt_persists_when_alien_inside_idle_range(self, _clock):
         """Bot in S_HUNT, alien at 5000 px (between HUNT_RANGE_PX
         3000 and IDLE_HUNT_RANGE_PX 9000) — must STAY in HUNT,
-        not fall back to IDLE_AT_BASE."""
+        not fall back to IDLE_AT_BASE.
+
+        Uses an interior world (16k×16k centred on the player) so
+        the 2026-05-06 wall-pin escape doesn't suppress the
+        symmetric-gate behaviour this test exists to pin — bot and
+        alien are both well clear of any edge.
+        """
         ap._fsm["state"] = ap.S_HUNT
         ap._fsm["entered_at"] = _clock[0] - 10.0
         s = _state(
-            player={"x": 0.0, "y": 0.0, "heading": 0.0,
+            player={"x": 8000.0, "y": 8000.0, "heading": 0.0,
                     "shields": 150, "max_shields": 150},
-            aliens=[{"x": 5000.0, "y": 0.0, "hp": 50}],
-            buildings=[_hs_building(x=0.0, y=0.0)],
+            aliens=[{"x": 13000.0, "y": 8000.0, "hp": 50}],
+            buildings=[_hs_building(x=8000.0, y=8000.0)],
+            world_w=16000, world_h=16000,
         )
         ap._do_auto(s, s["player"])
         assert ap._fsm["state"] == ap.S_HUNT
@@ -3446,6 +3453,11 @@ class TestHuntGateSymmetric:
         FSM must NOT bounce.  Before the symmetric-gate fix, this
         loop produced 30 transitions; after the fix it produces 1
         (the initial IDLE → HUNT) and stays in HUNT forever.
+
+        Uses an interior 16k×16k world (see
+        ``test_hunt_persists_when_alien_inside_idle_range``) so
+        the 2026-05-06 wall-pin escape stays out of the symmetric-
+        gate test's way.
         """
         ap._fsm["state"] = ap.S_IDLE_AT_BASE
         ap._fsm["entered_at"] = _clock[0] - 10.0
@@ -3453,10 +3465,11 @@ class TestHuntGateSymmetric:
         for _ in range(30):
             prev = ap._fsm["state"]
             s = _state(
-                player={"x": 0.0, "y": 0.0, "heading": 0.0,
+                player={"x": 8000.0, "y": 8000.0, "heading": 0.0,
                         "shields": 150, "max_shields": 150},
-                aliens=[{"x": 5000.0, "y": 0.0, "hp": 50}],
-                buildings=[_hs_building(x=0.0, y=0.0)],
+                aliens=[{"x": 13000.0, "y": 8000.0, "hp": 50}],
+                buildings=[_hs_building(x=8000.0, y=8000.0)],
+                world_w=16000, world_h=16000,
             )
             ap._do_auto(s, s["player"])
             if ap._fsm["state"] != prev:
@@ -4105,6 +4118,109 @@ class TestNearestHuntableAlienEdgeFilter:
         )
         ap._do_auto(s, s["player"])
         assert ap._fsm["state"] == ap.S_ENGAGE
+
+    def test_no_fallback_when_bot_at_edge_and_currently_hunting(self):
+        """2026-05-06 follow-up: with the bot itself inside the same
+        edge margin as every visible alien AND already in HUNT, the
+        helper must return None instead of falling back to nearest.
+        Otherwise HUNT re-fires every tick and the bot wall-pins
+        (95 s pin observed at px=48 because combat had herded every
+        alien against the left wall).  Returning None on the
+        re-entry lets the FSM fall through to IDLE_AT_BASE so the
+        bot navigates AWAY from the wall and breaks the loop."""
+        s = _state(
+            player={"x": 48.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            aliens=[
+                {"x": 60.0,  "y": 3200.0, "hp": 50},
+                {"x": 80.0,  "y": 3500.0, "hp": 50},
+                {"x": 100.0, "y": 3700.0, "hp": 50},
+            ],
+            world_w=6400, world_h=6400,
+        )
+        nearest_alien, _d = ap._nearest_huntable_alien(
+            s, 48.0, 3200.0, currently_hunting=True)
+        assert nearest_alien is None, (
+            "Already in HUNT + bot at edge + only edge aliens must "
+            "NOT fall back — that's the wall-pin re-commit.")
+
+    def test_fallback_fires_on_initial_hunt_from_edge(self):
+        """The wall-pin escape only kicks in on HUNT re-entries
+        (``currently_hunting=True``).  An initial HUNT entry —
+        even from an edge position — keeps the legacy fallback so
+        the bot can react to a one-shot proactive chase before
+        adapting via IDLE_AT_BASE on the next tick if needed."""
+        s = _state(
+            player={"x": 48.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            aliens=[{"x": 100.0, "y": 3200.0, "hp": 50}],
+            world_w=6400, world_h=6400,
+        )
+        nearest_alien, _d = ap._nearest_huntable_alien(
+            s, 48.0, 3200.0, currently_hunting=False)
+        assert nearest_alien is not None, (
+            "Initial HUNT entry (currently_hunting=False) must keep "
+            "the fallback so test fixtures with edge-position "
+            "players still exercise HUNT.")
+
+    def test_fallback_fires_when_bot_is_interior(self):
+        """Bot in open space + only edge aliens visible: fallback
+        must fire regardless of currently_hunting because there's
+        no wall-pin risk from an interior position."""
+        for hunting in (False, True):
+            s = _state(
+                player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                        "shields": 150, "max_shields": 150},
+                aliens=[{"x": 100.0, "y": 3200.0, "hp": 50}],
+                world_w=6400, world_h=6400,
+            )
+            nearest_alien, _d = ap._nearest_huntable_alien(
+                s, 3200.0, 3200.0, currently_hunting=hunting)
+            assert nearest_alien is not None, (
+                f"Interior bot fallback must fire "
+                f"(currently_hunting={hunting})")
+            assert nearest_alien["x"] == 100.0
+
+    def test_hunt_releases_when_bot_is_pinned_at_edge(self, _clock):
+        """End-to-end: bot at wall, currently in HUNT, only edge
+        aliens visible — FSM must transition out of HUNT.  Pre-fix
+        this scenario committed to HUNT every tick and pinned for
+        95 s.  HS exists so the cascade falls to IDLE_AT_BASE; the
+        bot then navigates back to clear space and HUNT can re-fire
+        legitimately on the next iteration."""
+        # Step 1: enter HUNT cleanly from open space so cur becomes
+        # S_HUNT.  Use an interior alien so the initial pick is
+        # interior (no fallback dependency).
+        s = _state(
+            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            aliens=[{"x": 4000.0, "y": 3200.0, "hp": 50}],
+            buildings=[_hs_building()],
+            world_w=6400, world_h=6400,
+        )
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_HUNT
+        _clock[0] += ap.MIN_DWELL_S + 0.1
+        # Step 2: now the bot has chased to the wall and only edge
+        # aliens are left.  The fallback must be suppressed and
+        # the FSM must transition out of HUNT.
+        s = _state(
+            player={"x": 48.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            aliens=[
+                {"x": 100.0, "y": 5000.0, "hp": 50},
+                {"x": 150.0, "y": 1000.0, "hp": 50},
+            ],
+            buildings=[_hs_building()],
+            world_w=6400, world_h=6400,
+        )
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] != ap.S_HUNT, (
+            "HUNT must release when bot is wall-pinned and every "
+            "visible alien is edge-adjacent.")
+        assert ap._fsm["state"] == ap.S_IDLE_AT_BASE, (
+            "FSM should fall through to IDLE_AT_BASE so the bot "
+            "navigates away from the wall.")
 
 
 # ── Fix B (2026-05-04): cluster-aware repulsion suppression ──────────
