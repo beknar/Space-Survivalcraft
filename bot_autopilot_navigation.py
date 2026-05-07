@@ -589,8 +589,22 @@ def compute_escape_target(state: dict, p: dict
     near_east = px > world_w - STUCK_ESCAPE_CLEAR_MARGIN_PX
     near_south = py < STUCK_ESCAPE_CLEAR_MARGIN_PX
     near_north = py > world_h - STUCK_ESCAPE_CLEAR_MARGIN_PX
-    wall_pinned = near_west or near_east or near_south or near_north
-    if wall_pinned and (state.get("buildings") or []):
+    wall_count = ((1 if near_west else 0) + (1 if near_east else 0)
+                  + (1 if near_south else 0) + (1 if near_north else 0))
+    wall_pinned_single = wall_count == 1
+    # Corner pin (>=2 walls in margin): skip the wall-tangent path.
+    # The tangent along wall A points ±perpendicular-to-A — which is
+    # toward wall B at a corner — so the legacy gradient + world-
+    # centre fallback's diagonal direction is the only escape that
+    # exits both walls simultaneously.  Caught from 2026-05-06
+    # follow-up #8 telemetry: bot wedged in the SE corner at
+    # (px≈6003, py≈480) for 145+ s — east-wall pin AND south-wall
+    # pin both held, wall-tangent picked ±y, "away from cluster"
+    # sign chose -y (south), and the resulting target was due
+    # south into the south wall.  The world-centre fallback at the
+    # same position produces a NW target that exits both walls
+    # cleanly via boundary repulsion.
+    if wall_pinned_single and (state.get("buildings") or []):
         cx, cy = _building_cluster_centroid(state, fallback=(px, py))
         if near_west or near_east:
             cluster_blocks_inland = (

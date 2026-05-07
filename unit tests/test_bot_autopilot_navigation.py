@@ -411,6 +411,68 @@ class TestComputeEscapeTargetWallClusterTrap:
             f"Cluster behind bot, not inland — tangent must NOT "
             f"override the gradient; got tx={tx}, px={p['x']}.")
 
+    def test_corner_pin_skips_wall_tangent(self):
+        """2026-05-06 follow-up #8: when the bot is in TWO wall
+        margins (corner pin), the wall-tangent escape must NOT
+        fire — its tangent along wall A points perpendicular,
+        which is toward wall B at a corner.  Caught from telemetry
+        showing the bot wedged in the SE corner for 145+ s while
+        the wall-tangent target pointed due south into the south
+        wall.
+
+        At a corner, the legacy gradient + world-centre fallback's
+        diagonal direction is the only escape that exits both
+        walls simultaneously.  This test pins the SE corner case:
+        bot at (px=6003, py=480) with cluster at NW — the result
+        must NOT be due-south (wall-tangent's pick) but a diagonal
+        target (world centre) that pulls the bot NW.
+        """
+        s = {**self.ZONE, "buildings": [
+            {"x": 200.0, "y": 4000.0, "building_type": "Home Station"},
+            {"x": 250.0, "y": 3950.0, "building_type": "Service Module"},
+        ]}
+        # SE corner: px in east margin, py in south margin.
+        p = {"x": 6003.0, "y": 480.0}
+        tx, ty = nav.compute_escape_target(s, p)
+        # Wall-tangent for east wall would have produced (6003, 200)
+        # or similar — same px, way south.  The corner-skip must
+        # produce a target that's NOT pinned at the wall x AND
+        # NOT due south.  World-centre fallback gives (3200, 3200).
+        assert tx < p["x"] - 100.0, (
+            f"Corner escape must move bot AWAY from east wall; "
+            f"got tx={tx}, px={p['x']}.")
+        assert ty > p["y"] + 100.0, (
+            f"Corner escape must move bot AWAY from south wall; "
+            f"got ty={ty}, py={p['y']}.")
+
+    def test_corner_pin_skips_wall_tangent_nw_corner(self):
+        """Mirror of the SE corner test for the NW corner."""
+        s = {**self.ZONE, "buildings": [
+            {"x": 6200.0, "y": 2400.0, "building_type": "Home Station"},
+        ]}
+        p = {"x": 400.0, "y": 5950.0}
+        tx, ty = nav.compute_escape_target(s, p)
+        # Diagonal toward interior — both axes move TOWARD centre.
+        assert tx > p["x"] + 100.0
+        assert ty < p["y"] - 100.0
+
+    def test_single_wall_pin_still_uses_tangent(self):
+        """Regression: the corner-skip must NOT disable wall-tangent
+        for genuine single-wall pins.  Bot at the west wall but
+        well clear of north/south margins keeps the PR #42 tangent
+        behaviour."""
+        s = {**self.ZONE, "buildings": [
+            {"x": 290.0, "y": 3984.0, "building_type": "Home Station"},
+        ]}
+        # Single wall: only near west, far from north/south.
+        p = {"x": 48.0, "y": 3984.0}
+        tx, ty = nav.compute_escape_target(s, p)
+        # PR #42 wall-tangent: tx stays at the wall, ty moves a lot.
+        assert abs(tx - 48.0) < 1.0, (
+            "Single-wall pin must still use wall-tangent — "
+            "tx should stay at the wall.")
+        assert abs(ty - p["y"]) > 100.0
+
 
 class TestBuildingClusterCentroid:
     """Helper used by the wall+cluster escape path."""
