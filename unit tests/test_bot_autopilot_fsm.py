@@ -4301,6 +4301,89 @@ class TestHuntBuildingClusterEscape:
             "HUNT must persist when bot is clear of the cluster "
             "even when currently_hunting=True.")
 
+    def test_cluster_guard_does_not_fire_within_delay(self, _clock):
+        """2026-05-06 follow-up #3: the cluster guard must wait
+        HUNT_CLUSTER_PIN_DELAY_S before activating.  Without the
+        delay it tripped on the very first re-eval tick (dwell ~ 1 s)
+        and triggered an IDLE↔HUNT thrash whenever IDLE_AT_BASE
+        parked the bot inside the cluster perimeter (39 fast
+        IDLE↔HUNT pairs in the follow-up telemetry).
+
+        Setup: bot already in HUNT for only 1 s (well under the
+        3 s delay), inside the cluster, with an interior alien in
+        range.  HUNT must continue firing — the bot needs time to
+        thread its way out before the guard is allowed to suppress.
+        """
+        ap._fsm["state"] = ap.S_HUNT
+        ap._fsm["entered_at"] = _clock[0] - 1.0  # 1 s in HUNT
+        s = _state(
+            player={"x": 3220.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            aliens=[{"x": 4500.0, "y": 3200.0, "hp": 50}],
+            buildings=[_hs_building(x=3200.0, y=3200.0)],
+            world_w=6400, world_h=6400,
+        )
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_HUNT, (
+            "Cluster guard fired before HUNT_CLUSTER_PIN_DELAY_S — "
+            "this would re-introduce the IDLE↔HUNT thrash from "
+            "the 2026-05-06 follow-up #3 telemetry.")
+
+    def test_cluster_guard_fires_after_delay(self, _clock):
+        """Same scenario as the previous test but with HUNT held
+        for past the delay — guard must now fire.  Together with
+        ``test_cluster_guard_does_not_fire_within_delay`` this
+        pins both sides of the HUNT_CLUSTER_PIN_DELAY_S boundary."""
+        ap._fsm["state"] = ap.S_HUNT
+        ap._fsm["entered_at"] = (_clock[0]
+                                 - ap.HUNT_CLUSTER_PIN_DELAY_S
+                                 - 0.5)
+        s = _state(
+            player={"x": 3220.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            aliens=[{"x": 4500.0, "y": 3200.0, "hp": 50}],
+            buildings=[_hs_building(x=3200.0, y=3200.0)],
+            world_w=6400, world_h=6400,
+        )
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] != ap.S_HUNT
+        assert ap._fsm["state"] == ap.S_IDLE_AT_BASE
+
+    def test_no_thrash_when_idle_parked_inside_cluster(self, _clock):
+        """End-to-end pin for the actual symptom: bot parked at
+        IDLE_AT_BASE inside the cluster perimeter, alien appears,
+        HUNT fires.  The next several ticks (each past MIN_DWELL_S
+        but well under HUNT_CLUSTER_PIN_DELAY_S) must KEEP the FSM
+        in HUNT — pre-fix the cluster guard suppressed HUNT on
+        every re-eval, producing the IDLE→HUNT→IDLE→HUNT bounce.
+        """
+        ap._fsm_reset()
+        ap._fsm["state"] = ap.S_IDLE_AT_BASE
+        ap._fsm["entered_at"] = _clock[0] - 30.0  # parked a while
+        s = _state(
+            # Bot parked at hsd≈275 px from HS — inside the cluster
+            # repulsion range of perimeter buildings.  Mirrors the
+            # actual telemetry (bot at hsd=152–275 across the
+            # session).
+            player={"x": 3475.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            aliens=[{"x": 4500.0, "y": 3200.0, "hp": 50}],
+            buildings=[_hs_building(x=3200.0, y=3200.0)],
+            world_w=6400, world_h=6400,
+        )
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_HUNT, (
+            "Initial HUNT entry from cluster-interior idle parking "
+            "must fire.")
+        # Next 2 ticks — still under HUNT_CLUSTER_PIN_DELAY_S
+        # (3.0 s); HUNT must persist.
+        for _ in range(2):
+            _clock[0] += ap.MIN_DWELL_S + 0.1
+            ap._do_auto(s, s["player"])
+            assert ap._fsm["state"] == ap.S_HUNT, (
+                "HUNT bounced back to IDLE within the cluster pin "
+                "delay window — guard fired too aggressively.")
+
     def test_initial_hunt_entry_from_inside_cluster_still_fires(
             self, _clock):
         """The cluster guard, like the wall-pin escape, only
