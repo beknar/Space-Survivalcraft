@@ -1441,6 +1441,24 @@ def _choose_next_state(state: dict, p: dict, cur: str) -> str:
     # regardless of position.
     hunt_target, hunt_td = _nearest_huntable_alien(
         state, px, py, currently_hunting=(cur == S_HUNT))
+    # Building-cluster pin escape (2026-05-06 follow-up #2): if we're
+    # already in S_HUNT and the bot has wandered INSIDE the home-
+    # station building repulsion field, refuse to re-fire HUNT.
+    # Symmetric to the wall-pin escape but against buildings instead
+    # of world edges: bot drove into the cluster chasing an alien,
+    # buildings are blocking forward motion, but the FSM keeps
+    # picking HUNT every tick because the alien target is interior
+    # (not edge-adjacent) so the wall-pin escape doesn't engage.
+    # Telemetry caught a 55 s pin at px≈220, hsd≈230 inside the
+    # cluster — the alien was chased through the field, the bot
+    # oscillated 10–20 px per 5 s tick, and rotation defeated the
+    # position-history stuck detector after the initial hit.
+    # Falling through to IDLE_AT_BASE pulls the bot to the 600 px
+    # outer ring (clear of all buildings) on the next tick; HUNT can
+    # then re-fire from open space and engage cleanly.
+    if (cur == S_HUNT and hunt_target is not None
+            and not _ship_clear_of_buildings(p, state)):
+        hunt_target = None
     if (hunt_target is not None and hunt_td < hunt_gate
             and now >= _state.hunt_giveup_until):
         return S_HUNT
