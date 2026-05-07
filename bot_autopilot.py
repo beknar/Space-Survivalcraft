@@ -528,6 +528,25 @@ HUNT_CLUSTER_PIN_DELAY_S: float = 3.0
 # user-visible oscillation drops by 90 %.
 HUNT_PIN_GIVEUP_S: float = 10.0
 
+# Wall+cluster trap detector (2026-05-06 follow-up #7): the
+# position-history stuck detector in bot_autopilot_navigation gets
+# defeated when the bot rotates to track aliens while wall-pinned
+# (rotation gate prevents "stuck" even when net displacement is
+# tiny).  This pair of constants drives a geometry-aware backstop:
+# when trap conditions hold (bot inside STUCK_ESCAPE_CLEAR_MARGIN_PX
+# of an edge AND building cluster centroid is on the inland side)
+# AND the bot's position has not changed by WALL_PIN_TRAP_PROGRESS_PX
+# over WALL_PIN_TRAP_WINDOW_S, the escape mechanism is force-armed
+# so compute_escape_target's wall-tangent path takes over (PR #42).
+#
+# Caught from 2026-05-06 follow-up #7 telemetry: 65 s session, bot
+# locked at px=48 hsd~250 throughout, 2 aliens visible, py
+# oscillating 3942-3983 (~40 px range over 30 s = 1.3 px/s, well
+# under the 25 px / 1.5 s rotation-gated stuck threshold), zero
+# stuck_detected events, zero escape activations.
+WALL_PIN_TRAP_WINDOW_S:    float = 5.0
+WALL_PIN_TRAP_PROGRESS_PX: float = 50.0
+
 # Long-term per-anchor hunt-stuck tracking: catches the SLOW
 # repeated-pin pattern that the acute window above misses.  When a
 # stuck event fires in S_HUNT, the anchor (rounded to a 200 px grid)
@@ -846,6 +865,19 @@ class BotState:
     # so the auto-use tick doesn't spam the endpoint between the
     # POST and the heal landing.
     last_consumable_use_at: float = 0.0
+    # Wall+cluster trap detector (2026-05-06 follow-up #7).  The
+    # position-history stuck detector in bot_autopilot_navigation
+    # is defeated when the bot rotates to track aliens while wall-
+    # pinned (rotation gate >30° prevents the "stuck" classification
+    # even when net displacement is well under 25 px).  This pair
+    # of fields is a geometry-aware backstop: when the bot sits in
+    # the wall+cluster trap geometry (wall_pinned + cluster centroid
+    # blocking the inland path) AND has not moved more than
+    # WALL_PIN_TRAP_PROGRESS_PX over WALL_PIN_TRAP_WINDOW_S, force-
+    # arm the existing escape mechanism so compute_escape_target's
+    # wall-tangent path (PR #42) takes over.
+    wall_pin_anchor: tuple = (0.0, 0.0)
+    wall_pin_anchor_at: float = 0.0
 
     def reset(self) -> None:
         """Restore every field to its default.  Mutates dict fields
@@ -874,6 +906,8 @@ class BotState:
         self.consumables_equipped = False
         self.qwi_placed = False
         self.last_consumable_use_at = 0.0
+        self.wall_pin_anchor = (0.0, 0.0)
+        self.wall_pin_anchor_at = 0.0
 
 
 _state = BotState()
@@ -1117,6 +1151,98 @@ def _record_position(p: dict) -> None:
 
 def _detect_stuck() -> bool:
     return _nav.detect_stuck(_stuck_state)
+
+
+def _wall_pin_trap_active(state: dict, p: dict) -> bool:
+    """True when the bot is in the wall+cluster trap geometry: bot
+    inside ``STUCK_ESCAPE_CLEAR_MARGIN_PX`` of a world edge AND a
+    building cluster's centroid sits between the bot and the world
+    interior on the wall-pinned axis.
+
+    Mirrors the gate in ``compute_escape_target``'s wall-tangent
+    path (PR #42) so the geometry-aware force-escape and the
+    wall-tangent target use the same trap definition.
+    """
+    buildings = state.get("buildings") or []
+    if not buildings:
+        return False
+    zone = state.get("zone") or {}
+    world_w = float(zone.get("world_w", 6400) or 6400)
+    world_h = float(zone.get("world_h", 6400) or 6400)
+    px = float(p.get("x", 0.0))
+    py = float(p.get("y", 0.0))
+    margin = STUCK_ESCAPE_CLEAR_MARGIN_PX
+    near_west = px < margin
+    near_east = px > world_w - margin
+    near_south = py < margin
+    near_north = py > world_h - margin
+    if not (near_west or near_east or near_south or near_north):
+        return False
+    sx = sum(float(b.get("x", 0.0)) for b in buildings)
+    sy = sum(float(b.get("y", 0.0)) for b in buildings)
+    n = len(buildings)
+    cx = sx / n
+    cy = sy / n
+    return ((near_west and cx > px)
+            or (near_east and cx < px)
+            or (near_south and cy > py)
+            or (near_north and cy < py))
+
+
+def _maybe_force_wall_pin_escape(state: dict, p: dict,
+                                 now: float) -> None:
+    """Geometry-aware backstop for the position-history stuck
+    detector.  When the bot has been in the wall+cluster trap
+    geometry for ``WALL_PIN_TRAP_WINDOW_S`` AND has not moved more
+    than ``WALL_PIN_TRAP_PROGRESS_PX`` over that window, force-arm
+    the escape mechanism so ``compute_escape_target``'s wall-
+    tangent path takes over.
+
+    Why this is needed: the navigation-layer ``detect_stuck`` has a
+    rotation gate (>30° rotation in the 1.5 s window short-circuits
+    the "stuck" classification) that legitimately filters out
+    "rotating-to-aim" cases.  But it also misses the wall-pin where
+    the bot is rotating to track a wall-glued alien while making
+    only ~1 px/s of net translation.  Trap geometry confirms the
+    pin without depending on rotation; the existing escape
+    machinery handles the rest.
+    """
+    px = float(p.get("x", 0.0))
+    py = float(p.get("y", 0.0))
+    if not _wall_pin_trap_active(state, p):
+        # Trap conditions not met — reset the anchor so the next
+        # entry into the trap restarts the timer cleanly.
+        _state.wall_pin_anchor_at = 0.0
+        return
+    if _stuck_state["escape_until"] > 0.0:
+        # Escape already active — the stuck-watchdog block below
+        # owns the dispatch + exit conditions.  Reset the anchor
+        # so the next cycle (after escape ends) starts fresh.
+        _state.wall_pin_anchor_at = 0.0
+        return
+    if _state.wall_pin_anchor_at == 0.0:
+        # First tick in the trap — set the anchor.
+        _state.wall_pin_anchor = (px, py)
+        _state.wall_pin_anchor_at = now
+        return
+    # In trap with an anchor.  Check elapsed time + displacement.
+    elapsed = now - _state.wall_pin_anchor_at
+    if elapsed < WALL_PIN_TRAP_WINDOW_S:
+        return
+    ax, ay = _state.wall_pin_anchor
+    moved = math.hypot(px - ax, py - ay)
+    if moved >= WALL_PIN_TRAP_PROGRESS_PX:
+        # Bot is making net progress — re-anchor and keep watching.
+        _state.wall_pin_anchor = (px, py)
+        _state.wall_pin_anchor_at = now
+        return
+    # Trap confirmed: bot has been wall-pinned in cluster-blocking
+    # geometry for >= WALL_PIN_TRAP_WINDOW_S with displacement
+    # < WALL_PIN_TRAP_PROGRESS_PX.  Force-arm the escape so
+    # compute_escape_target's wall-tangent path runs.
+    _stuck_state["escape_until"] = now + STUCK_ESCAPE_MIN_DURATION_S
+    _stuck_state["history"] = []
+    _state.wall_pin_anchor_at = 0.0  # reset; next trap entry restarts
 
 
 def _ship_clear_of_edges(p: dict, zone: dict) -> bool:
@@ -1762,6 +1888,18 @@ def _do_auto(state: dict, p: dict) -> None:
     # preempts whatever was driving the ship into the obstacle.
     _record_position(p)
     zone = state.get("zone") or {}
+    # Wall+cluster trap force-escape (2026-05-06 follow-up #7): the
+    # navigation-layer position-history stuck detector misses a
+    # very specific failure mode — the bot rotating in place to
+    # track an alien while wall-pinned, with cluster-inland
+    # geometry.  Rotation defeats the rotation gate and the bot's
+    # tiny tracking-jitter movements (~1 px/s in the telemetry)
+    # don't cleanly trigger the displacement gate over a 1.5 s
+    # window either.  Add a geometry-aware detector that bypasses
+    # the rotation gate when trap conditions hold AND the bot's
+    # position has barely changed.  Force-arming escape mode lets
+    # compute_escape_target's wall-tangent path (PR #42) take over.
+    _maybe_force_wall_pin_escape(state, p, now)
     if _stuck_state["escape_until"] > 0.0:
         # Escape is active.  Stay in escape until ALL of:
         #  * the minimum duration has elapsed, AND

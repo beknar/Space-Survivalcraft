@@ -4382,6 +4382,145 @@ class TestHuntPinEscapeLockout:
             "is conditional on aliens being visible.")
 
 
+# ── Fix (2026-05-06 #7): wall+cluster trap force-escape ──────────────
+
+class TestWallPinTrapForceEscape:
+    """Geometry-aware backstop for the navigation-layer
+    position-history stuck detector.  When the bot is in the
+    wall+cluster trap geometry (wall-pinned + cluster centroid on
+    the inland side) AND has not moved more than
+    WALL_PIN_TRAP_PROGRESS_PX over WALL_PIN_TRAP_WINDOW_S, the
+    autopilot force-arms ``_stuck_state['escape_until']`` so
+    ``compute_escape_target``'s wall-tangent path (PR #42) runs.
+
+    Why this is needed: ``detect_stuck`` has a rotation gate that
+    short-circuits "stuck" when the bot rotates >30° over a 1.5 s
+    window.  Bots tracking wall-glued aliens defeat that gate even
+    while making only ~1 px/s of net translation.  Telemetry from
+    2026-05-06 follow-up #7 caught the bot pinned at px=48,
+    hsd≈250 for the entire 65 s session (py oscillating 3942–3983)
+    with zero stuck_detected events and zero escape activations.
+    """
+
+    @staticmethod
+    def _trap_state():
+        """Standard wall+cluster trap fixture used by these tests:
+        bot at west wall, HS inland, alien at low px so the action
+        handler tries to drive into the cluster."""
+        return _state(
+            player={"x": 48.0, "y": 3984.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            aliens=[{"x": 30.0, "y": 4500.0, "hp": 50}],
+            buildings=[
+                {"x": 290.0, "y": 3984.0, "building_type": "Home Station"},
+                {"x": 200.0, "y": 3950.0, "building_type": "Service Module"},
+                {"x": 380.0, "y": 4020.0, "building_type": "Service Module"},
+            ],
+            world_w=6400, world_h=6400,
+        )
+
+    def test_force_escape_arms_after_window_with_no_movement(
+            self, _clock):
+        """Trap geometry + bot stationary for >= WALL_PIN_TRAP_WINDOW_S
+        must arm escape mode."""
+        ap._fsm_reset()
+        ap._stuck_state["escape_until"] = 0.0
+        s = self._trap_state()
+        # Tick 1: trap conditions hold, anchor planted.
+        ap._do_auto(s, s["player"])
+        assert ap._stuck_state["escape_until"] == 0.0, (
+            "Escape must NOT arm on the very first tick — the "
+            "anchor needs WALL_PIN_TRAP_WINDOW_S to elapse first.")
+        anchor_at = ap._state.wall_pin_anchor_at
+        assert anchor_at > 0.0, "Anchor must be set on first trap tick."
+        # Advance past the trap window with no bot movement.
+        _clock[0] += ap.WALL_PIN_TRAP_WINDOW_S + 0.1
+        ap._do_auto(s, s["player"])
+        assert ap._stuck_state["escape_until"] > 0.0, (
+            "Escape must arm once the bot has been in the trap "
+            "longer than WALL_PIN_TRAP_WINDOW_S without making "
+            "WALL_PIN_TRAP_PROGRESS_PX of progress.")
+
+    def test_force_escape_does_not_arm_within_window(self, _clock):
+        """Inside the detection window the detector waits — it
+        doesn't fire prematurely on the first tick."""
+        ap._fsm_reset()
+        ap._stuck_state["escape_until"] = 0.0
+        s = self._trap_state()
+        ap._do_auto(s, s["player"])
+        # Advance only halfway through the window.
+        _clock[0] += ap.WALL_PIN_TRAP_WINDOW_S * 0.5
+        ap._do_auto(s, s["player"])
+        assert ap._stuck_state["escape_until"] == 0.0
+
+    def test_force_escape_does_not_arm_when_bot_makes_progress(
+            self, _clock):
+        """If the bot moves more than WALL_PIN_TRAP_PROGRESS_PX
+        across the window, the detector re-anchors instead of
+        arming escape — the bot isn't actually stuck, it's just
+        in the trap geometry temporarily while moving through it."""
+        ap._fsm_reset()
+        ap._stuck_state["escape_until"] = 0.0
+        s_before = self._trap_state()
+        ap._do_auto(s_before, s_before["player"])
+        anchor_at_before = ap._state.wall_pin_anchor_at
+        # Advance time + move bot well past the progress threshold
+        # (still in trap geometry — same wall + same cluster, just
+        # different py).
+        _clock[0] += ap.WALL_PIN_TRAP_WINDOW_S + 0.1
+        s_after = self._trap_state()
+        s_after["player"]["y"] = (
+            3984.0 + ap.WALL_PIN_TRAP_PROGRESS_PX + 50.0)
+        ap._do_auto(s_after, s_after["player"])
+        assert ap._stuck_state["escape_until"] == 0.0, (
+            "Bot made > PROGRESS_PX of motion — trap should be "
+            "treated as transient, escape NOT armed.")
+        # Anchor was reset to the new position (timestamp updated).
+        assert ap._state.wall_pin_anchor_at >= anchor_at_before
+
+    def test_force_escape_does_not_arm_outside_trap_geometry(
+            self, _clock):
+        """Bot interior or wall-pinned without cluster on the
+        inland side — detector must not fire."""
+        ap._fsm_reset()
+        ap._stuck_state["escape_until"] = 0.0
+        # Bot in open space, far from any wall — no trap.
+        s = _state(
+            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            aliens=[{"x": 4500.0, "y": 3200.0, "hp": 50}],
+            buildings=[_hs_building(x=3200.0, y=3200.0)],
+            world_w=6400, world_h=6400,
+        )
+        for _ in range(5):
+            _clock[0] += ap.WALL_PIN_TRAP_WINDOW_S + 0.1
+            ap._do_auto(s, s["player"])
+        assert ap._stuck_state["escape_until"] == 0.0
+        assert ap._state.wall_pin_anchor_at == 0.0
+
+    def test_force_escape_resets_anchor_when_trap_clears(
+            self, _clock):
+        """Bot enters trap, then moves out before the window
+        elapses — anchor must reset so a future trap entry restarts
+        the timer cleanly."""
+        ap._fsm_reset()
+        ap._stuck_state["escape_until"] = 0.0
+        s_trap = self._trap_state()
+        ap._do_auto(s_trap, s_trap["player"])
+        assert ap._state.wall_pin_anchor_at > 0.0
+        # Bot escapes the trap (now interior).
+        _clock[0] += ap.WALL_PIN_TRAP_WINDOW_S * 0.5
+        s_clear = _state(
+            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            aliens=[{"x": 4500.0, "y": 3200.0, "hp": 50}],
+            buildings=[_hs_building(x=3200.0, y=3200.0)],
+            world_w=6400, world_h=6400,
+        )
+        ap._do_auto(s_clear, s_clear["player"])
+        assert ap._state.wall_pin_anchor_at == 0.0
+
+
 # ── Fix (2026-05-06 #2): HUNT building-cluster pin escape ─────────────
 
 class TestHuntBuildingClusterEscape:
