@@ -542,12 +542,34 @@ def ship_clear_of_buildings(p: dict, state: dict) -> bool:
 def compute_escape_target(state: dict, p: dict
                           ) -> tuple[float, float]:
     """Return (tx, ty) the bot should head toward to escape a
-    boundary / building pin.  The direction is the combined
-    boundary + building repulsion vector; falls back to world
-    centre only when neither field is active.
+    boundary / building pin.
 
-    Result is clamped inside the world rect (with
-    ``STUCK_WORLD_MARGIN_PX`` margin) so the escape target itself
+    Three cases, evaluated in order:
+
+    1. **Wall-pinned with cluster blocking the inland path**: bot
+       is inside ``STUCK_ESCAPE_CLEAR_MARGIN_PX`` of a world edge
+       AND the building cluster's centroid sits between the bot
+       and the world interior on that axis.  The legacy gradient
+       points "outward from the wall" but the cluster physically
+       blocks that direction (it's on the inland side), so thrust
+       is wasted against the cluster's repulsion field even though
+       the gradient direction is correct.  Caught from 2026-05-06
+       follow-up #6 telemetry: bot frozen at *exactly* (48, 3983.8)
+       in S_HUNT for 117+ s — stuck_detected fired once, escape
+       mode kicked in, but the gradient target at (1048, 3984)
+       was geometrically unreachable through the station cluster.
+       Slide ALONG the wall tangent instead, in the direction
+       AWAY from the cluster centroid — the bot exits the
+       cluster's lateral coverage and can then drift inland on
+       the next escape cycle.
+
+    2. **Combined repulsion field active** (``|rx|>0.05`` or
+       ``|ry|>0.05``): head along the gradient (legacy path).
+
+    3. **No active field**: legacy world-centre fallback.
+
+    Result is clamped inside the world rect with
+    ``STUCK_WORLD_MARGIN_PX`` margin so the escape target itself
     doesn't sit at an edge.
     """
     zone = state.get("zone") or {}
@@ -559,6 +581,53 @@ def compute_escape_target(state: dict, p: dict
     ry += by * BUILDING_REPULSION_GAIN
     px = float(p.get("x", 0.0))
     py = float(p.get("y", 0.0))
+
+    # Case 1: wall + cluster trap.  Detect first so it can override
+    # an otherwise-correct-looking gradient that the cluster makes
+    # physically unreachable.
+    near_west = px < STUCK_ESCAPE_CLEAR_MARGIN_PX
+    near_east = px > world_w - STUCK_ESCAPE_CLEAR_MARGIN_PX
+    near_south = py < STUCK_ESCAPE_CLEAR_MARGIN_PX
+    near_north = py > world_h - STUCK_ESCAPE_CLEAR_MARGIN_PX
+    wall_pinned = near_west or near_east or near_south or near_north
+    if wall_pinned and (state.get("buildings") or []):
+        cx, cy = _building_cluster_centroid(state, fallback=(px, py))
+        if near_west or near_east:
+            cluster_blocks_inland = (
+                (near_west and cx > px)
+                or (near_east and cx < px))
+            if cluster_blocks_inland:
+                # West/east wall: tangent direction is ±y.  Pick
+                # the side that moves AWAY from the cluster's y
+                # centroid so the bot exits the cluster's
+                # lateral coverage.  Tie (bot at same y as
+                # centroid) defaults to +y deterministically.
+                #
+                # NOTE: only clamp the tangent axis (y).  The wall-
+                # axis (x) is intentionally at the wall — clamping
+                # it inland would defeat the tangent (escape target
+                # would end up with a +x component pushing the bot
+                # back into the cluster).
+                sign = 1.0 if py >= cy else -1.0
+                tx = px
+                ty = max(STUCK_WORLD_MARGIN_PX,
+                         min(world_h - STUCK_WORLD_MARGIN_PX,
+                             py + sign * BUILD_SEEK_TARGET_DIST_PX))
+                return (tx, ty)
+        else:
+            cluster_blocks_inland = (
+                (near_south and cy > py)
+                or (near_north and cy < py))
+            if cluster_blocks_inland:
+                # North/south wall: tangent direction is ±x.
+                sign = 1.0 if px >= cx else -1.0
+                tx = max(STUCK_WORLD_MARGIN_PX,
+                         min(world_w - STUCK_WORLD_MARGIN_PX,
+                             px + sign * BUILD_SEEK_TARGET_DIST_PX))
+                ty = py
+                return (tx, ty)
+
+    # Case 2 + 3: legacy paths (gradient or world-centre fallback).
     if abs(rx) > 0.05 or abs(ry) > 0.05:
         norm = math.hypot(rx, ry)
         ux = rx / norm
@@ -568,8 +637,42 @@ def compute_escape_target(state: dict, p: dict
     else:
         tx = world_w * 0.5
         ty = world_h * 0.5
-    tx = max(STUCK_WORLD_MARGIN_PX,
-             min(world_w - STUCK_WORLD_MARGIN_PX, tx))
-    ty = max(STUCK_WORLD_MARGIN_PX,
-             min(world_h - STUCK_WORLD_MARGIN_PX, ty))
-    return (tx, ty)
+    return _clamp_target(tx, ty, world_w, world_h)
+
+
+def _clamp_target(tx: float, ty: float, world_w: float, world_h: float
+                  ) -> tuple[float, float]:
+    """Clamp an escape target inside the world rect with
+    ``STUCK_WORLD_MARGIN_PX`` margin so the target itself doesn't
+    sit on an edge."""
+    return (
+        max(STUCK_WORLD_MARGIN_PX,
+            min(world_w - STUCK_WORLD_MARGIN_PX, tx)),
+        max(STUCK_WORLD_MARGIN_PX,
+            min(world_h - STUCK_WORLD_MARGIN_PX, ty)),
+    )
+
+
+def _building_cluster_centroid(state: dict,
+                               fallback: tuple[float, float]
+                               ) -> tuple[float, float]:
+    """Return (cx, cy) — the centroid of all buildings in /state.
+    Used by ``compute_escape_target``'s wall-tangent path to
+    decide which side of the cluster to slide toward.  When no
+    buildings exist, return ``fallback`` (typically the bot's
+    own position) so the sign comparisons in the caller default
+    to a deterministic side without firing a "head into nothing"
+    target."""
+    buildings = state.get("buildings") or []
+    if not buildings:
+        return fallback
+    sx = 0.0
+    sy = 0.0
+    n = 0
+    for b in buildings:
+        sx += float(b.get("x", 0.0))
+        sy += float(b.get("y", 0.0))
+        n += 1
+    if n == 0:
+        return fallback
+    return (sx / n, sy / n)
