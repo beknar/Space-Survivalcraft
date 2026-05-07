@@ -391,3 +391,32 @@ class TestMainThreadQueue:
         bot_api.submit_to_main_thread(lambda gv: order.append(3))
         bot_api.pump_main_thread_queue(None)
         assert order == [1, 2, 3]
+
+
+class TestQuickUseSlotsState:
+    """``_quick_use_slots_state`` mirrors the HUD's quick-use bar so
+    the autopilot can decide when to fire a repair pack / shield
+    recharge.  Both ``_qu_slots`` (item types) and ``_qu_counts``
+    (current count per slot) are extracted in parallel."""
+
+    def test_empty_hud_returns_empty_list(self):
+        gv = _gv()
+        gv._hud = SimpleNamespace(_qu_slots=[], _qu_counts=[])
+        assert bot_api._quick_use_slots_state(gv) == []
+
+    def test_populated_slots_returned_with_counts(self):
+        gv = _gv()
+        gv._hud = SimpleNamespace(
+            _qu_slots=["repair_pack", "shield_recharge", None],
+            _qu_counts=[25, 25, 0],
+        )
+        out = bot_api._quick_use_slots_state(gv)
+        assert out == [
+            {"item_type": "repair_pack", "count": 25},
+            {"item_type": "shield_recharge", "count": 25},
+            {"item_type": None, "count": 0},
+        ]
+
+    def test_missing_hud_returns_empty(self):
+        gv = SimpleNamespace()
+        assert bot_api._quick_use_slots_state(gv) == []

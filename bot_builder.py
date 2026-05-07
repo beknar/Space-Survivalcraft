@@ -353,6 +353,166 @@ def install_module(gv: Any, mod_key: str) -> dict:
     return {"ok": True, "installed": mod_key, "slot": free_slot}
 
 
+def equip_consumables_to_quick_use(
+        gv: Any,
+        repair_slot: int = 0,
+        shield_slot: int = 1,
+        max_each: int = 25) -> dict:
+    """Withdraw repair packs + shield recharges from station inventory
+    into ship inventory, then bind them to ship quick-use slots.
+
+    Mirrors the player flow: drag repair_pack out of the station
+    inventory grid into the ship inventory grid, then drag onto a
+    quick-use slot.  Bot does it in one main-thread call.
+
+    Args:
+      repair_slot: quick-use slot index (0-9) for repair packs.
+      shield_slot: quick-use slot index (0-9) for shield recharges.
+      max_each: cap on the number of each consumable to withdraw.
+                Defaults to 25 (the post-craft batch total).
+
+    Returns ``{"ok": True, "repair_pack": N, "shield_recharge": M,
+    "repair_slot": i, "shield_slot": j}``.  If neither item is in
+    station inventory, ``ok`` is False with reason.
+    """
+    rp_avail = int(gv._station_inv.count_item("repair_pack"))
+    sr_avail = int(gv._station_inv.count_item("shield_recharge"))
+    if rp_avail <= 0 and sr_avail <= 0:
+        return {
+            "ok": False,
+            "reason": "no consumables in station inventory",
+        }
+
+    rp_take = min(rp_avail, int(max_each))
+    sr_take = min(sr_avail, int(max_each))
+
+    if rp_take > 0:
+        gv._station_inv.remove_item("repair_pack", rp_take)
+        gv.inventory.add_item("repair_pack", rp_take)
+    if sr_take > 0:
+        gv._station_inv.remove_item("shield_recharge", sr_take)
+        gv.inventory.add_item("shield_recharge", sr_take)
+
+    # Bind to quick-use slots — uses the running total in the ship
+    # inventory (any prior leftover counts get included).
+    rp_total = int(gv.inventory.count_item("repair_pack"))
+    sr_total = int(gv.inventory.count_item("shield_recharge"))
+    try:
+        if rp_total > 0:
+            gv._hud.set_quick_use(int(repair_slot),
+                                  "repair_pack", rp_total)
+        if sr_total > 0:
+            gv._hud.set_quick_use(int(shield_slot),
+                                  "shield_recharge", sr_total)
+    except Exception as e:
+        return {"ok": False, "reason": f"hud bind failed: {e}"}
+
+    return {
+        "ok": True,
+        "repair_pack": rp_take,
+        "shield_recharge": sr_take,
+        "repair_slot": int(repair_slot),
+        "shield_slot": int(shield_slot),
+        "ship_repair_total": rp_total,
+        "ship_shield_total": sr_total,
+    }
+
+
+def place_quantum_wave_integrator(gv: Any) -> dict:
+    """Place a Quantum Wave Integrator near the Home Station.
+
+    The QWI must be within 300 px of an active Home Station; placing
+    it auto-spawns the Double Star boss at the world corner furthest
+    from the station (``combat_helpers.spawn_boss``).
+
+    Picks a placement spot 200 px south of the Home Station —
+    free-place radius is 300 px, so 200 px south is comfortably
+    inside.  Falls back to other compass points if south is blocked.
+    Returns ``{"ok": True, "placed_at": [x, y]}`` on success,
+    ``{"ok": False, "reason": ...}`` otherwise.
+    """
+    from constants import BUILDING_TYPES
+    import building_manager as bm
+
+    if BUILDING_TYPES.get("Quantum Wave Integrator") is None:
+        return {"ok": False, "reason": "QWI not in BUILDING_TYPES"}
+    if _existing_count(gv, "Quantum Wave Integrator") >= 1:
+        return {"ok": False, "reason": "QWI already placed"}
+
+    # Find the active Home Station.
+    home = None
+    for b in gv.building_list:
+        if getattr(b, "building_type", None) == "Home Station" \
+                and not getattr(b, "disabled", False):
+            home = b
+            break
+    if home is None:
+        return {"ok": False, "reason": "no active home station"}
+
+    hx = float(home.center_x)
+    hy = float(home.center_y)
+
+    # Try compass offsets in order: S, N, E, W.  200 px sits inside
+    # the 300 px free-place radius and clear of the typical
+    # north-extension chain (HS at +0, SM at +60, PR at +120, SA2 at
+    # +200) — south is open by default.
+    candidates = [
+        (hx + 0.0,   hy - 200.0),
+        (hx + 0.0,   hy + 280.0),
+        (hx + 280.0, hy + 0.0),
+        (hx - 280.0, hy + 0.0),
+    ]
+    last_reason = "all candidates rejected"
+    for wx, wy in candidates:
+        before = len(gv.building_list)
+        try:
+            bm.enter_placement_mode(gv, "Quantum Wave Integrator")
+            bm.place_building(gv, wx, wy)
+        except Exception as e:
+            try:
+                bm.cancel_placement(gv)
+            except Exception:
+                pass
+            last_reason = f"placement raised: {e}"
+            continue
+        if len(gv.building_list) > before:
+            return {
+                "ok": True,
+                "placed_at": [wx, wy],
+                "boss_spawned": bool(getattr(gv, "_boss_spawned", False)),
+            }
+    return {"ok": False, "reason": last_reason}
+
+
+def use_quick_use_slot(gv: Any, slot: int) -> dict:
+    """Trigger the consumable in quick-use slot ``slot`` (0-9).
+
+    Looks up the slot's item type and calls the matching ``gv._use_*``
+    method.  Used by the autopilot to fire consumables based on
+    HP / shield thresholds (it can't press number keys directly
+    without driving the keyboard handler).
+    """
+    item = None
+    try:
+        item = gv._hud.get_quick_use(int(slot))
+    except Exception as e:
+        return {"ok": False, "reason": f"slot read failed: {e}"}
+    if item is None:
+        return {"ok": False, "reason": f"slot {slot} empty"}
+    try:
+        if item == "repair_pack":
+            gv._use_repair_pack(int(slot))
+        elif item == "shield_recharge":
+            gv._use_shield_recharge(int(slot))
+        elif item == "missile":
+            gv._fire_missile(int(slot))
+        else:
+            return {"ok": False, "reason": f"unknown item {item!r}"}
+    except Exception as e:
+        return {"ok": False, "reason": f"use raised: {e}"}
+    return {"ok": True, "used": item, "slot": int(slot)}
+
+
 def build_starter_base(gv: Any) -> dict:
     """Three-phase build: starter base → deposit → west extension.
     See module docstring for the layout of each sequence.

@@ -422,3 +422,176 @@ def test_full_build_includes_basic_crafter():
         [bt for (bt, _, _) in bot_builder.STARTER_BASE_SEQUENCE]
         + [bt for (bt, _, _) in bot_builder.EXTENSION_SEQUENCE])
     assert "Basic Crafter" in all_types
+
+
+# ── Equip consumables to ship quick-use slots ────────────────────────────
+
+
+class _StubHud:
+    """Stub HUD that records set_quick_use calls so tests can
+    assert which slots got bound to which item types."""
+
+    def __init__(self):
+        self.calls: list = []
+
+    def set_quick_use(self, slot, item_type, count=0):
+        self.calls.append((int(slot), item_type, int(count)))
+
+
+def test_equip_consumables_transfers_from_station_to_ship():
+    """Withdraws repair_pack + shield_recharge from station into ship
+    inventory and binds them to the requested quick-use slots."""
+    ship, _ = _stub_inv_with_items({})
+    station, _ = _stub_inv_with_items({"repair_pack": 25,
+                                       "shield_recharge": 25,
+                                       "iron": 1000})
+    hud = _StubHud()
+    gv = SimpleNamespace(
+        inventory=ship, _station_inv=station, _hud=hud,
+        building_list=[],
+    )
+    result = bot_builder.equip_consumables_to_quick_use(gv)
+    assert result["ok"] is True
+    assert result["repair_pack"] == 25
+    assert result["shield_recharge"] == 25
+    # Ship has the consumables now; station no longer.
+    assert ship.count_item("repair_pack") == 25
+    assert ship.count_item("shield_recharge") == 25
+    assert station.count_item("repair_pack") == 0
+    assert station.count_item("shield_recharge") == 0
+    # Iron untouched.
+    assert station.count_item("iron") == 1000
+    # HUD slots bound (slot 0 = repair, slot 1 = shield by default).
+    assert (0, "repair_pack", 25) in hud.calls
+    assert (1, "shield_recharge", 25) in hud.calls
+
+
+def test_equip_consumables_caps_at_max_each():
+    """``max_each`` caps the per-item withdraw amount so a station
+    overflowing with 100 repair packs only ships 25 to the bot."""
+    ship, _ = _stub_inv_with_items({})
+    station, _ = _stub_inv_with_items({"repair_pack": 100,
+                                       "shield_recharge": 100})
+    hud = _StubHud()
+    gv = SimpleNamespace(
+        inventory=ship, _station_inv=station, _hud=hud,
+        building_list=[],
+    )
+    result = bot_builder.equip_consumables_to_quick_use(
+        gv, max_each=25)
+    assert result["repair_pack"] == 25
+    assert result["shield_recharge"] == 25
+    assert ship.count_item("repair_pack") == 25
+    assert station.count_item("repair_pack") == 75
+
+
+def test_equip_consumables_returns_failure_when_station_empty():
+    ship, _ = _stub_inv_with_items({})
+    station, _ = _stub_inv_with_items({"iron": 500})
+    hud = _StubHud()
+    gv = SimpleNamespace(
+        inventory=ship, _station_inv=station, _hud=hud,
+        building_list=[],
+    )
+    result = bot_builder.equip_consumables_to_quick_use(gv)
+    assert result["ok"] is False
+    assert "no consumables" in result["reason"]
+    assert hud.calls == []
+
+
+# ── Quantum Wave Integrator placement ─────────────────────────────────────
+
+
+def test_place_qwi_returns_failure_without_home_station():
+    gv = SimpleNamespace(building_list=[])
+    result = bot_builder.place_quantum_wave_integrator(gv)
+    assert result["ok"] is False
+    assert "no active home station" in result["reason"]
+
+
+def test_place_qwi_skips_when_already_placed():
+    """Defensive — if a QWI already exists, don't place a second one
+    (the BUILDING_TYPES max=1 cap would reject it; we short-circuit
+    earlier so the bot doesn't hammer the placement chain)."""
+    home = SimpleNamespace(
+        building_type="Home Station", disabled=False,
+        center_x=3200.0, center_y=3200.0)
+    qwi = SimpleNamespace(building_type="Quantum Wave Integrator")
+    gv = SimpleNamespace(building_list=[home, qwi])
+    result = bot_builder.place_quantum_wave_integrator(gv)
+    assert result["ok"] is False
+    assert "already" in result["reason"].lower()
+
+
+def test_place_qwi_calls_placement_chain_for_south_offset(monkeypatch):
+    """First candidate is 200 px south of the Home Station."""
+    home = SimpleNamespace(
+        building_type="Home Station", disabled=False,
+        center_x=3200.0, center_y=3200.0)
+    gv = SimpleNamespace(
+        building_list=[home],
+        player=SimpleNamespace(center_x=3200.0, center_y=3200.0))
+
+    placements: list = []
+
+    def fake_enter(g, bt):
+        placements.append(("enter", bt))
+
+    def fake_place(g, wx, wy):
+        placements.append(("place", wx, wy))
+        # Simulate success — append a fake QWI sprite to mirror the
+        # real placement's effect on building_list.
+        g.building_list.append(
+            SimpleNamespace(building_type="Quantum Wave Integrator"))
+
+    import building_manager
+    monkeypatch.setattr(building_manager, "enter_placement_mode",
+                        fake_enter)
+    monkeypatch.setattr(building_manager, "place_building", fake_place)
+    result = bot_builder.place_quantum_wave_integrator(gv)
+    assert result["ok"] is True
+    # First (and only successful) candidate is at x=3200, y=3000
+    # (200 px south of HS at y=3200).
+    assert ("place", 3200.0, 3000.0) in placements
+    assert ("enter", "Quantum Wave Integrator") in placements
+
+
+# ── Quick-use slot trigger ────────────────────────────────────────────────
+
+
+def test_use_quick_use_slot_dispatches_to_repair_pack():
+    used: list = []
+    hud = SimpleNamespace(get_quick_use=lambda i: "repair_pack")
+    gv = SimpleNamespace(
+        _hud=hud,
+        _use_repair_pack=lambda slot: used.append(("rp", slot)),
+        _use_shield_recharge=lambda slot: used.append(("sr", slot)),
+        _fire_missile=lambda slot: used.append(("ms", slot)),
+    )
+    result = bot_builder.use_quick_use_slot(gv, 0)
+    assert result["ok"] is True
+    assert result["used"] == "repair_pack"
+    assert used == [("rp", 0)]
+
+
+def test_use_quick_use_slot_dispatches_to_shield_recharge():
+    used: list = []
+    hud = SimpleNamespace(get_quick_use=lambda i: "shield_recharge")
+    gv = SimpleNamespace(
+        _hud=hud,
+        _use_repair_pack=lambda slot: used.append(("rp", slot)),
+        _use_shield_recharge=lambda slot: used.append(("sr", slot)),
+        _fire_missile=lambda slot: used.append(("ms", slot)),
+    )
+    result = bot_builder.use_quick_use_slot(gv, 1)
+    assert result["ok"] is True
+    assert result["used"] == "shield_recharge"
+    assert used == [("sr", 1)]
+
+
+def test_use_quick_use_slot_empty_returns_failure():
+    hud = SimpleNamespace(get_quick_use=lambda i: None)
+    gv = SimpleNamespace(_hud=hud)
+    result = bot_builder.use_quick_use_slot(gv, 5)
+    assert result["ok"] is False
+    assert "empty" in result["reason"]

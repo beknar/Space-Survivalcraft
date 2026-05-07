@@ -292,6 +292,30 @@ def _module_slots_state(gv) -> list[str | None]:
         return []
 
 
+def _quick_use_slots_state(gv) -> list[dict]:
+    """Snapshot of the ship's quick-use bar.
+
+    Returned as a parallel list of ``{"item_type": str | None,
+    "count": int}`` entries — one per slot.  Empty slots have
+    ``item_type`` = None / ``count`` = 0.  The bot reads this to
+    decide whether to fire ``/use_quick_use`` for a repair pack /
+    shield recharge when HP / shields drop below the use threshold.
+    """
+    try:
+        slots = list(getattr(gv._hud, "_qu_slots", []) or [])
+        counts = list(getattr(gv._hud, "_qu_counts", []) or [])
+    except Exception:
+        return []
+    out: list[dict] = []
+    for i, item in enumerate(slots):
+        cnt = counts[i] if i < len(counts) else 0
+        out.append({
+            "item_type": (None if item is None else str(item)),
+            "count": int(cnt),
+        })
+    return out
+
+
 def _menu_state(gv) -> dict:
     """Best-effort: which modal (if any) is open, so the
     autopilot doesn't fight the player by spamming WASD while a
@@ -353,6 +377,7 @@ def get_state(gv) -> dict:
         "inventory": _inventory_state(gv),
         "station_inventory": _station_inventory_state(gv),
         "module_slots": _module_slots_state(gv),
+        "quick_use_slots": _quick_use_slots_state(gv),
         # Zone-aware lists — pull from the same aggregators the
         # minimap uses so the bot sees what the player sees.
         "asteroids": _list_summary(_safe(lambda: _zone_aware_asteroids(gv))),
@@ -549,6 +574,78 @@ class _Handler(BaseHTTPRequestHandler):
             if result["error"] is not None:
                 self._send_json(
                     500, {"error": f"install failed: {result['error']}"})
+                return
+            self._send_json(200, result["value"])
+            return
+        if self.path == "/equip_consumables":
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                raw = self.rfile.read(length) if length else b""
+                body = json.loads(raw.decode("utf-8") or "{}")
+            except Exception as e:
+                self._send_json(400, {"error": f"bad JSON: {e}"})
+                return
+            if _gv_ref is None:
+                self._send_json(503, {"error": "game not ready"})
+                return
+            repair_slot = int(body.get("repair_slot", 0))
+            shield_slot = int(body.get("shield_slot", 1))
+            max_each = int(body.get("max_each", 25))
+            import bot_builder
+            done, result = submit_to_main_thread(
+                lambda gv: bot_builder.equip_consumables_to_quick_use(
+                    gv, repair_slot=repair_slot,
+                    shield_slot=shield_slot,
+                    max_each=max_each))
+            if not done.wait(timeout=5.0):
+                self._send_json(
+                    504, {"error": "timeout waiting for main thread"})
+                return
+            if result["error"] is not None:
+                self._send_json(
+                    500, {"error": f"equip failed: {result['error']}"})
+                return
+            self._send_json(200, result["value"])
+            return
+        if self.path == "/use_quick_use":
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                raw = self.rfile.read(length) if length else b""
+                body = json.loads(raw.decode("utf-8") or "{}")
+            except Exception as e:
+                self._send_json(400, {"error": f"bad JSON: {e}"})
+                return
+            if _gv_ref is None:
+                self._send_json(503, {"error": "game not ready"})
+                return
+            slot = int(body.get("slot", 0))
+            import bot_builder
+            done, result = submit_to_main_thread(
+                lambda gv: bot_builder.use_quick_use_slot(gv, slot))
+            if not done.wait(timeout=5.0):
+                self._send_json(
+                    504, {"error": "timeout waiting for main thread"})
+                return
+            if result["error"] is not None:
+                self._send_json(
+                    500, {"error": f"use failed: {result['error']}"})
+                return
+            self._send_json(200, result["value"])
+            return
+        if self.path == "/place_qwi":
+            if _gv_ref is None:
+                self._send_json(503, {"error": "game not ready"})
+                return
+            import bot_builder
+            done, result = submit_to_main_thread(
+                bot_builder.place_quantum_wave_integrator)
+            if not done.wait(timeout=10.0):
+                self._send_json(
+                    504, {"error": "timeout waiting for main thread"})
+                return
+            if result["error"] is not None:
+                self._send_json(
+                    500, {"error": f"qwi placement failed: {result['error']}"})
                 return
             self._send_json(200, result["value"])
             return

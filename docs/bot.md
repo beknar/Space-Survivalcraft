@@ -203,6 +203,37 @@ queue between mining runs:
    recharges).  Same gather-between-visits rhythm as the module
    phase.  `S_DEPOSIT` keeps firing during this phase too, so
    gathered iron + blueprints still flow back to the station.
+4. **Equip consumables** (`S_EQUIP_CONSUMABLES`) — once both
+   counters in `CraftQueue` hit zero AND the `consumable_phase_started`
+   sticky latch is set, the bot navigates to the Home Station and
+   `POST /equip_consumables`.  That withdraws up to 25 of each
+   consumable from station inventory into the ship inventory and
+   binds them to ship quick-use slots (`EQUIP_QUICK_USE_REPAIR_SLOT`
+   = 0, `EQUIP_QUICK_USE_SHIELD_SLOT` = 1).  Latches
+   `_state.consumables_equipped` on success.
+5. **Pre-boss mine** (`S_PRE_BOSS_MINE`) — same `_do_mine_nearest`
+   action as `S_MINE`; the FSM-level rename makes it explicit that
+   the bot is mining toward `QWI_BUILD_IRON_TARGET` (2000 station
+   iron) rather than the indefinite mining loop.  Falls through
+   when an asteroid is in range and station iron is below the
+   target.
+6. **Build QWI** (`S_BUILD_QWI`) — station iron staged: the bot
+   navigates to the Home Station and `POST /place_qwi`.  The QWI's
+   placement chain auto-spawns the Double Star boss at the world
+   corner furthest from the station (`combat_helpers.spawn_boss`).
+   Latches `_state.qwi_placed` on success; from there the existing
+   `S_ENGAGE_BOSS` handler takes over the fight.
+
+**Per-tick consumable auto-use** (`_maybe_use_consumables`).  Runs
+**before** the FSM dispatch every tick so the response is
+independent of the active state — combat, mining, or boss kite all
+benefit.  When `hp / max_hp <= CONSUMABLE_USE_HP_PCT` (0.5) and a
+repair pack is in any quick-use slot, fires `POST /use_quick_use`
+on that slot.  Same logic for `shields / max_shields` and the
+shield recharge.  `CONSUMABLE_USE_COOLDOWN_S` (1.0) prevents
+back-to-back posts in the gap before the heal lands.  Repair pack
+takes priority over shield recharge when both thresholds trip on
+the same tick (HP can't passively regen; shields do).
 
 **Melee commit (per engagement).**  The dice roll for melee
 commitment lives in the in-process combat assist

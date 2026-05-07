@@ -362,6 +362,26 @@ BOSS_PHASE3_PRESS_RANGE_PX:   float = 600.0    # Phase 3 (no shield regen): clos
 QWI_STAGE_MIN_TURRETS:        int   = 2
 QWI_STAGE_MIN_SHIP_LEVEL:     int   = 2
 
+# Post-consumable boss-prep pipeline:
+# After the 25 + 25 consumable craft batches finish, the bot
+# (1) equips them into the ship's quick-use slots, (2) mines
+# until station iron hits QWI_BUILD_IRON_TARGET so the QWI build
+# (1000 iron + 2000 copper) is paid for, then (3) builds the
+# QWI, which spawns the boss.  The HP / shield use thresholds
+# below also drive an opportunistic consumable-use tick that
+# runs every FSM update independent of the active state.
+EQUIP_QUICK_USE_REPAIR_SLOT:  int   = 0      # quick-use slot for repair packs
+EQUIP_QUICK_USE_SHIELD_SLOT:  int   = 1      # quick-use slot for shield recharges
+QWI_BUILD_IRON_TARGET:        int   = 2000   # station-iron buffer before placing QWI
+CONSUMABLE_USE_HP_PCT:        float = 0.50   # use repair pack at <= 50 % HP
+CONSUMABLE_USE_SHIELD_PCT:    float = 0.50   # use shield recharge at <= 50 % shields
+# Cooldown between auto-use POSTs so the bot doesn't spam the
+# endpoint when a tick hits the threshold.  REPAIR_PACK_HEAL +
+# SHIELD_RECHARGE_HEAL are 0.5 each so one use brings 50 % to
+# 100 %; this floor just prevents back-to-back posts in the
+# 100 ms gap before the heal lands.
+CONSUMABLE_USE_COOLDOWN_S:    float = 1.0
+
 
 # ── State constants ───────────────────────────────────────────────────────
 
@@ -402,11 +422,29 @@ S_IDLE_AT_BASE = "idle_at_base"
 # the same reason ENGAGE/REGEN are: a boss-charge windup needs an
 # immediate strafe response, not a 1 s cooldown.
 S_ENGAGE_BOSS = "engage_boss"
+# Post-consumable boss-prep pipeline:
+#   * S_EQUIP_CONSUMABLES — once the consumable craft phase has
+#     finished its 25 + 25 batches, navigate to the Home Station
+#     and POST /equip_consumables to withdraw them from station
+#     inventory into the ship's quick-use slots.  One-shot.
+#   * S_PRE_BOSS_MINE     — after consumables are equipped but
+#     station iron is below QWI_BUILD_IRON_TARGET (2000 default),
+#     mine until the iron buffer is staged.  Same action handler
+#     as S_MINE; the FSM-level distinction tracks completion.
+#   * S_BUILD_QWI         — station iron staged, QWI not yet
+#     placed: navigate to the Home Station and POST /place_qwi,
+#     which auto-spawns the Double Star boss.
+# After the QWI is placed, the boss spawns and the existing
+# S_ENGAGE_BOSS state takes over the fight automatically.
+S_EQUIP_CONSUMABLES = "equip_consumables"
+S_PRE_BOSS_MINE     = "pre_boss_mine"
+S_BUILD_QWI         = "build_qwi"
 
 ALL_STATES = (
     S_ENGAGE, S_GATHER, S_REGEN, S_MINE, S_SEARCH,
     S_BUILD, S_BUILD_SEEK, S_DEPOSIT, S_CRAFT, S_INSTALL,
     S_HUNT, S_IDLE_AT_BASE, S_ENGAGE_BOSS,
+    S_EQUIP_CONSUMABLES, S_PRE_BOSS_MINE, S_BUILD_QWI,
 )
 
 # Maximum range at which the bot will commit to chasing an alien
@@ -797,6 +835,17 @@ class BotState:
     # to 0 on REGEN exit so the trend check restarts cleanly on
     # next entry.
     last_regen_shields: int = 0
+    # Boss-prep pipeline flags.  Flip True after the matching
+    # one-shot action confirms success (consumables equipped /
+    # QWI placed).  Once both are True the FSM trusts that the
+    # boss is incoming and falls through to the existing
+    # S_ENGAGE_BOSS path.
+    consumables_equipped: bool = False
+    qwi_placed: bool = False
+    # Monotonic timestamp of the last successful POST /use_quick_use
+    # so the auto-use tick doesn't spam the endpoint between the
+    # POST and the heal landing.
+    last_consumable_use_at: float = 0.0
 
     def reset(self) -> None:
         """Restore every field to its default.  Mutates dict fields
@@ -822,6 +871,9 @@ class BotState:
         self.hunt_giveup_until = 0.0
         self.hunt_anchor_hits.clear()
         self.last_regen_shields = 0
+        self.consumables_equipped = False
+        self.qwi_placed = False
+        self.last_consumable_use_at = 0.0
 
 
 _state = BotState()
@@ -1443,6 +1495,42 @@ def _choose_next_state(state: dict, p: dict, cur: str) -> str:
         if not _any_crafter_busy(state) and _next_craft_target(state) is not None:
             return S_CRAFT
 
+    # 5.6  Boss-prep pipeline — fires once the consumable craft
+    #      queue is fully drained (25 repair packs + 25 shield
+    #      recharges produced, all sitting in station inventory).
+    #      Three sequential one-shot stages; each flips a sticky
+    #      flag on success so the FSM never re-fires it:
+    #
+    #        a) S_EQUIP_CONSUMABLES — withdraw consumables from
+    #           station inventory + bind them to ship quick-use
+    #           slots.  Falls through immediately if no consumables
+    #           remain in station inventory (already withdrawn).
+    #        b) S_PRE_BOSS_MINE     — if station iron is below the
+    #           QWI_BUILD_IRON_TARGET buffer (default 2000), keep
+    #           mining.  Same action handler as S_MINE, but the
+    #           FSM-level distinction tracks the explicit mining
+    #           goal so telemetry can see it.
+    #        c) S_BUILD_QWI         — iron staged + QWI not yet
+    #           placed: navigate to the Home Station and POST
+    #           /place_qwi.  The QWI auto-spawns the Double Star
+    #           boss; from there S_ENGAGE_BOSS takes over.
+    if hs is not None and _consumable_phase_finished():
+        if not _state.consumables_equipped \
+                and _consumables_in_station_inv(state):
+            return S_EQUIP_CONSUMABLES
+        if not _state.qwi_placed \
+                and not _qwi_already_built(state):
+            station_iron = _station_iron(state)
+            if station_iron < QWI_BUILD_IRON_TARGET:
+                # Still mining toward the iron buffer — fall back
+                # to the normal MINE / SEARCH cascade below but
+                # tag it as PRE_BOSS_MINE so telemetry knows we're
+                # heading toward the QWI build.
+                if _nearest_asteroid(state, px, py)[0] is not None:
+                    return S_PRE_BOSS_MINE
+            else:
+                return S_BUILD_QWI
+
     # 6. MINE vs SEARCH — discrete event, no hysteresis needed.
     #    Filter out blacklisted asteroids so a single unreachable
     #    one doesn't force MINE to fire on a target the bot
@@ -1660,6 +1748,13 @@ def _do_auto(state: dict, p: dict) -> None:
                        fsm_state=_fsm["state"],
                        **_telemetry_snapshot_fields(state, p))
 
+    # Auto-use consumables BEFORE the FSM dispatch so a low HP /
+    # shield read this tick fires a heal regardless of which state
+    # the bot is in (combat / mining / boss fight all benefit).
+    # The HP threshold + cooldown live in
+    # ``_maybe_use_consumables`` — see its docstring.
+    _maybe_use_consumables(state, p)
+
     # Stuck watchdog: if the ship has been pinned against either
     # the world boundary OR a station building cluster, override
     # the FSM and head along the local repulsion vector toward
@@ -1870,7 +1965,9 @@ def _do_auto(state: dict, p: dict) -> None:
         # ENGAGE and REGEN are defensive interrupts -- they bypass
         # MIN_DWELL so the bot reacts to a sudden threat or a sudden
         # shield collapse without waiting for the dwell timer.
-        if desired in (S_ENGAGE, S_REGEN, S_ENGAGE_BOSS) or dwell >= MIN_DWELL_S:
+        if desired in (S_ENGAGE, S_REGEN, S_ENGAGE_BOSS,
+                       S_EQUIP_CONSUMABLES, S_BUILD_QWI) or \
+                dwell >= MIN_DWELL_S:
             _fsm["state"] = desired
             _fsm["entered_at"] = now
             # Clear stale position history at every state boundary.
@@ -1925,6 +2022,15 @@ def _do_auto(state: dict, p: dict) -> None:
         _act_engage(state, p)
     elif cur == S_IDLE_AT_BASE:
         _act_idle_at_base(state, p)
+    elif cur == S_EQUIP_CONSUMABLES:
+        _act_equip_consumables(state, p)
+    elif cur == S_PRE_BOSS_MINE:
+        # Same close-and-mine behavior as S_MINE; the FSM-level
+        # distinction tracks completion (mining toward the
+        # QWI_BUILD_IRON_TARGET buffer instead of indefinitely).
+        _do_mine_nearest(state, p)
+    elif cur == S_BUILD_QWI:
+        _act_build_qwi(state, p)
     else:  # S_SEARCH
         _do_spiral_search(state, p)
 
@@ -2484,6 +2590,214 @@ def _act_engage_boss(state: dict, p: dict) -> None:
     # Hold fire whenever we're within Basic Laser effective range
     # (the in-process combat assist will refine aim at 60 FPS).
     KeyState.hold("space", bdist < BOSS_FIRE_RANGE_PX)
+
+
+def _consumable_phase_finished() -> bool:
+    """True iff the bot's consumable craft phase has finished its
+    25 + 25 batches.  Reads ``_state.queue`` directly so callers
+    don't have to thread the queue through their args."""
+    q = _state.queue
+    return (q.repair_packs_remaining <= 0
+            and q.shield_recharges_remaining <= 0
+            and q.consumable_phase_started)
+
+
+def _consumables_in_station_inv(state: dict) -> bool:
+    """True when the station inventory still has at least one
+    repair pack OR shield recharge waiting to be withdrawn."""
+    items = _station_items(state)
+    return (int(items.get("repair_pack", 0)) > 0
+            or int(items.get("shield_recharge", 0)) > 0)
+
+
+def _qwi_already_built(state: dict) -> bool:
+    """True when a Quantum Wave Integrator is already in the
+    building list (either placed by the bot earlier or — defensively
+    — placed manually by the player)."""
+    for b in state.get("buildings") or []:
+        if b.get("building_type") == "Quantum Wave Integrator":
+            return True
+    return False
+
+
+def _post_use_quick_use(slot: int, timeout_s: float = 5.0) -> dict | None:
+    """POST /use_quick_use — consume the item in ship quick-use
+    slot ``slot``.  Returns the parsed JSON response or None on
+    transport failure."""
+    try:
+        import json
+        req = Request(
+            f"{API_BASE}/use_quick_use",
+            data=json.dumps({"slot": int(slot)}).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urlopen(req, timeout=timeout_s) as r:
+            return json.loads(r.read().decode("utf-8"))
+    except (URLError, TimeoutError, OSError) as e:
+        print(f"[autopilot] use_quick_use POST error: {e}")
+        return None
+    except Exception as e:
+        print(f"[autopilot] use_quick_use POST unexpected error: {e}")
+        return None
+
+
+def _post_equip_consumables(timeout_s: float = 5.0) -> dict | None:
+    """POST /equip_consumables — withdraw repair packs + shield
+    recharges from station into ship inv + bind to quick-use
+    slots."""
+    try:
+        import json
+        body = {
+            "repair_slot": EQUIP_QUICK_USE_REPAIR_SLOT,
+            "shield_slot": EQUIP_QUICK_USE_SHIELD_SLOT,
+        }
+        req = Request(
+            f"{API_BASE}/equip_consumables",
+            data=json.dumps(body).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urlopen(req, timeout=timeout_s) as r:
+            return json.loads(r.read().decode("utf-8"))
+    except (URLError, TimeoutError, OSError) as e:
+        print(f"[autopilot] equip POST error: {e}")
+        return None
+    except Exception as e:
+        print(f"[autopilot] equip POST unexpected error: {e}")
+        return None
+
+
+def _post_place_qwi(timeout_s: float = 10.0) -> dict | None:
+    """POST /place_qwi — place a Quantum Wave Integrator near the
+    Home Station.  Auto-spawns the Double Star boss on success."""
+    try:
+        import json
+        req = Request(
+            f"{API_BASE}/place_qwi",
+            data=b"{}",
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urlopen(req, timeout=timeout_s) as r:
+            return json.loads(r.read().decode("utf-8"))
+    except (URLError, TimeoutError, OSError) as e:
+        print(f"[autopilot] place_qwi POST error: {e}")
+        return None
+    except Exception as e:
+        print(f"[autopilot] place_qwi POST unexpected error: {e}")
+        return None
+
+
+def _maybe_use_consumables(state: dict, p: dict) -> None:
+    """Per-tick check: if HP <= 50 % and a repair pack is in a
+    quick-use slot, fire it.  Same for shields and shield recharge.
+    Runs every ``_do_auto`` tick before the FSM dispatch so the
+    response is independent of whatever state the bot is in (combat,
+    mining, building, boss fight — all of them benefit from auto-heal).
+
+    Cooldown ``CONSUMABLE_USE_COOLDOWN_S`` prevents spamming the
+    endpoint between the POST and the heal landing."""
+    now = _get_now()
+    if (now - _state.last_consumable_use_at) < CONSUMABLE_USE_COOLDOWN_S:
+        return
+
+    slots = state.get("quick_use_slots") or []
+    if not slots:
+        return
+
+    hp = int(p.get("hp", 0))
+    max_hp = max(1, int(p.get("max_hp", 1)))
+    sh = int(p.get("shields", 0))
+    max_sh = max(1, int(p.get("max_shields", 1)))
+
+    # Repair pack first — HP loss is harder to recover from than
+    # shield loss (no passive regen on HP) so prioritise it when
+    # both thresholds tripped on the same tick.
+    if (hp / max_hp) <= CONSUMABLE_USE_HP_PCT:
+        for i, s in enumerate(slots):
+            if s.get("item_type") == "repair_pack" and int(s.get("count", 0)) > 0:
+                _post_use_quick_use(i)
+                _state.last_consumable_use_at = now
+                return
+
+    if (sh / max_sh) <= CONSUMABLE_USE_SHIELD_PCT:
+        for i, s in enumerate(slots):
+            if s.get("item_type") == "shield_recharge" and int(s.get("count", 0)) > 0:
+                _post_use_quick_use(i)
+                _state.last_consumable_use_at = now
+                return
+
+
+def _act_equip_consumables(state: dict, p: dict) -> None:
+    """S_EQUIP_CONSUMABLES: navigate to the Home Station, then POST
+    /equip_consumables.  Flips ``_state.consumables_equipped`` on
+    success so the FSM doesn't re-fire."""
+    hs = _find_home_station(state)
+    if hs is None:
+        _do_idle()
+        return
+    px = float(p.get("x", 0.0))
+    py = float(p.get("y", 0.0))
+    hx = float(hs.get("x", 0.0))
+    hy = float(hs.get("y", 0.0))
+    dist = math.hypot(hx - px, hy - py)
+    if dist > INSTALL_INTERACT_RANGE_PX:
+        KeyState.hold("space", False)
+        _do_goto(state, p, hx, hy,
+                 stop_radius=INSTALL_INTERACT_RANGE_PX * 0.8)
+        return
+    KeyState.release_all()
+    result = _post_equip_consumables()
+    if result is None or not result.get("ok", False):
+        reason = (result or {}).get("reason", "transport failure")
+        print(f"[autopilot] EQUIP: rejected ({reason})")
+        # If the station inventory is empty (already equipped or
+        # somebody picked up the consumables), latch the flag so
+        # the FSM moves on instead of re-firing forever.
+        if reason and "no consumables" in str(reason):
+            _state.consumables_equipped = True
+        return
+    _state.consumables_equipped = True
+    print(f"[autopilot] EQUIP: rp={result.get('repair_pack')} "
+          f"sr={result.get('shield_recharge')} "
+          f"slots=({result.get('repair_slot')},{result.get('shield_slot')})")
+
+
+def _act_build_qwi(state: dict, p: dict) -> None:
+    """S_BUILD_QWI: navigate to the Home Station, then POST
+    /place_qwi.  Auto-spawns the Double Star boss on success.  Flips
+    ``_state.qwi_placed`` so the FSM doesn't re-fire even if the
+    next-tick state snapshot hasn't refreshed yet."""
+    hs = _find_home_station(state)
+    if hs is None:
+        _do_idle()
+        return
+    px = float(p.get("x", 0.0))
+    py = float(p.get("y", 0.0))
+    hx = float(hs.get("x", 0.0))
+    hy = float(hs.get("y", 0.0))
+    dist = math.hypot(hx - px, hy - py)
+    if dist > INSTALL_INTERACT_RANGE_PX:
+        KeyState.hold("space", False)
+        _do_goto(state, p, hx, hy,
+                 stop_radius=INSTALL_INTERACT_RANGE_PX * 0.8)
+        return
+    KeyState.release_all()
+    result = _post_place_qwi()
+    if result is None or not result.get("ok", False):
+        reason = (result or {}).get("reason", "transport failure")
+        print(f"[autopilot] BUILD_QWI: rejected ({reason})")
+        # If the QWI was already built (player or earlier bot run),
+        # latch so the FSM falls through to S_ENGAGE_BOSS / normal
+        # priorities.
+        if reason and "already" in str(reason).lower():
+            _state.qwi_placed = True
+        return
+    _state.qwi_placed = True
+    print(f"[autopilot] BUILD_QWI: placed at "
+          f"{result.get('placed_at')} "
+          f"boss_spawned={result.get('boss_spawned', False)}")
 
 
 def _qwi_ready_to_build(state: dict) -> tuple[bool, str]:
