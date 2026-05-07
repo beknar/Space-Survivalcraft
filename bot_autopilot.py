@@ -418,6 +418,23 @@ HUNT_STUCK_WINDOW_S:   float = 30.0
 HUNT_STUCK_THRESHOLD:  int   = 3
 HUNT_GIVEUP_S:         float = 30.0
 
+# Building-cluster pin escape: the FSM-level guard added in PR #37
+# refuses to re-fire HUNT when the bot is inside the building
+# repulsion field.  Without a delay it fires on the first re-eval
+# tick (dwell ~= MIN_DWELL_S = 1 s) — at that point the bot has
+# barely moved.  IDLE_AT_BASE often parks the bot inside the
+# cluster perimeter (the 600 px outer ring crosses the 11-building
+# spread that extends well past the 150 px repulsion range from
+# the HS centroid), so each fresh HUNT entry from a parked
+# position immediately bounced back to IDLE — 39 fast IDLE↔HUNT
+# pairs in the 2026-05-06 follow-up #3 telemetry.
+#
+# The delay gives an initial HUNT entry HUNT_CLUSTER_PIN_DELAY_S
+# seconds to thread its way out of the perimeter before the guard
+# activates.  Sustained pins (the 55 s case from PR #37) still
+# trip the guard cleanly at t+3 s instead of t+1 s.
+HUNT_CLUSTER_PIN_DELAY_S: float = 3.0
+
 # Long-term per-anchor hunt-stuck tracking: catches the SLOW
 # repeated-pin pattern that the acute window above misses.  When a
 # stuck event fires in S_HUNT, the anchor (rounded to a 200 px grid)
@@ -1456,7 +1473,22 @@ def _choose_next_state(state: dict, p: dict, cur: str) -> str:
     # Falling through to IDLE_AT_BASE pulls the bot to the 600 px
     # outer ring (clear of all buildings) on the next tick; HUNT can
     # then re-fire from open space and engage cleanly.
+    #
+    # Delay (2026-05-06 follow-up #3): require HUNT to have been
+    # active for >= HUNT_CLUSTER_PIN_DELAY_S before the guard fires.
+    # Without this, the guard tripped on the very first re-eval tick
+    # (dwell ~ MIN_DWELL_S = 1 s) which broke fresh HUNT entries
+    # from cluster-interior idle parking positions: 39 fast IDLE↔HUNT
+    # pairs in the follow-up telemetry.  The delay gives the bot
+    # 3 s of HUNT travel to thread its way out of the perimeter
+    # before the guard activates; the 55 s pin from #37 is still
+    # caught well within the original symptom window.
+    hunt_entered = _fsm.get("entered_at")
+    hunt_time = (now - hunt_entered
+                 if cur == S_HUNT and hunt_entered is not None
+                 else 0.0)
     if (cur == S_HUNT and hunt_target is not None
+            and hunt_time >= HUNT_CLUSTER_PIN_DELAY_S
             and not _ship_clear_of_buildings(p, state)):
         hunt_target = None
     if (hunt_target is not None and hunt_td < hunt_gate
