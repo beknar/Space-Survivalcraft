@@ -130,14 +130,28 @@ def _tracked_play_sound(*args, **kwargs):
     every entry as still-fresh).  Without the cap, sustained combat
     soaks let the list grow into the thousands and pyglet's per-frame
     Player iteration collapsed FPS from 75 → 2 (Boss-soak regression
-    confirmed 2026-04-25)."""
+    confirmed 2026-04-25).
+
+    Exception shield: ``arcade.play_sound`` can raise when pyglet's
+    audio backend fails (resource exhaustion, missing audio device,
+    failed decode) — and arcade's own warning-log path has a
+    ``%``-format bug that turns the original failure into a confusing
+    TypeError ("not all arguments converted during string formatting").
+    Caught from 2026-05-05 full-suite cycle: random GameView-creating
+    tests crashed mid-init when the 1700+-test run exhausted the
+    audio backend.  Treat any exception the same as ``play_sound``
+    already does for a missing/None sound — return None.  Existing
+    callers already handle None returns."""
     if len(_sound_players) >= _SOUND_HARD_CAP:
         _, oldest = _sound_players.pop(0)
         try:
             oldest.delete()
         except Exception:
             pass
-    player = _real_play_sound(*args, **kwargs)
+    try:
+        player = _real_play_sound(*args, **kwargs)
+    except Exception:
+        return None
     if player is not None:
         _sound_players.append((_time.perf_counter(), player))
     return player
