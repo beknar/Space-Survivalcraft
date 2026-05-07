@@ -1504,9 +1504,33 @@ def _choose_next_state(state: dict, p: dict, cur: str) -> str:
     hunt_time = (now - hunt_entered
                  if cur == S_HUNT and hunt_entered is not None
                  else 0.0)
+    # Wall exemption (2026-05-06 follow-up #5): when the bot is
+    # inside the world-edge margin, the cluster guard is the WRONG
+    # tool — the bot isn't stuck in the cluster centre, it's wall-
+    # pinned with the cluster on the inboard side, and the cluster
+    # is the *only path* to interior aliens.  Pre-fix telemetry
+    # showed the guard firing every 13 s in this scenario (3 s HUNT
+    # + 10 s lockout), with the user complaint "bot stays idle even
+    # though enemies are present on the minimap; only moves when an
+    # asteroid respawns".  Letting HUNT continue here returns the
+    # geometry-driven slow-but-steady chase the user expects.
+    #
+    # PR #36's wall-pin escape still owns the wall+edge-aliens case
+    # (it returns None when every alien is edge-adjacent, which
+    # arms PR #39's lockout).  The cluster guard now owns only the
+    # interior cluster pin it was originally designed for: bot
+    # genuinely stuck deep in the station, far from any wall.
+    zone = state.get("zone") or {}
+    world_w = float(zone.get("world_w", 6400) or 6400)
+    world_h = float(zone.get("world_h", 6400) or 6400)
+    bot_at_wall = (px < ALIEN_EDGE_SKIP_PX
+                   or px > world_w - ALIEN_EDGE_SKIP_PX
+                   or py < ALIEN_EDGE_SKIP_PX
+                   or py > world_h - ALIEN_EDGE_SKIP_PX)
     if (cur == S_HUNT and hunt_target is not None
             and hunt_time >= HUNT_CLUSTER_PIN_DELAY_S
-            and not _ship_clear_of_buildings(p, state)):
+            and not _ship_clear_of_buildings(p, state)
+            and not bot_at_wall):
         hunt_target = None
     # Pin-escape lockout (2026-05-06 follow-up #4): if either pin-
     # escape path zeroed hunt_target while aliens were still visible,

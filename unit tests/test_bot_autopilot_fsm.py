@@ -4563,6 +4563,69 @@ class TestHuntBuildingClusterEscape:
             "re-entry-only suppression, mirroring the wall-pin "
             "escape's cur==S_HUNT gate.")
 
+    def test_cluster_guard_does_not_fire_when_bot_at_wall(
+            self, _clock):
+        """2026-05-06 follow-up #5: with the bot wall-pinned
+        (within ALIEN_EDGE_SKIP_PX of any world edge) AND inside
+        the cluster repulsion field AND chasing an interior alien,
+        the cluster guard must NOT fire.  This scenario is
+        geometric reality (cluster is the only path to the alien
+        from the wall), not a stuck — the user reported the bot
+        sitting idle for 90+ s with 2 enemies on the minimap
+        because the guard kept suppressing every 13 s.  The
+        wall-pin escape (PR #36) already owns the wall+edge-aliens
+        case; the cluster guard now exclusively covers interior
+        cluster pins (bot stuck deep in the station, far from any
+        wall).
+        """
+        ap._fsm["state"] = ap.S_HUNT
+        ap._fsm["entered_at"] = _clock[0] - 10.0  # well past delay
+        s = _state(
+            # Bot at px=48 — inside ALIEN_EDGE_SKIP_PX (250) of west
+            # edge.  HS at (200, 3200), so the bot at hsd≈250 is
+            # also within BUILDING_REPULSION_RANGE_PX (150) of HS
+            # — both pin conditions hold simultaneously.
+            player={"x": 48.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            aliens=[{"x": 3000.0, "y": 3200.0, "hp": 50}],  # interior
+            buildings=[_hs_building(x=200.0, y=3200.0)],
+            world_w=6400, world_h=6400,
+        )
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_HUNT, (
+            "Cluster guard must not suppress HUNT when the bot is "
+            "wall-pinned — the cluster is on the inboard side and "
+            "is the only path to the interior alien.  Suppressing "
+            "here was the symptom: 'bot sits idle in base while "
+            "enemies are visible on the minimap'.")
+
+    def test_interior_cluster_guard_still_fires_away_from_walls(
+            self, _clock):
+        """Regression pin for PR #37: the cluster guard's *original*
+        symptom — bot stuck DEEP inside the cluster, far from any
+        world edge — must still trigger.  The wall exemption only
+        opens up the wall-adjacent case; interior cluster pins
+        keep the suppression+lockout behaviour from #37/#38/#39.
+        """
+        ap._fsm["state"] = ap.S_HUNT
+        ap._fsm["entered_at"] = _clock[0] - 10.0
+        # Bot far from any world edge (interior of 6400×6400),
+        # next to the HS so still inside the building repulsion
+        # range.  Mirrors the original 55 s pin geometry.
+        s = _state(
+            player={"x": 3220.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            aliens=[{"x": 4500.0, "y": 3200.0, "hp": 50}],
+            buildings=[_hs_building(x=3200.0, y=3200.0)],
+            world_w=6400, world_h=6400,
+        )
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] != ap.S_HUNT, (
+            "Interior cluster pin must still suppress HUNT — only "
+            "the wall+cluster case is exempted by the wall-exemption."
+        )
+        assert ap._fsm["state"] == ap.S_IDLE_AT_BASE
+
 
 # ── Fix B (2026-05-04): cluster-aware repulsion suppression ──────────
 
