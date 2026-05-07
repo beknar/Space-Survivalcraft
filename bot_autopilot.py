@@ -314,7 +314,17 @@ REGEN_EXIT_PCT:  float = 0.60
 MELEE_ENTER_PX:  float = 100.0
 MELEE_EXIT_PX:   float = 130.0
 PICKUP_STOP_RADIUS: float = 60.0
-MIN_DWELL_S:     float = 0.6      # how long a non-ENGAGE state must hold
+# Bumped 0.6 -> 1.0 after 2026-05-06 telemetry: 25-min session logged
+# 182 mine<->gather toggles, 116 of them reversing within 5 s and 43
+# gather dwells under 1 s.  Symptom of pickups being collected fast
+# enough that GATHER exits in ~1.2 s median, then MINE re-enters,
+# and each MINE entry re-rolls the Mining Beam vs Energy Pickaxe
+# dice + drives a Tab keystroke through KeyState.  At 1.0 s the
+# floor still allows fast reaction to legitimate priority changes
+# but suppresses the sub-second flicker.  ENGAGE / REGEN bypass
+# this floor (defensive interrupts) so combat responsiveness is
+# unchanged.
+MIN_DWELL_S:     float = 1.0      # how long a non-ENGAGE state must hold
 
 # Stop radius when the in-game combat assist has committed to a
 # melee engagement (via its 50 % per-engagement dice roll).  The
@@ -442,6 +452,23 @@ ASTEROID_EDGE_SKIP_PX:  float = 250.0
 # the next one) and a stationary pickup is easier to circle than
 # an asteroid that the bot has to physically push.
 PICKUP_EDGE_SKIP_PX:    float = 200.0
+# ``_nearest_huntable_alien`` skips aliens within this distance of
+# any world boundary when picking a HUNT target (the proactive
+# "no asteroid in range, chase an alien for iron drops" branch).
+# Caught from 2026-05-06 telemetry: bot was wall-pinned at px=48
+# for 190+ s chasing aliens whose AI parked them right against the
+# left edge — the existing position-based stuck detector never
+# fired because the bot kept rotating to face the target (defeating
+# the rotation gate) and oscillated 40 px along the wall (defeating
+# the displacement gate).  Pre-filtering huntable aliens at the
+# selection layer mirrors the asteroid + pickup edge skips and
+# avoids committing to a chase that ends in a wall-pin.
+#
+# ENGAGE (the defensive band) deliberately does NOT use this
+# filter — if an alien is shooting us from the wall we still need
+# to fight back.  Only HUNT (proactive resource-driven chase) is
+# free to be choosy.
+ALIEN_EDGE_SKIP_PX:     float = 250.0
 
 # Starter-base build gate.  When the bot has accumulated this much
 # iron AND there are no asteroids / aliens within the clear-area
@@ -891,6 +918,50 @@ def _nearest_asteroid(state: dict, px: float, py: float
     return (best, best_d)
 
 
+def _nearest_huntable_alien(state: dict, px: float, py: float
+                            ) -> tuple[dict | None, float]:
+    """Return (nearest_alien, distance) for HUNT target selection,
+    skipping aliens within ``ALIEN_EDGE_SKIP_PX`` of a world
+    boundary.  Falls back to the unfiltered nearest when every
+    visible alien is edge-adjacent so HUNT can still trigger when
+    that's all that's available — but the symmetric-exit hysteresis
+    (cur == S_HUNT) re-checks via this same helper, so a chase that
+    drifts onto the edge will drop back to IDLE/MINE on the next
+    tick instead of grinding.
+
+    Defensive layers (ENGAGE, REGEN escape valve) deliberately
+    keep using the unfiltered ``nearest`` over ``state['aliens']``
+    so an attacker pressing us from the wall still triggers a
+    response — only the proactive HUNT chase is gated.
+    """
+    aliens = state.get("aliens") or []
+    if not aliens:
+        return (None, float("inf"))
+    zone = state.get("zone") or {}
+    world_w = float(zone.get("world_w", 6400) or 6400)
+    world_h = float(zone.get("world_h", 6400) or 6400)
+    margin = ALIEN_EDGE_SKIP_PX
+    best = None
+    best_d = float("inf")
+    for a in aliens:
+        ax = float(a.get("x", 0.0))
+        ay = float(a.get("y", 0.0))
+        if (ax < margin or ax > world_w - margin
+                or ay < margin or ay > world_h - margin):
+            continue
+        d = math.hypot(ax - px, ay - py)
+        if d < best_d:
+            best, best_d = a, d
+    if best is not None:
+        return (best, best_d)
+    # Every visible alien is edge-adjacent; return the unfiltered
+    # nearest so HUNT can still fire.  The bot will likely wall-pin
+    # in this case but at least it won't sit idle when there's
+    # nothing else to do; the existing hunt-stuck giveup latch
+    # (HUNT_STUCK_WINDOW_S / HUNT_LONG_GIVEUP_S) is the backstop.
+    return nearest(aliens, px, py)
+
+
 # ── Stuck detect + escape wrappers (impl in bot_autopilot_navigation) ───
 
 def _record_position(p: dict) -> None:
@@ -1338,7 +1409,15 @@ def _choose_next_state(state: dict, p: dict, cur: str) -> str:
     hunt_gate = (IDLE_HUNT_RANGE_PX
                  if cur in (S_IDLE_AT_BASE, S_HUNT)
                  else HUNT_RANGE_PX)
-    if (threat is not None and td < hunt_gate
+    # Use the edge-filtered selector for HUNT so we don't commit
+    # to chasing an alien parked against the world boundary; that
+    # was the dominant failure mode in the 2026-05-06 telemetry
+    # (190 s wall-pin at px=48 with no stuck_detected firing).
+    # ENGAGE / REGEN above keep using the unfiltered ``threat``
+    # because defensive responses must react to any attacker
+    # regardless of position.
+    hunt_target, hunt_td = _nearest_huntable_alien(state, px, py)
+    if (hunt_target is not None and hunt_td < hunt_gate
             and now >= _state.hunt_giveup_until):
         return S_HUNT
 

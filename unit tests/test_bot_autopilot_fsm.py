@@ -4036,6 +4036,77 @@ class TestNearestPickupEdgeFilter:
         assert ap.PICKUP_EDGE_SKIP_PX >= ap.STUCK_WORLD_MARGIN_PX
 
 
+# ── Fix (2026-05-06): HUNT alien edge filter ─────────────────────────
+
+class TestNearestHuntableAlienEdgeFilter:
+    """``_nearest_huntable_alien`` skips aliens within
+    ``ALIEN_EDGE_SKIP_PX`` (250 px) of any world boundary so HUNT
+    doesn't commit to a wall-pinned chase.  Pinned by 2026-05-06
+    telemetry: bot stuck at px=48 for 190+ s tracking an alien at
+    the left edge while no stuck_detected fired (oscillation
+    defeated both the displacement and rotation gates of the
+    position-history detector).
+
+    ENGAGE / REGEN deliberately keep using unfiltered ``nearest``
+    over ``state['aliens']`` — defensive responses must react to
+    any attacker regardless of position."""
+
+    def test_edge_adjacent_alien_skipped_when_interior_available(self):
+        s = _state(
+            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            aliens=[
+                {"x": 100.0, "y": 3200.0, "hp": 50},   # 100 px from west edge
+                {"x": 4500.0, "y": 3200.0, "hp": 50},  # interior, farther
+            ],
+            world_w=6400, world_h=6400,
+        )
+        nearest_alien, _d = ap._nearest_huntable_alien(s, 3200.0, 3200.0)
+        assert nearest_alien["x"] == 4500.0  # interior wins despite distance
+
+    def test_edge_alien_used_when_only_option(self):
+        """When every visible alien is edge-adjacent the helper falls
+        back to the unfiltered nearest so HUNT can still fire — the
+        hunt-stuck giveup latch is the backstop in that case."""
+        s = _state(
+            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            aliens=[
+                {"x": 100.0, "y": 3200.0, "hp": 50},
+                {"x": 200.0, "y": 6350.0, "hp": 50},
+            ],
+            world_w=6400, world_h=6400,
+        )
+        nearest_alien, _d = ap._nearest_huntable_alien(s, 3200.0, 3200.0)
+        assert nearest_alien is not None
+        assert nearest_alien["x"] == 100.0  # closer of the two
+
+    def test_no_aliens_returns_none(self):
+        s = _state(aliens=[], world_w=6400, world_h=6400)
+        nearest_alien, _d = ap._nearest_huntable_alien(s, 3200.0, 3200.0)
+        assert nearest_alien is None
+
+    def test_alien_edge_skip_constant_wider_than_world_margin(self):
+        """ALIEN_EDGE_SKIP_PX must exceed STUCK_WORLD_MARGIN_PX so the
+        bot has room to circle the alien before boundary repulsion
+        engages (mirrors the asteroid + pickup edge skip invariants)."""
+        assert ap.ALIEN_EDGE_SKIP_PX > ap.STUCK_WORLD_MARGIN_PX
+
+    def test_engage_still_responds_to_edge_alien(self, _clock):
+        """The edge filter is HUNT-only; an alien close enough to
+        trigger ENGAGE must still be picked up even if it's right
+        against the wall, because ENGAGE/REGEN read ``state['aliens']``
+        directly via ``nearest``."""
+        s = _state(
+            player={"x": 300.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            aliens=[{"x": 50.0, "y": 3200.0, "hp": 50}],   # edge-adjacent
+            world_w=6400, world_h=6400,
+        )
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_ENGAGE
+
+
 # ── Fix B (2026-05-04): cluster-aware repulsion suppression ──────────
 
 class TestClusterAwareRepulsionSuppression:
