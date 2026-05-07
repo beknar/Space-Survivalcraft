@@ -206,11 +206,24 @@ queue between mining runs:
 4. **Equip consumables** (`S_EQUIP_CONSUMABLES`) — once both
    counters in `CraftQueue` hit zero AND the `consumable_phase_started`
    sticky latch is set, the bot navigates to the Home Station and
-   `POST /equip_consumables`.  That withdraws up to 25 of each
-   consumable from station inventory into the ship inventory and
-   binds them to ship quick-use slots (`EQUIP_QUICK_USE_REPAIR_SLOT`
-   = 0, `EQUIP_QUICK_USE_SHIELD_SLOT` = 1).  Latches
-   `_state.consumables_equipped` on success.
+   `POST /equip_consumables`.  That withdraws **up to** `max_each`
+   (default 25) of each consumable from station inventory into the
+   ship inventory and binds them to ship quick-use slots
+   (`EQUIP_QUICK_USE_REPAIR_SLOT` = 0, `EQUIP_QUICK_USE_SHIELD_SLOT`
+   = 1).  Latches `_state.consumables_equipped` on success.
+
+   **`max_each` cap behavior.**  The cap is a *ceiling*, not a
+   target — the bot equips `min(station_count, max_each)` of each
+   item.  This matters when the auto-heal hook (below) consumed
+   some packs during the craft phase: e.g. if the bot took two
+   shield-recharge hits during a mining run, the station only has
+   23 shield recharges when this state fires, and the bot equips
+   23 instead of 25.  The equip step still succeeds, the latch
+   still flips, and the FSM moves on — just with a smaller buffer.
+   Bumping `max_each` past 25 has no effect (the prior phase only
+   produces 25), but a future change that lets the bot top up
+   consumables between boss attempts can raise the cap without
+   touching the action handler.
 5. **Pre-boss mine** (`S_PRE_BOSS_MINE`) — same `_do_mine_nearest`
    action as `S_MINE`; the FSM-level rename makes it explicit that
    the bot is mining toward `QWI_BUILD_IRON_TARGET` (2000 station
@@ -227,13 +240,31 @@ queue between mining runs:
 **Per-tick consumable auto-use** (`_maybe_use_consumables`).  Runs
 **before** the FSM dispatch every tick so the response is
 independent of the active state — combat, mining, or boss kite all
-benefit.  When `hp / max_hp <= CONSUMABLE_USE_HP_PCT` (0.5) and a
-repair pack is in any quick-use slot, fires `POST /use_quick_use`
-on that slot.  Same logic for `shields / max_shields` and the
-shield recharge.  `CONSUMABLE_USE_COOLDOWN_S` (1.0) prevents
-back-to-back posts in the gap before the heal lands.  Repair pack
-takes priority over shield recharge when both thresholds trip on
-the same tick (HP can't passively regen; shields do).
+benefit.
+
+Each consumable is governed by a **heal-active latch**
+(`_state.heal_hp_active`, `_state.heal_shield_active`):
+
+* **Arms** when the value crosses below `CONSUMABLE_USE_*_PCT`
+  (0.5).  Emits a `heal_hp_arm` / `heal_shield_arm` telemetry
+  event.
+* **Disarms** when the value reaches its max.  Emits a
+  `heal_hp_disarm` / `heal_shield_disarm` telemetry event.
+* While armed, the auto-use loop fires `POST /use_quick_use` on
+  each tick (subject to `CONSUMABLE_USE_COOLDOWN_S` = 1.0 s) until
+  either the bar is full or the matching consumable runs out.
+
+Without the latch, a single 50 %-heal use only fills the deficit
+that tripped the threshold — if HP dropped to 30 % between ticks,
+one use lands at 80 %, the next tick reads `80/100 > 0.5` and no
+further use fires until HP drops below 50 % again.  The latch
+closes that gap so the bot reaches 100 % per the user spec.
+
+Repair pack takes priority over shield recharge when both latches
+are armed on the same tick (HP can't passively regen; shields do).
+Each fire also emits a `heal_hp_fire` / `heal_shield_fire`
+telemetry event with the slot index and the post-fire HP / shield
+value.
 
 **Melee commit (per engagement).**  The dice roll for melee
 commitment lives in the in-process combat assist
