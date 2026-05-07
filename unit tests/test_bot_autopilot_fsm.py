@@ -5177,3 +5177,400 @@ class TestBossEngageWeaponAndIntent:
         s["boss"] = _boss(x=3400.0, y=3200.0)
         ap._do_engage_boss(s, s["player"])
         assert ensured == ["Basic Laser"]
+
+
+# ── Post-consumable boss-prep pipeline ─────────────────────────────────────
+
+
+def _drained_consumable_queue():
+    """Reset the bot's craft queue to mimic 25 + 25 batches done."""
+    q = ap._state.queue
+    q.modules_to_craft.clear()
+    q.modules_to_install.clear()
+    q.repair_packs_remaining = 0
+    q.shield_recharges_remaining = 0
+    q.module_phase_started = True
+    q.consumable_phase_started = True
+
+
+@pytest.fixture
+def _fresh_bot_state(monkeypatch):
+    """Reset BotState boss-prep flags between tests so latches don't
+    leak across the boss-prep pipeline tests."""
+    ap._state.consumables_equipped = False
+    ap._state.qwi_placed = False
+    ap._state.last_consumable_use_at = 0.0
+    ap._state.queue = ap.CraftQueue()
+    ap._state.build_done = True   # skip the BUILD branch
+    yield
+    ap._state.consumables_equipped = False
+    ap._state.qwi_placed = False
+    ap._state.last_consumable_use_at = 0.0
+    ap._state.queue = ap.CraftQueue()
+
+
+class TestConsumablePhaseFinished:
+    def test_fresh_queue_returns_false(self, _fresh_bot_state):
+        assert ap._consumable_phase_finished() is False
+
+    def test_drained_returns_true(self, _fresh_bot_state):
+        _drained_consumable_queue()
+        assert ap._consumable_phase_finished() is True
+
+    def test_drained_but_phase_never_started_returns_false(
+            self, _fresh_bot_state):
+        q = ap._state.queue
+        q.repair_packs_remaining = 0
+        q.shield_recharges_remaining = 0
+        q.consumable_phase_started = False
+        assert ap._consumable_phase_finished() is False
+
+
+class TestEquipConsumablesRouting:
+    def test_routes_to_equip_when_phase_done_and_station_has_items(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        monkeypatch.setattr(ap, "_act_equip_consumables", lambda s, p: None)
+        _drained_consumable_queue()
+        s = _state(
+            buildings=[{"x": 3200.0, "y": 3200.0,
+                        "building_type": "Home Station"},
+                       {"x": 3260.0, "y": 3200.0,
+                        "building_type": "Basic Crafter"}],
+            station_inventory_items={"repair_pack": 25,
+                                     "shield_recharge": 25,
+                                     "iron": 100},
+            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+        )
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_EQUIP_CONSUMABLES
+
+    def test_skips_equip_when_consumables_already_equipped(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        monkeypatch.setattr(ap, "_act_build_qwi", lambda s, p: None)
+        _drained_consumable_queue()
+        ap._state.consumables_equipped = True
+        s = _state(
+            buildings=[{"x": 3200.0, "y": 3200.0,
+                        "building_type": "Home Station"},
+                       {"x": 3260.0, "y": 3200.0,
+                        "building_type": "Basic Crafter"}],
+            station_inventory_items={"iron": 2500},
+            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+        )
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_BUILD_QWI
+
+
+class TestPreBossMineRouting:
+    def test_routes_to_pre_boss_mine_when_iron_below_target(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        monkeypatch.setattr(ap, "_do_mine_nearest", lambda s, p: None)
+        _drained_consumable_queue()
+        ap._state.consumables_equipped = True
+        s = _state(
+            buildings=[{"x": 3200.0, "y": 3200.0,
+                        "building_type": "Home Station"},
+                       {"x": 3260.0, "y": 3200.0,
+                        "building_type": "Basic Crafter"}],
+            station_inventory_items={"iron": 500},
+            asteroids=[{"x": 3400.0, "y": 3200.0, "hp": 100}],
+            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+        )
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_PRE_BOSS_MINE
+
+
+class TestBuildQwiRouting:
+    def test_routes_to_build_qwi_when_iron_target_met(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        monkeypatch.setattr(ap, "_act_build_qwi", lambda s, p: None)
+        _drained_consumable_queue()
+        ap._state.consumables_equipped = True
+        s = _state(
+            buildings=[{"x": 3200.0, "y": 3200.0,
+                        "building_type": "Home Station"},
+                       {"x": 3260.0, "y": 3200.0,
+                        "building_type": "Basic Crafter"}],
+            station_inventory_items={"iron": 2500},
+            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+        )
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_BUILD_QWI
+
+    def test_skips_when_qwi_already_placed(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        _drained_consumable_queue()
+        ap._state.consumables_equipped = True
+        ap._state.qwi_placed = True
+        s = _state(
+            buildings=[
+                {"x": 3200.0, "y": 3200.0, "building_type": "Home Station"},
+                {"x": 3260.0, "y": 3200.0, "building_type": "Basic Crafter"},
+                {"x": 3200.0, "y": 3000.0,
+                 "building_type": "Quantum Wave Integrator"},
+            ],
+            station_inventory_items={"iron": 2500},
+            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+        )
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] not in (ap.S_BUILD_QWI,
+                                        ap.S_EQUIP_CONSUMABLES,
+                                        ap.S_PRE_BOSS_MINE)
+
+    def test_boss_alive_takes_priority_over_pipeline(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        monkeypatch.setattr(ap, "_act_engage_boss", lambda s, p: None)
+        _drained_consumable_queue()
+        ap._state.consumables_equipped = True
+        s = _state(
+            buildings=[{"x": 3200.0, "y": 3200.0,
+                        "building_type": "Home Station"}],
+            station_inventory_items={"iron": 2500},
+            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+        )
+        s["boss"] = _boss()
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_ENGAGE_BOSS
+
+
+class TestActEquipConsumables:
+    def test_travels_to_home_station_when_far(
+            self, _fresh_bot_state, monkeypatch):
+        captured: dict = {}
+        monkeypatch.setattr(
+            ap, "_do_goto",
+            lambda state, p, tx, ty, stop_radius=80.0,
+            brake_on_arrival=True: captured.update(tx=tx, ty=ty))
+        monkeypatch.setattr(ap, "_post_equip_consumables", lambda: None)
+
+        class _FakeKey:
+            @staticmethod
+            def hold(name, on): pass
+            @staticmethod
+            def release_all(): pass
+
+        monkeypatch.setattr(ap, "KeyState", _FakeKey)
+        s = _state(
+            buildings=[{"x": 3500.0, "y": 3500.0,
+                        "building_type": "Home Station"}],
+            player={"x": 1000.0, "y": 1000.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+        )
+        ap._act_equip_consumables(s, s["player"])
+        assert captured["tx"] == 3500.0
+        assert captured["ty"] == 3500.0
+        assert ap._state.consumables_equipped is False
+
+    def test_posts_when_in_range_and_latches_on_success(
+            self, _fresh_bot_state, monkeypatch):
+        called: list = []
+
+        def fake_post():
+            called.append(True)
+            return {"ok": True, "repair_pack": 25,
+                    "shield_recharge": 25,
+                    "repair_slot": 0, "shield_slot": 1}
+        monkeypatch.setattr(ap, "_post_equip_consumables", fake_post)
+
+        class _FakeKey:
+            @staticmethod
+            def hold(name, on): pass
+            @staticmethod
+            def release_all(): pass
+
+        monkeypatch.setattr(ap, "KeyState", _FakeKey)
+        s = _state(
+            buildings=[{"x": 1000.0, "y": 1000.0,
+                        "building_type": "Home Station"}],
+            player={"x": 1050.0, "y": 1000.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+        )
+        ap._act_equip_consumables(s, s["player"])
+        assert called == [True]
+        assert ap._state.consumables_equipped is True
+
+    def test_latches_when_station_already_empty(
+            self, _fresh_bot_state, monkeypatch):
+        def fake_post():
+            return {"ok": False,
+                    "reason": "no consumables in station inventory"}
+        monkeypatch.setattr(ap, "_post_equip_consumables", fake_post)
+
+        class _FakeKey:
+            @staticmethod
+            def hold(name, on): pass
+            @staticmethod
+            def release_all(): pass
+
+        monkeypatch.setattr(ap, "KeyState", _FakeKey)
+        s = _state(
+            buildings=[{"x": 1000.0, "y": 1000.0,
+                        "building_type": "Home Station"}],
+            player={"x": 1050.0, "y": 1000.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+        )
+        ap._act_equip_consumables(s, s["player"])
+        assert ap._state.consumables_equipped is True
+
+
+class TestActBuildQwi:
+    def test_posts_when_in_range_and_latches(
+            self, _fresh_bot_state, monkeypatch):
+        def fake_post():
+            return {"ok": True, "placed_at": [3200.0, 3000.0],
+                    "boss_spawned": True}
+        monkeypatch.setattr(ap, "_post_place_qwi", fake_post)
+
+        class _FakeKey:
+            @staticmethod
+            def hold(name, on): pass
+            @staticmethod
+            def release_all(): pass
+
+        monkeypatch.setattr(ap, "KeyState", _FakeKey)
+        s = _state(
+            buildings=[{"x": 1000.0, "y": 1000.0,
+                        "building_type": "Home Station"}],
+            player={"x": 1050.0, "y": 1000.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+        )
+        ap._act_build_qwi(s, s["player"])
+        assert ap._state.qwi_placed is True
+
+    def test_already_placed_response_latches(
+            self, _fresh_bot_state, monkeypatch):
+        def fake_post():
+            return {"ok": False, "reason": "QWI already placed"}
+        monkeypatch.setattr(ap, "_post_place_qwi", fake_post)
+
+        class _FakeKey:
+            @staticmethod
+            def hold(name, on): pass
+            @staticmethod
+            def release_all(): pass
+
+        monkeypatch.setattr(ap, "KeyState", _FakeKey)
+        s = _state(
+            buildings=[{"x": 1000.0, "y": 1000.0,
+                        "building_type": "Home Station"}],
+            player={"x": 1050.0, "y": 1000.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+        )
+        ap._act_build_qwi(s, s["player"])
+        assert ap._state.qwi_placed is True
+
+
+class TestMaybeUseConsumables:
+    def test_low_hp_with_repair_pack_fires_slot(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        captured: list = []
+        monkeypatch.setattr(
+            ap, "_post_use_quick_use",
+            lambda slot: captured.append(slot) or {"ok": True})
+        s = _state(
+            player={"x": 0.0, "y": 0.0, "heading": 0.0,
+                    "hp": 30, "max_hp": 100,
+                    "shields": 150, "max_shields": 150},
+        )
+        s["quick_use_slots"] = [
+            {"item_type": "repair_pack", "count": 25},
+            {"item_type": "shield_recharge", "count": 25},
+        ]
+        ap._maybe_use_consumables(s, s["player"])
+        assert captured == [0]
+
+    def test_low_shields_with_recharge_fires_slot(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        captured: list = []
+        monkeypatch.setattr(
+            ap, "_post_use_quick_use",
+            lambda slot: captured.append(slot) or {"ok": True})
+        s = _state(
+            player={"x": 0.0, "y": 0.0, "heading": 0.0,
+                    "hp": 100, "max_hp": 100,
+                    "shields": 50, "max_shields": 150},
+        )
+        s["quick_use_slots"] = [
+            {"item_type": "repair_pack", "count": 25},
+            {"item_type": "shield_recharge", "count": 25},
+        ]
+        ap._maybe_use_consumables(s, s["player"])
+        assert captured == [1]
+
+    def test_full_hp_and_shields_does_nothing(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        captured: list = []
+        monkeypatch.setattr(
+            ap, "_post_use_quick_use",
+            lambda slot: captured.append(slot) or {"ok": True})
+        s = _state(
+            player={"x": 0.0, "y": 0.0, "heading": 0.0,
+                    "hp": 100, "max_hp": 100,
+                    "shields": 150, "max_shields": 150},
+        )
+        s["quick_use_slots"] = [
+            {"item_type": "repair_pack", "count": 25},
+            {"item_type": "shield_recharge", "count": 25},
+        ]
+        ap._maybe_use_consumables(s, s["player"])
+        assert captured == []
+
+    def test_empty_quick_use_slots_does_nothing(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        captured: list = []
+        monkeypatch.setattr(
+            ap, "_post_use_quick_use",
+            lambda slot: captured.append(slot) or {"ok": True})
+        s = _state(
+            player={"x": 0.0, "y": 0.0, "heading": 0.0,
+                    "hp": 30, "max_hp": 100,
+                    "shields": 30, "max_shields": 150},
+        )
+        ap._maybe_use_consumables(s, s["player"])
+        assert captured == []
+
+    def test_zero_count_slot_skipped(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        captured: list = []
+        monkeypatch.setattr(
+            ap, "_post_use_quick_use",
+            lambda slot: captured.append(slot) or {"ok": True})
+        s = _state(
+            player={"x": 0.0, "y": 0.0, "heading": 0.0,
+                    "hp": 30, "max_hp": 100,
+                    "shields": 150, "max_shields": 150},
+        )
+        s["quick_use_slots"] = [
+            {"item_type": "repair_pack", "count": 0},
+            {"item_type": "shield_recharge", "count": 25},
+        ]
+        ap._maybe_use_consumables(s, s["player"])
+        assert captured == []
+
+    def test_cooldown_suppresses_back_to_back_fires(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        captured: list = []
+        monkeypatch.setattr(
+            ap, "_post_use_quick_use",
+            lambda slot: captured.append(slot) or {"ok": True})
+        s = _state(
+            player={"x": 0.0, "y": 0.0, "heading": 0.0,
+                    "hp": 30, "max_hp": 100,
+                    "shields": 150, "max_shields": 150},
+        )
+        s["quick_use_slots"] = [
+            {"item_type": "repair_pack", "count": 25},
+        ]
+        ap._maybe_use_consumables(s, s["player"])
+        _clock[0] += ap.CONSUMABLE_USE_COOLDOWN_S * 0.5
+        ap._maybe_use_consumables(s, s["player"])
+        assert captured == [0]
+        _clock[0] += ap.CONSUMABLE_USE_COOLDOWN_S * 1.5
+        ap._maybe_use_consumables(s, s["player"])
+        assert captured == [0, 0]
