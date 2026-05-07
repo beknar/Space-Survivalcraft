@@ -332,6 +332,36 @@ MIN_DWELL_S:     float = 1.0      # how long a non-ENGAGE state must hold
 # this radius so the swing arc actually reaches the target.
 MELEE_STOP_RADIUS_PX: float = 50.0
 
+# ── Boss fight tuning (Choices 2–4) ───────────────────────────────────────
+#
+# Constants for the station-anchor kite used by ``_act_engage_boss``.
+# Reference: BOSS_CANNON_RANGE = 700, BOSS_SPREAD_RANGE = 600,
+# BOSS_CHARGE_WINDUP = 2.0 s, BOSS_CHARGE_DURATION = 0.8 s,
+# BOSS_CHARGE_SPEED = 600 px/s.  TURRET_RANGE = 400, TURRET_LASER_RANGE = 500.
+#
+# The bot holds at BOSS_KITE_RANGE_PX from the boss (just outside
+# the cannon's max range) and inside BOSS_KITE_STATION_TETHER_PX of
+# the Home Station, so friendly Defense Turrets + Missile Array can
+# share DPS.  When the boss telegraphs a charge (Phase 2+), the bot
+# strafes BOSS_DODGE_PERP_PX perpendicular to the boss-to-bot vector
+# for one tick — the dash only travels 480 px in 0.8 s, so a small
+# perpendicular offset clears it.
+BOSS_KITE_RANGE_PX:           float = 750.0    # >= BOSS_CANNON_RANGE (700) + buffer
+BOSS_KITE_OUTER_PX:           float = 900.0    # max kite distance — keep firing line
+BOSS_FIRE_RANGE_PX:           float = 800.0    # max range to hold-fire Basic Laser
+BOSS_KITE_STATION_TETHER_PX:  float = 600.0    # max distance from station while kiting
+BOSS_DODGE_PERP_PX:           float = 250.0    # perpendicular strafe during charge windup
+BOSS_PHASE3_PRESS_RANGE_PX:   float = 600.0    # Phase 3 (no shield regen): close in for DPS
+
+# QWI (Quantum Wave Integrator) staging gate (Choice 1):
+# the autopilot refuses to push the boss-trigger build until the
+# station has at least this many friendly turrets/defenses and the
+# ship has been upgraded to level 2.  The boss spawn is irreversible
+# — no point pulling the trigger before the station can absorb the
+# 30 s approach window.
+QWI_STAGE_MIN_TURRETS:        int   = 2
+QWI_STAGE_MIN_SHIP_LEVEL:     int   = 2
+
 
 # ── State constants ───────────────────────────────────────────────────────
 
@@ -364,11 +394,19 @@ S_HUNT       = "hunt"
 # exists yet (early-game: still need to spiral to find resources
 # for the starter base).
 S_IDLE_AT_BASE = "idle_at_base"
+# S_ENGAGE_BOSS: dedicated handler for the Double Star (and Nebula)
+# boss fight.  Phase-aware kite anchored on the Home Station rather
+# than chasing the boss to point-blank — see _act_engage_boss.  Top
+# priority above S_ENGAGE so the boss takes precedence even when
+# small aliens are in the engage band, and above MIN_DWELL_S for
+# the same reason ENGAGE/REGEN are: a boss-charge windup needs an
+# immediate strafe response, not a 1 s cooldown.
+S_ENGAGE_BOSS = "engage_boss"
 
 ALL_STATES = (
     S_ENGAGE, S_GATHER, S_REGEN, S_MINE, S_SEARCH,
     S_BUILD, S_BUILD_SEEK, S_DEPOSIT, S_CRAFT, S_INSTALL,
-    S_HUNT, S_IDLE_AT_BASE,
+    S_HUNT, S_IDLE_AT_BASE, S_ENGAGE_BOSS,
 )
 
 # Maximum range at which the bot will commit to chasing an alien
@@ -1324,6 +1362,16 @@ def _choose_next_state(state: dict, p: dict, cur: str) -> str:
                 _state.last_regen_shields = sh
                 return S_REGEN
 
+    # 1.5  ENGAGE_BOSS — boss alive, station-anchor kite owns the fight.
+    #      Above ENGAGE so a roaming small alien at 200 px doesn't
+    #      pull the bot off the station perimeter into the boss's
+    #      cannon range — boss DPS dwarfs anything a small alien
+    #      brings, and combat assist still aims/fires at small
+    #      aliens that walk into laser range during the kite.
+    boss = state.get("boss")
+    if boss is not None:
+        return S_ENGAGE_BOSS
+
     # 2. ENGAGE — alien within band.  Preempts the rest.
     # ``threat, td`` already loaded above for the REGEN escape
     # valve so we don't re-walk the alien list here.
@@ -1798,7 +1846,7 @@ def _do_auto(state: dict, p: dict) -> None:
         # ENGAGE and REGEN are defensive interrupts -- they bypass
         # MIN_DWELL so the bot reacts to a sudden threat or a sudden
         # shield collapse without waiting for the dwell timer.
-        if desired in (S_ENGAGE, S_REGEN) or dwell >= MIN_DWELL_S:
+        if desired in (S_ENGAGE, S_REGEN, S_ENGAGE_BOSS) or dwell >= MIN_DWELL_S:
             _fsm["state"] = desired
             _fsm["entered_at"] = now
             # Clear stale position history at every state boundary.
@@ -1826,7 +1874,9 @@ def _do_auto(state: dict, p: dict) -> None:
                            min_dwell_s=MIN_DWELL_S,
                            **_telemetry_snapshot_fields(state, p))
 
-    if cur == S_ENGAGE:
+    if cur == S_ENGAGE_BOSS:
+        _act_engage_boss(state, p)
+    elif cur == S_ENGAGE:
         _act_engage(state, p)
     elif cur == S_GATHER:
         _act_gather(state, p)
@@ -2294,6 +2344,156 @@ def _act_engage(state: dict, p: dict) -> None:
             _ensure_weapon(state, "Basic Laser")
     _do_goto(state, p, chase_x, chase_y, stop_radius=380.0)
     KeyState.hold("space", td < FIRE_RANGE_PX)
+
+
+def _act_engage_boss(state: dict, p: dict) -> None:
+    """ENGAGE_BOSS: station-anchor kite + phase-aware strafe.
+
+    Strategy (see ``docs/bot.md`` section "Boss fight"):
+
+      * **Anchor on the Home Station, not the boss.**  The boss
+        spawns at the far world corner and flies toward the station;
+        sitting at the perimeter lets friendly Defense Turrets +
+        Missile Array share DPS instead of solo-grinding.  Falls
+        back to a basic kite when no Home Station is present (early
+        Nebula boss spawn before the bot has set up there).
+      * **Hold at ``BOSS_KITE_RANGE_PX`` (750 px) from the boss.**
+        Outside the cannon's max range (700) but inside Basic Laser
+        range — every shot lands, no return fire.
+      * **Stay within ``BOSS_KITE_STATION_TETHER_PX`` (600 px) of
+        the station** so the kite circle never leaves the turret /
+        missile umbrella.  When holding both constraints is
+        impossible (boss is on top of the station), pick the
+        station-tether — turret DPS matters more than the 750 px
+        kite distance.
+      * **Phase-aware charge dodge.**  Phase 2 introduces a 2 s
+        charge windup + 0.8 s dash at 600 px/s (480 px line).  When
+        ``boss.charging`` or ``boss.charge_windup > 0`` we strafe
+        ``BOSS_DODGE_PERP_PX`` perpendicular to the boss-to-bot
+        vector — the dash misses by a comfortable margin even with
+        a 200 ms reaction.
+      * **Phase 3 press.**  Boss has no shield regen and halved
+        cooldowns; bot closes to ``BOSS_PHASE3_PRESS_RANGE_PX``
+        (still outside spread range 600) to maximize its own DPS.
+      * **REGEN escape valve still applies** — entry-side mirror
+        + exit valve in ``_choose_next_state`` will yank the bot
+        out to S_REGEN if shields collapse, so this handler
+        doesn't need its own retreat path.
+    """
+    boss = state.get("boss")
+    if boss is None:
+        # Boss vanished mid-tick (killed); next tick re-routes.
+        KeyState.hold("space", False)
+        return
+
+    _ensure_weapon(state, "Basic Laser")
+
+    px = float(p.get("x", 0.0))
+    py = float(p.get("y", 0.0))
+    bx = float(boss.get("x", 0.0))
+    by = float(boss.get("y", 0.0))
+    phase = int(boss.get("phase", 1))
+    charging = bool(boss.get("charging", False))
+    windup = float(boss.get("charge_windup", 0.0))
+
+    # Vector from boss to bot — defines the kite ray and the
+    # perpendicular axis for the charge dodge.
+    dx = px - bx
+    dy = py - by
+    bdist = math.hypot(dx, dy)
+    if bdist < 1.0:
+        # Bot is sitting on top of the boss (degenerate); pick an
+        # arbitrary axis so the unit vector is defined.
+        ux, uy = 1.0, 0.0
+        bdist = 1.0
+    else:
+        ux, uy = dx / bdist, dy / bdist
+
+    # Phase-3 press range overrides the default 750 px kite.
+    desired_range = (BOSS_PHASE3_PRESS_RANGE_PX
+                     if phase >= 3 else BOSS_KITE_RANGE_PX)
+
+    # Default kite target: ``desired_range`` along the boss→bot ray.
+    kite_x = bx + ux * desired_range
+    kite_y = by + uy * desired_range
+
+    # Anchor on the Home Station when one exists — pick the kite
+    # point on the boss→bot ray that's also closest to the station.
+    hs = _find_home_station(state)
+    if hs is not None:
+        hx = float(hs.get("x", 0.0))
+        hy = float(hs.get("y", 0.0))
+        # If the default kite point is too far from the station,
+        # project the station's position onto the kite-radius ring
+        # around the boss instead.  This pulls the bot to the side
+        # of the boss that's closest to the station perimeter.
+        kite_to_hs = math.hypot(kite_x - hx, kite_y - hy)
+        if kite_to_hs > BOSS_KITE_STATION_TETHER_PX:
+            shx = hx - bx
+            shy = hy - by
+            shdist = math.hypot(shx, shy)
+            if shdist > 1.0:
+                kite_x = bx + (shx / shdist) * desired_range
+                kite_y = by + (shy / shdist) * desired_range
+
+    # Charge dodge — applied LAST so it perturbs whichever kite
+    # point we picked above.  The boss's charge dash heads for the
+    # bot's current position, so any perpendicular displacement
+    # during the 2 s windup makes it miss.
+    if (phase >= 2) and (charging or windup > 0.0):
+        # Perpendicular to (ux, uy) is (-uy, ux).  Sign chosen by
+        # alternating with windup time so the bot doesn't lock to
+        # one side mid-windup if multiple charges fire back-to-back.
+        sign = 1.0 if (int(windup * 10) % 2 == 0) else -1.0
+        kite_x += -uy * sign * BOSS_DODGE_PERP_PX
+        kite_y += ux * sign * BOSS_DODGE_PERP_PX
+
+    # World-edge clamp — same pattern as _act_engage so a corner
+    # boss doesn't pull the bot into the boundary repulsion field.
+    zone = state.get("zone") or {}
+    target_x, target_y, _ = _clamp_to_world(kite_x, kite_y, zone)
+
+    # Stop radius: a generous 80 px so small course corrections
+    # don't burn thrust thrashing the kite ring.
+    _do_goto(state, p, target_x, target_y, stop_radius=80.0)
+
+    # Hold fire whenever we're within Basic Laser effective range
+    # (the in-process combat assist will refine aim at 60 FPS).
+    KeyState.hold("space", bdist < BOSS_FIRE_RANGE_PX)
+
+
+def _qwi_ready_to_build(state: dict) -> tuple[bool, str]:
+    """Predicate gate for Choice 1 — pre-trigger boss staging.
+
+    Returns ``(ready, reason)``.  ``ready`` is True only when:
+
+      * a Home Station exists,
+      * at least ``QWI_STAGE_MIN_TURRETS`` Defense Turrets / Turret 2
+        / Missile Array entries are placed (counts the cluster's
+        defensive umbrella, not just one type),
+      * the player ship has been upgraded to at least
+        ``QWI_STAGE_MIN_SHIP_LEVEL``.
+
+    A future build sequence that wants to auto-place the QWI should
+    call this predicate first and skip the placement when it returns
+    False — pulling the trigger before the station is ready is
+    irreversible (the boss spawn flag is one-shot).
+    """
+    if _find_home_station(state) is None:
+        return False, "no_home_station"
+    buildings = state.get("buildings") or []
+    defenders = sum(
+        1 for b in buildings
+        if (b.get("building_type") or "") in (
+            "Defense Turret", "Turret 2", "Missile Array")
+    )
+    if defenders < QWI_STAGE_MIN_TURRETS:
+        return False, f"defenders_{defenders}_lt_{QWI_STAGE_MIN_TURRETS}"
+    p = state.get("player") or {}
+    ship_level = int(p.get("ship_level", 1))
+    if ship_level < QWI_STAGE_MIN_SHIP_LEVEL:
+        return False, f"ship_level_{ship_level}_lt_{QWI_STAGE_MIN_SHIP_LEVEL}"
+    return True, "ok"
 
 
 def _act_gather(state: dict, p: dict) -> None:
