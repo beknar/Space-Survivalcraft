@@ -370,17 +370,51 @@ class TestComputeEscapeTargetWallClusterTrap:
         """West-wall scenario with cluster ABOVE the bot's y → bot
         should slide DOWN (-y), not up.  This is the disambiguating
         rule: tangent sign should move the bot AWAY from the
-        cluster's y centroid."""
+        cluster's y centroid.  Bot is positioned within the
+        cluster's lateral extent so the wall-tangent gate fires
+        (otherwise the legacy gradient handles it without picking
+        a y direction)."""
         s = {**self.ZONE, "buildings": [
             {"x": 290.0, "y": 4500.0, "building_type": "Home Station"},
             {"x": 290.0, "y": 4400.0, "building_type": "Service Module"},
         ]}
-        # Bot below the cluster centroid (cy ≈ 4450).
-        p = {"x": 48.0, "y": 4000.0}
+        # Bot just below the cluster centroid (cy ≈ 4450, r ≈ 50,
+        # extent = r + 150 = 200).  py=4350 is 100 px below cy —
+        # still within extent 200, so wall-tangent fires.
+        p = {"x": 48.0, "y": 4350.0}
         tx, ty = nav.compute_escape_target(s, p)
         assert ty < p["y"], (
             f"Cluster is north of bot — tangent must go SOUTH; "
             f"got ty={ty}, py={p['y']}.")
+
+    def test_bot_outside_cluster_lat_extent_falls_to_gradient(self):
+        """Wall-tangent must NOT fire when the bot is far above /
+        below / left / right of the cluster on the wall-parallel
+        axis — the cluster doesn't actually block the inland path
+        from that y / x.  Caught from 2026-05-07 telemetry: bot
+        oscillated at (370, 4542) for 50+ s with the station
+        cluster centred near (390, 4030).  cluster_cx>px (≈ 390>370)
+        gated wall-tangent on, but py was 500+ px above the cluster,
+        so going east at that y had no obstruction — the bot should
+        fall through to the legacy gradient (which targets due east
+        from there) and exit the wall margin promptly."""
+        s = {**self.ZONE, "buildings": [
+            {"x": 390.0, "y": 4030.0, "building_type": "Home Station"},
+            {"x": 410.0, "y": 4040.0, "building_type": "Service Module"},
+            {"x": 370.0, "y": 4020.0, "building_type": "Service Module"},
+        ]}
+        # Bot 500+ px above the cluster, near west wall.
+        p = {"x": 370.0, "y": 4542.0}
+        tx, ty = nav.compute_escape_target(s, p)
+        # Tangent would have produced (370, py±1000); the gradient
+        # produces (px + ~1000, py).  Assert the gradient outcome:
+        # significant +x displacement, near-zero y change.
+        assert tx > p["x"] + 100.0, (
+            f"Cluster does not block inland east at this y — "
+            f"gradient must push +x; got tx={tx}, px={p['x']}.")
+        assert abs(ty - p["y"]) < 50.0, (
+            f"No wall-tangent → escape target's y should match "
+            f"the bot's; got ty={ty}, py={p['y']}.")
 
     def test_no_buildings_falls_back_to_legacy_gradient(self):
         """The wall-tangent path is gated on actual buildings
