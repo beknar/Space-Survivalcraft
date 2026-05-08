@@ -569,11 +569,18 @@ ZONE_GATED_BUILDINGS: frozenset[str] = frozenset({
     "Missile Array",
 })
 
-# Late-game boss-trigger building — visible ONLY in the Nebula, not
-# even in the post-Nebula warp zones.
-ZONE2_ONLY_BUILDINGS: frozenset[str] = frozenset({
-    "Quantum Wave Integrator",
-})
+# Build-menu rows that used to be Nebula-only.  Now empty:
+# the QWI used to live here, but the Double Star boss it spawns
+# is itself the gate to Zone 2 — keeping the QWI visible only in
+# Zone 2 made the boss un-triggerable for human players.  The
+# zone-aware copper waiver in ``building_manager.effective_copper_cost``
+# keeps the cost honest (Zone 1 placement is iron-only because copper
+# isn't reachable yet; Zone 2 placement still costs the full
+# 1000 iron + 2000 copper).  Kept as a frozenset (not removed
+# entirely) so existing imports + the menu-filter code path stay
+# valid and a future Nebula-only building can be added without
+# rewiring the gate.
+ZONE2_ONLY_BUILDINGS: frozenset[str] = frozenset()
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 9. Asteroid / Explosion
