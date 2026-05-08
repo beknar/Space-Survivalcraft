@@ -605,9 +605,24 @@ def compute_escape_target(state: dict, p: dict
     # same position produces a NW target that exits both walls
     # cleanly via boundary repulsion.
     if wall_pinned_single and (state.get("buildings") or []):
-        cx, cy = _building_cluster_centroid(state, fallback=(px, py))
+        cx, cy, r_cluster = _cluster_centroid_and_extent(state, (px, py))
+        # Bot must additionally be within the cluster's perpendicular
+        # extent (with one repulsion-range buffer) for the cluster to
+        # actually block the inland path.  Without this check the
+        # wall-tangent fires whenever the cluster centroid is inland of
+        # the bot, even if the bot is far above/below the cluster — at
+        # which point inland motion clears the cluster laterally and
+        # the tangent escape just keeps the bot pinned to the wall.
+        # Caught from 2026-05-07 telemetry: bot oscillating at
+        # (370, 4542) for 50+ s with cluster centred at (390, 4030);
+        # cluster_blocks_inland gated wall-tangent because cx>px, but
+        # py was 500+ px above the cluster — going east at that y had
+        # no obstruction and the bot should have fallen through to
+        # the legacy gradient (which targets due east here).
+        extent = r_cluster + BUILDING_REPULSION_RANGE_PX
         if near_west or near_east:
-            cluster_blocks_inland = (
+            bot_in_cluster_lat = abs(py - cy) <= extent
+            cluster_blocks_inland = bot_in_cluster_lat and (
                 (near_west and cx > px)
                 or (near_east and cx < px))
             if cluster_blocks_inland:
@@ -629,7 +644,8 @@ def compute_escape_target(state: dict, p: dict
                              py + sign * BUILD_SEEK_TARGET_DIST_PX))
                 return (tx, ty)
         else:
-            cluster_blocks_inland = (
+            bot_in_cluster_lat = abs(px - cx) <= extent
+            cluster_blocks_inland = bot_in_cluster_lat and (
                 (near_south and cy > py)
                 or (near_north and cy < py))
             if cluster_blocks_inland:
@@ -690,3 +706,37 @@ def _building_cluster_centroid(state: dict,
     if n == 0:
         return fallback
     return (sx / n, sy / n)
+
+
+def _cluster_centroid_and_extent(state: dict,
+                                 fallback: tuple[float, float]
+                                 ) -> tuple[float, float, float]:
+    """Return (cx, cy, r) — centroid plus max-spoke radius — using
+    every building in /state regardless of count.  Distinct from
+    ``cluster_centroid_and_radius`` (line ~338), which gates on
+    ``CLUSTER_MIN_BUILDINGS=3`` for the detour heuristic; the
+    wall-tangent escape needs cluster geometry even with 1–2
+    buildings on the field.  ``fallback`` is returned for centroid
+    (with r=0.0) when no buildings exist."""
+    buildings = state.get("buildings") or []
+    if not buildings:
+        return (fallback[0], fallback[1], 0.0)
+    sx = 0.0
+    sy = 0.0
+    n = 0
+    for b in buildings:
+        sx += float(b.get("x", 0.0))
+        sy += float(b.get("y", 0.0))
+        n += 1
+    if n == 0:
+        return (fallback[0], fallback[1], 0.0)
+    cx = sx / n
+    cy = sy / n
+    r = 0.0
+    for b in buildings:
+        bx = float(b.get("x", 0.0))
+        by = float(b.get("y", 0.0))
+        d = math.hypot(bx - cx, by - cy)
+        if d > r:
+            r = d
+    return (cx, cy, r)

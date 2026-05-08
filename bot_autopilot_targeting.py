@@ -245,10 +245,33 @@ def _wall_pin_trap_active(state: dict, p: dict) -> bool:
     n = len(buildings)
     cx = sx / n
     cy = sy / n
-    return ((near_west and cx > px)
-            or (near_east and cx < px)
-            or (near_south and cy > py)
-            or (near_north and cy < py))
+    # Require the bot's wall-parallel coordinate to lie within the
+    # cluster's perpendicular extent (plus one repulsion-range
+    # buffer) before declaring the trap.  Without this gate the
+    # detector fires whenever the cluster centroid is on the inland
+    # side of the bot, even if the bot is far above/below the
+    # cluster — at which point inland motion clears the cluster
+    # laterally and forcing escape mode just keeps the bot pinned
+    # to the wall.  Mirrors the equivalent gate in
+    # ``compute_escape_target`` (PR for the 2026-05-07 telemetry
+    # showing the bot oscillating at (370, 4542) with cluster
+    # centred at (390, 4030)).
+    r = 0.0
+    for b in buildings:
+        bx = float(b.get("x", 0.0))
+        by = float(b.get("y", 0.0))
+        d = math.hypot(bx - cx, by - cy)
+        if d > r:
+            r = d
+    extent = r + _ap.BUILDING_REPULSION_RANGE_PX
+    if near_west or near_east:
+        if abs(py - cy) > extent:
+            return False
+        return (near_west and cx > px) or (near_east and cx < px)
+    # near_south or near_north
+    if abs(px - cx) > extent:
+        return False
+    return (near_south and cy > py) or (near_north and cy < py)
 
 
 def _maybe_force_wall_pin_escape(state: dict, p: dict,
