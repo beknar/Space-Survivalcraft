@@ -37,7 +37,15 @@ class TestStuckDetectHistoryBounded:
     window — no matter how many calls fire, the history list stays
     bounded.  Without eviction, a 5-min soak would pile up 3000
     entries and the per-tick scan in ``detect_stuck`` would hit the
-    O(N) wall."""
+    O(N) wall.
+
+    Retention is governed by ``STUCK_DETECT_LONG_HISTORY_S`` (5 s),
+    not ``STUCK_DETECT_WINDOW_S`` (1.5 s) — the long window feeds
+    PR #58's net-progress gate.  At 10 Hz that's ~50 samples in the
+    steady state.  The bound below allows up to 60 to absorb
+    boundary effects (a sample stamped exactly at ``cutoff`` is
+    retained until the next call).
+    """
 
     def test_history_stays_bounded_over_30k_ticks(self):
         clock = [0.0]
@@ -49,8 +57,10 @@ class TestStuckDetectHistoryBounded:
             nav.record_position(
                 {"x": float(i % 100), "y": float(i % 100), "heading": 0.0},
                 stuck, get_now)
-        # 1.5 s window at 10 Hz = at most ~16 samples.
-        assert len(stuck["history"]) <= 20, (
+        # 5 s long-history window at 10 Hz ≈ 50 samples.  Bound at 60
+        # to allow boundary effects (sample stamped exactly at
+        # cutoff sticks around for one extra call).
+        assert len(stuck["history"]) <= 60, (
             f"history grew to {len(stuck['history'])} entries — "
             "eviction broken")
 
