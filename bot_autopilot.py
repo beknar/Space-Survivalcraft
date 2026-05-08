@@ -46,6 +46,18 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
+# When this file is launched directly (``python bot_autopilot.py``)
+# the module loads as ``__main__``.  The helper modules below
+# (``bot_autopilot_http``, ``_targeting``, ``_movement``, ``_actions_*``)
+# all do ``import bot_autopilot as _ap`` at top level, which would
+# trigger a *second* execution of this file under the canonical
+# name and recurse back into the same import block — raising a
+# circular-import error.  Registering ``__main__`` under the
+# canonical name first makes the helper imports resolve to this
+# in-progress module, breaking the cycle.
+if __name__ == "__main__":
+    sys.modules.setdefault("bot_autopilot", sys.modules["__main__"])
+
 # ── Refactored helper modules (re-exported below) ──────────────────────
 import bot_autopilot_telemetry as _tlm
 import bot_autopilot_navigation as _nav
