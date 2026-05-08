@@ -62,6 +62,7 @@ if __name__ == "__main__":
 import bot_autopilot_telemetry as _tlm
 import bot_autopilot_navigation as _nav
 import bot_autopilot_blacklist as _bl
+import bot_autopilot_astar as _astar
 
 # UTF-8 stdout for unicode arrows / em-dashes in log messages.
 try:
@@ -840,6 +841,17 @@ class BotState:
     # wall-tangent path (PR #42) takes over.
     wall_pin_anchor: tuple = (0.0, 0.0)
     wall_pin_anchor_at: float = 0.0
+    # A* path cache.  Set by ``_astar_next_waypoint`` when a chase
+    # target requires routing around the building cluster (or any
+    # other obstacle).  ``path_target`` is the (gx, gy) we last
+    # planned for — when the FSM re-targets this gets invalidated;
+    # when the bot reaches a waypoint the head of ``path_waypoints``
+    # is popped.  Without caching a fresh A* would run every tick,
+    # which is cheap (<1 ms) but unnecessary when the target is
+    # stable.
+    path_target: tuple = (None, None)
+    path_waypoints: list = field(default_factory=list)
+    path_planned_at: float = 0.0
     # Heal-active latches (PR #45 follow-up).  Once HP / shields
     # drop past CONSUMABLE_USE_*_PCT, the matching latch arms and
     # stays armed until the bar refills to 100 %.  Without these,
@@ -883,6 +895,9 @@ class BotState:
         self.wall_pin_anchor_at = 0.0
         self.heal_hp_active = False
         self.heal_shield_active = False
+        self.path_target = (None, None)
+        self.path_waypoints = []
+        self.path_planned_at = 0.0
 
 
 _state = BotState()
@@ -945,6 +960,112 @@ _cluster_centroid_and_radius = _nav.cluster_centroid_and_radius
 _cluster_detour_waypoint = _nav.cluster_detour_waypoint
 _clamp_to_world = _nav.clamp_to_world
 _find_clear_ring_point = _nav.find_clear_ring_point
+
+
+# ── A* path-cache helpers ───────────────────────────────────────────────
+# Wrappers around ``bot_autopilot_astar.plan_path`` that cache the
+# result on ``_state.path_*`` so a stable target doesn't trigger a
+# fresh A* every tick.  Replan when:
+#   * target moves more than ASTAR_REPLAN_TARGET_DRIFT_PX from the
+#     last planned (gx, gy);
+#   * the cached path is older than ASTAR_REPLAN_TTL_S;
+#   * the next-waypoint queue has been emptied (last waypoint
+#     reached).
+# Cheap (~0.1-1 ms per plan on a typical 6400×6400 / 12-building
+# state) so the cache is mostly an FSM-stability concern, not a
+# performance one — without caching, every tick's tiny target jitter
+# (alien moving, asteroid drifting) would flush the path.
+
+ASTAR_REPLAN_TTL_S:           float = 3.0
+ASTAR_REPLAN_TARGET_DRIFT_PX: float = 80.0
+# Stop-radius for "reached this waypoint" — popped off the queue
+# when the bot is within this distance.  Matches the grid cell
+# size so a cell-centre waypoint is considered reached when the
+# bot enters that cell.
+ASTAR_WAYPOINT_REACHED_PX:    float = 80.0
+
+
+def _astar_plan_path(state: dict, sx: float, sy: float,
+                     gx: float, gy: float) -> list:
+    """Thin wrapper around ``_astar.plan_path`` so test harnesses
+    can monkey-patch the planner without touching the underlying
+    module.  Returns the same list of (x, y) waypoints (or [])."""
+    return _astar.plan_path(state, sx, sy, gx, gy)
+
+
+def _astar_invalidate_path() -> None:
+    """Clear the cached A* path.  Called on FSM transitions and
+    blacklist events so the next ``_astar_next_waypoint`` plans
+    fresh against the new target / world snapshot."""
+    _state.path_target = (None, None)
+    _state.path_waypoints = []
+    _state.path_planned_at = 0.0
+
+
+def _astar_next_waypoint(state: dict, sx: float, sy: float,
+                         gx: float, gy: float):
+    """Return the next ``(wx, wy)`` waypoint along an A* path from
+    ``(sx, sy)`` to ``(gx, gy)``, OR ``None`` to indicate the
+    direct path is fine, OR the sentinel string ``"unreachable"``
+    when no path exists.
+
+    Uses ``_state.path_*`` as a cache so a stable target reuses the
+    same plan across ticks.  Replans when the target drifts more
+    than ``ASTAR_REPLAN_TARGET_DRIFT_PX`` from the cached target,
+    when the path is stale (> ``ASTAR_REPLAN_TTL_S``), or when the
+    waypoint queue has been emptied.
+
+    A direct line-of-sight check between the bot and the goal is
+    used as the "no plan needed" signal — the planner is bypassed
+    when the world snapshot's grid would mark the bot→goal segment
+    as fully clear.  This skips the per-tick A* call for the common
+    case (no clusters between bot and target).
+    """
+    # Direct line of sight first — most ticks have no cluster in
+    # the way, so this fast path skips the planner entirely.
+    blocked, _gw, _gh = _astar._build_grid(state)
+    if _astar._line_of_sight((sx, sy), (gx, gy), blocked):
+        # Direct path is clear; invalidate any stale cached path so
+        # the next blocked target plans from scratch.
+        if _state.path_waypoints:
+            _astar_invalidate_path()
+        return None
+
+    now = _get_now()
+    cached_tgt = _state.path_target
+    drift_sq = ASTAR_REPLAN_TARGET_DRIFT_PX * ASTAR_REPLAN_TARGET_DRIFT_PX
+    needs_replan = (
+        not _state.path_waypoints
+        or cached_tgt[0] is None
+        or (gx - cached_tgt[0]) ** 2 + (gy - cached_tgt[1]) ** 2 > drift_sq
+        or (now - _state.path_planned_at) > ASTAR_REPLAN_TTL_S
+    )
+    if needs_replan:
+        wp = _astar_plan_path(state, sx, sy, gx, gy)
+        if not wp:
+            _astar_invalidate_path()
+            return "unreachable"
+        _state.path_waypoints = wp
+        _state.path_target = (gx, gy)
+        _state.path_planned_at = now
+
+    # Pop reached waypoints off the head of the queue.  Iterate
+    # because the bot may have skipped past several waypoints in
+    # one frame (e.g. high-speed pursuit through a smoothed path).
+    reached_sq = (ASTAR_WAYPOINT_REACHED_PX
+                  * ASTAR_WAYPOINT_REACHED_PX)
+    while _state.path_waypoints:
+        wx, wy = _state.path_waypoints[0]
+        if (wx - sx) ** 2 + (wy - sy) ** 2 <= reached_sq:
+            _state.path_waypoints.pop(0)
+        else:
+            break
+    if not _state.path_waypoints:
+        # Reached the end of the cached path — re-evaluate next
+        # tick (probably direct-line-of-sight by now).
+        _astar_invalidate_path()
+        return None
+    return _state.path_waypoints[0]
 
 
 # ── Helper-module re-exports ────────────────────────────────────────────
@@ -1684,6 +1805,7 @@ def _do_auto(state: dict, p: dict) -> None:
             # tick doesn't inherit the old state's "no progress"
             # signature — see the dwell-or-preempt branch below.
             _stuck_state["history"] = []
+            _astar_invalidate_path()
         _on_enter(cur)
         _telemetry_log("state_transition", reason="first_tick",
                        from_state=prev, to_state=cur, desired=desired,
@@ -1708,6 +1830,7 @@ def _do_auto(state: dict, p: dict) -> None:
             # park into HUNT logged stuck_detected one tick after
             # the transition with the bot in clear space.
             _stuck_state["history"] = []
+            _astar_invalidate_path()
             cur = desired
             _on_enter(cur)
             _telemetry_log("state_transition", reason="dwell_or_preempt",

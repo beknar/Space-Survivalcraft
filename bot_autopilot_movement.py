@@ -47,21 +47,49 @@ def _do_goto(state: dict, p: dict, tx: float, ty: float,
     matched the stuck-detect criteria and triggered ~30 false-fire
     escape bursts per session).
 
-    Cluster detour: if the straight-line path to (tx, ty) crosses
-    the placed-building cluster, the immediate goto target is
-    redirected to a tangent waypoint on the cluster boundary.  Once
-    the bot reaches the waypoint the next tick re-evaluates and
-    typically routes straight to the original target from the new
-    (cluster-clear) angle.  Suppressed when the destination IS
-    inside the cluster (deposit / craft / install) so docking
-    actions complete normally.
+    Routing layers (applied in order before the heading + thrust
+    decision):
+
+    * **A* path** — when the straight-line bot→target segment
+      crosses building cluster blocked cells, ``_astar_next_waypoint``
+      returns the next intermediate waypoint and the goto target is
+      redirected to it.  This gives the bot proper free-space
+      navigation around obstacles instead of relying on the
+      reactive cluster_detour + stuck-detect machinery alone.
+      Cached on ``_state.path_*`` so a stable target reuses the
+      plan across ticks.
+
+    * **Cluster detour** — legacy tangent-based detour around a
+      cluster centroid.  Still used when A* is bypassed (open
+      line-of-sight to target) but the goto path nicks the cluster
+      from one side; the tangent waypoint pulls the bot wide.
+      Suppressed when the destination IS inside the cluster
+      (deposit / craft / install) so docking actions complete.
     """
     px = float(p.get("x", 0.0))
     py = float(p.get("y", 0.0))
     final_target = (tx, ty)  # remember for repulsion suppression
-    waypoint = _nav.cluster_detour_waypoint(state, px, py, tx, ty)
-    if waypoint is not None:
-        tx, ty = waypoint
+
+    # A* routing first — when the straight line is blocked, follow
+    # the planned waypoint chain instead of fighting the building-
+    # repulsion field.
+    astar_wp = _ap._astar_next_waypoint(state, px, py, tx, ty)
+    if astar_wp == "unreachable":
+        # Goal cell is blocked or unreachable — caller's stuck-
+        # detect / blacklist machinery will handle abandoning the
+        # target.  Fall through to the existing direct-goto so the
+        # bot at least faces the right direction while the
+        # higher-level FSM re-evaluates.
+        pass
+    elif astar_wp is not None:
+        tx, ty = astar_wp
+
+    # Fall back to the legacy tangent-based cluster detour for the
+    # direct-line-of-sight case.  No-op if A* already routed.
+    if astar_wp is None:
+        waypoint = _nav.cluster_detour_waypoint(state, px, py, tx, ty)
+        if waypoint is not None:
+            tx, ty = waypoint
     dx = tx - px
     dy = ty - py
     dist = math.hypot(dx, dy)
@@ -202,9 +230,32 @@ def _do_spiral_search(state: dict, p: dict) -> None:
 
 
 def _do_mine_nearest(state: dict, p: dict) -> None:
-    target, dist = _ap._nearest_asteroid(
-        state, p.get("x", 0), p.get("y", 0))
+    import bot_autopilot_astar as _astar
+    px = float(p.get("x", 0.0))
+    py = float(p.get("y", 0.0))
+    target, dist = _ap._nearest_asteroid(state, px, py)
     if target is None:
+        _ap._do_idle()
+        return
+    # Reachability check (2026-05-07 follow-up): asteroid wedged
+    # behind the cluster, on the far side of a wall, etc., gets
+    # blacklisted up front so the bot doesn't pin against the
+    # repulsion field for tens of seconds.  Capped at one
+    # re-attempt so a degenerate "all asteroids unreachable"
+    # frame can't loop more than twice.
+    for _attempt in range(2):
+        if _astar.target_reachable(
+                state, px, py, float(target["x"]), float(target["y"])):
+            break
+        _ap._blacklist_asteroid(target)
+        print(f"[autopilot] ASTEROID-BLACKLIST (unreachable): "
+              f"({target['x']:.0f}, {target['y']:.0f})")
+        _ap._astar_invalidate_path()
+        target, dist = _ap._nearest_asteroid(state, px, py)
+        if target is None:
+            _ap._do_idle()
+            return
+    else:
         _ap._do_idle()
         return
     _ap._ensure_weapon(state, _ap._state.mining_weapon_pick)
