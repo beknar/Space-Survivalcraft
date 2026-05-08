@@ -174,6 +174,29 @@ def _post_equip_consumables(timeout_s: float = 5.0) -> dict | None:
         return None
 
 
+def _post_fortify(timeout_s: float = 10.0) -> dict | None:
+    """POST /fortify — place the 4-turret defensive ring around the
+    Home Station to complete the defenders quota before the QWI
+    build fires.  Synchronous: the placements run on the main thread
+    inside the response window."""
+    try:
+        req = Request(
+            f"{_ap.API_BASE}/fortify",
+            data=b"{}",
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urlopen(req, timeout=timeout_s) as r:
+            import json
+            return json.loads(r.read().decode("utf-8"))
+    except (URLError, TimeoutError, OSError) as e:
+        print(f"[autopilot] fortify POST error: {e}")
+        return None
+    except Exception as e:
+        print(f"[autopilot] fortify POST unexpected error: {e}")
+        return None
+
+
 def _post_place_qwi(timeout_s: float = 10.0) -> dict | None:
     """POST /place_qwi — place a Quantum Wave Integrator near the
     Home Station.  Auto-spawns the Double Star boss on success."""

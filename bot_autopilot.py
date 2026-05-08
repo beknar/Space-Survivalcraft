@@ -303,9 +303,17 @@ BOSS_PHASE3_PRESS_RANGE_PX:   float = 600.0    # Phase 3 (no shield regen): clos
 # station has at least this many friendly turrets/defenses and the
 # ship has been upgraded to level 2.  The boss spawn is irreversible
 # — no point pulling the trigger before the station can absorb the
-# 30 s approach window.
-QWI_STAGE_MIN_TURRETS:        int   = 2
+# 30 s approach window.  The minimum is 6: the 2 starter Turret 2
+# entries placed during ``build_starter_base`` (NE / SW corners)
+# plus the 4 fortify turrets (N / S cardinals + NW / SE corners)
+# placed by the S_FORTIFY phase before BUILD_QWI fires.
+QWI_STAGE_MIN_TURRETS:        int   = 6
 QWI_STAGE_MIN_SHIP_LEVEL:     int   = 2
+# Iron cost of the fortify ring (4× Turret 2 at 75 iron each).
+# Fortify won't fire until station inventory has at least this much
+# iron staged; the gate keeps the ring affordable without dipping
+# below the QWI's 1000-iron cost cushion.
+FORTIFY_IRON_COST:            int   = 4 * 75
 
 # Post-consumable boss-prep pipeline:
 # After the 25 + 25 consumable craft batches finish, the bot
@@ -383,13 +391,21 @@ S_ENGAGE_BOSS = "engage_boss"
 # S_ENGAGE_BOSS state takes over the fight automatically.
 S_EQUIP_CONSUMABLES = "equip_consumables"
 S_PRE_BOSS_MINE     = "pre_boss_mine"
+# S_FORTIFY: fires after the consumable phase finishes and before
+# the QWI is built.  Navigates to the Home Station and POSTs
+# /fortify to drop 4 more Turret 2 entries (N / S cardinals +
+# NW / SE corners) — bringing the cluster's defender count from
+# the 2 starter turrets up to QWI_STAGE_MIN_TURRETS so the QWI
+# build's ``_qwi_ready_to_build`` gate clears.  One-shot; latches
+# ``_state.fortify_done`` on success or "ring already complete".
+S_FORTIFY           = "fortify"
 S_BUILD_QWI         = "build_qwi"
 
 ALL_STATES = (
     S_ENGAGE, S_GATHER, S_REGEN, S_MINE, S_SEARCH,
     S_BUILD, S_BUILD_SEEK, S_DEPOSIT, S_CRAFT, S_INSTALL,
     S_HUNT, S_IDLE_AT_BASE, S_ENGAGE_BOSS,
-    S_EQUIP_CONSUMABLES, S_PRE_BOSS_MINE, S_BUILD_QWI,
+    S_EQUIP_CONSUMABLES, S_PRE_BOSS_MINE, S_FORTIFY, S_BUILD_QWI,
 )
 
 # Maximum range at which the bot will commit to chasing an alien
@@ -805,6 +821,7 @@ class BotState:
     # boss is incoming and falls through to the existing
     # S_ENGAGE_BOSS path.
     consumables_equipped: bool = False
+    fortify_done: bool = False
     qwi_placed: bool = False
     # Monotonic timestamp of the last successful POST /use_quick_use
     # so the auto-use tick doesn't spam the endpoint between the
@@ -859,6 +876,7 @@ class BotState:
         self.hunt_anchor_hits.clear()
         self.last_regen_shields = 0
         self.consumables_equipped = False
+        self.fortify_done = False
         self.qwi_placed = False
         self.last_consumable_use_at = 0.0
         self.wall_pin_anchor = (0.0, 0.0)
@@ -946,6 +964,7 @@ from bot_autopilot_http import (
     _post_deposit_to_station,
     _post_use_quick_use,
     _post_equip_consumables,
+    _post_fortify,
     _post_place_qwi,
     _ensure_game_focused,
 )
@@ -970,7 +989,7 @@ from bot_autopilot_movement import (
 )
 from bot_autopilot_actions_station import (
     _act_build_seek, _act_deposit, _act_craft, _act_install, _act_build,
-    _act_at_station, _act_equip_consumables, _act_build_qwi,
+    _act_at_station, _act_equip_consumables, _act_fortify, _act_build_qwi,
 )
 from bot_autopilot_actions_combat import (
     _act_engage, _act_engage_boss, _maybe_use_consumables,
@@ -1015,6 +1034,20 @@ def _choose_next_state(state: dict, p: dict, cur: str) -> str:
         _telemetry_log("build_done_short_circuit",
                        reason="home_station_already_exists",
                        **_telemetry_snapshot_fields(state, p))
+    # Mirror short-circuit for fortify: if the world already has at
+    # least QWI_STAGE_MIN_TURRETS defenders (loaded save / prior
+    # session / manual placement), latch ``fortify_done`` so the
+    # FSM doesn't re-enter S_FORTIFY for a ring that already exists.
+    if not _state.fortify_done:
+        defenders = sum(
+            1 for b in (state.get("buildings") or [])
+            if (b.get("building_type") or "") in (
+                "Defense Turret", "Turret 2", "Missile Array"))
+        if defenders >= QWI_STAGE_MIN_TURRETS:
+            _state.fortify_done = True
+            _telemetry_log("fortify_done_short_circuit",
+                           reason=f"defenders_{defenders}_meets_min",
+                           **_telemetry_snapshot_fields(state, p))
 
     # 1. REGEN — shields hurt; sit still and recover.  Preempts
     #    ENGAGE/GATHER/MINE so the bot actually idles instead of
@@ -1189,6 +1222,12 @@ def _choose_next_state(state: dict, p: dict, cur: str) -> str:
         if not _state.qwi_placed \
                 and not _qwi_already_built(state):
             station_iron = _station_iron(state)
+            # Iron gate covers the fortify ring (FORTIFY_IRON_COST)
+            # AND the QWI cost (1000) — keep mining until the
+            # buffer is enough that placing fortify won't drop the
+            # station below the QWI cost cushion.  Without this the
+            # bot could fortify, drain iron, and then PRE_BOSS_MINE
+            # again to refill before BUILD_QWI fires.
             if station_iron < QWI_BUILD_IRON_TARGET:
                 # Still mining toward the iron buffer — fall back
                 # to the normal MINE / SEARCH cascade below but
@@ -1197,6 +1236,15 @@ def _choose_next_state(state: dict, p: dict, cur: str) -> str:
                 if _nearest_asteroid(state, px, py)[0] is not None:
                     return S_PRE_BOSS_MINE
             else:
+                # Fortify before the QWI build so the cluster has
+                # the full defensive ring (matches the bumped
+                # QWI_STAGE_MIN_TURRETS).  The ``_qwi_ready_to_build``
+                # gate also enforces the turret count, so even if
+                # the bot crashed/restarted between fortify and QWI
+                # the latched flag would re-evaluate from current
+                # building snapshot before BUILD_QWI fires.
+                if not _state.fortify_done:
+                    return S_FORTIFY
                 return S_BUILD_QWI
 
     # 6. MINE vs SEARCH — discrete event, no hysteresis needed.
@@ -1646,7 +1694,8 @@ def _do_auto(state: dict, p: dict) -> None:
         # MIN_DWELL so the bot reacts to a sudden threat or a sudden
         # shield collapse without waiting for the dwell timer.
         if desired in (S_ENGAGE, S_REGEN, S_ENGAGE_BOSS,
-                       S_EQUIP_CONSUMABLES, S_BUILD_QWI) or \
+                       S_EQUIP_CONSUMABLES, S_FORTIFY,
+                       S_BUILD_QWI) or \
                 dwell >= MIN_DWELL_S:
             _fsm["state"] = desired
             _fsm["entered_at"] = now
@@ -1709,6 +1758,8 @@ def _do_auto(state: dict, p: dict) -> None:
         # distinction tracks completion (mining toward the
         # QWI_BUILD_IRON_TARGET buffer instead of indefinitely).
         _do_mine_nearest(state, p)
+    elif cur == S_FORTIFY:
+        _act_fortify(state, p)
     elif cur == S_BUILD_QWI:
         _act_build_qwi(state, p)
     else:  # S_SEARCH

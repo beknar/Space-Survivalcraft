@@ -5264,11 +5264,18 @@ class TestQwiStagingGate:
         assert reason.startswith("defenders_")
 
     def test_low_ship_level_blocks(self):
+        # Defender count meets the staging minimum (6 = 2 starter +
+        # 4 fortify) so the gate falls through to the ship-level
+        # check.
         s = _state(
             buildings=[
                 {"x": 3200.0, "y": 3200.0, "building_type": "Home Station"},
                 {"x": 3300.0, "y": 3300.0, "building_type": "Turret 2"},
                 {"x": 3100.0, "y": 3100.0, "building_type": "Turret 2"},
+                {"x": 3300.0, "y": 3100.0, "building_type": "Turret 2"},
+                {"x": 3100.0, "y": 3300.0, "building_type": "Turret 2"},
+                {"x": 3200.0, "y": 3400.0, "building_type": "Turret 2"},
+                {"x": 3200.0, "y": 3000.0, "building_type": "Turret 2"},
             ],
             player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
                     "shields": 150, "max_shields": 150,
@@ -5284,6 +5291,10 @@ class TestQwiStagingGate:
                 {"x": 3200.0, "y": 3200.0, "building_type": "Home Station"},
                 {"x": 3300.0, "y": 3300.0, "building_type": "Turret 2"},
                 {"x": 3100.0, "y": 3100.0, "building_type": "Missile Array"},
+                {"x": 3300.0, "y": 3100.0, "building_type": "Turret 2"},
+                {"x": 3100.0, "y": 3300.0, "building_type": "Turret 2"},
+                {"x": 3200.0, "y": 3400.0, "building_type": "Turret 2"},
+                {"x": 3200.0, "y": 3000.0, "building_type": "Turret 2"},
             ],
             player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
                     "shields": 150, "max_shields": 150,
@@ -5337,6 +5348,7 @@ def _fresh_bot_state(monkeypatch):
     """Reset BotState boss-prep flags between tests so latches don't
     leak across the boss-prep pipeline tests."""
     ap._state.consumables_equipped = False
+    ap._state.fortify_done = False
     ap._state.qwi_placed = False
     ap._state.last_consumable_use_at = 0.0
     ap._state.heal_hp_active = False
@@ -5345,6 +5357,7 @@ def _fresh_bot_state(monkeypatch):
     ap._state.build_done = True   # skip the BUILD branch
     yield
     ap._state.consumables_equipped = False
+    ap._state.fortify_done = False
     ap._state.qwi_placed = False
     ap._state.last_consumable_use_at = 0.0
     ap._state.heal_hp_active = False
@@ -5393,6 +5406,11 @@ class TestEquipConsumablesRouting:
         monkeypatch.setattr(ap, "_act_build_qwi", lambda s, p: None)
         _drained_consumable_queue()
         ap._state.consumables_equipped = True
+        # Pre-latch fortify so the FSM falls through past S_FORTIFY
+        # into the BUILD_QWI branch — this test pins the equip-skip
+        # behaviour, not the fortify gate (covered by
+        # ``TestFortifyRouting`` below).
+        ap._state.fortify_done = True
         s = _state(
             buildings=[{"x": 3200.0, "y": 3200.0,
                         "building_type": "Home Station"},
@@ -5432,6 +5450,10 @@ class TestBuildQwiRouting:
         monkeypatch.setattr(ap, "_act_build_qwi", lambda s, p: None)
         _drained_consumable_queue()
         ap._state.consumables_equipped = True
+        # Pre-latch fortify so this test stays scoped to the
+        # iron-target → BUILD_QWI behaviour.  Fortify routing is
+        # covered separately by ``TestFortifyRouting``.
+        ap._state.fortify_done = True
         s = _state(
             buildings=[{"x": 3200.0, "y": 3200.0,
                         "building_type": "Home Station"},
@@ -5480,6 +5502,80 @@ class TestBuildQwiRouting:
         s["boss"] = _boss()
         ap._do_auto(s, s["player"])
         assert ap._fsm["state"] == ap.S_ENGAGE_BOSS
+
+
+class TestFortifyRouting:
+    """Pins the S_FORTIFY phase: fortify must fire after consumables
+    are equipped and the iron buffer is staged, before BUILD_QWI."""
+
+    def test_routes_to_fortify_after_equip_when_iron_target_met(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        monkeypatch.setattr(ap, "_act_fortify", lambda s, p: None)
+        _drained_consumable_queue()
+        ap._state.consumables_equipped = True
+        # Only the 2 starter turrets — fortify gate is open.
+        s = _state(
+            buildings=[
+                {"x": 3200.0, "y": 3200.0, "building_type": "Home Station"},
+                {"x": 3260.0, "y": 3200.0, "building_type": "Basic Crafter"},
+                {"x": 3300.0, "y": 3300.0, "building_type": "Turret 2"},
+                {"x": 3100.0, "y": 3100.0, "building_type": "Turret 2"},
+            ],
+            station_inventory_items={"iron": 2500},
+            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+        )
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_FORTIFY
+
+    def test_short_circuits_fortify_done_when_ring_already_placed(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """When the world snapshot already has 6+ defenders (e.g.
+        loaded save / manual placement), the housekeeping short-
+        circuit at the top of ``_choose_next_state`` latches
+        ``fortify_done`` so the FSM never enters S_FORTIFY."""
+        monkeypatch.setattr(ap, "_act_build_qwi", lambda s, p: None)
+        _drained_consumable_queue()
+        ap._state.consumables_equipped = True
+        # 6 defenders already on the field.
+        s = _state(
+            buildings=[
+                {"x": 3200.0, "y": 3200.0, "building_type": "Home Station"},
+                {"x": 3260.0, "y": 3200.0, "building_type": "Basic Crafter"},
+                {"x": 3300.0, "y": 3300.0, "building_type": "Turret 2"},
+                {"x": 3100.0, "y": 3100.0, "building_type": "Turret 2"},
+                {"x": 3300.0, "y": 3100.0, "building_type": "Turret 2"},
+                {"x": 3100.0, "y": 3300.0, "building_type": "Turret 2"},
+                {"x": 3200.0, "y": 3400.0, "building_type": "Turret 2"},
+                {"x": 3200.0, "y": 3000.0, "building_type": "Turret 2"},
+            ],
+            station_inventory_items={"iron": 2500},
+            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+        )
+        ap._do_auto(s, s["player"])
+        assert ap._state.fortify_done is True
+        assert ap._fsm["state"] == ap.S_BUILD_QWI
+
+    def test_skips_fortify_when_already_done(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """Once ``fortify_done`` is latched (success or short-
+        circuit), the FSM falls through to the BUILD_QWI branch."""
+        monkeypatch.setattr(ap, "_act_build_qwi", lambda s, p: None)
+        _drained_consumable_queue()
+        ap._state.consumables_equipped = True
+        ap._state.fortify_done = True
+        s = _state(
+            buildings=[{"x": 3200.0, "y": 3200.0,
+                        "building_type": "Home Station"},
+                       {"x": 3260.0, "y": 3200.0,
+                        "building_type": "Basic Crafter"}],
+            station_inventory_items={"iron": 2500},
+            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+        )
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_BUILD_QWI
 
 
 class TestActEquipConsumables:

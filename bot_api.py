@@ -632,6 +632,23 @@ class _Handler(BaseHTTPRequestHandler):
                 return
             self._send_json(200, result["value"])
             return
+        if self.path == "/fortify":
+            if _gv_ref is None:
+                self._send_json(503, {"error": "game not ready"})
+                return
+            import bot_builder
+            done, result = submit_to_main_thread(
+                bot_builder.fortify_base_defenses)
+            if not done.wait(timeout=10.0):
+                self._send_json(
+                    504, {"error": "timeout waiting for main thread"})
+                return
+            if result["error"] is not None:
+                self._send_json(
+                    500, {"error": f"fortify failed: {result['error']}"})
+                return
+            self._send_json(200, result["value"])
+            return
         if self.path == "/place_qwi":
             if _gv_ref is None:
                 self._send_json(503, {"error": "game not ready"})
