@@ -371,6 +371,37 @@ def test_deposit_handles_partial_when_station_full():
     assert ship.count_item("iron") == 500
 
 
+def test_deposit_keeps_consumables_in_ship_inventory():
+    """Repair packs and shield recharges are quick-use-bound and
+    must not round-trip back to the station — they stay in the
+    ship inventory across deposits."""
+    ship, _ = _stub_inv_with_items({
+        "iron": 500,
+        "repair_pack": 5,
+        "shield_recharge": 5,
+        "copper": 25,
+    })
+    station, _ = _stub_inv_with_items({})
+    gv = SimpleNamespace(
+        building_list=[SimpleNamespace(building_type="Home Station")],
+        inventory=ship,
+        _station_inv=station,
+    )
+    result = bot_builder.deposit_ship_resources_to_station(gv)
+    deposited = result["deposited"]
+    # Iron + copper went to the station as usual.
+    assert deposited.get("iron") == 500
+    assert deposited.get("copper") == 25
+    # Consumables are absent from the deposit report and untouched
+    # in both inventories.
+    assert "repair_pack" not in deposited
+    assert "shield_recharge" not in deposited
+    assert ship.count_item("repair_pack") == 5
+    assert ship.count_item("shield_recharge") == 5
+    assert station.count_item("repair_pack") == 0
+    assert station.count_item("shield_recharge") == 0
+
+
 def test_deposit_skips_when_no_home_station():
     """No Home Station built yet → deposit is a no-op."""
     gv = SimpleNamespace(

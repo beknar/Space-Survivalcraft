@@ -166,11 +166,28 @@ def _place_sequence(
     return placed, failed
 
 
+# Item types that are deliberately kept in the ship inventory and
+# never deposited back to the station.  Repair packs and shield
+# recharges are bound to quick-use slots after
+# ``/equip_consumables``; depositing them would empty the slots
+# and force a re-equip round trip every time the bot returns to
+# base.  Crafted output still lands in the station first (the
+# Basic Crafter's output target), so this exclusion only governs
+# the ship→station direction.
+SHIP_ONLY_ITEM_TYPES: frozenset[str] = frozenset({
+    "repair_pack", "shield_recharge",
+})
+
+
 def deposit_ship_resources_to_station(gv: Any) -> dict:
     """Move EVERY item out of the ship inventory into the Home
     Station inventory — iron, copper, blueprints, crafted items,
     whatever the player has picked up.  No-op (with a reason)
     when no Home Station exists.
+
+    Item types in ``SHIP_ONLY_ITEM_TYPES`` (repair packs, shield
+    recharges) are skipped so they remain bound to ship quick-use
+    slots between deposit cycles.
 
     Implementation walks ``gv.inventory._items`` to discover every
     distinct item_type in the ship, then transfers each one
@@ -188,6 +205,8 @@ def deposit_ship_resources_to_station(gv: Any) -> dict:
     totals: dict[str, int] = {}
     try:
         for (_cell, (item_type, count)) in items.items():
+            if item_type in SHIP_ONLY_ITEM_TYPES:
+                continue
             totals[item_type] = totals.get(item_type, 0) + int(count)
     except Exception as e:
         return {"deposited": {}, "error": f"failed to scan ship inv: {e}"}
