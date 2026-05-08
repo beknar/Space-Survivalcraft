@@ -44,8 +44,17 @@ class TestGatedSetsSanity:
             "Shield Generator", "Missile Array",
         })
 
-    def test_qwi_is_zone2_only(self):
-        assert ZONE2_ONLY_BUILDINGS == frozenset({"Quantum Wave Integrator"})
+    def test_zone2_only_set_is_empty(self):
+        """The QWI used to live here, but it's the trigger for the
+        Double Star boss — which itself gates Zone 2 access.  Hiding
+        the QWI in Zone 1 made the boss un-triggerable for human
+        players (see PR after #56).  Set is kept as an empty
+        frozenset so the menu-filter code path stays valid and a
+        future Nebula-only building can be added without rewiring.
+        The zone-aware copper waiver in
+        ``building_manager.effective_copper_cost`` keeps Zone 1
+        placement honest (iron-only)."""
+        assert ZONE2_ONLY_BUILDINGS == frozenset()
 
 
 # ── Visible menu order by zone ────────────────────────────────────────────
@@ -57,29 +66,35 @@ class TestVisibleMenuOrder:
     def test_none_returns_full_list(self):
         assert self._names(None) == list(_MENU_ORDER)
 
-    def test_main_hides_gated_and_qwi(self):
+    def test_main_hides_gated_but_shows_qwi(self):
         names = self._names(ZoneID.MAIN)
         for b in ZONE_GATED_BUILDINGS:
-            assert b not in names, f"{b} should be hidden in Zone 1"
-        for b in ZONE2_ONLY_BUILDINGS:
             assert b not in names, f"{b} should be hidden in Zone 1"
         # The early-game core is still there.
         assert "Home Station" in names
         assert "Basic Crafter" in names
         assert "Turret 1" in names
+        # The QWI is visible in Zone 1 — it's the Double Star boss
+        # trigger, and the boss in turn gates Zone 2 access.  Hiding
+        # the row would make the boss un-triggerable for human
+        # players.  See ``ZONE2_ONLY_BUILDINGS`` rationale.
+        assert "Quantum Wave Integrator" in names
 
     def test_nebula_shows_everything(self):
         names = self._names(ZoneID.ZONE2)
         assert names == list(_MENU_ORDER)
 
-    def test_warp_zones_show_gated_but_hide_qwi(self):
+    def test_warp_zones_show_gated_and_qwi(self):
         for wz in (ZoneID.WARP_METEOR, ZoneID.WARP_LIGHTNING,
                    ZoneID.WARP_GAS, ZoneID.WARP_ENEMY):
             names = self._names(wz)
             for b in ZONE_GATED_BUILDINGS:
                 assert b in names, f"{b} must be buildable in {wz}"
-            assert "Quantum Wave Integrator" not in names, (
-                f"QWI must be hidden in {wz} — Nebula-only"
+            # QWI is no longer Nebula-only; visible everywhere
+            # (including warp zones) so a player who started a fresh
+            # base in any zone can still trigger the boss.
+            assert "Quantum Wave Integrator" in names, (
+                f"QWI should be visible in {wz}"
             )
 
     def test_orig_idx_is_position_in_full_menu(self):
@@ -258,4 +273,6 @@ class TestBuildMenuClickGating:
         names = [n for _, n in bm._visible_order()]
         for b in ZONE_GATED_BUILDINGS:
             assert b not in names
-        assert "Quantum Wave Integrator" not in names
+        # The QWI used to be hidden here; it now appears in Zone 1
+        # so the player can trigger the Double Star boss locally.
+        assert "Quantum Wave Integrator" in names
