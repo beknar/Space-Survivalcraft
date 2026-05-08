@@ -58,6 +58,7 @@ by concern:
 | `bot_autopilot_actions_station.py` | ~328 | Station `_act_*` handlers: `_act_build_seek`, `_act_deposit`, `_act_craft`, `_act_install`, `_act_build`, `_act_at_station`, `_act_equip_consumables`, `_act_build_qwi` |
 | `bot_autopilot_actions_combat.py` | ~357 | Combat `_act_*` handlers: `_act_engage`, `_act_engage_boss`, `_maybe_use_consumables`, `_act_gather`, `_act_idle_at_base` |
 | `bot_autopilot_navigation.py` | — | Per-building potential field + cluster centroid + cluster detour waypoint + `find_clear_ring_point` + escape-burst geometry |
+| `bot_autopilot_astar.py` | — | Grid-based A\* pathfinder over the building-occupancy grid; `plan_path(state, sx, sy, gx, gy)` + `target_reachable(...)`.  Used by `_do_goto` for routing around the cluster and by `_act_gather` / `_do_mine_nearest` for up-front unreachable-target detection. |
 | `bot_autopilot_blacklist.py` | — | Pickup + asteroid blacklist data structures with TTLs |
 | `bot_autopilot_telemetry.py` | — | JSONL writer + snapshot ring buffer |
 
@@ -404,6 +405,25 @@ layer fires, from proactive (avoid the corner) to reactive
    target is redirected to a tangent waypoint on the cluster
    boundary.  Suppressed when the destination IS inside the
    cluster (so docking actions complete normally).
+4a. **A\* path planning** (`bot_autopilot_astar.plan_path`).
+    Grid-based A\* (80 px cells) over a building-occupancy map of
+    the live `/state` snapshot.  When the straight-line bot→target
+    segment crosses any blocked cell, `_astar_next_waypoint`
+    returns the next intermediate waypoint (after greedy
+    line-of-sight smoothing) and `_do_goto` routes through it.
+    Cached on `_state.path_*` with a target-drift threshold of
+    `ASTAR_REPLAN_TARGET_DRIFT_PX = 80 px` and a `ASTAR_REPLAN_TTL_S
+    = 3 s` staleness gate.  Targets that resolve to a building-
+    blocked goal cell return ``"unreachable"``; `_act_gather` and
+    `_do_mine_nearest` consume that signal via
+    `target_reachable(state, sx, sy, gx, gy)` to blacklist the
+    target up front rather than letting the bot pin against the
+    cluster's repulsion field for tens of seconds (the deadlock
+    pattern from PR #60 telemetry).  Boundary cells are NOT
+    blocked by default — boundary handling is already covered by
+    the `steered_heading` repulsion blend, and including them
+    would false-flag legitimate edge-adjacent pickups as
+    unreachable.
 5. **`IDLE_AT_BASE` outer-ring parking** — idle target sits
    `IDLE_AT_BASE_RADIUS_PX = 600 px` from HS on the player→HS
    ray, so the bot parks *outside* the cluster.

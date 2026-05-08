@@ -291,11 +291,42 @@ def _act_gather(state: dict, p: dict) -> None:
     pickup hasn't drifted into reach, stuck-detect + the pickup
     blacklist let the bot move on to the next pickup instead of
     grinding for tens of seconds.
+
+    Reachability check (2026-05-07 follow-up): before committing to
+    a chase, ``_astar.target_reachable`` confirms a path exists
+    through the building grid.  Pickups that drift inside the
+    station-cluster repulsion zone (no path) get blacklisted
+    immediately and the bot re-targets the next-nearest non-
+    blacklisted pickup on the same tick — eliminating the deadlock
+    where the bot pinned at (160, 4083) for 100+ s (PR #60
+    telemetry).
     """
+    import bot_autopilot_astar as _astar
     px, py = p.get("x", 0.0), p.get("y", 0.0)
     pickup, _pd = _ap._nearest_pickup(state, px, py)
     if pickup is None:
         # Pickup vanished (probably collected); next tick re-routes.
+        _ap.KeyState.hold("space", False)
+        return
+    # Up-front reachability check: blacklist + re-route if A* can't
+    # find a path.  Capped at one re-attempt so a degenerate
+    # all-pickups-blocked frame can't loop more than twice.
+    for _attempt in range(2):
+        if _astar.target_reachable(
+                state, px, py, float(pickup["x"]), float(pickup["y"])):
+            break
+        _ap._blacklist_pickup(pickup)
+        print(f"[autopilot] PICKUP-BLACKLIST (unreachable): "
+              f"{pickup.get('item_type', '?')} at "
+              f"({pickup['x']:.0f}, {pickup['y']:.0f})")
+        _ap._astar_invalidate_path()
+        pickup, _pd = _ap._nearest_pickup(state, px, py)
+        if pickup is None:
+            _ap.KeyState.hold("space", False)
+            return
+    else:
+        # Both nearest pickups were unreachable; bail to a clean
+        # idle so the next FSM tick re-evaluates the state cascade.
         _ap.KeyState.hold("space", False)
         return
     _ap.KeyState.hold("space", False)
