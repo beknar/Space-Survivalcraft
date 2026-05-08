@@ -52,54 +52,18 @@ if TYPE_CHECKING:
     from game_view import GameView
 
 
-# ── Wall tile cache ─────────────────────────────────────────────────
-#
-# The 336 × 184 dungeon sheet has many 16×16 tiles.  Most of the top
-# row is fully transparent (verified); tile (col 7, row 1) is
-# 256/256 opaque, which is what we repeat over every wall rect.  If
-# you want per-edge-type tiles later (corners, doorways, etc.) this
-# is where to plug them in.
-
-_WALL_TILE_TEX: arcade.Texture | None = None
-
-
-def _load_wall_tile() -> arcade.Texture:
-    global _WALL_TILE_TEX
-    if _WALL_TILE_TEX is None:
-        from PIL import Image as _PILImage
-        sheet = _PILImage.open(DUNGEON_WALL_SHEET_PNG).convert("RGBA")
-        tile_col = 7
-        tile_row = 1
-        left = tile_col * STAR_MAZE_WALL_TILE
-        top = tile_row * STAR_MAZE_WALL_TILE
-        tile = sheet.crop(
-            (left, top, left + STAR_MAZE_WALL_TILE,
-             top + STAR_MAZE_WALL_TILE))
-        _WALL_TILE_TEX = arcade.Texture(tile)
-    return _WALL_TILE_TEX
-
-
-def _build_wall_sprites(walls: list[Rect]) -> arcade.SpriteList:
-    """Tile each wall rect with 32 × 32 instances of the dungeon wall
-    tile.  Returned SpriteList draws in one GL call per frame."""
-    tex = _load_wall_tile()
-    tile_px = int(STAR_MAZE_WALL_TILE * STAR_MAZE_WALL_SCALE)  # 32
-    lst = arcade.SpriteList()
-    for r in walls:
-        cols = max(1, int(math.ceil(r.w / tile_px)))
-        rows = max(1, int(math.ceil(r.h / tile_px)))
-        for row in range(rows):
-            for col in range(cols):
-                sx = r.x + col * tile_px + tile_px / 2
-                sy = r.y + row * tile_px + tile_px / 2
-                s = arcade.Sprite(
-                    path_or_texture=tex,
-                    scale=STAR_MAZE_WALL_SCALE,
-                    center_x=sx,
-                    center_y=sy,
-                )
-                lst.append(s)
-    return lst
+# ── Wall tile cache + sprite-list construction ──────────────────────
+# Module-level helpers ``_load_wall_tile`` and ``_build_wall_sprites``
+# live in ``zones.star_maze_walls``.  Re-exported here so the existing
+# ``from zones.star_maze import _build_wall_sprites`` style call sites
+# (and the in-class ``_build_wall_sprites(self._walls)`` use in
+# ``setup`` below) keep working.
+from zones.star_maze_walls import (  # noqa: E402
+    _load_wall_tile,
+    _build_wall_sprites,
+)
+from zones import star_maze_walls as _walls_helpers  # noqa: E402
+from zones import star_maze_spawning as _spawning_helpers  # noqa: E402
 
 
 class StarMazeZone(ZoneState):
@@ -286,320 +250,56 @@ class StarMazeZone(ZoneState):
                 return True
         return False
 
+    # ── Wall geometry / collision (impl in zones.star_maze_walls) ──
+
     def _build_wall_grid(self) -> None:
-        """Build the spatial-hash index over ``self._walls``.  Every
-        wall rect is bucketed into every grid cell it overlaps, so
-        a point or circle query only has to look at a handful of
-        nearby cells.  Called once per ``_generate``."""
-        grid: dict[tuple[int, int], list[Rect]] = {}
-        cell = self._wall_grid_cell
-        for w in self._walls:
-            gx0 = int(w.x // cell)
-            gy0 = int(w.y // cell)
-            gx1 = int((w.x + w.w) // cell)
-            gy1 = int((w.y + w.h) // cell)
-            for gy in range(gy0, gy1 + 1):
-                for gx in range(gx0, gx1 + 1):
-                    grid.setdefault((gx, gy), []).append(w)
-        self._wall_grid = grid
+        return _walls_helpers.build_wall_grid(self)
 
     def _walls_near(
         self, cx: float, cy: float, radius: float,
     ) -> list[Rect]:
-        """Return the wall rects whose grid cells overlap the disk at
-        ``(cx, cy, radius)``.  Walls may appear multiple times if
-        they span more than one cell — callers that care about
-        uniqueness should dedupe, but the tight inner loops here are
-        already O(1) per check so it's fine."""
-        if not self._wall_grid:
-            return self._walls
-        cell = self._wall_grid_cell
-        gx0 = int((cx - radius) // cell)
-        gy0 = int((cy - radius) // cell)
-        gx1 = int((cx + radius) // cell)
-        gy1 = int((cy + radius) // cell)
-        out: list[Rect] = []
-        seen: set[int] = set()
-        for gy in range(gy0, gy1 + 1):
-            for gx in range(gx0, gx1 + 1):
-                bucket = self._wall_grid.get((gx, gy))
-                if not bucket:
-                    continue
-                for w in bucket:
-                    wid = id(w)
-                    if wid not in seen:
-                        seen.add(wid)
-                        out.append(w)
-        return out
+        return _walls_helpers.walls_near(self, cx, cy, radius)
 
     def _segment_hits_wall_fast(
         self, ax: float, ay: float, bx: float, by: float,
     ) -> bool:
-        """Grid-accelerated version of
-        ``segment_hits_any_wall`` — samples 4 points along the
-        segment and only checks walls whose cell the sample sits
-        in."""
-        for t in (0.0, 0.33, 0.66, 1.0):
-            x = ax + (bx - ax) * t
-            y = ay + (by - ay) * t
-            for w in self._walls_near(x, y, 2.0):
-                if (w.x <= x <= w.x + w.w
-                        and w.y <= y <= w.y + w.h):
-                    return True
-        return False
+        return _walls_helpers.segment_hits_wall_fast(self, ax, ay, bx, by)
 
     def _point_in_any_wall_fast(
         self, x: float, y: float,
     ) -> bool:
-        for w in self._walls_near(x, y, 2.0):
-            if (w.x <= x <= w.x + w.w
-                    and w.y <= y <= w.y + w.h):
-                return True
-        return False
+        return _walls_helpers.point_in_any_wall_fast(self, x, y)
 
     def _push_out_of_maze_bounds(
         self, entities, radius: float,
     ) -> None:
-        """Eject any entity whose centre has drifted inside a maze's
-        outer AABB.  Push it out along the shortest of the four edge
-        distances and reflect velocity (if any).  Called every frame
-        so non-maze aliens / wanderers can never linger inside the
-        maze even if they slip through the entrance gap."""
-        for e in entities:
-            cx, cy = e.center_x, e.center_y
-            for m in self._mazes:
-                b = m.bounds
-                if not (b.x < cx < b.x + b.w
-                        and b.y < cy < b.y + b.h):
-                    continue
-                d_left = cx - b.x
-                d_right = b.x + b.w - cx
-                d_bot = cy - b.y
-                d_top = b.y + b.h - cy
-                dmin = min(d_left, d_right, d_bot, d_top)
-                if dmin == d_left:
-                    e.center_x = b.x - radius - 1.0
-                    nx, ny = -1.0, 0.0
-                elif dmin == d_right:
-                    e.center_x = b.x + b.w + radius + 1.0
-                    nx, ny = 1.0, 0.0
-                elif dmin == d_bot:
-                    e.center_y = b.y - radius - 1.0
-                    nx, ny = 0.0, -1.0
-                else:
-                    e.center_y = b.y + b.h + radius + 1.0
-                    nx, ny = 0.0, 1.0
-                vx = getattr(e, "vel_x", None)
-                vy = getattr(e, "vel_y", None)
-                if vx is not None and vy is not None:
-                    v_dot_n = vx * nx + vy * ny
-                    if v_dot_n < 0.0:
-                        e.vel_x = vx - 2.0 * v_dot_n * nx
-                        e.vel_y = vy - 2.0 * v_dot_n * ny
-                break
+        return _walls_helpers.push_out_of_maze_bounds(self, entities, radius)
 
     def _push_out_of_walls(
         self, entities, radius: float,
     ) -> None:
-        """Push every entity in ``entities`` (SpriteList-like) out of
-        any maze wall it overlaps.  Handles two cases:
-
-          * Circle-vs-AABB overlap where the centre is outside the
-            rect — clamp to the nearest point on the rect and push
-            out along that normal (standard circle-vs-rect resolve).
-          * Centre is INSIDE the rect (can happen when a wanderer
-            drifts deep into a wall between ticks) — find the
-            nearest edge and teleport the entity to just outside it,
-            so "push-out" doesn't collapse to the ambiguous
-            dist == 0 case.
-
-        Iterates up to 5 times per entity so corner cases where
-        pushing out of one wall lands the entity inside a
-        neighbouring wall (T-intersections) eventually resolve.
-        """
-        for e in entities:
-            for _iter in range(5):
-                moved = self._resolve_one_wall_collision(e, radius)
-                if not moved:
-                    break
+        return _walls_helpers.push_out_of_walls(self, entities, radius)
 
     def _resolve_one_wall_collision(
         self, e, radius: float,
     ) -> bool:
-        """Push ``e`` out of the first overlapping wall and return
-        True if it moved.  Separated so ``_push_out_of_walls`` can
-        iterate until the entity clears every neighbouring wall."""
-        cx, cy = e.center_x, e.center_y
-        for w in self._walls_near(cx, cy, radius):
-                inside_x = w.x < cx < w.x + w.w
-                inside_y = w.y < cy < w.y + w.h
-                if inside_x and inside_y:
-                    # Teleport out the nearest edge.
-                    d_left = cx - w.x
-                    d_right = w.x + w.w - cx
-                    d_bot = cy - w.y
-                    d_top = w.y + w.h - cy
-                    dmin = min(d_left, d_right, d_bot, d_top)
-                    if dmin == d_left:
-                        e.center_x = w.x - radius - 0.5
-                        nx, ny = -1.0, 0.0
-                    elif dmin == d_right:
-                        e.center_x = w.x + w.w + radius + 0.5
-                        nx, ny = 1.0, 0.0
-                    elif dmin == d_bot:
-                        e.center_y = w.y - radius - 0.5
-                        nx, ny = 0.0, -1.0
-                    else:
-                        e.center_y = w.y + w.h + radius + 0.5
-                        nx, ny = 0.0, 1.0
-                else:
-                    qx = max(w.x, min(cx, w.x + w.w))
-                    qy = max(w.y, min(cy, w.y + w.h))
-                    dx = cx - qx
-                    dy = cy - qy
-                    dist2 = dx * dx + dy * dy
-                    if dist2 >= radius * radius:
-                        continue
-                    dist = math.sqrt(dist2) if dist2 > 0 else 0.001
-                    nx = dx / dist if dist > 0.001 else 1.0
-                    ny = dy / dist if dist > 0.001 else 0.0
-                    pen = radius - dist + 0.5
-                    e.center_x += nx * pen
-                    e.center_y += ny * pen
-                # Bounce velocity if the entity has one.
-                vx = getattr(e, "vel_x", None)
-                vy = getattr(e, "vel_y", None)
-                if vx is not None and vy is not None:
-                    v_dot_n = vx * nx + vy * ny
-                    if v_dot_n < 0.0:
-                        e.vel_x = vx - 2.0 * v_dot_n * nx
-                        e.vel_y = vy - 2.0 * v_dot_n * ny
-                return True
-        return False
+        return _walls_helpers.resolve_one_wall_collision(self, e, radius)
+
+    # ── Generation / spawning (impl in zones.star_maze_spawning) ───
 
     def _generate(self, gv: GameView) -> None:
-        self._mazes = generate_all_mazes(zone_seed=self._world_seed)
-        self._rooms = []
-        self._walls = []
-        for m in self._mazes:
-            self._rooms.extend(m.rooms)
-            self._walls.extend(m.walls)
-        self._build_wall_grid()
-        # One spawner per maze, anchored at the maze centre.
-        self._spawners = arcade.SpriteList()
-        for i, m in enumerate(self._mazes):
-            sp = MazeSpawner(m.spawner[0], m.spawner[1])
-            sp.uid = i + 1   # uid 0 reserved for "unlinked"
-            self._spawners.append(sp)
-
-        # Pre-populate each spawner with the standard "spawner came
-        # online" entourage (10 maze aliens — see
-        # ``MAZE_SPAWNER_INITIAL_ALIENS``).  ``_spawn_entourage`` does
-        # the actual room-pick + sprite construction and is reused
-        # per-frame whenever a respawned spawner sets the
-        # ``just_respawned`` latch.
-        from constants import MAZE_SPAWNER_INITIAL_ALIENS
-        prep_rng = random.Random(self._world_seed + 977)
-        for sp, maze in zip(self._spawners, self._mazes):
-            self._spawn_entourage(sp, maze,
-                                   MAZE_SPAWNER_INITIAL_ALIENS,
-                                   gv, rng=prep_rng)
-            sp.just_respawned = False  # initial spawn already covered
-
-        # Nebula-style population (asteroids, gas, wanderers, null
-        # fields, slipspaces, four Z2 alien types) — same counts as
-        # Zone 2, reject_fn keeps every candidate out of the four
-        # maze AABBs (plus 40 px margin).
-        from zones.nebula_shared import populate_nebula_content
-        from constants import ASTEROID_RADIUS
-        # Radii picked to keep each entity's full body outside the
-        # maze AABB.  Gas sizes top out at 384 px (radius 192).
-        populate_nebula_content(
-            self, gv,
-            reject_iron=self._maze_reject_fn(radius=ASTEROID_RADIUS),
-            reject_big_iron=self._maze_reject_fn(
-                radius=ASTEROID_RADIUS * 2.0),
-            reject_copper=self._maze_reject_fn(radius=ASTEROID_RADIUS),
-            reject_gas=self._maze_reject_fn(radius=192.0),
-            reject_wanderers=self._maze_reject_fn(radius=30.0),
-            reject_aliens=self._maze_reject_fn(radius=24.0),
-            reject_null=self._maze_reject_fn(radius=100.0),
-            reject_slip=self._maze_reject_fn(radius=60.0),
-        )
-        self._populate_stalkers(gv)
+        return _spawning_helpers.generate(self, gv)
 
     def _spawn_entourage(
         self, sp: MazeSpawner, maze: MazeLayout,
         count: int, gv: GameView,
         rng: random.Random | None = None,
     ) -> int:
-        """Spawn up to ``count`` MazeAliens around ``sp``, capped by
-        ``MAZE_SPAWNER_MAX_ALIVE - sp.alive_children``.  Returns the
-        number actually spawned.  Aliens are placed in random rooms
-        of the spawner's home maze (with no repeats while rooms are
-        available) so an entourage of 10 spreads across the maze
-        instead of stacking on top of the spawner."""
-        from constants import MAZE_SPAWNER_MAX_ALIVE
-        free_slots = MAZE_SPAWNER_MAX_ALIVE - sp.alive_children
-        n = min(count, max(0, free_slots))
-        if n <= 0:
-            return 0
-        if rng is None:
-            rng = random
-        bounds = (maze.bounds.x, maze.bounds.y,
-                  maze.bounds.w, maze.bounds.h)
-        room_sample = list(maze.rooms)
-        rng.shuffle(room_sample)
-        rooms_pick = room_sample[:n]
-        while len(rooms_pick) < n:
-            rooms_pick.append(rng.choice(maze.rooms))
-        for room in rooms_pick:
-            ax = room.x + room.w / 2 + rng.uniform(
-                -room.w / 4, room.w / 4)
-            ay = room.y + room.h / 2 + rng.uniform(
-                -room.h / 4, room.h / 4)
-            alien = MazeAlien(
-                gv._alien_laser_tex, ax, ay,
-                world_w=self.world_width,
-                world_h=self.world_height,
-                patrol_home=(ax, ay),
-                patrol_radius=max(80.0, room.w / 2.0 - 40.0),
-                maze_bounds=bounds,
-                rooms=maze.rooms,
-                room_graph=maze.room_graph,
-                doorways=getattr(maze, "doorways", None),
-            )
-            self._maze_aliens.append(alien)
-            self._alien_parent[alien] = sp.uid
-            sp.alive_children += 1
-        return n
+        return _spawning_helpers.spawn_entourage(
+            self, sp, maze, count, gv, rng=rng)
 
     def _populate_stalkers(self, gv: GameView) -> None:
-        """Drop ``STALKER_COUNT`` stalkers at random outside-the-maze
-        positions.  Uses the same rejection contract as Z2 aliens
-        (radius 30 px keeps the stalker body out of any maze AABB)
-        and seeds off the world seed so the layout is deterministic
-        across save / load.
-
-        ``gv._missile_tex`` is loaded by GameView's consumable-tex
-        init pass, so it's safe to read here from ``setup``.
-        """
-        from constants import STALKER_COUNT, STALKER_RADIUS
-        from sprites.stalker import Stalker
-        rng = random.Random(self._world_seed + 401)
-        reject = self._maze_reject_fn(radius=STALKER_RADIUS)
-        margin = 200.0
-        attempts_per = 40
-        for _ in range(STALKER_COUNT):
-            for _try in range(attempts_per):
-                sx = rng.uniform(margin, self.world_width - margin)
-                sy = rng.uniform(margin, self.world_height - margin)
-                if not reject(sx, sy):
-                    self._stalkers.append(
-                        Stalker(gv._missile_tex, sx, sy,
-                                world_w=self.world_width,
-                                world_h=self.world_height))
-                    break
+        return _spawning_helpers.populate_stalkers(self, gv)
 
     def teardown(self, gv: GameView) -> None:
         self._fog_grid = gv._fog_grid
@@ -926,93 +626,19 @@ class StarMazeZone(ZoneState):
 
     def _update_spawners(self, gv: GameView, dt: float,
                          px: float, py: float) -> None:
-        # Note: update_spawner still needs to run on killed spawners
-        # so its respawn cooldown ticks down — the spawner
-        # self-resurrects inside update_spawner when the timer hits
-        # zero.  When the player is cloaked by a null field, pass the
-        # synthetic far-away position so spawners stop detecting +
-        # firing; their spawn cadence still ticks so the maze stays
-        # populated when the player uncloaks.
-        from update_logic import player_is_cloaked
-        if player_is_cloaked(gv):
-            ai_px, ai_py = px + 1e9, py + 1e9
-        else:
-            ai_px, ai_py = px, py
-        from update_logic import emit_alien_shots
-        for sp in self._spawners:
-            fired, should_spawn = sp.update_spawner(
-                dt, ai_px, ai_py, gv._alien_laser_tex)
-            emit_alien_shots(gv, self._maze_projectiles, fired)
-            if should_spawn:
-                self._spawn_child(sp, gv._alien_laser_tex)
-            # Respawn entourage — when a killed spawner's timer
-            # ticks to zero it sets ``just_respawned``; drop a fresh
-            # entourage of MAZE_SPAWNER_INITIAL_ALIENS around it
-            # (capped by the alive-cap) and clear the latch.
-            if sp.just_respawned:
-                from constants import MAZE_SPAWNER_INITIAL_ALIENS
-                maze = self._maze_for_spawner(sp)
-                if maze is not None:
-                    self._spawn_entourage(
-                        sp, maze, MAZE_SPAWNER_INITIAL_ALIENS, gv)
-                sp.just_respawned = False
+        return _spawning_helpers.update_spawners(self, gv, dt, px, py)
 
     def _spawn_child(self, sp: MazeSpawner,
                      laser_tex: arcade.Texture) -> None:
-        """Emit one MazeAlien near the spawner's centre room.  Patrol
-        radius is scoped to one room (not the whole maze) so
-        waypoints stay reachable without walking through walls.
-        The maze AABB is passed through so the alien is hard-bounded
-        from leaving its home maze."""
-        from constants import STAR_MAZE_ROOM_SIZE
-        maze = self._maze_for_spawner(sp)
-        if maze is not None:
-            ax, ay = self._find_maze_interior_point(sp)
-            home_xy = (ax, ay)
-            bounds = (maze.bounds.x, maze.bounds.y,
-                      maze.bounds.w, maze.bounds.h)
-        else:
-            home_xy = (sp.center_x, sp.center_y)
-            ax = sp.center_x
-            ay = sp.center_y + MAZE_ALIEN_RADIUS * 2 + 4
-            bounds = None
-        patrol_r = max(80.0, STAR_MAZE_ROOM_SIZE / 2.0 - 40.0)
-        alien = MazeAlien(
-            laser_tex, ax, ay,
-            world_w=self.world_width,
-            world_h=self.world_height,
-            patrol_home=home_xy,
-            patrol_radius=patrol_r,
-            maze_bounds=bounds,
-            rooms=maze.rooms if maze is not None else None,
-            room_graph=maze.room_graph if maze is not None else None,
-            doorways=(getattr(maze, "doorways", None)
-                      if maze is not None else None),
-        )
-        self._maze_aliens.append(alien)
-        self._alien_parent[alien] = sp.uid
-        sp.alive_children += 1
+        return _spawning_helpers.spawn_child(self, sp, laser_tex)
 
     def _maze_for_spawner(self, sp: MazeSpawner) -> MazeLayout | None:
-        """Return the MazeLayout whose centre matches ``sp``'s
-        position.  Uses the spawner's uid (1-indexed) to index into
-        ``self._mazes`` — O(1) instead of a position search."""
-        idx = sp.uid - 1
-        if 0 <= idx < len(self._mazes):
-            return self._mazes[idx]
-        return None
+        return _spawning_helpers.maze_for_spawner(self, sp)
 
     def _find_maze_interior_point(
         self, sp: MazeSpawner,
     ) -> tuple[float, float]:
-        """Pick a free point within a short radius of the spawner."""
-        for _ in range(40):
-            ax = sp.center_x + random.uniform(-120.0, 120.0)
-            ay = sp.center_y + random.uniform(-120.0, 120.0)
-            if not circle_hits_any_wall(
-                    ax, ay, MAZE_ALIEN_RADIUS + 4, self._walls):
-                return ax, ay
-        return sp.center_x, sp.center_y
+        return _spawning_helpers.find_maze_interior_point(self, sp)
 
     def _update_maze_aliens(self, gv: GameView, dt: float,
                             px: float, py: float) -> None:

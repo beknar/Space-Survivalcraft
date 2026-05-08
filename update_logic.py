@@ -64,12 +64,6 @@ from collisions import (
     handle_alien_building_collision,
     handle_turret_projectile_hits,
     handle_ship_building_collision,
-    handle_boss_projectile_hits,
-    handle_nebula_boss_projectile_hits,
-    handle_boss_player_collision,
-    handle_boss_laser_hits,
-    handle_boss_building_hits,
-    handle_boss_charge_hit,
     handle_parked_ship_damage,
 )
 
@@ -77,20 +71,24 @@ if TYPE_CHECKING:
     from game_view import GameView
 
 
-# ── Sound player cleanup ──────────────────────────────────────────────────
-# arcade.play_sound() returns a pyglet.media.Player. Pyglet's internal
-# event system holds a strong reference to every Player, and Player.playing
-# stays True even AFTER the source is exhausted. So finished players are
-# never freed — even by gc.collect(). Over minutes of continuous combat,
-# hundreds of dead Players accumulate and degrade FPS.
-#
-# Fix: track each player with a creation timestamp, then .delete() any
-# player older than _SOUND_MAX_AGE seconds. All game SFX are < 2 s long,
-# so 3 s is a safe upper bound.
-import time as _time
+# ── Sound player cleanup (impl in update_audio) ─────────────────────────
+# Audio tracking + cleanup helpers (``_tracked_play_sound``,
+# ``_cleanup_finished_sounds``, the monkey-patch of ``arcade.play_sound``,
+# and the ``_sound_players`` / ``_SOUND_*`` globals) live in
+# ``update_audio``.  Re-exported here so existing call sites
+# (``from update_logic import _tracked_play_sound`` and tests that
+# read ``update_logic._sound_players``) keep working.
+from update_audio import (  # noqa: E402
+    _SOUND_MAX_AGE,
+    _sound_players,
+    _real_play_sound,
+    _SOUND_HARD_CAP,
+    _MAX_DELETES_PER_TICK,
+    _tracked_play_sound,
+    _cleanup_finished_sounds,
+)
+import time as _time  # used by other helpers below
 
-_SOUND_MAX_AGE = 3.0  # seconds — all game SFX finish within this
-_sound_players: list[tuple[float, object]] = []  # (creation_time, Player)
 _sound_cleanup_timer: float = 0.0
 # Full ``gc.collect()`` (gen-2) is measurably expensive in a populated
 # Zone 2 — the fps_drops log showed one 60–100 ms spike every 5 s that
@@ -107,108 +105,6 @@ _full_gc_timer: float = 0.0
 # opportunistic full gc below since those frames are already
 # pause-natural.
 _FULL_GC_INTERVAL = 60.0
-
-_real_play_sound = arcade.play_sound
-
-
-# ═══ GC + sound cleanup ═══════════════════════════════════════════════════
-
-
-_SOUND_HARD_CAP = 200  # backlog ceiling — see _tracked_play_sound below
-
-
-def _tracked_play_sound(*args, **kwargs):
-    """Wrapper around arcade.play_sound that tracks the returned Player
-    with a creation timestamp.
-
-    Hard cap: if ``_sound_players`` already holds ``_SOUND_HARD_CAP``
-    entries, evict + ``.delete()`` the OLDEST one synchronously before
-    appending the new player.  This bounds the list's worst-case
-    length even when the periodic ``_cleanup_finished_sounds`` timer
-    can't keep up (e.g. tests that run the update loop faster than
-    real time, where the wall-clock ``_SOUND_MAX_AGE`` check sees
-    every entry as still-fresh).  Without the cap, sustained combat
-    soaks let the list grow into the thousands and pyglet's per-frame
-    Player iteration collapsed FPS from 75 → 2 (Boss-soak regression
-    confirmed 2026-04-25).
-
-    Exception shield: ``arcade.play_sound`` can raise when pyglet's
-    audio backend fails (resource exhaustion, missing audio device,
-    failed decode) — and arcade's own warning-log path has a
-    ``%``-format bug that turns the original failure into a confusing
-    TypeError ("not all arguments converted during string formatting").
-    Caught from 2026-05-05 full-suite cycle: random GameView-creating
-    tests crashed mid-init when the 1700+-test run exhausted the
-    audio backend.  Treat any exception the same as ``play_sound``
-    already does for a missing/None sound — return None.  Existing
-    callers already handle None returns."""
-    if len(_sound_players) >= _SOUND_HARD_CAP:
-        _, oldest = _sound_players.pop(0)
-        try:
-            oldest.delete()
-        except Exception:
-            pass
-    try:
-        player = _real_play_sound(*args, **kwargs)
-    except Exception:
-        return None
-    if player is not None:
-        _sound_players.append((_time.perf_counter(), player))
-    return player
-
-
-# Monkey-patch arcade.play_sound at module load time
-arcade.play_sound = _tracked_play_sound
-
-
-_MAX_DELETES_PER_TICK = 4  # spread pyglet Player.delete over frames
-
-
-def _cleanup_finished_sounds() -> None:
-    """Delete pyglet Players older than ``_SOUND_MAX_AGE`` seconds.
-
-    ``Player.delete`` releases native OpenAL + FFmpeg resources and
-    can stall 20–40 ms each — with 10+ stale players piling up
-    during a combat burst, the original "delete everything at once"
-    pass caused the 150–200 ms mid-session spikes seen in
-    fps_drops.log.
-
-    But rate-limiting to 4 deletes per 5-s tick falls *catastrophically*
-    behind sustained combat: 30 aliens at 60 fps generate ~5 sound
-    players/sec, but we'd only delete 4 every 5 s = 0.8/sec, leaving
-    +4 players/sec of permanent backlog.  Pyglet's clock then iterates
-    every live (or dead-but-not-deleted) Player on every frame, so a
-    boss-soak that ran 90 s of combat saw the backlog hit 481 players
-    and FPS collapse from 75 → 20 → 2 (measured 2026-04-25).
-
-    Fix: scale deletes-per-tick with the current backlog so the
-    delete rate always matches or exceeds the creation rate.  At
-    backlog ≤ 30 we keep the original 4/tick budget (stays cheap when
-    nothing's wrong); above that we accelerate up to 32/tick, which
-    is still well under the 150 ms spike threshold (32 × 30 ms / 5 s
-    ≈ 0.96 s, spread across many frames since cleanup runs only once
-    per 5-s tick).
-    """
-    now = _time.perf_counter()
-    backlog = len(_sound_players)
-    if backlog > 100:
-        deletes_remaining = 32
-    elif backlog > 30:
-        deletes_remaining = 12
-    else:
-        deletes_remaining = _MAX_DELETES_PER_TICK
-    alive: list[tuple[float, object]] = []
-    for created_at, p in _sound_players:
-        if now - created_at < _SOUND_MAX_AGE or deletes_remaining <= 0:
-            alive.append((created_at, p))
-        else:
-            deletes_remaining -= 1
-            try:
-                p.delete()
-            except Exception:
-                pass
-    _sound_players.clear()
-    _sound_players.extend(alive)
 
 
 # ═══ Update preamble ═════════════════════════════════════════════════════
@@ -552,260 +448,33 @@ def update_contrail(gv: GameView, dt: float) -> None:
     gv._contrail = [p for p in gv._contrail if not p.dead]
 
 
-def _melee_blade_stats(gv: GameView) -> tuple[float, int]:
-    """Return ``(hit_radius, damage)`` for the player's current
-    ship type.  Bastion gets a longer reach + extra punch; every
-    other ship type uses the base values."""
-    from constants import (
-        MELEE_DAMAGE, MELEE_HIT_RADIUS,
-        MELEE_BASTION_DAMAGE_BONUS, MELEE_BASTION_HIT_RADIUS,
-    )
-    ship_type = (getattr(gv, "_ship_type", None)
-                 or getattr(gv.player, "_ship_type", None))
-    if ship_type == "Bastion":
-        return (MELEE_BASTION_HIT_RADIUS,
-                MELEE_DAMAGE + MELEE_BASTION_DAMAGE_BONUS)
-    return (MELEE_HIT_RADIUS, MELEE_DAMAGE)
-
-
-def _pickaxe_blade_stats(gv: GameView) -> tuple[float, int]:
-    """Return ``(hit_radius, damage)`` for the Energy Pickaxe.
-    Same hit radius as the lightsabre; damage is base + Debra bonus."""
-    from constants import (
-        MELEE_HIT_RADIUS, PICKAXE_DAMAGE, PICKAXE_DEBRA_DAMAGE_BONUS,
-    )
-    from settings import audio as _audio
-    char_name = getattr(_audio, "character_name", None)
-    damage = PICKAXE_DAMAGE
-    if char_name == "Debra":
-        damage += PICKAXE_DEBRA_DAMAGE_BONUS
-    return (MELEE_HIT_RADIUS, damage)
-
-
-# ── BladeKind: per-blade configuration ───────────────────────────────────
+# ═══ Blade / pickaxe AOE (impl in update_blade) ═══════════════════════════
 #
-# Both melee weapons (lightsabre + Energy Pickaxe) share the same swing
-# animation, the same MeleeBlade visual, and the same lazy-spawn /
-# despawn / per-tick AOE-damage lifecycle.  They differ only in:
-#   * which slot on gv stores the active blade
-#   * the per-asset MeleeBlade kwargs (scale / rotation / handle / head)
-#   * how stats (hit_radius, damage) are computed
-#   * which target sprites the AOE pass scans (enemies vs asteroids)
-#   * which point on the blade is the AOE centre (sprite centre vs head_pos)
-#   * the kill-reward call (alien iron + bp vs asteroid iron + bp)
-#
-# A single ``BladeKind`` config + single ``_ensure_blade`` /
-# ``_remove_blade`` / ``_update_blade_aoe`` collapses ~140 lines of
-# nearly-identical code into ~80 lines of one shared implementation +
-# two small kind objects.
-
-class _BladeKind:
-    """Configuration for one melee-style weapon (lightsabre or pickaxe)."""
-
-    def __init__(
-        self,
-        slot_attr: str,
-        stats_fn,
-        sprite_kwargs_fn,
-        target_lists_fn,
-        use_head_pos: bool,
-        kill_reward_fn,
-    ) -> None:
-        self.slot_attr = slot_attr
-        self.stats_fn = stats_fn
-        self.sprite_kwargs_fn = sprite_kwargs_fn
-        self.target_lists_fn = target_lists_fn
-        self.use_head_pos = use_head_pos
-        self.kill_reward_fn = kill_reward_fn
-
-
-def _enemies_for_lightsabre(gv: GameView) -> list:
-    """Player's alien list + every zone-specific enemy list +
-    both bosses.  Used by the lightsabre AOE pass."""
-    enemies: list = list(gv.alien_list)
-    zone = getattr(gv, "_zone", None)
-    if zone is not None:
-        for attr in ("_aliens", "_maze_aliens", "_stalkers"):
-            zlist = getattr(zone, attr, None)
-            if zlist is not None and zlist is not gv.alien_list:
-                enemies.extend(zlist)
-    if gv._boss is not None and gv._boss.hp > 0:
-        enemies.append(gv._boss)
-    nb = getattr(gv, "_nebula_boss", None)
-    if nb is not None and nb.hp > 0:
-        enemies.append(nb)
-    return enemies
-
-
-def _asteroids_for_pickaxe(gv: GameView) -> list:
-    """Player's asteroid list + every zone-specific asteroid list.
-    Used by the pickaxe AOE pass."""
-    asteroids: list = list(gv.asteroid_list)
-    zone = getattr(gv, "_zone", None)
-    if zone is not None:
-        for attr in ("_iron_asteroids", "_double_iron",
-                     "_copper_asteroids", "_wanderers"):
-            zlist = getattr(zone, attr, None)
-            if zlist is not None and zlist is not gv.asteroid_list:
-                asteroids.extend(zlist)
-    return asteroids
-
-
-def _reward_alien_kill(gv: GameView, target) -> None:
-    """Spawn iron + chance-of-blueprint for a slain enemy and
-    remove the sprite.  Skips bosses (they have their own death
-    pipeline) and spawners (incompatible respawn flow)."""
-    if (getattr(target, "_charging", False)
-            or hasattr(target, "killed")):
-        return
-    from collisions import _apply_kill_rewards
-    from character_data import bonus_iron_enemy
-    from constants import ALIEN_IRON_DROP, BLUEPRINT_DROP_CHANCE_ALIEN
-    _apply_kill_rewards(
-        gv, target.center_x, target.center_y,
-        ALIEN_IRON_DROP, bonus_iron_enemy,
-        BLUEPRINT_DROP_CHANCE_ALIEN)
-    target.remove_from_sprite_lists()
-
-
-def _reward_asteroid_kill(gv: GameView, target) -> None:
-    """Spawn iron + chance-of-blueprint for a destroyed asteroid
-    and remove the sprite.  Uses ``_base_x/_base_y`` (the
-    asteroid's home position before shake) so pickups land at the
-    canonical spot rather than mid-shake offset."""
-    from collisions import _apply_kill_rewards
-    from character_data import bonus_iron_asteroid
-    from constants import (
-        ASTEROID_IRON_YIELD, BLUEPRINT_DROP_CHANCE_ASTEROID,
-    )
-    ax = getattr(target, "_base_x", target.center_x)
-    ay = getattr(target, "_base_y", target.center_y)
-    target.remove_from_sprite_lists()
-    _apply_kill_rewards(
-        gv, ax, ay, ASTEROID_IRON_YIELD,
-        bonus_iron_asteroid,
-        BLUEPRINT_DROP_CHANCE_ASTEROID,
-        asteroid=True)
-
-
-def _pickaxe_sprite_kwargs() -> dict:
-    """Per-asset MeleeBlade kwargs for the Energy Pickaxe."""
-    from constants import (
-        PICKAXE_SCALE, PICKAXE_TEX_ANGLE_OFFSET,
-        PICKAXE_HANDLE_OFFSET_PX, PICKAXE_HEAD_OFFSET_PX,
-    )
-    return dict(
-        tex_scale=PICKAXE_SCALE,
-        tex_angle_offset=PICKAXE_TEX_ANGLE_OFFSET,
-        handle_offset_px=PICKAXE_HANDLE_OFFSET_PX,
-        head_offset_px=PICKAXE_HEAD_OFFSET_PX,
-    )
-
-
-LIGHTSABRE_KIND = _BladeKind(
-    slot_attr="_active_blade",
-    stats_fn=_melee_blade_stats,
-    sprite_kwargs_fn=lambda: {},   # MeleeBlade defaults
-    target_lists_fn=_enemies_for_lightsabre,
-    use_head_pos=False,            # AOE centred on sprite centre
-    kill_reward_fn=_reward_alien_kill,
+# The lightsabre + Energy Pickaxe share a lifecycle (lazy-spawn / despawn /
+# per-tick AOE damage) that lives in ``update_blade``.  Re-exported here
+# so existing ``from update_logic import update_melee_blade`` /
+# ``_ensure_melee_blade`` etc. call sites keep working.
+from update_blade import (  # noqa: E402
+    _melee_blade_stats,
+    _pickaxe_blade_stats,
+    _BladeKind,
+    _enemies_for_lightsabre,
+    _asteroids_for_pickaxe,
+    _reward_alien_kill,
+    _reward_asteroid_kill,
+    _pickaxe_sprite_kwargs,
+    LIGHTSABRE_KIND,
+    PICKAXE_KIND,
+    _ensure_blade,
+    _remove_blade,
+    _update_blade_aoe,
+    _ensure_melee_blade,
+    _remove_melee_blade,
+    _ensure_pickaxe_blade,
+    _remove_pickaxe_blade,
+    update_melee_blade,
+    update_pickaxe_blade,
 )
-
-PICKAXE_KIND = _BladeKind(
-    slot_attr="_active_pickaxe",
-    stats_fn=_pickaxe_blade_stats,
-    sprite_kwargs_fn=_pickaxe_sprite_kwargs,
-    target_lists_fn=_asteroids_for_pickaxe,
-    use_head_pos=True,             # AOE follows the pickaxe head
-    kill_reward_fn=_reward_asteroid_kill,
-)
-
-
-def _ensure_blade(gv: GameView, kind: _BladeKind, texture) -> None:
-    """Lazy-spawn the blade for ``kind`` in front of the player.
-    Idempotent — already-present blade stays put."""
-    if getattr(gv, kind.slot_attr, None) is not None:
-        return
-    from sprites.melee import MeleeBlade
-    hit_radius, damage = kind.stats_fn(gv)
-    blade = MeleeBlade(
-        texture, gv.player,
-        offset=hit_radius,
-        damage=damage,
-        hit_radius=hit_radius,
-        **kind.sprite_kwargs_fn(),
-    )
-    gv._melee_swings.append(blade)
-    setattr(gv, kind.slot_attr, blade)
-
-
-def _remove_blade(gv: GameView, kind: _BladeKind) -> None:
-    """Despawn the blade for ``kind`` (called when the active
-    weapon is no longer this kind)."""
-    blade = getattr(gv, kind.slot_attr, None)
-    if blade is None:
-        return
-    blade.remove_from_sprite_lists()
-    setattr(gv, kind.slot_attr, None)
-
-
-def _update_blade_aoe(gv: GameView, dt: float, kind: _BladeKind) -> None:
-    """Tick the blade for ``kind`` and apply per-swing AOE damage
-    to its target list.  One-hit-per-target-per-swing semantics
-    handled by the blade's internal ``_enemies_hit`` set."""
-    blade = getattr(gv, kind.slot_attr, None)
-    if blade is None:
-        return
-    blade.update_blade(dt)
-    if not blade.is_swinging:
-        return
-    targets = kind.target_lists_fn(gv)
-    if not targets:
-        return
-    if kind.use_head_pos:
-        cx, cy = blade.head_pos
-    else:
-        cx, cy = blade.center_x, blade.center_y
-    r_sq = blade.hit_radius * blade.hit_radius
-    for t in list(targets):
-        if blade.already_hit(t):
-            continue
-        if getattr(t, "hp", 0) <= 0:
-            continue
-        dx = t.center_x - cx
-        dy = t.center_y - cy
-        if dx * dx + dy * dy > r_sq:
-            continue
-        t.take_damage(int(blade.damage))
-        blade.mark_hit(t)
-        if getattr(t, "hp", 1) <= 0:
-            kind.kill_reward_fn(gv, t)
-
-
-# ── Backwards-compat shims for existing call sites ───────────────────────
-
-def _ensure_melee_blade(gv: GameView, sword_tex) -> None:
-    _ensure_blade(gv, LIGHTSABRE_KIND, sword_tex)
-
-
-def _remove_melee_blade(gv: GameView) -> None:
-    _remove_blade(gv, LIGHTSABRE_KIND)
-
-
-def _ensure_pickaxe_blade(gv: GameView, pickaxe_tex) -> None:
-    _ensure_blade(gv, PICKAXE_KIND, pickaxe_tex)
-
-
-def _remove_pickaxe_blade(gv: GameView) -> None:
-    _remove_blade(gv, PICKAXE_KIND)
-
-
-def update_melee_blade(gv: GameView, dt: float) -> None:
-    _update_blade_aoe(gv, dt, LIGHTSABRE_KIND)
-
-
-def update_pickaxe_blade(gv: GameView, dt: float) -> None:
-    _update_blade_aoe(gv, dt, PICKAXE_KIND)
 
 
 def update_weapons(gv: GameView, dt: float, fire: bool) -> None:
@@ -1201,150 +870,18 @@ def update_respawns(gv: GameView, dt: float) -> None:
         gv._try_respawn_aliens()
 
 
-def _boss_update_context(gv: GameView) -> tuple[float, float, float, float]:
-    """Return (station_x, station_y, boss_px, boss_py) for the boss
-    update path.  Looks up the active Home Station (falls back to
-    world centre) and feeds the boss a cloak-aware player position:
-    when the player is inside an active null field, we hand the boss
-    coordinates a billion pixels away so its AI stays in patrol
-    instead of engaging.  Shared by both the Double Star boss and
-    the Nebula boss update loops.
-    """
-    station_x, station_y = WORLD_WIDTH / 2, WORLD_HEIGHT / 2
-    for b in gv.building_list:
-        if isinstance(b, HomeStation) and not b.disabled:
-            station_x, station_y = b.center_x, b.center_y
-            break
-    if player_is_cloaked(gv):
-        boss_px, boss_py = gv.player.center_x + 1e9, gv.player.center_y + 1e9
-    else:
-        boss_px, boss_py = gv.player.center_x, gv.player.center_y
-    return station_x, station_y, boss_px, boss_py
-
-
-def update_boss(gv: GameView, dt: float) -> None:
-    """Boss spawn check and update."""
-    gv._check_boss_spawn()
-    if gv._boss is not None and gv._boss.hp > 0:
-        station_x, station_y, boss_px, boss_py = _boss_update_context(gv)
-        projs = gv._boss.update_boss(
-            dt, boss_px, boss_py,
-            station_x, station_y,
-            gv.asteroid_list,
-            force_walls=getattr(gv, "_force_walls", None),
-        )
-        for p in projs:
-            gv._boss_projectile_list.append(p)
-        for proj in list(gv._boss_projectile_list):
-            proj.update_projectile(dt)
-        handle_boss_projectile_hits(gv)
-        handle_boss_laser_hits(gv)
-        handle_boss_player_collision(gv)
-        handle_boss_building_hits(gv)
-        if gv._boss is not None and gv._boss._charging and gv._boss._charge_windup <= 0.0:
-            handle_boss_charge_hit(gv)
-
-
-def update_nebula_boss(gv: GameView, dt: float) -> None:
-    """Per-frame tick for the Nebula boss (spawned via QWI menu).
-
-    Inherits the parent ``update_boss`` flow for movement + cannon
-    fire + phase management, and layers on the gas-cloud projectile
-    + cone-AoE attacks.  Gas clouds apply damage + a time-limited
-    slow to the player on contact.  The cone applies both while the
-    player is inside it."""
-    import math as _math
-    nb = getattr(gv, "_nebula_boss", None)
-    if nb is None or nb.hp <= 0:
-        return
-
-    # Shared preamble: home station anchor + cloak-aware player pos.
-    station_x, station_y, boss_px, boss_py = _boss_update_context(gv)
-
-    # Run the base BossAlienShip update (movement, cannon + spread,
-    # charge dash).  Projectiles go to the standard boss projectile
-    # list so existing collision handlers deliver damage.
-    asteroid_list = gv.asteroid_list
-    zone = getattr(gv, "_zone", None)
-    zone_asts = getattr(zone, "_iron_asteroids", None)
-    if zone_asts is not None:
-        asteroid_list = zone_asts
-    projs = nb.update_boss(
-        dt, boss_px, boss_py, station_x, station_y, asteroid_list,
-        force_walls=getattr(gv, "_force_walls", None))
-    # Nebula boss rams through asteroids instead of steering around
-    # them — destroy any the boss is currently overlapping and drop
-    # normal loot.  Only runs when the boss lives in Zone 2 (the
-    # crush helper reads from ``zone._iron_asteroids`` etc.).
-    if zone is not None and hasattr(zone, "_iron_asteroids"):
-        from zones.zone2_world import nebula_boss_destroy_asteroids
-        nebula_boss_destroy_asteroids(zone, gv, nb)
-    for p in projs:
-        gv._boss_projectile_list.append(p)
-
-    # Nebula-specific tick — returns a GasCloudProjectile when the
-    # gas cooldown expires.
-    new_gas = nb.tick_nebula(dt, boss_px, boss_py)
-    if new_gas is not None:
-        gv._nebula_gas_clouds.append(new_gas)
-
-    # Advance gas clouds + test hit on the player.
-    px, py = gv.player.center_x, gv.player.center_y
-    survivors = []
-    for c in gv._nebula_gas_clouds:
-        expired = c.update_gas(dt)
-        hit = c.contains_point(px, py)
-        if hit and not getattr(gv, "_player_dead", False):
-            from combat_helpers import apply_damage_to_player
-            apply_damage_to_player(gv, int(c.damage))
-            _apply_nebula_slow(gv)
-            # Cloud dissipates on hit.
-            continue
-        if not expired:
-            survivors.append(c)
-    gv._nebula_gas_clouds = survivors
-
-    # Cone tick — damage while player inside; slow + damage ~2 Hz.
-    if getattr(nb, "_cone_active", False):
-        if nb.cone_contains_point(px, py):
-            if not hasattr(gv, "_nebula_cone_tick_cd"):
-                gv._nebula_cone_tick_cd = 0.0
-            gv._nebula_cone_tick_cd -= dt
-            if gv._nebula_cone_tick_cd <= 0.0:
-                from constants import NEBULA_BOSS_CONE_DAMAGE
-                from combat_helpers import apply_damage_to_player
-                apply_damage_to_player(gv, int(NEBULA_BOSS_CONE_DAMAGE))
-                _apply_nebula_slow(gv)
-                gv._nebula_cone_tick_cd = 0.5
-
-    # Route player + turret projectiles at the Nebula boss.  Station
-    # turrets, Missile Arrays (via missile-explosion hits below), and
-    # AI-piloted parked ships all push shots into the same two lists
-    # ``_projectiles_vs_boss`` walks, so this one call wires every
-    # friendly damage source into the Nebula boss's HP pool.
-    handle_nebula_boss_projectile_hits(gv)
-
-    # Clear the boss from GameView once HP drops to zero — the
-    # projectile handler already runs _nebula_boss_death on the
-    # frame that lands the killing shot, but the boss can also die
-    # from gas-cloud / cone internals touching its own HP in
-    # future changes, so keep this fallback.
-    if gv._nebula_boss is not None and gv._nebula_boss.hp <= 0:
-        gv._nebula_boss = None
-        gv._nebula_boss_list.clear()
-        gv._nebula_gas_clouds.clear()
-
-
-def _apply_nebula_slow(gv) -> None:
-    """Mark the player as slowed for ``NEBULA_BOSS_SLOW_DURATION``
-    seconds.  Player movement code (update_movement) honors the
-    ``_nebula_slow_timer`` by halving effective speed while it's
-    positive."""
-    from constants import NEBULA_BOSS_SLOW_DURATION
-    gv._nebula_slow_timer = max(
-        getattr(gv, "_nebula_slow_timer", 0.0),
-        NEBULA_BOSS_SLOW_DURATION,
-    )
+# ═══ Boss + Nebula boss tick (impl in update_boss) ═══════════════════════
+#
+# Boss / Nebula-boss per-frame helpers live in ``update_boss``.
+# Re-exported here so existing ``from update_logic import update_boss``
+# / ``update_nebula_boss`` / ``_apply_nebula_slow`` call sites keep
+# working.
+from update_boss import (  # noqa: E402
+    _boss_update_context,
+    update_boss,
+    update_nebula_boss,
+    _apply_nebula_slow,
+)
 
 
 def update_wormholes(gv: GameView, dt: float) -> None:

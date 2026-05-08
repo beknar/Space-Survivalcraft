@@ -260,10 +260,14 @@ class TestStalkerMazeContainment:
         # ``_maze_reject_fn(radius=STALKER_RADIUS)`` — the only
         # pre-condition for "stalkers can't spawn in mazes".  This
         # is a contract test; it pins the behaviour without needing
-        # a fully-loaded zone.
+        # a fully-loaded zone.  The 2026-05-07 refactor moved the
+        # populate loop from ``StarMazeZone._populate_stalkers`` to
+        # ``zones.star_maze_spawning.populate_stalkers`` (the class
+        # method now delegates to the module-level function); inspect
+        # the helper instead.
         import inspect
-        from zones import star_maze
-        src = inspect.getsource(star_maze.StarMazeZone._populate_stalkers)
+        from zones import star_maze_spawning
+        src = inspect.getsource(star_maze_spawning.populate_stalkers)
         assert "_maze_reject_fn(radius=STALKER_RADIUS)" in src
 
     def test_update_loop_pushes_stalkers_out_of_mazes(self):

@@ -140,25 +140,31 @@ class TestTrackedPlaySoundExceptionShield:
     callers already handle) so a transient backend failure can't
     take down a whole test run."""
 
-    def _restore_state(self, update_logic, saved_real, saved_list):
-        update_logic._real_play_sound = saved_real
-        update_logic._sound_players[:] = saved_list
+    def _restore_state(self, update_audio, saved_real, saved_list):
+        update_audio._real_play_sound = saved_real
+        update_audio._sound_players[:] = saved_list
 
     def test_exception_returns_none(self, monkeypatch):
+        import update_audio
         import update_logic
-        saved_real = update_logic._real_play_sound
-        saved_list = list(update_logic._sound_players)
+        # update_logic.* must still be reachable as the same objects
+        # (re-export shim contract for the audio split).
+        assert update_logic._tracked_play_sound is \
+            update_audio._tracked_play_sound
+        assert update_logic._sound_players is update_audio._sound_players
+        saved_real = update_audio._real_play_sound
+        saved_list = list(update_audio._sound_players)
         try:
             def boom(*_a, **_k):
                 raise RuntimeError("audio backend exhausted")
-            monkeypatch.setattr(update_logic, "_real_play_sound", boom)
-            update_logic._sound_players.clear()
-            result = update_logic._tracked_play_sound(object())
+            monkeypatch.setattr(update_audio, "_real_play_sound", boom)
+            update_audio._sound_players.clear()
+            result = update_audio._tracked_play_sound(object())
             assert result is None
-            assert update_logic._sound_players == [], (
+            assert update_audio._sound_players == [], (
                 "Failed play must not leak a tracked Player.")
         finally:
-            self._restore_state(update_logic, saved_real, saved_list)
+            self._restore_state(update_audio, saved_real, saved_list)
 
     def test_typeerror_from_arcade_warning_path_swallowed(
             self, monkeypatch):
@@ -168,27 +174,27 @@ class TestTrackedPlaySoundExceptionShield:
         string formatting")``.  The shield must catch this too —
         not just the original RuntimeError — because that's what
         actually surfaces to the caller."""
-        import update_logic
-        saved_real = update_logic._real_play_sound
-        saved_list = list(update_logic._sound_players)
+        import update_audio
+        saved_real = update_audio._real_play_sound
+        saved_list = list(update_audio._sound_players)
         try:
             def boom(*_a, **_k):
                 raise TypeError(
                     "not all arguments converted during string formatting")
-            monkeypatch.setattr(update_logic, "_real_play_sound", boom)
-            update_logic._sound_players.clear()
-            assert update_logic._tracked_play_sound(object()) is None
+            monkeypatch.setattr(update_audio, "_real_play_sound", boom)
+            update_audio._sound_players.clear()
+            assert update_audio._tracked_play_sound(object()) is None
         finally:
-            self._restore_state(update_logic, saved_real, saved_list)
+            self._restore_state(update_audio, saved_real, saved_list)
 
     def test_subsequent_call_after_failure_still_tracks(
             self, monkeypatch):
         """A failed play must not poison the wrapper for later calls
         — the next successful play has to land in ``_sound_players``
         and respect the hard cap."""
-        import update_logic
-        saved_real = update_logic._real_play_sound
-        saved_list = list(update_logic._sound_players)
+        import update_audio
+        saved_real = update_audio._real_play_sound
+        saved_list = list(update_audio._sound_players)
         try:
             calls = {"n": 0}
             sentinel_player = object()
@@ -199,16 +205,16 @@ class TestTrackedPlaySoundExceptionShield:
                     raise RuntimeError("first call fails")
                 return sentinel_player
 
-            monkeypatch.setattr(update_logic, "_real_play_sound", flaky)
-            update_logic._sound_players.clear()
-            assert update_logic._tracked_play_sound(object()) is None
-            assert update_logic._sound_players == []
-            result = update_logic._tracked_play_sound(object())
+            monkeypatch.setattr(update_audio, "_real_play_sound", flaky)
+            update_audio._sound_players.clear()
+            assert update_audio._tracked_play_sound(object()) is None
+            assert update_audio._sound_players == []
+            result = update_audio._tracked_play_sound(object())
             assert result is sentinel_player
-            assert len(update_logic._sound_players) == 1
-            assert update_logic._sound_players[0][1] is sentinel_player
+            assert len(update_audio._sound_players) == 1
+            assert update_audio._sound_players[0][1] is sentinel_player
         finally:
-            self._restore_state(update_logic, saved_real, saved_list)
+            self._restore_state(update_audio, saved_real, saved_list)
 
     def test_hard_cap_eviction_still_runs_when_play_raises(
             self, monkeypatch):
@@ -217,9 +223,9 @@ class TestTrackedPlaySoundExceptionShield:
         entry — otherwise a stuck audio backend could hold the
         backlog at exactly _SOUND_HARD_CAP forever (no new Player
         appended, but also no cleanup of the older ones)."""
-        import update_logic
-        saved_real = update_logic._real_play_sound
-        saved_list = list(update_logic._sound_players)
+        import update_audio
+        saved_real = update_audio._real_play_sound
+        saved_list = list(update_audio._sound_players)
         try:
             class FakePlayer:
                 def __init__(self, tag):
@@ -230,23 +236,23 @@ class TestTrackedPlaySoundExceptionShield:
                     self.deleted = True
 
             oldest = FakePlayer("oldest")
-            update_logic._sound_players[:] = [
+            update_audio._sound_players[:] = [
                 (0.0, oldest)
             ] + [
                 (float(i), FakePlayer(f"p{i}"))
-                for i in range(1, update_logic._SOUND_HARD_CAP)
+                for i in range(1, update_audio._SOUND_HARD_CAP)
             ]
 
             def boom(*_a, **_k):
                 raise RuntimeError("audio backend down")
 
-            monkeypatch.setattr(update_logic, "_real_play_sound", boom)
-            assert update_logic._tracked_play_sound(object()) is None
+            monkeypatch.setattr(update_audio, "_real_play_sound", boom)
+            assert update_audio._tracked_play_sound(object()) is None
             assert oldest.deleted, (
                 "Hard-cap eviction must run even when the play raises.")
-            assert len(update_logic._sound_players) == \
-                update_logic._SOUND_HARD_CAP - 1, (
+            assert len(update_audio._sound_players) == \
+                update_audio._SOUND_HARD_CAP - 1, (
                 "Failed play after eviction must leave the list one "
                 "shorter, not full.")
         finally:
-            self._restore_state(update_logic, saved_real, saved_list)
+            self._restore_state(update_audio, saved_real, saved_list)
