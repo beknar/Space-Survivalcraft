@@ -26,12 +26,47 @@ The recommended stack is the one wired into `bot_kickoff.py`:
                         ^
                   GET /state  (10 Hz)
                         |
-              bot_autopilot.py (reflex layer)
+              bot_autopilot.py (FSM orchestrator)
+                  ├── bot_autopilot_http.py         (fetch_state + _post_*)
+                  ├── bot_autopilot_targeting.py    (selectors + blacklists + stuck)
+                  ├── bot_autopilot_movement.py     (_do_* + execute_intent)
+                  ├── bot_autopilot_actions_station.py (_act_* station handlers)
+                  ├── bot_autopilot_actions_combat.py  (_act_engage* + _maybe_use_consumables)
+                  ├── bot_autopilot_navigation.py   (potential field + escape)
+                  ├── bot_autopilot_blacklist.py    (pickup + asteroid blacklists)
+                  └── bot_autopilot_telemetry.py    (JSONL writer + snapshot)
                         |
                 pyautogui keyDown/keyUp
                         v
                   Game window
 ```
+
+## Autopilot module layout
+
+`bot_autopilot.py` (~1758 LOC) is the FSM orchestrator: it
+holds the `S_*` state constants, boss tunables, `MIN_DWELL_S`,
+the `BotState` / `CraftQueue` / `KeyState` dataclasses, the
+`_state` global, `_get_now`, `_choose_next_state`, `_on_enter`,
+`_do_auto`, `main`, and `_hotkeys`.  Topical helpers split out
+by concern:
+
+| Module | Lines | Responsibility |
+|---|---|---|
+| `bot_autopilot_http.py` | ~219 | `fetch_state`, `_post_intent` / `_post_assist` / `_post_build` / `_post_deposit` / `_post_craft` / `_post_install_module` / `_post_place_qwi` / `_post_use_quick_use` / `_post_equip_consumables`, `_ensure_game_focused` window-focus helper |
+| `bot_autopilot_targeting.py` | ~659 | `_nearest_asteroid` / `_nearest_alien` / `_nearest_pickup` selectors with edge-skip pre-filters, blacklist wrappers, `_record_position` + `_detect_stuck`, `_wall_pin_trap_active` + `_maybe_force_wall_pin_escape`, station info helpers, iron / blueprint deposit predicates, `_qwi_ready_to_build`, queue-target helpers |
+| `bot_autopilot_movement.py` | ~351 | `_do_goto` / `_do_hold_distance` / `_do_spiral_search`, `_do_mine_nearest` / `_do_attack_nearest` / `_do_engage_boss` / `_do_retreat`, `_do_cycle_weapon` + `_ensure_weapon`, top-level `execute_intent` dispatch |
+| `bot_autopilot_actions_station.py` | ~328 | Station `_act_*` handlers: `_act_build_seek`, `_act_deposit`, `_act_craft`, `_act_install`, `_act_build`, `_act_at_station`, `_act_equip_consumables`, `_act_build_qwi` |
+| `bot_autopilot_actions_combat.py` | ~357 | Combat `_act_*` handlers: `_act_engage`, `_act_engage_boss`, `_maybe_use_consumables`, `_act_gather`, `_act_idle_at_base` |
+| `bot_autopilot_navigation.py` | — | Per-building potential field + cluster centroid + cluster detour waypoint + `find_clear_ring_point` + escape-burst geometry |
+| `bot_autopilot_blacklist.py` | — | Pickup + asteroid blacklist data structures with TTLs |
+| `bot_autopilot_telemetry.py` | — | JSONL writer + snapshot ring buffer |
+
+Each helper does `import bot_autopilot as _ap` and qualifies
+cross-references as `_ap.X` so that test-time monkey-patching
+of orchestrator symbols (`_state`, `MIN_DWELL_S`, etc.) still
+threads through.  The orchestrator re-exports every moved
+symbol at the bottom so legacy `bot_autopilot.X` imports
+(including the bot test suite) keep resolving without change.
 
 # Running
 
@@ -498,9 +533,10 @@ The bot stack is covered by ~129 tests across:
   `SetProcessDpiAwareness(2)` and reads the game window's Win32
   client rect (excluding title bar / borders), so click + screenshot
   coords are physical pixels at any DPI scale.
-* **Window focus**: `bot_autopilot.py` re-activates the game
-  window every 2 s so pyautogui keystrokes keep landing on it
-  even if you click elsewhere.
+* **Window focus**: `_ensure_game_focused` in
+  `bot_autopilot_http.py` re-activates the game window every
+  2 s so pyautogui keystrokes keep landing on it even if you
+  click elsewhere.
 * **Race conditions**: `bot_api.get_state` reads gv attributes
   on the HTTP thread without locking.  All reads are simple
   scalar accesses, so a torn read at worst yields a one-frame-

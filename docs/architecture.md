@@ -16,14 +16,17 @@ The codebase follows a modular extraction pattern where the central `GameView` c
 | `ship_manager.py` | ~220 | Ship upgrade, new-ship placement, switch-to-ship; `_deduct_ship_cost` + `_resize_module_slots` shared helpers; re-exported via `building_manager` for legacy imports |
 | `constants_paths.py` | ~50 | Re-export surface for asset-path constants only (no gameplay tunables). Callers that just need file paths can import from here to keep their dependency surface tight |
 | `draw_logic.py` | ~390 | `draw_world()`, `draw_ui()`, `compute_world_stats()` |
-| `update_logic.py` | ~570 | 11 update sub-functions for the game loop |
+| `update_logic.py` | ~1316 | Per-frame update orchestrator (death, timers, repair/shields, crafting, movement, contrail, weapons, entities, station shield, refugee NPC, parked ships, buildings, respawns, wormholes, ability meter, drone, missiles, death blossom, effects). Re-exports moved sound / blade / boss helpers so legacy `from update_logic import update_melee_blade` etc. still resolve. |
+| `update_audio.py` | ~141 | `_tracked_play_sound` + `_real_play_sound` + `arcade.play_sound` monkey-patch + `_cleanup_finished_sounds` (200-entry cap). All sound-tracking machinery extracted from `update_logic`. |
+| `update_blade.py` | ~276 | `_BladeKind` (`LIGHTSABRE_KIND` / `PICKAXE_KIND`), blade ensure/remove/AOE machinery, `update_melee_blade`, `update_pickaxe_blade`. |
+| `update_boss.py` | ~180 | `_boss_update_context`, `update_boss`, `update_nebula_boss`, `_apply_nebula_slow`. |
 | `input_handlers.py` | ~690 | All keyboard and mouse event handling; eject routing split into 4 helpers |
 | `game_save.py` | ~690 | Save/load serialization with `_restore_sprite_list` factory helper |
 | `game_music.py` | — | Music playlist, video playback management |
 | `collisions.py` | ~490 | All collision handlers + `resolve_overlap` / `reflect_velocity` physics primitives |
 | `qwi_menu.py` | — | Quantum Wave Integrator menu — Nebula-boss summon button (100 iron) |
 | `map_overlay.py` | — | Full-screen map (`M` key) — zoomed-out view of the active zone with player + entity overlays |
-| `zones/` | — | Zone state machine: `MainZone` (Zone 1), `Zone2` (Nebula), `StarMazeZone` (Zone 3), 4 warp-zone classes reused for 3 variants each (`WARP_*`, `NEBULA_WARP_*`, `MAZE_WARP_*`); shared content in `zone2_world.py`, `nebula_shared.py`, `maze_geometry.py` |
+| `zones/` | — | Zone state machine: `MainZone` (Zone 1), `Zone2` (Nebula), `StarMazeZone` (Zone 3), 4 warp-zone classes reused for 3 variants each (`WARP_*`, `NEBULA_WARP_*`, `MAZE_WARP_*`); shared content in `zone2_world.py`, `nebula_shared.py`, `maze_geometry.py`. `StarMazeZone` delegates wall build + 7 wall-collision helpers to `zones/star_maze_walls.py` and maze-gen + entourage / stalker / spawner helpers to `zones/star_maze_spawning.py` (class methods are one-line delegates) |
 
 ### Extraction Pattern
 
@@ -88,6 +91,10 @@ def _spawn_explosion(self, x, y):
 | `sprites/nebula_boss.py` | — | NebulaBoss --- Zone-2 boss with cannon + gas-cloud + cone attacks; routes around force walls; rams asteroids |
 | `sprites/null_field.py` | — | NullField --- stealth patch that toggles `gv._player_cloaked`; firing inside disables it for 10 s |
 | `sprites/slipspace.py` | — | Slipspace --- paired teleporter portal that conserves velocity on entry |
+| `sprites/drone.py` | ~44 | Re-export shim: surfaces `_BaseDrone`, `MiningDrone`, `CombatDrone`, `drone_status_label`, `drone_tooltip_text` so existing `from sprites.drone import ...` imports keep working |
+| `sprites/drone_base.py` | ~945 | `_BaseDrone` class, mode machine, slot fallback chain, maze planner attach, segment LOS helpers, public utilities (`drone_status_label`, `drone_tooltip_text`) |
+| `sprites/drone_mining.py` | ~110 | `MiningDrone` --- mining-beam variant, asteroid target priority |
+| `sprites/drone_combat.py` | ~172 | `CombatDrone` --- laser variant, combat target priority (maze spawners first), friendly-fire skip on AI-piloted parked ships |
 
 ## Dependency Graph
 
@@ -167,6 +174,10 @@ collisions.py
 - **Story NPC + dialogue tree** --- `update_logic.update_refugee_npc` watches for the first `Shield Generator` while the player is in Zone 2, spawns `RefugeeNPCShip` on the right edge, retargets a parking spot at `(home.x + station_outer_radius + 120, home.y)` every frame (with `hold_dist=24`), and hands off to `update_npc` for the approach. `station_outer_radius` adds `BUILDING_RADIUS` so the measurement covers building *edges*, preventing the parked NPC from overlapping any building. `input_handlers._handle_world_click` opens `DialogueOverlay.start(tree, aftermath_sink=gv._quest_flags)` when the player clicks the ship within `NPC_REFUGEE_INTERACT_DIST`. Trees live in `dialogue/*.py` as dicts keyed by node id with `speaker`, `text`, optional `stage`, and one of `choices` / `next` / `end`. Terminal `end` nodes merge an `aftermath` dict into the sink (e.g. Debra's "find_ken" quest flag). Persisted state: `gv._refugee_spawned`, `gv._met_refugee`, `gv._refugee_npc` pose, `gv._quest_flags`.
 - **Station shield** --- `update_logic.update_station_shield` spawns a faction-tinted `ShieldSprite` (alpha 15 fill) centred on the Home Station whenever a Shield Generator exists. Scale = `2 * (station_outer_radius + STATION_SHIELD_PADDING) / SHIELD_FRAME_W`. `collisions._station_shield_absorbs` intercepts alien and boss projectiles inside the disk, bleeds `proj.damage` from `_station_shield_hp`, flashes the sprite, and consumes the projectile before building collision runs. `draw_logic._draw_station_shield` renders the sprite list and then layers a solid 3 px `draw_circle_outline` at the shield radius on top (alpha 200 / 255 on hit-flash) plus a faint inner glow ring, so the border dominates the visual while the interior stays readable. Persisted via `station_shield_hp` and `station_shield_max_hp` — restore re-materialises the sprite on the next update tick as long as the Shield Generator is still present.
 - **ShieldSprite alpha parameter** --- `sprites/shield.py`'s constructor takes an optional `alpha` (default 200) that becomes `_base_alpha`. The ship shield and the AI-pilot yellow bubble use 200 (full opacity); the station shield passes `alpha=15`. `hit_flash` spikes to `min(255, base_alpha + 55)` and decays back to the base.
+- **Bot autopilot helper-module split** --- `bot_autopilot.py` (~1758 LOC) holds constants (`S_*`, `BOSS_*`, `MIN_DWELL_S`, etc.), `BotState`, `CraftQueue`, `KeyState`, the `_state` global, `_get_now`, `_choose_next_state`, `_on_enter`, `_do_auto`, `main`, and `_hotkeys`.  Topical helpers split out by concern: `bot_autopilot_http.py` (~219 LOC, `fetch_state` + `_post_*` + `_ensure_game_focused`), `bot_autopilot_targeting.py` (~659 LOC, `_nearest_*` selectors, blacklist wrappers, `_record_position`, `_detect_stuck`, `_wall_pin_trap_active`, `_maybe_force_wall_pin_escape`, station / iron / blueprint helpers, `_qwi_ready_to_build`, queue-target helpers), `bot_autopilot_movement.py` (~351 LOC, `_do_goto` / `_do_hold_distance` / `_do_spiral_search` / `_do_mine_nearest` / `_do_attack_nearest` / `_do_engage_boss` / `_do_retreat` / `_do_cycle_weapon` / `_ensure_weapon` / `execute_intent`), `bot_autopilot_actions_station.py` (~328 LOC, `_act_build_seek` / `_act_deposit` / `_act_craft` / `_act_install` / `_act_build` / `_act_at_station` / `_act_equip_consumables` / `_act_build_qwi`), `bot_autopilot_actions_combat.py` (~357 LOC, `_act_engage` / `_act_engage_boss` / `_maybe_use_consumables` / `_act_gather` / `_act_idle_at_base`).  Each helper does `import bot_autopilot as _ap` and qualifies cross-references as `_ap.X` so runtime monkey-patching by tests still threads through.  The orchestrator re-exports every moved symbol at the bottom so `bot_autopilot.X` imports stay valid for legacy callers and tests.
+- **Class-method delegate pattern (StarMazeZone)** --- `zones/star_maze.py` (~1092 LOC) keeps the `StarMazeZone` class definition; large method bodies are extracted to module-level functions in `zones/star_maze_walls.py` (~279 LOC: `_load_wall_tile`, `_build_wall_sprites`, plus 7 wall-collision helpers that take `zone` as their first arg) and `zones/star_maze_spawning.py` (~251 LOC: `generate`, `spawn_entourage`, `populate_stalkers`, `update_spawners`, `spawn_child`, `maze_for_spawner`, `find_maze_interior_point`).  The class methods become one-line delegates calling the helper with `self` as the `zone` arg, so external callers still see methods on `StarMazeZone` — no import surface change.
+- **`update_logic.py` topical split** --- the per-frame orchestrator (~1316 LOC) keeps the preamble + dispatch + most update phases (death, timers, repair/shields, crafting, movement, contrail, weapons, entities, station shield, refugee NPC, parked ships, buildings, respawns, wormholes, ability meter, drone, missiles, death blossom, effects).  Three topical modules carry the rest: `update_audio.py` (~141 LOC) owns `_tracked_play_sound` + `_real_play_sound` + the `arcade.play_sound` monkey-patch + `_cleanup_finished_sounds` with the 200-entry tracking cap; `update_blade.py` (~276 LOC) owns `_BladeKind` (`LIGHTSABRE_KIND` / `PICKAXE_KIND`), the blade ensure / remove / AOE machinery, `update_melee_blade`, and `update_pickaxe_blade`; `update_boss.py` (~180 LOC) owns `_boss_update_context`, `update_boss`, `update_nebula_boss`, and `_apply_nebula_slow`.  `update_logic` re-exports the moved symbols at strategic points so `from update_logic import update_melee_blade` etc. still resolve for tests + legacy callers.
+- **`sprites/drone.py` re-export shim** --- `sprites/drone.py` is a 44-line shim that re-exports `_BaseDrone` (`drone_base.py`, ~945 LOC, the class + private helpers + tooltip utilities), `MiningDrone` (`drone_mining.py`, ~110 LOC), and `CombatDrone` (`drone_combat.py`, ~172 LOC).  Existing `from sprites.drone import MiningDrone, CombatDrone` imports across `update_logic`, `combat_helpers`, `game_save`, fleet menu, and tests keep working without per-call-site changes.
 
 ## Drone Pathfinding
 
@@ -279,7 +290,14 @@ steer toward or `None` (caller falls back to direct chase).
     Falls back to the next room's centre when no doorway entry
     exists (legacy callers without a doorway table).
 
-### Drone integration — `sprites/drone._BaseDrone`
+### Drone integration — `sprites/drone_base._BaseDrone`
+
+(`sprites/drone.py` is a 44-line re-export shim that surfaces
+`_BaseDrone`, `MiningDrone`, `CombatDrone`, and the tooltip
+helpers so existing `from sprites.drone import ...` callers
+keep working.  The class itself lives in `sprites/drone_base.py`;
+the two concrete subclasses live in `sprites/drone_mining.py`
+and `sprites/drone_combat.py`.)
 
 Per-frame flow inside `update_drone(dt, gv)`:
 
