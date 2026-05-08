@@ -176,13 +176,15 @@ class TestRecordPosition:
         nav.record_position(
             {"x": 0.0, "y": 0.0, "heading": 0.0},
             stuck, lambda: clock[0])
-        # Sample 5 s later — should evict the t=0 sample.
-        clock[0] = 5.0
+        # Sample past STUCK_DETECT_LONG_HISTORY_S later — should
+        # evict the t=0 sample (eviction tracks the long history
+        # window so the long-window net-progress gate can run).
+        clock[0] = nav.STUCK_DETECT_LONG_HISTORY_S + 1.0
         nav.record_position(
             {"x": 0.0, "y": 0.0, "heading": 0.0},
             stuck, lambda: clock[0])
         assert len(stuck["history"]) == 1
-        assert stuck["history"][0][0] == 5.0
+        assert stuck["history"][0][0] == clock[0]
 
 
 class TestDetectStuck:
@@ -271,6 +273,59 @@ class TestDetectStuck:
             (0.8, 105.0, 100.0, 2.0),
             (1.2, 100.0, 105.0, 1.0),
             (1.5, 103.0, 102.0, 0.0),
+        ]
+        s = self._stuck_with_history(samples)
+        assert nav.detect_stuck(s) is True
+
+    def test_long_window_progress_overrides_short_spread(self):
+        """Even when the last 1.5 s shows tight spread + low
+        rotation, a sample > LONG_PROGRESS_PX away in the longer
+        history rules the bot 'making progress'.  Caught from
+        2026-05-07 telemetry: 4.7 s after ``idle_at_base→hunt`` the
+        bot had moved 48 px from the idle anchor (avg 10 px/s) but
+        the most recent 1.5 s only showed ~21 px of spread because
+        of the velocity ramp-up + station-cluster repulsion cross-
+        currents.  Endpoint distance was 48, spread was 21, and the
+        watchdog mis-fired three stuck events within 60 s.  The
+        long-window gate must filter this case as 'making progress'.
+        """
+        # 5 s of samples: bot creeps from (317, 3875) at idle anchor
+        # to (365, 3861) at the moment of the would-be stuck event.
+        # Last 1.5 s: positions tightly clustered around (358-365,
+        # 3861-3863) with rotation < 30°.  Long history: spans 48 px
+        # of net displacement.
+        samples = [
+            (0.0, 317.0, 3875.0, 0.0),
+            (1.0, 330.0, 3870.0, 5.0),
+            (2.0, 345.0, 3866.0, 8.0),
+            (3.5, 358.0, 3863.0, 10.0),
+            (4.0, 360.0, 3862.0, 11.0),
+            (4.4, 362.0, 3861.5, 11.5),
+            (4.7, 365.0, 3861.0, 12.0),
+        ]
+        s = self._stuck_with_history(samples)
+        assert nav.detect_stuck(s) is False, (
+            "Bot has moved 50 px from the idle anchor over 4.7 s "
+            "— long-window progress gate must override the tight "
+            "short-window spread.")
+
+    def test_pinned_for_full_long_window_is_stuck(self):
+        """The opposite of the above: bot has been pinned in a
+        small region for the entire 5 s long-window, so neither
+        the short-window spread nor the long-window progress gate
+        finds escape — the watchdog must still fire.  Pins the
+        long-window gate doesn't accidentally over-suppress real
+        pins."""
+        samples = [
+            (0.0, 100.0, 100.0, 0.0),
+            (1.0, 105.0, 102.0, 1.0),
+            (2.0, 100.0, 105.0, 2.0),
+            (3.0, 103.0, 100.0, 1.0),
+            (3.5, 102.0, 102.0, 1.5),
+            (3.8, 100.0, 103.0, 2.0),
+            (4.2, 105.0, 100.0, 1.0),
+            (4.6, 100.0, 105.0, 1.5),
+            (5.0, 102.0, 102.0, 0.0),
         ]
         s = self._stuck_with_history(samples)
         assert nav.detect_stuck(s) is True

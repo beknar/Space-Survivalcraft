@@ -40,6 +40,22 @@ STUCK_DETECT_DIST_PX = 25.0
 # Without this gate the SEARCH spiral fires stuck-detect every
 # 1.5 s during normal operation.
 STUCK_DETECT_ROTATION_DEG = 30.0
+# Longer history window kept by ``record_position`` for the
+# net-progress gate in ``detect_stuck``.  Catches the post-
+# transition startup case where the 1.5 s spread can briefly dip
+# under threshold while the bot is genuinely advancing — e.g. just
+# after ``idle_at_base→hunt`` the bot accelerates from zero
+# velocity and may move only 20-25 px in any single 1.5 s window
+# even though it is 50+ px from the original idle anchor.
+STUCK_DETECT_LONG_HISTORY_S = 5.0
+# Minimum distance the latest sample must lie from at least one
+# sample in the long history for the bot to be declared "making
+# progress" (and therefore not stuck).  Tuned just above the short-
+# window 25 px spread threshold so a bot oscillating in a 30-40 px
+# region around a fixed pin still fires (matching PR #54's wall-
+# tangent scenario), while a bot creeping 10 px/s for 5 s (50 px
+# net) does not.
+STUCK_DETECT_LONG_PROGRESS_PX = 40.0
 # Minimum time the escape override lasts.
 STUCK_ESCAPE_MIN_DURATION_S = 1.5
 # Escape stays active until the ship is at least this far from any
@@ -465,54 +481,100 @@ def record_position(p: dict, stuck_state: dict, get_now: Callable[[], float]
     stuck-detect history and evict samples older than the window.
     Heading is captured so ``detect_stuck`` can distinguish "rotating
     to face new target" (not stuck) from "pinned against an obstacle"
-    (stuck) — both look identical to position-only detection."""
+    (stuck) — both look identical to position-only detection.
+
+    History retention uses ``STUCK_DETECT_LONG_HISTORY_S`` (5 s) so
+    ``detect_stuck`` can run a long-window net-progress gate after
+    the short-window spread/rotation checks.  The short-window
+    checks themselves filter samples down to the last
+    ``STUCK_DETECT_WINDOW_S`` (1.5 s) at evaluation time.
+    """
     now = get_now()
     px = float(p.get("x", 0.0))
     py = float(p.get("y", 0.0))
     heading = float(p.get("heading", 0.0))
     h = stuck_state["history"]
     h.append((now, px, py, heading))
-    cutoff = now - STUCK_DETECT_WINDOW_S
+    cutoff = now - STUCK_DETECT_LONG_HISTORY_S
     while h and h[0][0] < cutoff:
         h.pop(0)
 
 
 def detect_stuck(stuck_state: dict) -> bool:
     """True when the ship has barely moved over the last
-    ``STUCK_DETECT_WINDOW_S`` **and** isn't actively rotating.
-    Conservative: requires the history to have spanned at least 80%
-    of the window so we don't false-fire in the first second after
-    process start.
+    ``STUCK_DETECT_WINDOW_S`` **and** isn't actively rotating
+    **and** has not made meaningful progress over the last
+    ``STUCK_DETECT_LONG_HISTORY_S``.  Conservative: requires the
+    history to have spanned at least 80% of the short window so we
+    don't false-fire in the first second after process start.
 
-    Motion is measured as the **bounding-box spread** of all samples
-    in the window, not the endpoint-to-endpoint distance.  Endpoint
-    distance falsely flagged the bot as stuck during legitimate
-    chase motion when the bot drifted forward and rotated back near
-    its start position within the window — e.g. drifting 30 px east
-    then 12 px west yielded endpoint=18 px (< 25 threshold = stuck)
-    even though the bot had traversed 42 px of arc length.  Spread
-    captures the actual region the bot occupied and stays small only
-    when the bot is truly pinned in place.  Caught from 2026-05-07
-    telemetry: three back-to-back ``stuck_detected`` events fired in
-    ~6 s while the bot was advancing SE at ~50 px/s; each false
-    stuck armed a 1.5 s escape override that interrupted the chase
-    and produced the heading oscillation the user reported.
+    Three gates, evaluated in order:
+
+    1. **Short-window spread** (last 1.5 s subset).  Motion is
+       measured as the bounding-box spread of all samples in the
+       window, not endpoint-to-endpoint distance.  Endpoint distance
+       falsely flagged the bot as stuck during legitimate chase
+       motion when it drifted forward and rotated back near its
+       start position within the window (PR #56).  Spread stays
+       small only when the bot is truly pinned in place.
+
+    2. **Short-window rotation**.  Rotating to face a new target
+       legitimately produces low spread; the rotation gate
+       distinguishes "actively turning" from "pinned".
+
+    3. **Long-window net progress** (full 5 s history).  Catches the
+       post-transition startup case where the 1.5 s spread briefly
+       dips under threshold while the bot is genuinely advancing —
+       e.g. 4-5 s after ``idle_at_base→hunt`` the bot has moved
+       50+ px from the original idle anchor even though any
+       individual 1.5 s window only shows 20 px of motion (10 px/s
+       acceleration ramp + station-cluster repulsion cross-currents).
+       If any sample in the long history is more than
+       ``STUCK_DETECT_LONG_PROGRESS_PX`` from the latest position,
+       the bot is making net progress and is not stuck.  Caught
+       from 2026-05-07 telemetry: 60 s ``hunt`` chase from
+       (317, 3875) to (603, 3525) — 7.5 px/s average — that fired
+       three stuck events near the start, each derailing the chase
+       with a world-centre escape burst.
     """
     h = stuck_state["history"]
     if len(h) < 5:
         return False
-    span = h[-1][0] - h[0][0]
+
+    # Short-window subset: last STUCK_DETECT_WINDOW_S of samples.
+    short_cutoff = h[-1][0] - STUCK_DETECT_WINDOW_S
+    short = [s for s in h if s[0] >= short_cutoff]
+    if len(short) < 5:
+        return False
+    span = short[-1][0] - short[0][0]
     if span < STUCK_DETECT_WINDOW_S * 0.8:
         return False
-    xs = [s[1] for s in h]
-    ys = [s[2] for s in h]
+    xs = [s[1] for s in short]
+    ys = [s[2] for s in short]
     spread = math.hypot(max(xs) - min(xs), max(ys) - min(ys))
     if spread >= STUCK_DETECT_DIST_PX:
         return False
     rotation_total = 0.0
-    for i in range(1, len(h)):
-        rotation_total += abs(heading_delta(h[i - 1][3], h[i][3]))
-    return rotation_total < STUCK_DETECT_ROTATION_DEG
+    for i in range(1, len(short)):
+        rotation_total += abs(heading_delta(short[i - 1][3], short[i][3]))
+    if rotation_total >= STUCK_DETECT_ROTATION_DEG:
+        return False
+
+    # Long-window net-progress gate.  If any sample in the full
+    # history is > LONG_PROGRESS_PX from the current position, the
+    # bot has been making net progress despite the recent slow
+    # window.  Uses whatever history is available — at startup
+    # (fewer than 5 s of samples) the gate naturally falls back to
+    # a tighter check, so a bot that genuinely never moved still
+    # fires in the first second after the short-window gate fills.
+    cur_x = h[-1][1]
+    cur_y = h[-1][2]
+    long_sq = STUCK_DETECT_LONG_PROGRESS_PX * STUCK_DETECT_LONG_PROGRESS_PX
+    for s in h:
+        d_sq = (s[1] - cur_x) ** 2 + (s[2] - cur_y) ** 2
+        if d_sq > long_sq:
+            return False
+    return True
 
 
 def ship_clear_of_edges(p: dict, zone: dict) -> bool:
