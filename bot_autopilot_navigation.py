@@ -56,6 +56,19 @@ STUCK_DETECT_LONG_HISTORY_S = 5.0
 # tangent scenario), while a bot creeping 10 px/s for 5 s (50 px
 # net) does not.
 STUCK_DETECT_LONG_PROGRESS_PX = 40.0
+# Hard-pin override threshold: when the maximum distance from the
+# latest sample to ANY sample in the full long history is below this
+# AND the history spans the full window, the bot is genuinely
+# pinned and the rotation gate is bypassed.  Caught from 2026-05-07
+# telemetry: bot deadlocked in ``S_GATHER`` for 100+ s at exactly
+# (160, 4083) (zero translation across 19 snapshots) while a
+# pickup remained unreachable inside the station cluster — the
+# rotation gate kept the watchdog silent because the steered
+# heading fluttered as building-repulsion geometry interacted with
+# the goto vector, but rotating-in-place IS stuck when there's
+# zero translation.  Tuned tight (10 px) so it only fires for
+# truly pinned ships, not for bots making slow legitimate progress.
+STUCK_DETECT_HARD_PIN_PX = 10.0
 # Minimum time the escape override lasts.
 STUCK_ESCAPE_MIN_DURATION_S = 1.5
 # Escape stays active until the ship is at least this far from any
@@ -502,13 +515,13 @@ def record_position(p: dict, stuck_state: dict, get_now: Callable[[], float]
 
 def detect_stuck(stuck_state: dict) -> bool:
     """True when the ship has barely moved over the last
-    ``STUCK_DETECT_WINDOW_S`` **and** isn't actively rotating
-    **and** has not made meaningful progress over the last
-    ``STUCK_DETECT_LONG_HISTORY_S``.  Conservative: requires the
-    history to have spanned at least 80% of the short window so we
-    don't false-fire in the first second after process start.
+    ``STUCK_DETECT_WINDOW_S`` **and** has not made meaningful
+    progress over the last ``STUCK_DETECT_LONG_HISTORY_S``.
+    Conservative: requires the history to have spanned at least 80%
+    of the short window so we don't false-fire in the first second
+    after process start.
 
-    Three gates, evaluated in order:
+    Four gates, evaluated in order:
 
     1. **Short-window spread** (last 1.5 s subset).  Motion is
        measured as the bounding-box spread of all samples in the
@@ -518,11 +531,7 @@ def detect_stuck(stuck_state: dict) -> bool:
        start position within the window (PR #56).  Spread stays
        small only when the bot is truly pinned in place.
 
-    2. **Short-window rotation**.  Rotating to face a new target
-       legitimately produces low spread; the rotation gate
-       distinguishes "actively turning" from "pinned".
-
-    3. **Long-window net progress** (full 5 s history).  Catches the
+    2. **Long-window net progress** (full 5 s history).  Catches the
        post-transition startup case where the 1.5 s spread briefly
        dips under threshold while the bot is genuinely advancing —
        e.g. 4-5 s after ``idle_at_base→hunt`` the bot has moved
@@ -532,10 +541,26 @@ def detect_stuck(stuck_state: dict) -> bool:
        If any sample in the long history is more than
        ``STUCK_DETECT_LONG_PROGRESS_PX`` from the latest position,
        the bot is making net progress and is not stuck.  Caught
-       from 2026-05-07 telemetry: 60 s ``hunt`` chase from
-       (317, 3875) to (603, 3525) — 7.5 px/s average — that fired
-       three stuck events near the start, each derailing the chase
-       with a world-centre escape burst.
+       from 2026-05-07 telemetry (PR #58): 60 s ``hunt`` chase
+       from (317, 3875) to (603, 3525) — 7.5 px/s average — that
+       fired three stuck events near the start.
+
+    3. **Hard-pin override** (full 5 s history).  When the bot has
+       had near-zero translation for the *full* long-history
+       window (max distance from current position ≤
+       ``STUCK_DETECT_HARD_PIN_PX``), it's truly pinned even if
+       the heading is rotating.  Bypasses the rotation gate
+       below.  Caught from 2026-05-07 telemetry: bot deadlocked
+       in ``S_GATHER`` for 100+ s at exactly (160, 4083) while
+       targeting an unreachable pickup; rotation gate kept the
+       watchdog silent because the steered heading fluttered
+       under building-repulsion cross-currents, but the bot
+       wasn't translating at all.
+
+    4. **Short-window rotation**.  Rotating to face a new target
+       legitimately produces low spread; the rotation gate
+       distinguishes "actively turning" from "pinned".  Skipped
+       when the hard-pin override fires above.
     """
     h = stuck_state["history"]
     if len(h) < 5:
@@ -554,27 +579,39 @@ def detect_stuck(stuck_state: dict) -> bool:
     spread = math.hypot(max(xs) - min(xs), max(ys) - min(ys))
     if spread >= STUCK_DETECT_DIST_PX:
         return False
+
+    # Long-window max distance is reused for both the net-progress
+    # gate and the hard-pin override.  Compute once, branch twice.
+    cur_x = h[-1][1]
+    cur_y = h[-1][2]
+    max_dist_sq = max(
+        (s[1] - cur_x) ** 2 + (s[2] - cur_y) ** 2 for s in h)
+
+    # Long-window net-progress gate: any sample > LONG_PROGRESS_PX
+    # away → bot is making net progress, not stuck.
+    if max_dist_sq > (STUCK_DETECT_LONG_PROGRESS_PX
+                      * STUCK_DETECT_LONG_PROGRESS_PX):
+        return False
+
+    # Hard-pin override: when the FULL long history sits within
+    # ``STUCK_DETECT_HARD_PIN_PX`` of the current position the bot
+    # is truly pinned, regardless of rotation.  Requires the
+    # history to actually span the full window so a fresh post-
+    # transition history (cleared by ``_do_auto`` on state change)
+    # doesn't fire prematurely while the bot is still ramping up
+    # from zero velocity.
+    history_span = h[-1][0] - h[0][0]
+    if (history_span >= STUCK_DETECT_LONG_HISTORY_S - 0.1
+            and max_dist_sq <= (STUCK_DETECT_HARD_PIN_PX
+                                * STUCK_DETECT_HARD_PIN_PX)):
+        return True
+
+    # Otherwise fall through to the rotation gate: rotating to
+    # face a new target legitimately produces low spread.
     rotation_total = 0.0
     for i in range(1, len(short)):
         rotation_total += abs(heading_delta(short[i - 1][3], short[i][3]))
-    if rotation_total >= STUCK_DETECT_ROTATION_DEG:
-        return False
-
-    # Long-window net-progress gate.  If any sample in the full
-    # history is > LONG_PROGRESS_PX from the current position, the
-    # bot has been making net progress despite the recent slow
-    # window.  Uses whatever history is available — at startup
-    # (fewer than 5 s of samples) the gate naturally falls back to
-    # a tighter check, so a bot that genuinely never moved still
-    # fires in the first second after the short-window gate fills.
-    cur_x = h[-1][1]
-    cur_y = h[-1][2]
-    long_sq = STUCK_DETECT_LONG_PROGRESS_PX * STUCK_DETECT_LONG_PROGRESS_PX
-    for s in h:
-        d_sq = (s[1] - cur_x) ** 2 + (s[2] - cur_y) ** 2
-        if d_sq > long_sq:
-            return False
-    return True
+    return rotation_total < STUCK_DETECT_ROTATION_DEG
 
 
 def ship_clear_of_edges(p: dict, zone: dict) -> bool:

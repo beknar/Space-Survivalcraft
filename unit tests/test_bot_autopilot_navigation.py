@@ -309,6 +309,53 @@ class TestDetectStuck:
             "— long-window progress gate must override the tight "
             "short-window spread.")
 
+    def test_hard_pin_overrides_rotation_gate(self):
+        """Bot pinned at one position for the full 5 s window with
+        the heading rotating > 30°/window — the rotation gate would
+        normally exempt the bot, but the hard-pin override fires
+        because there's zero translation.  Caught from 2026-05-07
+        telemetry: bot deadlocked in S_GATHER for 100+ s at exactly
+        (160, 4083) while the steered heading fluttered under
+        building-repulsion cross-currents."""
+        # 5 s of samples all clustered within 4 px of (160, 4083),
+        # heading sweeping 0° → 60° (rotation_total > 30°).  Extra
+        # samples in the last 1.5 s subset to clear the short-window
+        # ``len < 5`` gate.
+        samples = [
+            (0.0, 160.0, 4083.0, 0.0),
+            (1.0, 161.0, 4083.0, 12.0),
+            (2.0, 160.0, 4084.0, 24.0),
+            (3.0, 162.0, 4082.0, 36.0),
+            (3.6, 161.0, 4083.0, 42.0),
+            (3.9, 160.0, 4084.0, 46.0),
+            (4.2, 162.0, 4082.0, 50.0),
+            (4.5, 161.0, 4083.0, 54.0),
+            (4.8, 160.0, 4084.0, 57.0),
+            (5.0, 160.0, 4083.0, 60.0),
+        ]
+        s = self._stuck_with_history(samples)
+        assert nav.detect_stuck(s) is True, (
+            "Bot pinned within 4 px for the full 5 s window — "
+            "rotation gate must NOT exempt a hard pin.")
+
+    def test_partial_history_does_not_trigger_hard_pin(self):
+        """Hard-pin requires the FULL long-history window to be
+        accumulated.  A bot that just transitioned (history span
+        only 1.5 s) and is rotating must still be exempted by the
+        rotation gate — otherwise the override would false-fire on
+        legitimate post-transition rotations."""
+        samples = [
+            (0.0, 100.0, 100.0, 0.0),
+            (0.4, 100.0, 100.0, 30.0),
+            (0.8, 100.0, 100.0, 60.0),
+            (1.2, 100.0, 100.0, 80.0),
+            (1.5, 100.0, 100.0, 100.0),
+        ]
+        s = self._stuck_with_history(samples)
+        # Span is 1.5 s, well under the 5 s long-history window.
+        # Hard-pin must not fire; rotation gate exempts.
+        assert nav.detect_stuck(s) is False
+
     def test_pinned_for_full_long_window_is_stuck(self):
         """The opposite of the above: bot has been pinned in a
         small region for the entire 5 s long-window, so neither
