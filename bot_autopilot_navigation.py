@@ -483,6 +483,20 @@ def detect_stuck(stuck_state: dict) -> bool:
     Conservative: requires the history to have spanned at least 80%
     of the window so we don't false-fire in the first second after
     process start.
+
+    Motion is measured as the **bounding-box spread** of all samples
+    in the window, not the endpoint-to-endpoint distance.  Endpoint
+    distance falsely flagged the bot as stuck during legitimate
+    chase motion when the bot drifted forward and rotated back near
+    its start position within the window — e.g. drifting 30 px east
+    then 12 px west yielded endpoint=18 px (< 25 threshold = stuck)
+    even though the bot had traversed 42 px of arc length.  Spread
+    captures the actual region the bot occupied and stays small only
+    when the bot is truly pinned in place.  Caught from 2026-05-07
+    telemetry: three back-to-back ``stuck_detected`` events fired in
+    ~6 s while the bot was advancing SE at ~50 px/s; each false
+    stuck armed a 1.5 s escape override that interrupted the chase
+    and produced the heading oscillation the user reported.
     """
     h = stuck_state["history"]
     if len(h) < 5:
@@ -490,8 +504,10 @@ def detect_stuck(stuck_state: dict) -> bool:
     span = h[-1][0] - h[0][0]
     if span < STUCK_DETECT_WINDOW_S * 0.8:
         return False
-    moved = math.hypot(h[-1][1] - h[0][1], h[-1][2] - h[0][2])
-    if moved >= STUCK_DETECT_DIST_PX:
+    xs = [s[1] for s in h]
+    ys = [s[2] for s in h]
+    spread = math.hypot(max(xs) - min(xs), max(ys) - min(ys))
+    if spread >= STUCK_DETECT_DIST_PX:
         return False
     rotation_total = 0.0
     for i in range(1, len(h)):

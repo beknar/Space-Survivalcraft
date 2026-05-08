@@ -236,6 +236,45 @@ class TestDetectStuck:
         s = self._stuck_with_history(samples)
         assert nav.detect_stuck(s) is False
 
+    def test_out_and_back_motion_not_stuck(self):
+        """The bot drifts 30 px east during the window then rotates
+        and drifts 12 px back, ending only 18 px east of its start
+        — a legitimate slow-thrust phase.  Endpoint-to-endpoint
+        distance (18) is under the 25 px threshold, but spread
+        (max excursion = 30) is above it, so the bot must NOT be
+        flagged as stuck.  Caught from 2026-05-07 telemetry: three
+        back-to-back stuck_detected events in ~6 s while the bot
+        was advancing SE at ~50 px/s — each escape burst interrupted
+        the chase and produced the heading oscillation users
+        reported."""
+        samples = [
+            (0.0, 100.0, 100.0, 0.0),
+            (0.4, 110.0, 100.0, 0.0),
+            (0.8, 130.0, 100.0, 5.0),
+            (1.2, 125.0, 100.0, 10.0),
+            (1.5, 118.0, 100.0, 12.0),
+        ]
+        s = self._stuck_with_history(samples)
+        assert nav.detect_stuck(s) is False, (
+            "Bot reached 30 px from start mid-window — spread is "
+            "30 px > 25 px threshold, so the watchdog must not "
+            "false-fire on the 18 px endpoint distance.")
+
+    def test_small_spread_under_threshold_is_stuck(self):
+        """Pinned with sub-threshold jitter (positions all within a
+        12 px box) AND sub-threshold rotation — this is the genuine
+        pin signature the watchdog must still catch.  Spread metric
+        must not be so loose it misses a real pin."""
+        samples = [
+            (0.0, 100.0, 100.0, 0.0),
+            (0.4, 102.0, 103.0, 1.0),
+            (0.8, 105.0, 100.0, 2.0),
+            (1.2, 100.0, 105.0, 1.0),
+            (1.5, 103.0, 102.0, 0.0),
+        ]
+        s = self._stuck_with_history(samples)
+        assert nav.detect_stuck(s) is True
+
 
 # ── Ship-clear gates ─────────────────────────────────────────────────
 
