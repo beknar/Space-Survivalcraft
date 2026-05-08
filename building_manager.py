@@ -117,6 +117,30 @@ def _flash_fail(gv: GameView, msg: str, duration: float = 2.0) -> None:
     gv._flash_timer = duration
 
 
+def effective_copper_cost(gv: GameView, building_type: str) -> int:
+    """Return the copper cost for ``building_type`` adjusted for the
+    active zone.
+
+    Special case for the Quantum Wave Integrator: copper asteroids
+    only spawn in Zone 2 (Nebula) and the Star Maze, but the Zone 2
+    warp gate is gated behind defeating the Double Star boss — which
+    the QWI itself spawns.  Charging 2000 copper for placement in
+    Zone 1 would make the boss un-triggerable, so the cost is waived
+    when the QWI is built in MainZone (Zone 1).  The full
+    ``cost_copper`` is preserved everywhere else (Zone 2 in
+    particular) so the late-game progression still pays the
+    intended price.
+    """
+    base = int(BUILDING_TYPES[building_type].get("cost_copper", 0))
+    if base <= 0:
+        return 0
+    if BUILDING_TYPES[building_type].get("is_qwi"):
+        from zones.zone1_main import MainZone
+        if isinstance(getattr(gv, "_zone", None), MainZone):
+            return 0
+    return base
+
+
 def _check_resources(gv: GameView, building_type: str) -> bool:
     """Validate iron + copper for ``building_type``.  Sets flash
     message + returns False if either is short.  Returns True when
@@ -125,7 +149,7 @@ def _check_resources(gv: GameView, building_type: str) -> bool:
     bt_stats = BUILDING_TYPES[building_type]
     cost_mult = build_cost_multiplier(audio.character_name, gv._char_level)
     cost = int(bt_stats["cost"] * cost_mult)
-    copper_cost = int(bt_stats.get("cost_copper", 0) * cost_mult)
+    copper_cost = int(effective_copper_cost(gv, building_type) * cost_mult)
     total_iron = gv.inventory.total_iron + gv._station_inv.total_iron
     if total_iron < cost:
         _flash_fail(gv, "Not enough iron!")
@@ -283,7 +307,7 @@ def place_building(gv: GameView, wx: float, wy: float) -> None:
     if total_iron < cost:
         cancel_placement(gv)
         return
-    copper_cost = int(stats.get("cost_copper", 0) * build_cost_multiplier(
+    copper_cost = int(effective_copper_cost(gv, bt) * build_cost_multiplier(
         audio.character_name, gv._char_level))
     if copper_cost > 0:
         total_copper = gv.inventory.count_item("copper") + gv._station_inv.count_item("copper")

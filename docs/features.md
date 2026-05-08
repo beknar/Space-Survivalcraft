@@ -137,7 +137,7 @@ chooses the stats. All five types are available under every faction.
 
 ## Boss 2 --- Nebula Boss
 
-- Triggered by building a **Quantum Wave Integrator** (QWI) in Zone 2 (cost: 1000 iron + 2000 copper)
+- Triggered by building a **Quantum Wave Integrator** (QWI) near a Home Station.  Cost: 1000 iron + 2000 copper in Zone 2; 1000 iron only in Zone 1 (copper requirement waived because Zone 2 access is gated behind the Double Star boss, which the QWI itself spawns)
 - Larger sprite (3× the original boss); 3 randomised sprite rows in column 2 of the boss sheet
 - Targets the player within 1000 px detection range
 - **Gas-cloud cannon** --- launches drifting gas clouds at half cannon speed (275 px/s); each hit deals 30 damage and slows the player by 50 % for 1.5 s

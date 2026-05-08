@@ -282,7 +282,7 @@ Triggered when player enters 500 px, or player weapon fires within 160 px (4x sh
 
 ## Nebula Boss Rules
 
-- Spawned by building the **Quantum Wave Integrator** in Zone 2 (1000 iron + 2000 copper)
+- Spawned by building the **Quantum Wave Integrator** near a Home Station.  Cost: 1000 iron + 2000 copper in Zone 2; 1000 iron only in Zone 1 (the 2000-copper requirement is waived because copper asteroids only spawn in Zone 2 / Star Maze and Zone 2 access is gated behind defeating the Double Star boss, which the QWI itself spawns — see `building_manager.effective_copper_cost`)
 - Larger sprite (3× scale, 114 px collision radius); randomised across 8 sprite rows of column 2
 - Detection range 1000 px; prioritises the player over buildings
 - **Cannon**: 40 damage, 1.0 s cooldown, 800 px range
