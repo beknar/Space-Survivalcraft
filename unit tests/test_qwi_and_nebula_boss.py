@@ -127,6 +127,91 @@ class TestQWICopperCostZoneAware:
         assert effective_copper_cost(gv, free_b) == 0
 
 
+class TestQWIBuildMenuZoneAware:
+    """Mirror of the cost waiver in the build menu's display gate.
+
+    Without these tests, ``BuildMenu._check_availability`` could grey
+    out the QWI row in Zone 1 with "Need 2000 copper" even though the
+    underlying placement path waives the cost — the user would see
+    the option as un-buildable.
+    """
+
+    def _common_kwargs(self, **overrides):
+        kwargs = dict(
+            iron=10000,
+            building_counts={"Home Station": 1},
+            modules_used=0,
+            module_capacity=10,
+            has_home=True,
+            copper=0,
+            unlocked_blueprints=set(),
+            ship_level=1,
+            max_ship_exists=False,
+            l1_ship_exists=False,
+        )
+        kwargs.update(overrides)
+        return kwargs
+
+    def test_menu_available_in_zone1_with_zero_copper(self):
+        from build_menu import BuildMenu
+        from zones import ZoneID
+        avail, reason = BuildMenu._check_availability(
+            "Quantum Wave Integrator",
+            zone_id=ZoneID.MAIN,
+            **self._common_kwargs(),
+        )
+        assert avail is True, f"unexpectedly unavailable: {reason!r}"
+
+    def test_menu_unavailable_in_zone2_without_copper(self):
+        from build_menu import BuildMenu
+        from zones import ZoneID
+        avail, reason = BuildMenu._check_availability(
+            "Quantum Wave Integrator",
+            zone_id=ZoneID.ZONE2,
+            **self._common_kwargs(copper=0),
+        )
+        assert avail is False
+        assert "copper" in reason.lower()
+
+    def test_menu_available_in_zone2_with_full_copper(self):
+        from build_menu import BuildMenu
+        from zones import ZoneID
+        avail, reason = BuildMenu._check_availability(
+            "Quantum Wave Integrator",
+            zone_id=ZoneID.ZONE2,
+            **self._common_kwargs(copper=2000),
+        )
+        assert avail is True, f"unexpectedly unavailable: {reason!r}"
+
+    def test_other_buildings_with_copper_unaffected_in_zone1(self):
+        """The QWI waiver must NOT bleed into other buildings that
+        also have a copper cost (e.g. modules / advanced structures
+        gated on Zone-2 resources by design)."""
+        from build_menu import BuildMenu
+        from zones import ZoneID
+        from constants import BUILDING_TYPES
+        non_qwi_bt = next(
+            ((k, v) for k, v in BUILDING_TYPES.items()
+             if v.get("cost_copper", 0) > 0 and not v.get("is_qwi")),
+            None,
+        )
+        if non_qwi_bt is None:
+            import pytest
+            pytest.skip("no non-QWI building with copper cost")
+        non_qwi, stats = non_qwi_bt
+        # Pre-satisfy the blueprint gate so the copper check is the
+        # binding constraint we're verifying.
+        bp = stats.get("requires_blueprint")
+        unlocked = {bp} if bp else set()
+        avail, reason = BuildMenu._check_availability(
+            non_qwi,
+            zone_id=ZoneID.MAIN,
+            **self._common_kwargs(copper=0, unlocked_blueprints=unlocked),
+        )
+        assert avail is False
+        assert "copper" in reason.lower()
+
+
 # ── Nebula boss constants ──────────────────────────────────────────────────
 
 class TestNebulaBossConstants:
