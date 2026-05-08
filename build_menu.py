@@ -392,12 +392,28 @@ class BuildMenu(MenuOverlay):
         ship_level: int = 1,
         max_ship_exists: bool = False,
         l1_ship_exists: bool = True,
+        zone_id=None,
     ) -> tuple[bool, str]:
-        """Return (available, reason) for a building type."""
+        """Return (available, reason) for a building type.
+
+        ``zone_id`` mirrors the zone-aware copper waiver in
+        ``building_manager.effective_copper_cost``: the QWI's
+        2000-copper cost is waived in Zone 1 (``ZoneID.MAIN``)
+        because copper asteroids only spawn in Zone 2 / Star Maze
+        and Zone 2 access is gated behind defeating the Double Star
+        boss — which the QWI itself spawns.  Without this mirror,
+        the menu row would be greyed out with "Need 2000 copper"
+        in Zone 1 even though the underlying placement path waives
+        the cost.
+        """
         from constants import SHIP_MAX_LEVEL
+        from zones import ZoneID
         stats = BUILDING_TYPES[name]
         cost = stats["cost"]
         copper_cost = stats.get("cost_copper", 0)
+        if (stats.get("is_qwi") and copper_cost > 0
+                and zone_id == ZoneID.MAIN):
+            copper_cost = 0
         max_count = stats["max"]
         slots = stats["slots_used"]
 
@@ -528,6 +544,7 @@ class BuildMenu(MenuOverlay):
                     modules_used, module_capacity, has_home,
                     copper, unlocked_blueprints, ship_level,
                     max_ship_exists, l1_ship_exists,
+                    zone_id=self._zone_id,
                 )
                 if avail:
                     return name
@@ -645,6 +662,7 @@ class BuildMenu(MenuOverlay):
                     modules_used, module_capacity, has_home,
                     copper, unlocked_blueprints, self._ship_level,
                     self._max_ship_exists, self._l1_ship_exists,
+                    zone_id=self._zone_id,
                 )
             statuses.append(
                 (visible_pos, orig_idx, name,
