@@ -739,6 +739,15 @@ BUILDING_TYPES = {
     # player spend 100 iron to spawn the Nebula boss.  Uses a custom
     # asset path so ``png_path`` takes precedence over ``png`` +
     # BUILDING_DIR in ``world_setup.load_building_textures``.
+    #
+    # The 2000-copper cost listed below is waived when the QWI is
+    # built in Zone 1 (MainZone) — copper asteroids only spawn in
+    # Zone 2 and the Star Maze, and Zone 2 access is gated behind
+    # defeating the Double Star boss, which the QWI itself spawns.
+    # Without the waiver the player (and the bot autopilot) could
+    # never trigger the boss fight from the starting zone.  The full
+    # copper cost is preserved when the QWI is placed in Zone 2.
+    # See ``building_manager.effective_copper_cost``.
     "Quantum Wave Integrator": {
         "png": "scifiStructure_16.png",
         "png_path": os.path.join(

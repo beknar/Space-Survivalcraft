@@ -71,6 +71,62 @@ class TestQWIConstants:
         assert "Quantum Wave Integrator" in _MENU_ORDER
 
 
+class TestQWICopperCostZoneAware:
+    """The QWI's 2000-copper cost is waived in Zone 1 because copper
+    is only mineable in Zone 2 / Star Maze, and Zone 2 access is
+    gated behind defeating the Double Star boss — which the QWI
+    itself spawns.  Without the waiver the boss fight is
+    un-triggerable from the starting zone.  Cost is preserved when
+    the QWI is placed elsewhere (Zone 2)."""
+
+    def test_waived_in_zone1(self):
+        from building_manager import effective_copper_cost
+        from zones.zone1_main import MainZone
+        gv = SimpleNamespace(_zone=MainZone())
+        assert effective_copper_cost(gv, "Quantum Wave Integrator") == 0
+
+    def test_preserved_in_zone2(self):
+        from building_manager import effective_copper_cost
+        # Use a stand-in object that isn't a MainZone — the helper
+        # only special-cases MainZone, so any other type triggers the
+        # full-cost branch.
+        gv = SimpleNamespace(_zone=object())
+        assert effective_copper_cost(
+            gv, "Quantum Wave Integrator") == 2000
+
+    def test_other_buildings_unaffected_by_zone(self):
+        from building_manager import effective_copper_cost
+        from zones.zone1_main import MainZone
+        from constants import BUILDING_TYPES
+        non_qwi_with_copper = next(
+            (k for k, v in BUILDING_TYPES.items()
+             if v.get("cost_copper", 0) > 0 and not v.get("is_qwi")),
+            None,
+        )
+        if non_qwi_with_copper is None:
+            pytest.skip("no non-QWI building with copper cost")
+        base = BUILDING_TYPES[non_qwi_with_copper]["cost_copper"]
+        gv_main = SimpleNamespace(_zone=MainZone())
+        gv_other = SimpleNamespace(_zone=object())
+        assert effective_copper_cost(
+            gv_main, non_qwi_with_copper) == base
+        assert effective_copper_cost(
+            gv_other, non_qwi_with_copper) == base
+
+    def test_zero_cost_buildings_return_zero(self):
+        from building_manager import effective_copper_cost
+        from zones.zone1_main import MainZone
+        from constants import BUILDING_TYPES
+        free_b = next(
+            (k for k, v in BUILDING_TYPES.items()
+             if v.get("cost_copper", 0) == 0),
+            None,
+        )
+        assert free_b is not None
+        gv = SimpleNamespace(_zone=MainZone())
+        assert effective_copper_cost(gv, free_b) == 0
+
+
 # ── Nebula boss constants ──────────────────────────────────────────────────
 
 class TestNebulaBossConstants:

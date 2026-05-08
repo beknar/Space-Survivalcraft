@@ -330,12 +330,18 @@ The Energy Blade is a persistent lightsabre sprite that lives in front of the sh
 
 | Property | Value |
 |---|---|
-| Build cost | 1000 iron + 2000 copper |
+| Build cost (Zone 1 / Double Star) | 1000 iron — copper waived |
+| Build cost (Zone 2 / Nebula) | 1000 iron + 2000 copper |
 | HP | 200 |
 | Max count | 1 |
 | Placement radius from Home Station | 300 px (`QWI_PLACE_RADIUS`) |
 | Auto-spawn boss on build | Yes |
 | Click-to-summon cost | 100 iron (`QWI_SPAWN_NEBULA_BOSS_IRON_COST`) |
+
+> The 2000-copper requirement is waived in Zone 1 because copper
+> asteroids only spawn in Zone 2 / Star Maze, and Zone 2 access is
+> gated behind defeating the Double Star boss — which the QWI itself
+> spawns.  See `building_manager.effective_copper_cost`.
 
 ---
 
