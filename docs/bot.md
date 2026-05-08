@@ -52,7 +52,7 @@ by concern:
 
 | Module | Lines | Responsibility |
 |---|---|---|
-| `bot_autopilot_http.py` | ~219 | `fetch_state`, `_post_intent` / `_post_assist` / `_post_build` / `_post_deposit` / `_post_craft` / `_post_install_module` / `_post_place_qwi` / `_post_use_quick_use` / `_post_equip_consumables`, `_ensure_game_focused` window-focus helper |
+| `bot_autopilot_http.py` | ~219 | `fetch_state`, `_post_build_starter_base` / `_post_craft` / `_post_install_module` / `_post_deposit_to_station` / `_post_use_quick_use` / `_post_equip_consumables` / `_post_place_qwi`, `_ensure_game_focused` window-focus helper |
 | `bot_autopilot_targeting.py` | ~659 | `_nearest_asteroid` / `_nearest_alien` / `_nearest_pickup` selectors with edge-skip pre-filters, blacklist wrappers, `_record_position` + `_detect_stuck`, `_wall_pin_trap_active` + `_maybe_force_wall_pin_escape`, station info helpers, iron / blueprint deposit predicates, `_qwi_ready_to_build`, queue-target helpers |
 | `bot_autopilot_movement.py` | ~351 | `_do_goto` / `_do_hold_distance` / `_do_spiral_search`, `_do_mine_nearest` / `_do_attack_nearest` / `_do_engage_boss` / `_do_retreat`, `_do_cycle_weapon` + `_ensure_weapon`, top-level `execute_intent` dispatch |
 | `bot_autopilot_actions_station.py` | ~328 | Station `_act_*` handlers: `_act_build_seek`, `_act_deposit`, `_act_craft`, `_act_install`, `_act_build`, `_act_at_station`, `_act_equip_consumables`, `_act_build_qwi` |
