@@ -43,7 +43,10 @@ Space Survivalcraft/
 ├── constants.py             # tuned values + asset paths
 ├── settings.py              # global audio/video/config singleton
 ├── game_view.py             # GameView -- thin dispatcher
-├── update_logic.py          # per-frame update phases
+├── update_logic.py          # per-frame update phases (orchestrator)
+├── update_audio.py          # play-sound monkey-patch + finished-player sweep
+├── update_blade.py          # lightsabre / pickaxe blade ensure + AOE
+├── update_boss.py           # Zone 1 boss + Nebula boss per-frame update
 ├── draw_logic.py            # per-frame draw phases
 ├── input_handlers.py        # keyboard + mouse routing
 ├── collisions.py            # every collision handler
@@ -78,16 +81,30 @@ Space Survivalcraft/
 │   ├── projectile.py, missile.py, building.py
 │   ├── force_wall.py, wormhole.py, gas_area.py
 │   ├── null_field.py, slipspace.py
-│   ├── drone.py             # MiningDrone + CombatDrone + WaypointPlanner client
+│   ├── drone.py             # re-export shim (MiningDrone + CombatDrone + helpers)
+│   ├── drone_base.py        # _BaseDrone + WaypointPlanner client + tooltip helpers
+│   ├── drone_mining.py      # MiningDrone
+│   ├── drone_combat.py      # CombatDrone
 │   ├── parked_ship.py       # multi-ship + AI pilot
 │   ├── melee.py             # MeleeBlade -- per-faction lightsabre
 │   └── npc_ship.py          # RefugeeNPCShip
 │
 ├── zones/                   # MainZone, Zone2, StarMazeZone, warp variants
 │   ├── maze_geometry.py     # rooms + A* + WaypointPlanner
-│   └── nebula_shared.py     # content shared by Zone 2 + Star Maze
+│   ├── nebula_shared.py     # content shared by Zone 2 + Star Maze
+│   ├── star_maze_walls.py   # wall sprite build + 7 wall-collision helpers
+│   └── star_maze_spawning.py # maze gen + entourage / stalker / spawner helpers
 │
-└── bot_*.py                 # bot stack -- see docs/bot.md
+├── bot_autopilot.py                  # FSM orchestrator + state
+├── bot_autopilot_actions_combat.py   # combat _act_* handlers
+├── bot_autopilot_actions_station.py  # station _act_* handlers
+├── bot_autopilot_movement.py         # _do_* movement helpers
+├── bot_autopilot_targeting.py        # selectors, blacklists, station info
+├── bot_autopilot_http.py             # HTTP client + window focus
+├── bot_autopilot_navigation.py       # potential field, escape, geometry
+├── bot_autopilot_blacklist.py        # pickup/asteroid blacklist core
+├── bot_autopilot_telemetry.py        # JSONL writer + snapshot
+└── bot_api.py + bot_combat_assist.py + bot_builder.py + bot_kickoff.py
 ```
 
 ## Tests
@@ -142,6 +159,30 @@ performance threshold patterns, etc).
   reflex aim + fire; `bot_autopilot.py` polls /state at 10 Hz
   and dispatches keystrokes.  `bot_kickoff.py` wires it all
   up.  Full guide: `docs/bot.md`.
+* **Bot autopilot helper-module split** -- the orchestrator
+  (`bot_autopilot.py`) holds constants + `BotState` + FSM
+  (`_choose_next_state` / `_on_enter` / `_do_auto`) + `main`.
+  Topical helpers (`bot_autopilot_http`, `_targeting`,
+  `_movement`, `_actions_station`, `_actions_combat`) each
+  `import bot_autopilot as _ap` and qualify cross-references
+  as `_ap.X` so test-time monkey-patching of `_ap` symbols
+  still threads through.  The orchestrator re-exports every
+  moved symbol at the bottom so `bot_autopilot.X` imports
+  stay valid.
+* **Class-method delegate pattern (StarMazeZone)** -- large
+  class methods extracted to module-level functions in
+  `zones/star_maze_walls.py` (wall build + 7 collision
+  helpers) and `zones/star_maze_spawning.py` (maze gen +
+  entourage / stalker / spawner helpers).  The class methods
+  stay defined as one-line delegates calling the helper with
+  `self` as first arg, so external callers still see methods
+  on the class.
+* **`sprites/drone.py` re-export shim** -- 44-line shim that
+  re-exports `_BaseDrone` (`drone_base.py`), `MiningDrone`
+  (`drone_mining.py`), `CombatDrone` (`drone_combat.py`), and
+  the tooltip helpers, so existing
+  `from sprites.drone import MiningDrone` imports keep
+  working after the split.
 
 ## Asset sources
 

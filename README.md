@@ -123,7 +123,10 @@ Space Survivalcraft/
 ├── building_manager.py  # Building placement, destruction, ports
 ├── ship_manager.py      # Ship upgrade, placement, switching (extracted)
 ├── draw_logic.py        # World and UI rendering
-├── update_logic.py      # 11 update sub-functions
+├── update_logic.py      # Per-frame update orchestrator
+├── update_audio.py      # play-sound monkey-patch + finished-player sweep
+├── update_blade.py      # Lightsabre / pickaxe blade ensure + AOE
+├── update_boss.py       # Zone 1 boss + Nebula boss per-frame update
 ├── input_handlers.py    # Keyboard and mouse event handling
 ├── game_save.py         # Save/load with zone-aware serialization helpers
 ├── game_music.py        # Music and video playback management
@@ -176,11 +179,14 @@ Space Survivalcraft/
 │   ├── null_field.py, slipspace.py
 │   ├── nebula_boss.py   # NebulaBoss (gas + cone attacks)
 │   ├── maze_alien.py, maze_spawner.py  # Star Maze enemies
+│   ├── drone.py         # Re-export shim
+│   ├── drone_base.py, drone_mining.py, drone_combat.py  # _BaseDrone + variants
 │   ├── parked_ship.py   # ParkedShip (multi-ship + AI pilot)
 │   └── npc_ship.py      # RefugeeNPCShip (story encounter)
 ├── zones/               # Zone state machine — MainZone, Zone2,
 │                        # StarMazeZone, 4 warp zones × 3 variants,
-│                        # zone2_world.py, maze_geometry.py, nebula_shared.py
+│                        # zone2_world.py, maze_geometry.py, nebula_shared.py,
+│                        # star_maze_walls.py, star_maze_spawning.py
 ├── unit tests/          # 906 fast tests + ~378 integration tests
 ├── docs/                # Full game documentation
 ├── characters/          # Character videos and portraits
