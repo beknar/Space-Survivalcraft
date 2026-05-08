@@ -265,12 +265,23 @@ queue between mining runs:
    iron) rather than the indefinite mining loop.  Falls through
    when an asteroid is in range and station iron is below the
    target.
-6. **Build QWI** (`S_BUILD_QWI`) — station iron staged: the bot
-   navigates to the Home Station and `POST /place_qwi`.  The QWI's
-   placement chain auto-spawns the Double Star boss at the world
-   corner furthest from the station (`combat_helpers.spawn_boss`).
-   Latches `_state.qwi_placed` on success; from there the existing
-   `S_ENGAGE_BOSS` handler takes over the fight.
+6. **Fortify** (`S_FORTIFY`) — station iron staged: the bot
+   navigates to the Home Station and `POST /fortify`, which drops
+   the 4-turret defensive ring (N / S cardinals + NW / SE corners)
+   anchored on the Home Station.  Combined with the 2 starter
+   turrets at NE / SW, the cluster reaches the bumped
+   `QWI_STAGE_MIN_TURRETS=6` so the next FSM tick clears the
+   `_qwi_ready_to_build` gate.  Latches `_state.fortify_done` on
+   success or "ring already complete" (idempotent — manual
+   placement / loaded saves short-circuit at the top of
+   `_choose_next_state`).
+7. **Build QWI** (`S_BUILD_QWI`) — fortify done + station iron
+   still staged: the bot navigates to the Home Station and
+   `POST /place_qwi`.  The QWI's placement chain auto-spawns the
+   Double Star boss at the world corner furthest from the station
+   (`combat_helpers.spawn_boss`).  Latches `_state.qwi_placed` on
+   success; from there the existing `S_ENGAGE_BOSS` handler takes
+   over the fight.
 
 **Per-tick consumable auto-use** (`_maybe_use_consumables`).  Runs
 **before** the FSM dispatch every tick so the response is
@@ -351,7 +362,7 @@ tunable via a constant near the top of `bot_autopilot.py`:
 
 | # | Choice | Where |
 |---|---|---|
-| 1 | **Pre-trigger staging gate** — `_qwi_ready_to_build(state)` predicate.  Returns `(False, reason)` until a Home Station + at least `QWI_STAGE_MIN_TURRETS` (default 2) Defense Turret / Turret 2 / Missile Array are placed, and the ship has been upgraded to `QWI_STAGE_MIN_SHIP_LEVEL` (default 2).  Future build sequences that auto-place the QWI must call this first — the spawn flag is one-shot. | `bot_autopilot.py` |
+| 1 | **Pre-trigger staging gate** — `_qwi_ready_to_build(state)` predicate.  Returns `(False, reason)` until a Home Station + at least `QWI_STAGE_MIN_TURRETS` (default 6: 2 starter + 4 fortify) Defense Turret / Turret 2 / Missile Array are placed, and the ship has been upgraded to `QWI_STAGE_MIN_SHIP_LEVEL` (default 2).  The S_FORTIFY phase brings the cluster to that count automatically before BUILD_QWI fires; the spawn flag is one-shot. | `bot_autopilot.py` |
 | 2 | **Station-anchor kite** — when a Home Station exists, the kite target is pulled to the side of the boss closest to the station so friendly turret + missile DPS overlaps the bot's Basic Laser line.  Tether: `BOSS_KITE_STATION_TETHER_PX` (default 600 px). | `_act_engage_boss` |
 | 3 | **Phase-aware behavior** — Phase 2: when `boss.charging` or `boss.charge_windup > 0`, displace the kite target by `BOSS_DODGE_PERP_PX` (250 px) perpendicular to the boss-to-bot vector.  Sign alternates with windup time so back-to-back charges don't lock to one side.  Phase 3: drop the kite range to `BOSS_PHASE3_PRESS_RANGE_PX` (600 px) — boss has no shield regen, so press the DPS. | `_act_engage_boss` |
 | 4 | **REGEN escape valve** — reuses the existing entry-side mirror + in-REGEN escape valve.  Shield collapse during a boss kite drops the bot to S_REGEN; the entry-side mirror prevents thrash with ENGAGE_BOSS the same way it does with ENGAGE. | `_choose_next_state` |

@@ -97,6 +97,42 @@ EXTENSION_SEQUENCE: list[tuple[str, float, float]] = [
     ("Basic Crafter",   120.0, _STARTER_BASE_OFFSET_Y +   60.0),
 ]
 
+# Fortify phase — fills in 4 more Turret 2 slots around the Home
+# Station to complete the defensive ring before the QWI is placed.
+# Combined with the 2 starter turrets at NE/SW corners, this brings
+# the total to 6 (matching ``QWI_STAGE_MIN_TURRETS``).
+#
+# Offsets here are HS-relative (NOT player-relative): the fortify
+# phase fires long after the starter base has been built and the
+# player ship has moved away, so these are translated through the
+# Home Station's centre at placement time, not the player's.
+#
+# Geometry rationale (radial 290 px for cardinals + 300 px exact for
+# intercardinal corners):
+# * N/S cardinals at 290 are inside the 300 px free-place limit, do
+#   not collide with the north chain (closest is Solar Array 2 at
+#   200; gap 90), and leave the QWI's preferred S candidate at -200
+#   completely clear (gap 90 to fortify S).
+# * NW/SE intercardinal corners at R/√2 mirror the starter base's
+#   NE/SW so the eight 45° slots are fully populated.
+# * The QWI's S-first placement order ensures placement still
+#   succeeds — even the broken case where S is briefly blocked falls
+#   back through E (open: fortify uses the cardinal AT 290, but the
+#   QWI candidate is at 280 so collision blocks N only) and W (open).
+_TURRET_CARDINAL_OFFSET: float = _TURRET_R - 10.0  # 290 px
+FORTIFY_SEQUENCE: list[tuple[str, float, float]] = [
+    # North cardinal — beyond the Solar Array 2 cap of the north
+    # extension chain.
+    ("Turret 2",  0.0,                          _TURRET_CARDINAL_OFFSET),
+    # South cardinal — empty quadrant; clears the QWI's S candidate
+    # at HS_y - 200 by 90 px.
+    ("Turret 2",  0.0,                         -_TURRET_CARDINAL_OFFSET),
+    # NW corner — mirrors the starter's NE corner.
+    ("Turret 2", -_TURRET_DIAG_OFFSET,          _TURRET_DIAG_OFFSET),
+    # SE corner — mirrors the starter's SW corner.
+    ("Turret 2",  _TURRET_DIAG_OFFSET,         -_TURRET_DIAG_OFFSET),
+]
+
 
 # ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -120,15 +156,25 @@ def _has_home_station(gv: Any) -> bool:
 def _place_sequence(
         gv: Any,
         sequence: list[tuple[str, float, float]],
+        anchor: tuple[float, float] | None = None,
         ) -> tuple[list[dict], list[dict]]:
     """Walk ``sequence`` and call building_manager for each entry.
-    Returns ``(placed, failed)`` lists.  Used by both Phase 1
-    (starter base) and Phase 3 (extension)."""
+    Returns ``(placed, failed)`` lists.  Used by Phase 1 (starter
+    base), Phase 3 (extension), and the fortify phase.
+
+    ``anchor`` overrides the default (player position) reference
+    used to translate each (dx, dy) offset into world coordinates.
+    Fortify uses the Home Station centre as the anchor because it
+    fires long after the player ship has moved away from the
+    initial build site."""
     from constants import BUILDING_TYPES
     import building_manager as bm
 
-    px = gv.player.center_x
-    py = gv.player.center_y
+    if anchor is None:
+        px = gv.player.center_x
+        py = gv.player.center_y
+    else:
+        px, py = anchor
     placed: list[dict] = []
     failed: list[dict] = []
 
@@ -434,6 +480,69 @@ def equip_consumables_to_quick_use(
         "shield_slot": int(shield_slot),
         "ship_repair_total": rp_total,
         "ship_shield_total": sr_total,
+    }
+
+
+def fortify_base_defenses(gv: Any) -> dict:
+    """Place the 4-turret fortify ring around the Home Station to
+    complete the defensive umbrella before the QWI is placed.
+
+    Anchored on the active Home Station's centre (NOT the player's
+    position) — by the time this fires, the player ship has typically
+    moved away from the initial build site, so the player anchor used
+    by ``build_starter_base`` doesn't apply.
+
+    Idempotent: counts existing Turret 2 / Defense Turret / Missile
+    Array entries and short-circuits with ``skipped`` when the cluster
+    already has at least the QWI staging minimum.  Per-position
+    placements that hit a collision (e.g. the user has manually
+    placed turrets at those exact spots) end up in ``failed``, but
+    don't abort the rest of the sequence — same shape as
+    ``build_starter_base``.
+
+    Returns ``{"ok": True, "placed": [...], "failed": [...]}`` on
+    success or ``{"ok": False, "reason": ...}`` when there's no
+    Home Station to anchor on.
+    """
+    if not _has_home_station(gv):
+        return {"ok": False, "reason": "no home station"}
+
+    home = None
+    for b in gv.building_list:
+        if getattr(b, "building_type", None) == "Home Station" \
+                and not getattr(b, "disabled", False):
+            home = b
+            break
+    if home is None:
+        return {"ok": False, "reason": "no active home station"}
+
+    # Idempotent short-circuit: if the cluster already has the full
+    # ring (e.g. loaded save, prior session, manual placement), skip
+    # placement and report so the FSM can latch ``fortify_done``.
+    defenders = sum(
+        1 for b in gv.building_list
+        if getattr(b, "building_type", None) in (
+            "Defense Turret", "Turret 2", "Missile Array"))
+    if defenders >= len(FORTIFY_SEQUENCE) + 2:  # 2 starter + N fortify
+        return {
+            "ok": True,
+            "placed": [],
+            "failed": [],
+            "skipped": "ring already complete",
+            "defenders_now": defenders,
+        }
+
+    hx = float(home.center_x)
+    hy = float(home.center_y)
+    placed, failed = _place_sequence(gv, FORTIFY_SEQUENCE, anchor=(hx, hy))
+    return {
+        "ok": True,
+        "placed": placed,
+        "failed": failed,
+        "defenders_now": sum(
+            1 for b in gv.building_list
+            if getattr(b, "building_type", None) in (
+                "Defense Turret", "Turret 2", "Missile Array")),
     }
 
 

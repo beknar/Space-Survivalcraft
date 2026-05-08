@@ -587,6 +587,106 @@ def test_place_qwi_calls_placement_chain_for_south_offset(monkeypatch):
     assert ("enter", "Quantum Wave Integrator") in placements
 
 
+# ── Fortify defense ring ──────────────────────────────────────────────────
+
+
+def test_fortify_sequence_is_four_turret_2_entries():
+    """The fortify ring is exactly 4 ``Turret 2`` entries — combined
+    with the 2 starter turrets at NE/SW corners that brings the
+    cluster to ``QWI_STAGE_MIN_TURRETS=6``."""
+    types = [bt for (bt, _, _) in bot_builder.FORTIFY_SEQUENCE]
+    assert types == ["Turret 2", "Turret 2", "Turret 2", "Turret 2"]
+    assert len(bot_builder.FORTIFY_SEQUENCE) == 4
+
+
+def test_fortify_offsets_are_inside_free_place_radius():
+    """Every fortify offset must be within the
+    ``TURRET_FREE_PLACE_RADIUS`` (300 px) limit enforced by
+    ``input_handlers``; otherwise placement would be rejected."""
+    import math
+    from constants import TURRET_FREE_PLACE_RADIUS
+    for bt, dx, dy in bot_builder.FORTIFY_SEQUENCE:
+        d = math.hypot(dx, dy)
+        assert d <= TURRET_FREE_PLACE_RADIUS + 0.01, (
+            f"fortify {bt} at ({dx:.0f}, {dy:.0f}) is "
+            f"{d:.1f} px from HS — outside the {TURRET_FREE_PLACE_RADIUS} "
+            f"px free-place limit.")
+
+
+def test_fortify_returns_failure_without_home_station():
+    gv = SimpleNamespace(building_list=[])
+    result = bot_builder.fortify_base_defenses(gv)
+    assert result["ok"] is False
+    assert "no home station" in result["reason"]
+
+
+def test_fortify_short_circuits_when_ring_already_complete():
+    """If the cluster already has 6+ defenders (manual placement,
+    loaded save), fortify returns ``ok=True`` with a ``skipped``
+    field so the FSM latches ``fortify_done`` without re-placing."""
+    home = SimpleNamespace(
+        building_type="Home Station", disabled=False,
+        center_x=3200.0, center_y=3200.0)
+    turrets = [SimpleNamespace(building_type="Turret 2",
+                               center_x=3200.0 + i * 10.0,
+                               center_y=3200.0)
+               for i in range(6)]
+    gv = SimpleNamespace(building_list=[home, *turrets])
+    result = bot_builder.fortify_base_defenses(gv)
+    assert result["ok"] is True
+    assert result["placed"] == []
+    assert "already complete" in result.get("skipped", "")
+    assert result["defenders_now"] == 6
+
+
+def test_fortify_anchors_on_home_station_not_player(monkeypatch):
+    """Placement offsets translate through the Home Station's
+    centre, NOT the player position — fortify fires long after the
+    starter base, when the player ship has typically moved
+    elsewhere."""
+    home = SimpleNamespace(
+        building_type="Home Station", disabled=False,
+        center_x=3200.0, center_y=3200.0)
+    # Player far from station to make the anchor mistake obvious if
+    # it regresses.
+    gv = SimpleNamespace(
+        building_list=[home],
+        player=SimpleNamespace(center_x=1000.0, center_y=1000.0))
+
+    placements: list = []
+
+    def fake_enter(g, bt):
+        placements.append(("enter", bt))
+
+    def fake_place(g, wx, wy):
+        placements.append(("place", round(wx, 1), round(wy, 1)))
+        g.building_list.append(
+            SimpleNamespace(building_type="Turret 2",
+                            center_x=wx, center_y=wy))
+
+    import building_manager
+    monkeypatch.setattr(building_manager, "enter_placement_mode",
+                        fake_enter)
+    monkeypatch.setattr(building_manager, "place_building", fake_place)
+    result = bot_builder.fortify_base_defenses(gv)
+    assert result["ok"] is True
+    assert len(result["placed"]) == 4
+    # Verify each placement is anchored on HS (3200, 3200), not the
+    # player at (1000, 1000).
+    for entry in placements:
+        if entry[0] == "place":
+            _, wx, wy = entry
+            import math
+            d = math.hypot(wx - 3200.0, wy - 3200.0)
+            assert d < 320.0, (
+                f"placement at ({wx}, {wy}) is {d:.1f} px from HS "
+                f"— should be at most ~300 (free-place limit).")
+            d_from_player = math.hypot(wx - 1000.0, wy - 1000.0)
+            assert d_from_player > 1500.0, (
+                f"placement at ({wx}, {wy}) is suspiciously close "
+                f"to the player at (1000, 1000) — anchor regressed?")
+
+
 # ── Quick-use slot trigger ────────────────────────────────────────────────
 
 

@@ -303,6 +303,36 @@ def _act_equip_consumables(state: dict, p: dict) -> None:
     )
 
 
+def _act_fortify(state: dict, p: dict) -> None:
+    """S_FORTIFY: navigate to the Home Station, then POST /fortify
+    to drop the 4-turret defensive ring (N / S cardinals + NW / SE
+    corners).  Flips ``_state.fortify_done`` on success so the FSM
+    falls through to S_BUILD_QWI on the next tick.  Also flips the
+    latch on the "ring already complete" / "no home station" failure
+    paths so the FSM doesn't loop forever if the user has manually
+    populated the cluster or the station was destroyed."""
+    def _set_latch():
+        _ap._state.fortify_done = True
+
+    _act_at_station(
+        state, p,
+        label="FORTIFY",
+        post_fn=_ap._post_fortify,
+        on_success_log=lambda r: (
+            f"placed={len(r.get('placed', []))} "
+            f"failed={len(r.get('failed', []))} "
+            f"defenders_now={r.get('defenders_now', '?')}"),
+        latch_setter=_set_latch,
+        # The bot_builder helper returns "ring already complete"
+        # when the cluster is already at the staging minimum, and
+        # "no home station" / "no active home station" when there's
+        # nothing to anchor on — both should latch so the FSM
+        # advances rather than retrying every tick.
+        latch_failure_keywords=("already complete", "no home",
+                                "no active home"),
+    )
+
+
 def _act_build_qwi(state: dict, p: dict) -> None:
     """S_BUILD_QWI: navigate to the Home Station, then POST
     /place_qwi.  Auto-spawns the Double Star boss on success.  Flips
