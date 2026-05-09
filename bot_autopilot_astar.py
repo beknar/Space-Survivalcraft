@@ -284,8 +284,52 @@ def _smooth(waypoints: list[tuple[float, float]],
 
 # ── Public API ─────────────────────────────────────────────────────────
 
+def _nearest_free_cell(goal: tuple[int, int],
+                       blocked: set[tuple[int, int]],
+                       grid_w: int, grid_h: int,
+                       max_radius_cells: int
+                       ) -> tuple[int, int] | None:
+    """Find the free grid cell closest (by octile distance) to
+    ``goal``, scanning outward up to ``max_radius_cells``.  Used
+    when the literal goal cell is blocked but the caller's intent
+    is to be *near* the goal (docking actions with a stop_radius).
+
+    Returns ``None`` if every cell within the search radius is
+    either blocked or out of bounds.
+    """
+    if max_radius_cells <= 0:
+        return None
+    # Breadth-first ring expansion: r=1 first, then r=2, ...
+    # Within each ring we pick the cell with smallest Euclidean
+    # distance to the literal goal so the chosen waypoint is the
+    # most natural "approach point".
+    for r in range(1, max_radius_cells + 1):
+        best = None
+        best_dist_sq = float("inf")
+        for dx in range(-r, r + 1):
+            for dy in range(-r, r + 1):
+                # Only consider the ring perimeter on this iteration;
+                # interior rings were searched in earlier passes.
+                if abs(dx) != r and abs(dy) != r:
+                    continue
+                cx = goal[0] + dx
+                cy = goal[1] + dy
+                if not (0 <= cx < grid_w and 0 <= cy < grid_h):
+                    continue
+                if (cx, cy) in blocked:
+                    continue
+                d_sq = dx * dx + dy * dy
+                if d_sq < best_dist_sq:
+                    best_dist_sq = d_sq
+                    best = (cx, cy)
+        if best is not None:
+            return best
+    return None
+
+
 def plan_path(state: dict, sx: float, sy: float, gx: float, gy: float,
-              cell_px: int = ASTAR_CELL_PX
+              cell_px: int = ASTAR_CELL_PX,
+              goal_radius_px: float = 0.0
               ) -> list[tuple[float, float]]:
     """Plan a path from ``(sx, sy)`` to ``(gx, gy)`` through the
     building-blocked grid built from ``state``.  Returns a list of
@@ -295,7 +339,26 @@ def plan_path(state: dict, sx: float, sy: float, gx: float, gy: float,
     callers walk the list head-first; ``result[0]`` is the immediate
     waypoint to navigate toward, ``result[-1]`` is the final goal.
 
-    Returns ``[]`` if the goal cell is blocked or no path exists.
+    Returns ``[]`` if the goal cell is blocked AND no free cell
+    within ``goal_radius_px`` of the goal is reachable, OR if no
+    path exists at all.
+
+    ``goal_radius_px > 0`` switches the planner from strict
+    cell-exact reachability to *near*-the-goal reachability — when
+    the goal cell itself is blocked (e.g. the bot is asked to dock
+    with a building, whose centre is necessarily inside a blocked
+    cell), the planner finds the nearest free cell within the
+    radius and plans a path to that cell instead, with the literal
+    goal still appearing as the final waypoint so the bot's stop-
+    radius arrival logic engages naturally.  Used by docking
+    actions (``_act_at_station``, install/craft/deposit) where the
+    intent is "be within stop_radius of the building", not "stand
+    on the building".
+
+    Pickup / asteroid reachability checks pass
+    ``goal_radius_px = 0`` (the default) and keep the strict
+    behaviour: a target wedged inside a building cell is treated
+    as unreachable so the FSM can blacklist it.
 
     Tolerates the bot drifting into the safety margin: the start
     cell's "blocked" status is ignored so a bot that slipped into
@@ -309,9 +372,22 @@ def plan_path(state: dict, sx: float, sy: float, gx: float, gy: float,
     # by removing only the start cell's block.
     blocked.discard(start)
 
+    # Goal-cell-blocked relaxation for docking actions.  The literal
+    # goal stays in ``world_wp[-1]`` regardless — only the A* pathing
+    # target is shifted to a nearby free cell.
+    if goal in blocked:
+        if goal_radius_px <= 0.0:
+            return []
+        radius_cells = int(math.ceil(goal_radius_px / cell_px))
+        free = _nearest_free_cell(goal, blocked, grid_w, grid_h,
+                                  radius_cells)
+        if free is None:
+            return []
+        goal = free
+
     if start == goal:
-        # Already in the goal cell — the only waypoint is the
-        # precise goal point.
+        # Already in the (possibly relaxed) goal cell — the only
+        # waypoint is the precise literal goal point.
         return [(gx, gy)]
 
     cell_path = _astar(start, goal, blocked, grid_w, grid_h)
@@ -336,12 +412,18 @@ def plan_path(state: dict, sx: float, sy: float, gx: float, gy: float,
 
 def target_reachable(state: dict, sx: float, sy: float,
                      gx: float, gy: float,
-                     cell_px: int = ASTAR_CELL_PX) -> bool:
+                     cell_px: int = ASTAR_CELL_PX,
+                     goal_radius_px: float = 0.0) -> bool:
     """Convenience predicate.  Returns ``True`` iff
-    ``plan_path(state, sx, sy, gx, gy)`` returns a non-empty list.
+    ``plan_path(state, sx, sy, gx, gy, goal_radius_px=...)``
+    returns a non-empty list.
 
     Used by action handlers (``_act_gather``, ``_act_mine``) to
     blacklist genuinely unreachable targets BEFORE the bot pins
     against the cluster's repulsion field for tens of seconds.
+    Default ``goal_radius_px=0`` keeps strict cell-exact
+    semantics; pass a positive value to relax to "reachable
+    within radius" semantics for docking-style intents.
     """
-    return bool(plan_path(state, sx, sy, gx, gy, cell_px))
+    return bool(plan_path(state, sx, sy, gx, gy,
+                          cell_px, goal_radius_px))

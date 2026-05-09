@@ -72,8 +72,13 @@ def _do_goto(state: dict, p: dict, tx: float, ty: float,
 
     # A* routing first — when the straight line is blocked, follow
     # the planned waypoint chain instead of fighting the building-
-    # repulsion field.
-    astar_wp = _ap._astar_next_waypoint(state, px, py, tx, ty)
+    # repulsion field.  ``stop_radius`` is forwarded so docking
+    # actions (large stop_radius, target = building cell) plan to a
+    # nearby free cell rather than reporting the building as
+    # unreachable and falling through to direct-goto, which would
+    # deadlock against the dock-zone repulsion field.
+    astar_wp = _ap._astar_next_waypoint(state, px, py, tx, ty,
+                                        stop_radius_px=stop_radius)
     if astar_wp == "unreachable":
         # Goal cell is blocked or unreachable — caller's stuck-
         # detect / blacklist machinery will handle abandoning the

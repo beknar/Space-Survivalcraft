@@ -986,11 +986,16 @@ ASTAR_WAYPOINT_REACHED_PX:    float = 80.0
 
 
 def _astar_plan_path(state: dict, sx: float, sy: float,
-                     gx: float, gy: float) -> list:
+                     gx: float, gy: float,
+                     goal_radius_px: float = 0.0) -> list:
     """Thin wrapper around ``_astar.plan_path`` so test harnesses
     can monkey-patch the planner without touching the underlying
-    module.  Returns the same list of (x, y) waypoints (or [])."""
-    return _astar.plan_path(state, sx, sy, gx, gy)
+    module.  Returns the same list of (x, y) waypoints (or []).
+
+    ``goal_radius_px`` is forwarded so docking actions can plan to
+    a nearby free cell when the literal goal cell is a building."""
+    return _astar.plan_path(state, sx, sy, gx, gy,
+                            goal_radius_px=goal_radius_px)
 
 
 def _astar_invalidate_path() -> None:
@@ -1003,11 +1008,24 @@ def _astar_invalidate_path() -> None:
 
 
 def _astar_next_waypoint(state: dict, sx: float, sy: float,
-                         gx: float, gy: float):
+                         gx: float, gy: float,
+                         stop_radius_px: float = 0.0):
     """Return the next ``(wx, wy)`` waypoint along an A* path from
     ``(sx, sy)`` to ``(gx, gy)``, OR ``None`` to indicate the
     direct path is fine, OR the sentinel string ``"unreachable"``
     when no path exists.
+
+    ``stop_radius_px`` is the goto's ``stop_radius`` argument: when
+    > 0 it relaxes the planner from "reach the literal goal cell"
+    to "reach within stop_radius of the goal".  Critical for
+    docking actions where the literal goal is a building cell
+    (necessarily blocked); without the relaxation A* always
+    reports the docking target as unreachable and the bot falls
+    back to direct-goto, which deadlocks against building-
+    repulsion at the dock-zone perimeter (caught from
+    2026-05-08 telemetry: bot pinned at (468, 4304) hs_dist=318
+    in both ``deposit`` and ``craft`` states with the new fortify-N
+    turret blocking the north-side approach).
 
     Uses ``_state.path_*`` as a cache so a stable target reuses the
     same plan across ticks.  Replans when the target drifts more
@@ -1041,7 +1059,8 @@ def _astar_next_waypoint(state: dict, sx: float, sy: float,
         or (now - _state.path_planned_at) > ASTAR_REPLAN_TTL_S
     )
     if needs_replan:
-        wp = _astar_plan_path(state, sx, sy, gx, gy)
+        wp = _astar_plan_path(state, sx, sy, gx, gy,
+                              goal_radius_px=stop_radius_px)
         if not wp:
             _astar_invalidate_path()
             return "unreachable"

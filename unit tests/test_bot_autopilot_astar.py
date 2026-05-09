@@ -256,3 +256,153 @@ class TestTargetReachable:
         # (200 px) but should still be reachable via the open world.
         assert astar.target_reachable(
             s, 3200.0, 3200.0, 50.0, 50.0) is True
+
+
+# ── goal_radius_px relaxation (docking actions) ──────────────────────
+
+class TestGoalRadiusRelaxation:
+    """Pins the dock-radius relaxation: when ``goal_radius_px > 0``
+    and the literal goal cell is blocked, ``plan_path`` finds the
+    closest free cell within the radius and plans to it.  Caught
+    from 2026-05-08 telemetry: bot pinned at (468, 4304) hs_dist=
+    318 in both ``deposit`` and ``craft`` states because A* reported
+    the HS center cell as unreachable (it IS a building cell) and
+    ``_do_goto`` fell through to direct goto, which deadlocked
+    against the new fortify-N turret's repulsion field."""
+
+    def test_strict_default_returns_empty_for_blocked_goal(self):
+        """Without ``goal_radius_px`` the strict semantics still
+        apply — a target wedged in a building is unreachable."""
+        s = _state(buildings=[_hs(3200.0, 3200.0)])
+        wp = astar.plan_path(s, 1000.0, 3200.0, 3200.0, 3200.0)
+        assert wp == []
+
+    def test_dock_radius_relaxation_finds_nearby_path(self):
+        """With ``goal_radius_px=200``, a goal in a building cell
+        gets relaxed to a nearby free cell — the bot can plan a
+        path that ends within stop-radius of the building."""
+        s = _state(buildings=[_hs(3200.0, 3200.0)])
+        wp = astar.plan_path(s, 1000.0, 3200.0, 3200.0, 3200.0,
+                             goal_radius_px=200.0)
+        assert len(wp) > 0
+        # Final waypoint preserves the literal goal (so the bot's
+        # stop-radius arrival logic engages naturally).
+        assert wp[-1] == pytest.approx((3200.0, 3200.0))
+
+    def test_radius_too_small_still_returns_empty(self):
+        """If every cell within ``goal_radius_px`` of the goal is
+        also blocked (e.g. a tight cluster surrounding the goal),
+        the relaxation can't find a free cell — returns []."""
+        # Build a 3×3 cluster around (3200, 3200) so every
+        # radius-1 ring cell sits within block radius of some
+        # building.  The ring spans cell offsets ±1, i.e. world
+        # coords (3120-3280, 3120-3280) — packing 9 buildings
+        # ~60 px apart blankets that area.
+        cluster = []
+        for dx in (-60, 0, 60):
+            for dy in (-60, 0, 60):
+                cluster.append(_hs(3200.0 + dx, 3200.0 + dy))
+        s = _state(buildings=cluster)
+        # Even with 80 px (one ring cell) of radius the relaxation
+        # finds no free cell — every neighbour is blocked.
+        wp = astar.plan_path(s, 1000.0, 3200.0, 3200.0, 3200.0,
+                             goal_radius_px=80.0)
+        assert wp == []
+
+    def test_telemetry_dock_scenario_resolves(self):
+        """2026-05-08 telemetry replay: bot at (468, 4304)
+        targeting HS at (389, 3990) with full station cluster +
+        fortify ring.  Without dock-radius relaxation the planner
+        returns [] (HS center is in a building cell) and the bot
+        deadlocks at the fortify-N repulsion field.  With the 200
+        px relaxation (matching ``INSTALL_INTERACT_RANGE_PX * 0.8``)
+        the planner must return a non-empty path so the bot can
+        approach from a clear direction."""
+        # Reproduce the cluster: HS + extension chain + 6 turrets.
+        cluster = [
+            _hs(389.0, 3990.0),                              # Home Station
+            {"x": 389.0, "y": 4050.0, "building_type": "Service Module"},
+            {"x": 389.0, "y": 4110.0, "building_type": "Power Receiver"},
+            {"x": 389.0, "y": 4190.0, "building_type": "Solar Array 2"},
+            {"x": 449.0, "y": 4050.0, "building_type": "Repair Module"},
+            {"x": 509.0, "y": 4050.0, "building_type": "Basic Crafter"},
+            {"x": 329.0, "y": 3990.0, "building_type": "Service Module"},
+            {"x": 269.0, "y": 3990.0, "building_type": "Power Receiver"},
+            {"x": 189.0, "y": 3990.0, "building_type": "Solar Array 2"},
+            {"x": 601.0, "y": 4202.0, "building_type": "Turret 2"},  # Starter NE
+            {"x": 177.0, "y": 3778.0, "building_type": "Turret 2"},  # Starter SW
+            {"x": 389.0, "y": 4280.0, "building_type": "Turret 2"},  # Fortify N
+            {"x": 389.0, "y": 3700.0, "building_type": "Turret 2"},  # Fortify S
+            {"x": 177.0, "y": 4202.0, "building_type": "Turret 2"},  # Fortify NW
+            {"x": 601.0, "y": 3778.0, "building_type": "Turret 2"},  # Fortify SE
+        ]
+        s = _state(buildings=cluster)
+        # Strict mode: returns [] (HS center is blocked).
+        strict = astar.plan_path(s, 468.0, 4304.0, 389.0, 3990.0)
+        assert strict == [], (
+            "Strict A* must report HS center unreachable so "
+            "the test scenario actually exercises the relaxation.")
+        # Dock mode: finds a free cell within 200 px and plans to it.
+        relaxed = astar.plan_path(
+            s, 468.0, 4304.0, 389.0, 3990.0, goal_radius_px=200.0)
+        assert len(relaxed) > 0, (
+            "Dock-radius relaxation must find a path so the bot "
+            "can approach HS from a clear direction.")
+        assert relaxed[-1] == pytest.approx((389.0, 3990.0))
+
+    def test_target_reachable_passes_goal_radius_through(self):
+        """``target_reachable`` forwards ``goal_radius_px`` so the
+        same semantics apply at the FSM level."""
+        s = _state(buildings=[_hs(3200.0, 3200.0)])
+        # Strict: HS center unreachable.
+        assert astar.target_reachable(
+            s, 1000.0, 3200.0, 3200.0, 3200.0) is False
+        # Relaxed: reachable within 200 px.
+        assert astar.target_reachable(
+            s, 1000.0, 3200.0, 3200.0, 3200.0,
+            goal_radius_px=200.0) is True
+
+
+# ── Nearest-free-cell helper ─────────────────────────────────────────
+
+class TestNearestFreeCell:
+    def test_returns_none_when_no_radius(self):
+        assert astar._nearest_free_cell(
+            (10, 10), set(), 80, 80, 0) is None
+
+    def test_finds_immediately_adjacent_when_goal_blocked(self):
+        # All 8 neighbours of (10, 10) are free; goal itself blocked.
+        blocked = {(10, 10)}
+        free = astar._nearest_free_cell(
+            (10, 10), blocked, 80, 80, max_radius_cells=2)
+        assert free is not None
+        # Picked from the radius=1 ring.
+        assert max(abs(free[0] - 10), abs(free[1] - 10)) == 1
+
+    def test_returns_none_when_all_blocked(self):
+        # Block goal and every cell within radius 2.
+        blocked = set()
+        for dx in range(-2, 3):
+            for dy in range(-2, 3):
+                blocked.add((10 + dx, 10 + dy))
+        free = astar._nearest_free_cell(
+            (10, 10), blocked, 80, 80, max_radius_cells=2)
+        assert free is None
+
+    def test_picks_smallest_distance_in_outer_ring(self):
+        # Block the entire radius=1 ring; force the helper out to
+        # radius=2.  Among the radius=2 ring, the cardinal cells
+        # (dx² + dy² = 4) are closer than the corners (8), so the
+        # helper must pick a cardinal.
+        blocked = {(10, 10)}
+        for dx in range(-1, 2):
+            for dy in range(-1, 2):
+                blocked.add((10 + dx, 10 + dy))
+        free = astar._nearest_free_cell(
+            (10, 10), blocked, 80, 80, max_radius_cells=2)
+        assert free is not None
+        dx = free[0] - 10
+        dy = free[1] - 10
+        # Picks a cardinal-direction radius-2 cell (one axis is 0).
+        assert dx == 0 or dy == 0
+        assert abs(dx) + abs(dy) == 2
