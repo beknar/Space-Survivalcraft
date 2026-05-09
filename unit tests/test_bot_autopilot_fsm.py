@@ -2557,15 +2557,18 @@ class TestAsteroidChaseDistanceCap:
 
     def test_idle_at_base_giveup_drops_chase_cap(self, _clock):
         """When a Home Station exists and the bot has been parked
-        in S_IDLE_AT_BASE for SEARCH_GIVEUP_S with only out-of-range
-        asteroids visible, the chase cap must drop so the bot
-        commits to a long round trip rather than parking forever.
-        Caught from 2026-05-09 user report: the bot stopped going
-        after asteroids when all enemies were destroyed and only
-        far asteroids (>MAX_ASTEROID_CHASE_PX) remained — section
-        6's giveup gate was originally only checking
-        ``cur == S_SEARCH`` so a station-equipped bot routed to
-        S_IDLE_AT_BASE in section 8 and never escaped."""
+        in S_IDLE_AT_BASE for ``IDLE_AT_BASE_GIVEUP_S`` with only
+        out-of-range asteroids visible, the chase cap must drop so
+        the bot commits to a long round trip rather than parking
+        indefinitely.  Caught from 2026-05-09 user report: the bot
+        stopped going after asteroids when all enemies were
+        destroyed and only far asteroids (>MAX_ASTEROID_CHASE_PX)
+        remained — section 6's giveup gate was originally only
+        checking ``cur == S_SEARCH`` so a station-equipped bot
+        routed to S_IDLE_AT_BASE in section 8 and never escaped.
+        The IDLE-side gate later (2026-05-09 follow-up) was
+        tightened to ``IDLE_AT_BASE_GIVEUP_S`` (10 s) so the
+        observed latency is responsive."""
         ap._state.asteroid_blacklist.clear()
         ap._state.chase_committed = False
         # Far asteroid beyond the chase cap, plus a Home Station
@@ -2586,8 +2589,8 @@ class TestAsteroidChaseDistanceCap:
         # Enter IDLE_AT_BASE on the first tick.
         ap._do_auto(s, s["player"])
         assert ap._fsm["state"] == ap.S_IDLE_AT_BASE
-        # Stay in IDLE for the full giveup window.
-        _clock[0] += ap.SEARCH_GIVEUP_S + ap.MIN_DWELL_S + 0.1
+        # Stay in IDLE for the IDLE-side giveup window.
+        _clock[0] += ap.IDLE_AT_BASE_GIVEUP_S + ap.MIN_DWELL_S + 0.1
         ap._do_auto(s, s["player"])
         # Now the cap drops and MINE fires.
         assert ap._fsm["state"] == ap.S_MINE, (
@@ -2595,6 +2598,62 @@ class TestAsteroidChaseDistanceCap:
             "bot leaves base for a far asteroid instead of "
             "parking indefinitely.")
         assert ap._state.chase_committed is True
+
+    def test_idle_at_base_giveup_does_not_fire_too_early(self, _clock):
+        """The bot must NOT leave IDLE_AT_BASE the very first tick
+        after entering — there's still a brief grace window so a
+        transient scan glitch (e.g. asteroid temporarily out of
+        chase range mid-tick) doesn't ricochet into a long round
+        trip.  The grace window is short
+        (``IDLE_AT_BASE_GIVEUP_S`` = 10 s) but non-zero.  Pins
+        that the threshold isn't accidentally set to 0."""
+        ap._state.asteroid_blacklist.clear()
+        ap._state.chase_committed = False
+        far_x = ap.MAX_ASTEROID_CHASE_PX + 500.0
+        s = _state(
+            asteroids=[{"x": far_x, "y": 0.0, "hp": 100,
+                        "type": "Asteroid"}],
+            buildings=[_hs_building(x=3200.0, y=3200.0)],
+            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+        )
+        ap._state.build_done = True
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_IDLE_AT_BASE
+        # Advance only HALF the IDLE giveup window — bot must stay.
+        _clock[0] += ap.IDLE_AT_BASE_GIVEUP_S * 0.5
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_IDLE_AT_BASE, (
+            "Bot must wait the full IDLE_AT_BASE_GIVEUP_S before "
+            "committing to a far chase — a 0-second threshold "
+            "would ricochet into round trips at every minor "
+            "transient.")
+
+    def test_search_giveup_still_uses_search_threshold(self, _clock):
+        """Splitting the IDLE giveup into its own (tighter)
+        constant must not affect the SEARCH-side path — fresh-game
+        bots without a Home Station route through S_SEARCH and
+        keep the original 60-second giveup.  Pins that
+        ``cur == S_SEARCH`` still uses ``SEARCH_GIVEUP_S``."""
+        ap._state.asteroid_blacklist.clear()
+        ap._state.chase_committed = False
+        far_x = ap.MAX_ASTEROID_CHASE_PX + 500.0
+        # No Home Station — section 8 routes to S_SEARCH.
+        s = _state(asteroids=[
+            {"x": far_x, "y": 0.0, "hp": 100, "type": "Asteroid"}])
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_SEARCH
+        # Advance exactly IDLE_AT_BASE_GIVEUP_S — SEARCH must NOT
+        # commit yet (its threshold is the longer SEARCH_GIVEUP_S).
+        _clock[0] += ap.IDLE_AT_BASE_GIVEUP_S + ap.MIN_DWELL_S + 0.1
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_SEARCH, (
+            "S_SEARCH must keep the original 60 s giveup — the "
+            "10 s IDLE-side threshold is tighter on purpose.")
+        # Advance through the full SEARCH_GIVEUP_S window now.
+        _clock[0] += ap.SEARCH_GIVEUP_S + ap.MIN_DWELL_S + 0.1
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_MINE
 
 
 class TestSpiralAngleAdvanceTuning:
