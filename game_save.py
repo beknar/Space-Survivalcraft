@@ -319,13 +319,24 @@ def _restore_zone2_full(view: GameView, z2_state: dict) -> None:
     # Restore aliens
     _restore_z2_aliens_into(zone, z2_state.get("aliens", []))
 
+    # Read building positions BEFORE regenerating null fields and
+    # slipspaces so the regen knows where the player's Nebula base
+    # is and can keep the re-spawned stealth patches / teleporters
+    # outside the station's exclusion zone.  Without this guard the
+    # deterministic seed-based regen would frequently land a null
+    # field on top of the base, hiding the player's own buildings
+    # behind a stealth patch.  (2026-05-09 user request.)
+    z2_buildings_data = z2_state.get("buildings", []) or []
+    z2_trade_data = z2_state.get("trade_station")
+    z2_building_reject = _building_reject_fn(z2_buildings_data)
+
     # Regenerate null fields deterministically from the world seed —
     # they aren't persisted in the save (no destructible state) but
     # must exist in the live zone or the whole stealth system breaks.
-    _regenerate_null_fields(zone)
+    _regenerate_null_fields(zone, building_reject=z2_building_reject)
     # Same story for slipspaces — no destructible state, regen from
     # seed so the layout is stable across save/load.
-    _regenerate_slipspaces(zone, view)
+    _regenerate_slipspaces(zone, view, building_reject=z2_building_reject)
 
     # Buildings + trade station — when the save was made while the
     # player was outside Zone 2, the player's Nebula base is on
@@ -333,8 +344,6 @@ def _restore_zone2_full(view: GameView, z2_state: dict) -> None:
     # them and pre-fill ``_building_stash`` so ``Zone2.setup`` picks
     # them up on the player's next visit.  Without this the base
     # silently vanished on slot reload.
-    z2_buildings_data = z2_state.get("buildings", []) or []
-    z2_trade_data = z2_state.get("trade_station")
     if z2_buildings_data or z2_trade_data:
         from sprites.building import create_building
         building_list = arcade.SpriteList()
@@ -415,26 +424,81 @@ def _regenerate_gas_areas(zone, _z2mod) -> None:
     random.seed()
 
 
-def _regenerate_slipspaces(zone, view) -> None:
+_LOAD_STATION_EXCLUSION_PX: float = 200.0
+
+
+def _building_reject_fn(buildings, exclusion_px: float = _LOAD_STATION_EXCLUSION_PX):
+    """Build a ``reject_fn(x, y) -> bool`` that rejects positions
+    within ``exclusion_px`` of any of ``buildings``.
+
+    Accepts either:
+      * sprite objects with ``center_x`` / ``center_y`` attributes
+        (e.g. live ``view.building_list`` after construction), OR
+      * save-data dicts with ``"x"`` / ``"y"`` keys (e.g. the
+        ``z2_state["buildings"]`` list before sprites are built).
+
+    Returns ``None`` when ``buildings`` is empty so callers can pass
+    the result straight through to ``populate_*`` without an extra
+    None-check.  Caught from 2026-05-09 user request: "when the null
+    fields and slipspaces respawn in a loaded game, they should not
+    spawn within 200 px of a player space station."
+    """
+    if not buildings:
+        return None
+    points: list[tuple[float, float]] = []
+    for b in buildings:
+        if hasattr(b, "center_x"):
+            points.append((float(b.center_x), float(b.center_y)))
+        elif isinstance(b, dict) and "x" in b and "y" in b:
+            points.append((float(b["x"]), float(b["y"])))
+    if not points:
+        return None
+    r2 = exclusion_px * exclusion_px
+
+    def _reject(x: float, y: float) -> bool:
+        for cx, cy in points:
+            if (x - cx) ** 2 + (y - cy) ** 2 < r2:
+                return True
+        return False
+
+    return _reject
+
+
+def _regenerate_slipspaces(zone, view, building_reject=None) -> None:
     """Regenerate slipspace teleporters deterministically from the
     zone's world seed.  Mirrors what ``Zone2.setup`` does on first
     population — needed at restore time because slipspaces have no
     persisted state but the live zone must contain them or the
-    teleport mechanic silently fails after a save/load cycle."""
+    teleport mechanic silently fails after a save/load cycle.
+
+    ``building_reject`` (optional) is forwarded as ``reject_fn`` to
+    ``populate_slipspaces`` so re-spawned slipspaces don't land
+    inside / next to a player-built station.  When provided the
+    rng's 40 placement retries can re-roll any candidate too close
+    to a building.
+    """
     import random as _random
     from world_setup import populate_slipspaces, load_slipspace_assets
     tex, _snd = load_slipspace_assets()
     rng = _random.Random(zone._world_seed + 197)
     zone._slipspaces = populate_slipspaces(
-        zone.world_width, zone.world_height, tex, rng=rng)
+        zone.world_width, zone.world_height, tex, rng=rng,
+        reject_fn=building_reject)
 
 
-def _regenerate_null_fields(zone) -> None:
+def _regenerate_null_fields(zone, building_reject=None) -> None:
     """Regenerate null fields deterministically from the zone's world
     seed.  Mirrors what ``Zone2.setup`` does when first populating a
     fresh zone — called during save-restore because null fields have
     no persisted state, and a ``_populated=True`` zone loaded from a
-    save would otherwise have an empty ``_null_fields`` list."""
+    save would otherwise have an empty ``_null_fields`` list.
+
+    ``building_reject`` (optional) is forwarded as ``reject_fn`` to
+    ``populate_null_fields``.  When the player has built a station
+    the regenerated fields stay outside the station's exclusion
+    zone, so a load doesn't silently overlap a stealth patch with
+    the base.
+    """
     import random as _random
     from world_setup import populate_null_fields
     # Use a dedicated RNG keyed off the zone seed so the null-field
@@ -443,7 +507,8 @@ def _regenerate_null_fields(zone) -> None:
     # so future changes to other sequences can't collide.
     rng = _random.Random(zone._world_seed + 97)
     zone._null_fields = populate_null_fields(
-        zone.world_width, zone.world_height, rng=rng)
+        zone.world_width, zone.world_height, rng=rng,
+        reject_fn=building_reject)
 
 
 def _ensure_alien_textures(_z2mod, ship_png: str) -> None:
@@ -896,6 +961,24 @@ def restore_state(view: GameView, data: dict) -> None:
         if b.disabled:
             b.color = (128, 128, 128, 255)
         view.building_list.append(b)
+
+    # Zone 1 null fields + slipspaces — re-populate now that the
+    # player's buildings are restored, so the re-spawned stealth
+    # patches and teleporters honour the station-exclusion zone.
+    # The constructor populated them at random *before* save data
+    # was read, so a load could land a null field on top of the
+    # Home Station (2026-05-09 user request).  When there are no
+    # buildings the helper returns ``None`` and we leave the
+    # constructor-populated lists in place.
+    z1_building_reject = _building_reject_fn(view.building_list)
+    if z1_building_reject is not None:
+        from world_setup import populate_null_fields, populate_slipspaces
+        from constants import WORLD_WIDTH, WORLD_HEIGHT
+        view._null_fields = populate_null_fields(
+            WORLD_WIDTH, WORLD_HEIGHT, reject_fn=z1_building_reject)
+        view._slipspaces = populate_slipspaces(
+            WORLD_WIDTH, WORLD_HEIGHT, view._slipspace_tex,
+            reject_fn=z1_building_reject)
 
     # Respawn timers
     rt = data.get("respawn_timers", {})
