@@ -42,7 +42,20 @@ def _act_deposit(state: dict, p: dict) -> None:
     within DEPOSIT_RANGE_PX of the Home Station, POSTs the
     deposit and stamps ``last_deposit_at`` so the cooldown kicks
     in.  Otherwise just navigates toward the station — the FSM
-    re-evaluates next tick."""
+    re-evaluates next tick.
+
+    Cooldown guard (2026-05-09): once a deposit POST has fired,
+    skip subsequent POSTs while ``last_deposit_at`` is still
+    inside ``DEPOSIT_COOLDOWN_S``.  ``_choose_next_state`` already
+    refuses to re-enter S_DEPOSIT during cooldown, but the
+    ``MIN_DWELL_S = 1 s`` floor keeps the FSM in S_DEPOSIT for
+    ~10 more ticks after the first successful POST — without this
+    guard the bot fires 9 redundant empty-payload deposit POSTs
+    per cycle (each a 5 s-timeout HTTP request), blocking the
+    100 ms tick budget.  Caught from the 14-min telemetry session
+    where 10 deposit_post events landed within 1.5 s, the first
+    with real content and the next 9 each with ``deposited={}``.
+    """
     hs = _ap._find_home_station(state)
     if hs is None:
         # Home Station vanished mid-tick (destroyed?) — fall back
@@ -55,9 +68,16 @@ def _act_deposit(state: dict, p: dict) -> None:
     hy = float(hs.get("y", 0.0))
     dist = math.hypot(hx - px, hy - py)
     if dist <= _ap.DEPOSIT_RANGE_PX:
-        # In range — fire the deposit and stamp cooldown.
+        # Cooldown guard — see docstring.  Skip the POST if we just
+        # deposited; the FSM will transition out of S_DEPOSIT on
+        # the next ``_choose_next_state`` evaluation.
+        now = _ap._get_now()
+        if (now - _ap._state.last_deposit_at) < _ap.DEPOSIT_COOLDOWN_S:
+            _ap.KeyState.release_all()
+            return
+        # In range and cooldown clear — fire the deposit and stamp.
         result = _ap._post_deposit_to_station()
-        _ap._state.last_deposit_at = _ap._get_now()
+        _ap._state.last_deposit_at = now
         deposited = (result or {}).get("deposited", {}) or {}
         _ap._telemetry_log("deposit_post",
                        success=result is not None,
