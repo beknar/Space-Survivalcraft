@@ -627,6 +627,18 @@ MAX_ASTEROID_CHASE_PX: float = 2000.0
 # in S_SEARCH for this long, drop the chase cap and pursue the
 # nearest visible asteroid regardless of distance.
 SEARCH_GIVEUP_S: float = 60.0
+# Equivalent escape hatch for the parked-at-base case.  Tuned much
+# tighter than ``SEARCH_GIVEUP_S`` (60 s) because at base the bot
+# is genuinely doing nothing — there's no useful spiral search in
+# progress, and the user-observable latency between "asteroids
+# visible on the 't' menu" and "bot leaves to mine" should feel
+# responsive rather than open-ended.  Caught from 2026-05-09 user
+# report: "the bot only leaves [base] if it is being attacked or
+# when an enemy spawns. it does not leave when there are asteroids
+# available to be harvested."  Section 6 still fires MINE
+# **immediately** for in-chase-range asteroids; this gate only
+# kicks in for far targets that need the cap to be dropped.
+IDLE_AT_BASE_GIVEUP_S: float = 10.0
 # Spiral angular advance per tick (radians) — 4° / 0.07 rad gives
 # tangential target speeds the ship can actually rotate to follow
 # at typical search-spiral radii.
@@ -1461,12 +1473,22 @@ def _choose_next_state(state: dict, p: dict, cur: str) -> str:
             return S_MINE
         # Out of chase range.  Either we're already committed
         # to a far chase, or we've been waiting (in SEARCH or
-        # IDLE_AT_BASE) long enough to commit now.
+        # IDLE_AT_BASE) long enough to commit now.  IDLE_AT_BASE
+        # uses a tighter gate (``IDLE_AT_BASE_GIVEUP_S``, 10 s)
+        # than SEARCH (``SEARCH_GIVEUP_S``, 60 s) because at base
+        # the bot is genuinely idle — the long wait left users
+        # observing "the bot does not leave when there are
+        # asteroids available to be harvested" (2026-05-09 report).
         search_entered = _fsm.get("entered_at")
+        if cur == S_IDLE_AT_BASE:
+            giveup_threshold = IDLE_AT_BASE_GIVEUP_S
+        elif cur == S_SEARCH:
+            giveup_threshold = SEARCH_GIVEUP_S
+        else:
+            giveup_threshold = float("inf")
         long_giveup = (
-            cur in (S_SEARCH, S_IDLE_AT_BASE)
-            and search_entered is not None
-            and (now - search_entered) >= SEARCH_GIVEUP_S
+            search_entered is not None
+            and (now - search_entered) >= giveup_threshold
         )
         if _state.chase_committed or long_giveup:
             _state.chase_committed = True
