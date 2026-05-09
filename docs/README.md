@@ -35,6 +35,26 @@ Welcome to the full documentation for **Call of Orion**, a top-down space surviv
 
 ## Backgrounds & Planets
 
+- Tiny Rangers City Assets: https://alb-pixel-store.itch.io/tiny-rangers-city-assets
+- Tiny Rangers Lost World https://alb-pixel-store.itch.io/tiny-rangers-lost-world-assets
+- Tiny Rangers Christmas https://alb-pixel-store.itch.io/tiny-rangers-christmas-assets
+- Tiny Rangers Halloween https://alb-pixel-store.itch.io/tiny-rangers-halloween-assets
+- Tiny Rangers Tiny Househttps://alb-pixel-store.itch.io/tiny-rangers-tiny-house-assets
+- Tiny Rangers Void Realm https://alb-pixel-store.itch.io/tiny-rangers-void-realm-assets
+- Tiny Rangers Ice Crystal Peak https://alb-pixel-store.itch.io/tiny-rangers-ice-crystal-peak-assets
+- Tiny Rangers Frosty Forest https://alb-pixel-store.itch.io/tiny-rangers-frosty-forest-assets
+- Tiny Rangers Castle https://alb-pixel-store.itch.io/tiny-rangers-castle-assets
+- Tiny Rangers Underwater https://alb-pixel-store.itch.io/tiny-rangers-underwater-assets
+- Tiny Rangers Jungle https://alb-pixel-store.itch.io/tiny-rangers-jungle
+- Tiny Rangers Pirate Cave https://alb-pixel-store.itch.io/tiny-rangers-pirate-cave-asset
+- Tiny Rangers Desert https://alb-pixel-store.itch.io/tiny-rangers-desert-assets
+- Tiny Rangers Volcano https://alb-pixel-store.itch.io/tiny-rangers-vulcano-assets
+- Tiny Rangers Peak https://alb-pixel-store.itch.io/tiny-rangers-peak-assets
+- Tiny Rangers Mountain https://alb-pixel-store.itch.io/tiny-rangers-mountain-assets
+- Tiny Rangers Forest https://alb-pixel-store.itch.io/tiny-rangers-forest-assets
+- Tiny Rangers Cave https://alb-pixel-store.itch.io/tiny-rangers-cave-assets
+- Tiny Rangers Wood https://alb-pixel-store.itch.io/tiny-rangers-wood-assets
+
 ### Currently Used
 
 - Seamless space backgrounds: https://screamingbrainstudios.itch.io/seamless-space-backgrounds
