@@ -2479,6 +2479,47 @@ class TestAsteroidChaseDistanceCap:
         ap._do_auto(s, s["player"])
         assert ap._state.chase_committed is False
 
+    def test_idle_at_base_giveup_drops_chase_cap(self, _clock):
+        """When a Home Station exists and the bot has been parked
+        in S_IDLE_AT_BASE for SEARCH_GIVEUP_S with only out-of-range
+        asteroids visible, the chase cap must drop so the bot
+        commits to a long round trip rather than parking forever.
+        Caught from 2026-05-09 user report: the bot stopped going
+        after asteroids when all enemies were destroyed and only
+        far asteroids (>MAX_ASTEROID_CHASE_PX) remained — section
+        6's giveup gate was originally only checking
+        ``cur == S_SEARCH`` so a station-equipped bot routed to
+        S_IDLE_AT_BASE in section 8 and never escaped."""
+        ap._state.asteroid_blacklist.clear()
+        ap._state.chase_committed = False
+        # Far asteroid beyond the chase cap, plus a Home Station
+        # so section 8 routes the bot to S_IDLE_AT_BASE rather
+        # than S_SEARCH when the asteroid is out of range.
+        far_x = ap.MAX_ASTEROID_CHASE_PX + 500.0
+        s = _state(
+            asteroids=[{"x": far_x, "y": 0.0, "hp": 100,
+                        "type": "Asteroid"}],
+            buildings=[_hs_building(x=3200.0, y=3200.0)],
+            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+        )
+        # build_done must be latched True so the BUILD branch
+        # doesn't preempt — mirrors the housekeeping short-
+        # circuit at the top of _choose_next_state.
+        ap._state.build_done = True
+        # Enter IDLE_AT_BASE on the first tick.
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_IDLE_AT_BASE
+        # Stay in IDLE for the full giveup window.
+        _clock[0] += ap.SEARCH_GIVEUP_S + ap.MIN_DWELL_S + 0.1
+        ap._do_auto(s, s["player"])
+        # Now the cap drops and MINE fires.
+        assert ap._fsm["state"] == ap.S_MINE, (
+            "S_IDLE_AT_BASE giveup must drop the chase cap so the "
+            "bot leaves base for a far asteroid instead of "
+            "parking indefinitely.")
+        assert ap._state.chase_committed is True
+
 
 class TestSpiralAngleAdvanceTuning:
     """The spiral's angle-advance rate must stay slow enough that
