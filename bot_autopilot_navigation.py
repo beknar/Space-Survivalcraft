@@ -162,7 +162,9 @@ def heading_delta(current: float, target: float) -> float:
 
 # ── Potential field ─────────────────────────────────────────────────────
 
-def boundary_repulsion(p: dict, zone: dict) -> tuple[float, float]:
+def boundary_repulsion(p: dict, zone: dict,
+                       target: tuple[float, float] | None = None
+                       ) -> tuple[float, float]:
     """Potential-field repulsion vector pointing **away from world
     edges**.  Each axis contributes independently and linearly:
     magnitude is 0 at distance ``BOUNDARY_REPULSION_RANGE_PX`` from
@@ -172,6 +174,19 @@ def boundary_repulsion(p: dict, zone: dict) -> tuple[float, float]:
     yields a diagonal push (correct: away from the corner).  Far
     from any edge the result is exactly ``(0.0, 0.0)`` so callers
     pay no cost for the safe case.
+
+    ``target``: optional (tx, ty) of the bot's goto target.  When
+    the target itself is within ``BOUNDARY_REPULSION_RANGE_PX`` of
+    a wall, that wall's axis contribution is suppressed — the bot
+    is intentionally chasing an edge-adjacent resource (asteroid /
+    pickup just past the edge-skip threshold) and the field would
+    otherwise fight the goto vector all the way in.  Mirrors the
+    existing ``building_repulsion`` target-aware suppression for
+    docking actions.  Caught from 2026-05-09 user report: "the bot
+    struggles to reach a resource when the resource is close to
+    the edge of the play field."  Per-axis (not blanket) so
+    corners + non-target walls keep their safety push when the
+    target is near only one side.
     """
     if not zone:
         return (0.0, 0.0)
@@ -182,17 +197,32 @@ def boundary_repulsion(p: dict, zone: dict) -> tuple[float, float]:
     px = float(p.get("x", 0.0))
     py = float(p.get("y", 0.0))
     rng = BOUNDARY_REPULSION_RANGE_PX
+
+    # Per-axis target-aware suppression: when the target is within
+    # the field's range of a given wall, the bot is heading there
+    # intentionally so the field on that wall must not fight the
+    # goto.  Other walls keep full strength so a corner-adjacent
+    # target only relaxes the wall it sits near.
+    suppress_west = suppress_east = False
+    suppress_south = suppress_north = False
+    if target is not None:
+        tx, ty = float(target[0]), float(target[1])
+        suppress_west = tx < rng
+        suppress_east = (world_w - tx) < rng
+        suppress_south = ty < rng
+        suppress_north = (world_h - ty) < rng
+
     rx = 0.0
     ry = 0.0
-    if px < rng:
+    if not suppress_west and px < rng:
         rx += 1.0 - max(0.0, px) / rng
     east_dist = world_w - px
-    if east_dist < rng:
+    if not suppress_east and east_dist < rng:
         rx -= 1.0 - max(0.0, east_dist) / rng
-    if py < rng:
+    if not suppress_south and py < rng:
         ry += 1.0 - max(0.0, py) / rng
     north_dist = world_h - py
-    if north_dist < rng:
+    if not suppress_north and north_dist < rng:
         ry -= 1.0 - max(0.0, north_dist) / rng
     return (rx, ry)
 
@@ -460,12 +490,17 @@ def steered_heading(state: dict, p: dict, dx: float, dy: float,
     that wall instead of through it.
 
     ``target``: optional (tx, ty) of the bot's intended destination.
-    When provided, ``building_repulsion`` excludes buildings within
-    ``REPULSION_TARGET_SUPPRESS_PX`` of the target so the bot can
-    actually dock with it (deposit / craft / install).
+    When provided:
+      * ``building_repulsion`` excludes buildings within
+        ``REPULSION_TARGET_SUPPRESS_PX`` of the target so the bot
+        can actually dock with it (deposit / craft / install).
+      * ``boundary_repulsion`` suppresses each wall's axis when the
+        target itself sits within ``BOUNDARY_REPULSION_RANGE_PX``
+        of that wall — lets the bot reach edge-adjacent resources
+        without the boundary field fighting the chase vector.
     """
     zone = state.get("zone") or {}
-    rx, ry = boundary_repulsion(p, zone)
+    rx, ry = boundary_repulsion(p, zone, target=target)
     bx, by = building_repulsion(p, state, target=target)
     rx += bx * BUILDING_REPULSION_GAIN
     ry += by * BUILDING_REPULSION_GAIN

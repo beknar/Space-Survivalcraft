@@ -93,6 +93,126 @@ class TestBoundaryRepulsion:
             {"world_w": 0, "world_h": 0}) == (0.0, 0.0)
 
 
+class TestBoundaryRepulsionTargetSuppression:
+    """Per-axis target-aware suppression — when the goto target is
+    within ``BOUNDARY_REPULSION_RANGE_PX`` of a given wall, that
+    wall's contribution to the repulsion vector is dropped so the
+    bot can intentionally chase an edge-adjacent resource without
+    the field fighting the goto.  Caught from 2026-05-09 user
+    report: "the bot struggles to reach a resource when the
+    resource is close to the edge of the play field."  Mirrors
+    the existing per-building target-aware suppression in
+    ``building_repulsion``."""
+
+    ZONE = {"world_w": 6400.0, "world_h": 6400.0}
+
+    def test_target_near_west_wall_suppresses_west_axis(self):
+        """Target 200 px from west wall: bot at the same x in the
+        repulsion zone gets ZERO west-axis push (so the goto
+        unobstructed) while other walls still contribute normally."""
+        rng = nav.BOUNDARY_REPULSION_RANGE_PX
+        # Bot at (300, 3200) — 300 px from west wall, deep in field.
+        # Target at (200, 3200) — 200 px from west wall, in field.
+        rx, ry = nav.boundary_repulsion(
+            {"x": 300.0, "y": 3200.0}, self.ZONE,
+            target=(200.0, 3200.0))
+        # West axis: suppressed → no eastward push.
+        assert rx == pytest.approx(0.0), (
+            "Target within west-wall range must suppress west-axis "
+            f"repulsion at the bot, got rx={rx}")
+        # North/south walls far from target → no contribution at this
+        # bot y (3200 is comfortably interior).
+        assert ry == pytest.approx(0.0)
+
+    def test_target_far_from_walls_keeps_full_repulsion(self):
+        """Target in the world interior (no wall within range) →
+        bot gets the same repulsion as if no target was passed."""
+        rng = nav.BOUNDARY_REPULSION_RANGE_PX
+        # Bot in west-wall field, target in centre.
+        rx_no_target, _ = nav.boundary_repulsion(
+            {"x": 100.0, "y": 3200.0}, self.ZONE)
+        rx_with_target, _ = nav.boundary_repulsion(
+            {"x": 100.0, "y": 3200.0}, self.ZONE,
+            target=(3200.0, 3200.0))
+        assert rx_no_target == pytest.approx(rx_with_target)
+        assert rx_with_target > 0.0  # west-wall push still active
+
+    def test_target_near_one_wall_keeps_other_walls_active(self):
+        """Bot in a corner.  Target near WEST wall but far from
+        SOUTH wall.  West axis is suppressed; south axis keeps its
+        full corner-push so the bot doesn't end up sitting in the
+        SW corner with no south-edge safety."""
+        # Bot at (50, 50) — deep in SW corner.
+        # Target at (100, 3200) — near west wall, far from south wall.
+        rx, ry = nav.boundary_repulsion(
+            {"x": 50.0, "y": 50.0}, self.ZONE,
+            target=(100.0, 3200.0))
+        # West axis suppressed → no east push.
+        assert rx == pytest.approx(0.0)
+        # South-wall push still active → strong northward push.
+        rng = nav.BOUNDARY_REPULSION_RANGE_PX
+        assert ry == pytest.approx(1.0 - 50.0 / rng, abs=0.01)
+
+    def test_default_target_none_preserves_legacy_behaviour(self):
+        """Calling without ``target`` (or with ``target=None``)
+        keeps the original behaviour — pin the backward compat
+        contract for any caller that doesn't yet plumb the kwarg."""
+        bot = {"x": 100.0, "y": 100.0}
+        a = nav.boundary_repulsion(bot, self.ZONE)
+        b = nav.boundary_repulsion(bot, self.ZONE, target=None)
+        assert a == b
+        # And the value isn't trivial — the SW corner pushes diagonally.
+        assert a[0] > 0 and a[1] > 0
+
+    def test_target_at_east_wall_suppresses_east_axis(self):
+        """Symmetric pin: east-wall target suppresses east axis."""
+        # Bot at (6300, 3200) — 100 px from east wall, in field.
+        # Target at (6200, 3200) — 200 px from east wall, in field.
+        rx, ry = nav.boundary_repulsion(
+            {"x": 6300.0, "y": 3200.0}, self.ZONE,
+            target=(6200.0, 3200.0))
+        assert rx == pytest.approx(0.0), (
+            "Target near east wall must suppress east-axis "
+            "repulsion at the bot.")
+        assert ry == pytest.approx(0.0)
+
+    def test_steered_heading_passes_target_to_boundary(self):
+        """End-to-end: ``steered_heading`` must forward its
+        ``target`` kwarg to ``boundary_repulsion``.  Without this
+        the user-visible bug (bot can't reach edge-adjacent
+        resources) would persist even though the function-level
+        suppression works.
+
+        Uses a diagonal goto (both dx and dy non-zero) so the
+        axis-aligned angle-flattening doesn't hide the deflection
+        — when one axis is suppressed and the other isn't, the
+        steered heading rotates along the unsuppressed axis."""
+        s = {"zone": self.ZONE, "buildings": []}
+        bot = {"x": 300.0, "y": 3000.0}
+        # Diagonal goto: heading southwest toward (200, 2900).
+        dx, dy = -100.0, -100.0
+        dist = 141.42
+        # WITHOUT target — the boundary field's east-push deflects
+        # the western goto component, bending the heading more
+        # southerly (more negative dx contribution → angle skews
+        # away from -135° toward -180°).
+        h_no_target = nav.steered_heading(s, bot, dx, dy, dist)
+        # WITH target near west wall — boundary suppression kicks
+        # in on the west axis, so the heading is closer to the
+        # untouched diagonal (-135°).
+        h_with_target = nav.steered_heading(s, bot, dx, dy, dist,
+                                             target=(200.0, 2900.0))
+        # The two headings must differ — that's the proof the
+        # target kwarg actually flows through.
+        assert abs(h_with_target - h_no_target) > 5.0, (
+            f"Boundary suppression must change the steered heading "
+            f"when the target is edge-adjacent; got "
+            f"no_target={h_no_target}, with_target={h_with_target}")
+        # The with-target heading should be CLOSER to -135° (the
+        # raw goto direction) since the field doesn't fight it.
+        assert abs(h_with_target - (-135.0)) < abs(h_no_target - (-135.0))
+
+
 # ── Building repulsion ────────────────────────────────────────────────
 
 class TestBuildingRepulsion:
