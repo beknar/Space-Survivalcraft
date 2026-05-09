@@ -1550,6 +1550,82 @@ class TestDepositTrigger:
         ap._do_auto(s, s["player"])
         assert ap._fsm["state"] == ap.S_ENGAGE
 
+    def test_nearby_asteroid_suppresses_deposit_below_full_threshold(
+            self, _clock):
+        """Mine-before-deposit override (2026-05-09 user report):
+        when an asteroid is within MAX_ASTEROID_CHASE_PX AND ship
+        iron is below DEPOSIT_IRON_FULL_THRESHOLD, the bot mines
+        the visible cluster instead of zigzagging back to the
+        station after every loot drop.  Pins the user-reported
+        scenario where the ship returned to the station after
+        destroying an enemy even with asteroids on screen."""
+        ap._state.asteroid_blacklist.clear()
+        # Iron just at the deposit threshold — would normally fire
+        # DEPOSIT.  But there's an asteroid in chase range, so MINE
+        # should preempt.
+        s = _state(
+            iron=ap.DEPOSIT_IRON_THRESHOLD,
+            buildings=[_hs_building()],
+            asteroids=[{"x": 800.0, "y": 0.0, "hp": 100,
+                        "type": "Asteroid"}],
+        )
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_MINE, (
+            "An asteroid in chase range with ship iron below the "
+            "FULL threshold must preempt DEPOSIT — the bot should "
+            "finish mining the visible cluster before round-tripping.")
+
+    def test_full_cargo_overrides_mine_priority(self, _clock):
+        """The mine-before-deposit override has an upper bound: at
+        DEPOSIT_IRON_FULL_THRESHOLD or above the bot ALWAYS deposits,
+        even with an asteroid in chase range.  Otherwise a long
+        mining run would let the cargo grow indefinitely."""
+        ap._state.asteroid_blacklist.clear()
+        s = _state(
+            iron=ap.DEPOSIT_IRON_FULL_THRESHOLD,
+            buildings=[_hs_building()],
+            asteroids=[{"x": 800.0, "y": 0.0, "hp": 100,
+                        "type": "Asteroid"}],
+        )
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_DEPOSIT, (
+            "Ship iron at the FULL threshold must trigger DEPOSIT "
+            "even when an asteroid is in chase range — the cargo-"
+            "near-full safety valve.")
+
+    def test_deposit_fires_when_asteroid_out_of_chase_range(
+            self, _clock):
+        """The mine-before-deposit override only suppresses DEPOSIT
+        when the asteroid is actually reachable.  An asteroid past
+        MAX_ASTEROID_CHASE_PX shouldn't keep the bot from
+        depositing — there's nothing nearby to mine."""
+        ap._state.asteroid_blacklist.clear()
+        s = _state(
+            iron=ap.DEPOSIT_IRON_THRESHOLD,
+            buildings=[_hs_building()],
+            asteroids=[{"x": ap.MAX_ASTEROID_CHASE_PX + 500.0,
+                        "y": 0.0, "hp": 100, "type": "Asteroid"}],
+        )
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_DEPOSIT
+
+    def test_blacklisted_asteroid_does_not_suppress_deposit(self, _clock):
+        """Blacklisted asteroids are filtered out by ``_nearest_asteroid``,
+        so the suppression check sees no in-range target and lets
+        DEPOSIT fire.  Without this, a stuck-blacklist would also
+        block deposits."""
+        ap._state.asteroid_blacklist.clear()
+        # Blacklist the only nearby asteroid.
+        ap._blacklist_asteroid({"x": 500.0, "y": 0.0})
+        s = _state(
+            iron=ap.DEPOSIT_IRON_THRESHOLD,
+            buildings=[_hs_building()],
+            asteroids=[{"x": 500.0, "y": 0.0, "hp": 100,
+                        "type": "Asteroid"}],
+        )
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_DEPOSIT
+
     def test_act_deposit_navigates_to_home_station_when_far(
             self, _clock, monkeypatch):
         """When the ship is far from the home station, _act_deposit

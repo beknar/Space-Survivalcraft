@@ -592,6 +592,19 @@ BUILD_IRON_THRESHOLD = 1000
 # iron grows steadily, and the post-install consumable phase
 # stops stalling.
 DEPOSIT_IRON_THRESHOLD = 100
+# Above this iron level the bot ALWAYS prefers DEPOSIT over MINE,
+# regardless of whether asteroids are nearby.  Between
+# DEPOSIT_IRON_THRESHOLD and DEPOSIT_IRON_FULL_THRESHOLD the bot
+# favours mining a visible asteroid (within MAX_ASTEROID_CHASE_PX)
+# over a deposit run, so it doesn't zigzag back to the station
+# after every loot drop.  Caught from 2026-05-09 user report:
+# "the ship returns to the station after destroying an enemy
+# even when there [are] asteroids on the screen."  500 is ~5×
+# the deposit threshold — enough headroom for several mining
+# cycles, well below any sane ship-cargo cap (5×5 grid × 999
+# stack = 24975), and matches the per-trip "this is enough to
+# make the round trip worth it" feel.
+DEPOSIT_IRON_FULL_THRESHOLD = 500
 DEPOSIT_RANGE_PX       = 200.0
 DEPOSIT_COOLDOWN_S     = 30.0
 # Single radius for "clear and quiet" — no asteroids, aliens,
@@ -1315,12 +1328,33 @@ def _choose_next_state(state: dict, p: dict, cur: str) -> str:
     #    iron until the threshold is met, then everything ships
     #    in one round trip.  Cooldown prevents the bot from
     #    re-triggering immediately after a deposit run.
+    #
+    #    Mine-before-deposit override (2026-05-09): if there's an
+    #    asteroid within MAX_ASTEROID_CHASE_PX AND ship iron is
+    #    below DEPOSIT_IRON_FULL_THRESHOLD, suppress the deposit
+    #    so the bot mines the visible cluster first.  Without this
+    #    override, the loot pickup from a single alien kill drove
+    #    iron above 100 and the bot zigzagged back to base while
+    #    asteroids were still visible on the user's screen.  The
+    #    upper FULL threshold ensures the bot eventually returns
+    #    when the cargo bay is genuinely getting heavy.
     hs = _find_home_station(state)
     if hs is not None:
         cooldown_ok = (
             now - _state.last_deposit_at) >= DEPOSIT_COOLDOWN_S
-        if cooldown_ok and _iron_total(state) >= DEPOSIT_IRON_THRESHOLD:
-            return S_DEPOSIT
+        ship_iron = _iron_total(state)
+        if cooldown_ok and ship_iron >= DEPOSIT_IRON_THRESHOLD:
+            # Check whether a non-blacklisted asteroid is in chase
+            # range — if yes and iron isn't yet "full", prefer
+            # mining over the deposit run.
+            ast_for_mine, ast_for_mine_d = _nearest_asteroid(
+                state, px, py)
+            asteroid_in_chase_range = (
+                ast_for_mine is not None
+                and ast_for_mine_d < MAX_ASTEROID_CHASE_PX)
+            cargo_near_full = ship_iron >= DEPOSIT_IRON_FULL_THRESHOLD
+            if not asteroid_in_chase_range or cargo_near_full:
+                return S_DEPOSIT
 
     # 5.5  CRAFT / INSTALL — sequential post-build workflow.  Only
     #      reachable after a Home Station + Basic Crafter exist.
