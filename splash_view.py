@@ -383,10 +383,22 @@ class SplashView(arcade.View):
         gc.collect()
 
         from game_view import GameView
+        # ``character_name`` MUST be passed to the constructor so the
+        # very first ``_start_character_video()`` call (inside
+        # ``_init_video_and_menus``) plays the correct character.
+        # Without this, the constructor's ``if character_name is not
+        # None`` branch is skipped and ``audio.character_name`` keeps
+        # whatever value was last persisted to ``config.json`` from a
+        # prior session — so the splash-load video plays the previous
+        # character (e.g. Debra) until ``restore_state`` overwrites
+        # the global, by which point the video is already running and
+        # never restarts.  Mirrors the in-game load path in
+        # ``game_save.load_game`` (which always passes character_name).
         view = GameView(
             faction=data.get("faction"),
             ship_type=data.get("ship_type"),
             ship_level=data.get("ship_level", 1),
+            character_name=data.get("character_name", ""),
         )
         GameView._restore_state(view, data)
         self.window.show_view(view)
