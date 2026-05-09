@@ -1396,34 +1396,45 @@ def _choose_next_state(state: dict, p: dict, cur: str) -> str:
     #    around current position) instead of long obstacle-laden
     #    trips across the world.
     #
-    #    Escape hatch: if SEARCH has been the active state for
-    #    SEARCH_GIVEUP_S, drop the cap and commit to whatever's
-    #    nearest.  A long round trip is better than spiralling
-    #    indefinitely in a region with no in-range asteroids.
+    #    Escape hatch: if SEARCH **or IDLE_AT_BASE** has been the
+    #    active state for SEARCH_GIVEUP_S, drop the cap and commit
+    #    to whatever's nearest.  A long round trip is better than
+    #    parking / spiralling indefinitely in a region with no
+    #    in-range asteroids.  IDLE_AT_BASE was added to the gate
+    #    in 2026-05-09 — the original gate only covered SEARCH,
+    #    so a bot with a Home Station (which routes through
+    #    IDLE_AT_BASE in section 8 below when nothing's
+    #    actionable) would mine all the near asteroids, then
+    #    park forever as far asteroids respawned out of chase
+    #    range.  User report: "the bot does not go after asteroids
+    #    when all of the enemies have been destroyed and it is
+    #    idling at the station."
+    #
     #    The commitment is STICKY (``_state.chase_committed``):
     #    once we decide to chase a far target, the cap stays
     #    dropped until the bot reaches chase range — otherwise
-    #    the FSM bounces SEARCH ↔ MINE every MIN_DWELL_S
-    #    because ``long_search`` only holds while ``cur == S_SEARCH``.
+    #    the FSM bounces ↔ MINE every MIN_DWELL_S because
+    #    ``long_giveup`` only holds while ``cur`` is in the gate.
     nearest_ast, ast_d = _nearest_asteroid(state, px, py)
     if nearest_ast is not None:
         in_chase_range = ast_d < MAX_ASTEROID_CHASE_PX
         if in_chase_range:
             # Reached (or approached) a chase-range asteroid —
-            # clear any prior commitment so future SEARCH
-            # episodes get the normal cap-protected behaviour.
+            # clear any prior commitment so future SEARCH /
+            # IDLE_AT_BASE episodes get the normal cap-protected
+            # behaviour.
             _state.chase_committed = False
             return S_MINE
         # Out of chase range.  Either we're already committed
-        # to a far chase, or we've been searching long enough
-        # to commit now.
+        # to a far chase, or we've been waiting (in SEARCH or
+        # IDLE_AT_BASE) long enough to commit now.
         search_entered = _fsm.get("entered_at")
-        long_search = (
-            cur == S_SEARCH
+        long_giveup = (
+            cur in (S_SEARCH, S_IDLE_AT_BASE)
             and search_entered is not None
             and (now - search_entered) >= SEARCH_GIVEUP_S
         )
-        if _state.chase_committed or long_search:
+        if _state.chase_committed or long_giveup:
             _state.chase_committed = True
             return S_MINE
     else:
