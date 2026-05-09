@@ -138,3 +138,106 @@ class TestSplashLoadKeyboard:
         splash.on_key_press(arcade.key.RETURN, 0)
         assert splash._show_load is False
         assert splash._load_hover == -1
+
+
+# ── Splash → load → GameView constructor kwargs ───────────────────────────
+
+
+class TestSplashDoLoadCharacterName:
+    """Pins ``splash_view._do_load`` passing ``character_name``
+    through to the GameView constructor.  Caught from the 2026-05-09
+    user report: loading slot 3 (saved as Ellie) from the splash
+    screen showed Debra's character video because the splash path
+    skipped the kwarg, leaving ``audio.character_name`` at its
+    config-persisted value (Debra) when ``_start_character_video``
+    fired during init.  The in-game ``load_game`` path already
+    passes the kwarg correctly; this test pins the splash path."""
+
+    def _stub_save(self, tmp_path, slot: int, **fields) -> None:
+        """Write a synthetic save file in the slot's location so
+        ``_do_load`` can read it."""
+        import json
+        import os
+        save_dir = tmp_path / "saves"
+        save_dir.mkdir(exist_ok=True)
+        path = save_dir / f"save_slot_{slot + 1:02d}.json"
+        with open(path, "w") as f:
+            json.dump(fields, f)
+        return str(path)
+
+    def test_do_load_passes_character_name_kwarg(
+            self, splash, tmp_path, monkeypatch):
+        """When the save has ``character_name='Ellie'``, the
+        GameView constructor must receive that exact kwarg so the
+        constructor's ``_start_character_video`` plays the right
+        video.  Without the kwarg the global ``audio.character_name``
+        keeps its prior value and the wrong video plays until the
+        next state transition (which never restarts the video)."""
+        # Set up a synthetic slot with Ellie saved there.
+        save_path = self._stub_save(
+            tmp_path, slot=2,
+            faction="Ascended", ship_type="Thunderbolt",
+            ship_level=2, character_name="Ellie")
+        # Redirect the splash's _SAVE_DIR lookup to our temp dir so
+        # ``_do_load`` reads our synthetic file.
+        import splash_view
+        monkeypatch.setattr(splash_view, "_SAVE_DIR",
+                            str(tmp_path / "saves"))
+
+        # Mock GameView so we can capture constructor kwargs without
+        # building a real game.  Patch through ``sys.modules`` because
+        # ``_do_load`` imports GameView lazily.
+        import sys
+        fake_view_instance = MagicMock()
+        fake_gv_class = MagicMock(return_value=fake_view_instance)
+        # The implementation also calls ``GameView._restore_state``
+        # as a static lookup — give the mock that method.
+        fake_gv_class._restore_state = MagicMock()
+        with patch.dict(sys.modules,
+                        {"game_view": MagicMock(GameView=fake_gv_class)}):
+            splash.window.show_view = MagicMock()
+            splash._do_load(slot=2)
+
+        # GameView was called once with character_name="Ellie".
+        fake_gv_class.assert_called_once()
+        kwargs = fake_gv_class.call_args.kwargs
+        assert kwargs.get("character_name") == "Ellie", (
+            f"splash_view._do_load must forward character_name "
+            f"to the GameView constructor (got kwargs={kwargs!r}).  "
+            f"Without this, the constructor's _start_character_video "
+            f"reads the stale audio.character_name and plays the "
+            f"wrong character's video.")
+        assert kwargs.get("faction") == "Ascended"
+        assert kwargs.get("ship_type") == "Thunderbolt"
+        assert kwargs.get("ship_level") == 2
+
+    def test_do_load_handles_missing_character_name_field(
+            self, splash, tmp_path, monkeypatch):
+        """Legacy save files (created before character selection
+        was added) don't have a ``character_name`` field.  The
+        splash loader must still pass ``character_name=""`` so the
+        constructor explicitly resets the global rather than
+        inheriting the prior session's character."""
+        self._stub_save(
+            tmp_path, slot=0,
+            faction="Earth", ship_type="Aegis", ship_level=1)
+        import splash_view
+        monkeypatch.setattr(splash_view, "_SAVE_DIR",
+                            str(tmp_path / "saves"))
+
+        import sys
+        fake_view_instance = MagicMock()
+        fake_gv_class = MagicMock(return_value=fake_view_instance)
+        fake_gv_class._restore_state = MagicMock()
+        with patch.dict(sys.modules,
+                        {"game_view": MagicMock(GameView=fake_gv_class)}):
+            splash.window.show_view = MagicMock()
+            splash._do_load(slot=0)
+
+        kwargs = fake_gv_class.call_args.kwargs
+        # ``data.get("character_name", "")`` defaults to empty
+        # string; the kwarg MUST be passed (not omitted) so the
+        # constructor's ``if character_name is not None`` branch
+        # fires and resets the global.
+        assert "character_name" in kwargs
+        assert kwargs["character_name"] == ""
