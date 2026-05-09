@@ -1667,6 +1667,92 @@ class TestDepositTrigger:
         assert len(post_calls) == 1
         assert ap._state.last_deposit_at == _clock[0]
 
+    def test_act_deposit_does_not_repost_within_cooldown(
+            self, _clock, monkeypatch):
+        """Once a deposit POST has fired, ``_act_deposit`` must
+        skip subsequent POSTs while ``last_deposit_at`` is still
+        inside ``DEPOSIT_COOLDOWN_S``.  ``_choose_next_state``
+        already gates S_DEPOSIT entry on the cooldown, but
+        ``MIN_DWELL_S = 1 s`` keeps the FSM in S_DEPOSIT for ~10
+        more ticks after the first POST — without this guard the
+        bot fires 9 redundant empty-payload POSTs (each a 5 s
+        timeout HTTP request) per deposit cycle.  Caught from
+        2026-05-09 telemetry: 10 deposit_post events landed
+        within 1.5 s, the first with real content and the next 9
+        each with ``deposited={}``."""
+        post_calls: list = []
+        monkeypatch.setattr(
+            ap, "_post_deposit_to_station",
+            lambda timeout_s=5.0: (post_calls.append(True)
+                                   or {"deposited": {"iron": 200}}))
+
+        class _FakeKey:
+            released: int = 0
+            @classmethod
+            def hold(cls, name, on):
+                pass
+            @classmethod
+            def release_all(cls):
+                cls.released += 1
+
+        monkeypatch.setattr(ap, "KeyState", _FakeKey)
+        s = _state(
+            player={"x": 3100.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            iron=ap.DEPOSIT_IRON_THRESHOLD,
+            buildings=[_hs_building(x=3200.0, y=3200.0)])
+
+        # Simulate the post-deposit cooldown by stamping the
+        # timestamp directly (mirrors the state right after the
+        # first POST fires).
+        ap._state.last_deposit_at = _clock[0]
+        # Now invoke _act_deposit DIRECTLY (skipping FSM dispatch)
+        # so we exercise the in-range path.  ``cooldown_remaining``
+        # is the entire ``DEPOSIT_COOLDOWN_S`` window.
+        from bot_autopilot_actions_station import _act_deposit
+        _act_deposit(s, s["player"])
+        assert len(post_calls) == 0, (
+            "Deposit POST must NOT fire within DEPOSIT_COOLDOWN_S "
+            "of the previous POST — the FSM's MIN_DWELL_S keeps "
+            "the bot in S_DEPOSIT for ~10 ticks after the first "
+            "successful POST and we must not spam empty deposits.")
+        # KeyState.release_all was called to halt thrust.
+        assert _FakeKey.released >= 1, (
+            "The cooldown short-circuit must release the keys "
+            "so the bot doesn't keep thrusting against the "
+            "station while waiting for the FSM to transition.")
+
+    def test_act_deposit_reposts_after_cooldown_expires(
+            self, _clock, monkeypatch):
+        """The cooldown guard must NOT block legitimate re-entries
+        after the full cooldown window expires.  Pins that the
+        guard doesn't accidentally turn into a permanent block."""
+        post_calls: list = []
+        monkeypatch.setattr(
+            ap, "_post_deposit_to_station",
+            lambda timeout_s=5.0: (post_calls.append(True)
+                                   or {"deposited": {"iron": 50}}))
+
+        class _FakeKey:
+            @classmethod
+            def hold(cls, name, on): pass
+            @classmethod
+            def release_all(cls): pass
+
+        monkeypatch.setattr(ap, "KeyState", _FakeKey)
+        s = _state(
+            player={"x": 3100.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            iron=ap.DEPOSIT_IRON_THRESHOLD,
+            buildings=[_hs_building(x=3200.0, y=3200.0)])
+        # Stamp last_deposit_at far enough in the past that the
+        # cooldown is fully expired.
+        ap._state.last_deposit_at = _clock[0] - ap.DEPOSIT_COOLDOWN_S - 1.0
+        from bot_autopilot_actions_station import _act_deposit
+        _act_deposit(s, s["player"])
+        assert len(post_calls) == 1, (
+            "Cooldown expired → POST must fire normally.")
+
 
 # ── Craft / install queue ────────────────────────────────────────────────
 
