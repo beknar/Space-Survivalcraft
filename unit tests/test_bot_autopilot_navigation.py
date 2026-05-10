@@ -497,6 +497,96 @@ class TestDetectStuck:
         s = self._stuck_with_history(samples)
         assert nav.detect_stuck(s) is True
 
+    def test_oscillation_in_50px_box_is_stuck(self):
+        """Wall-pin oscillation: bot bouncing between two positions
+        ~50 px apart for the full 5 s window has high max-dist but
+        zero centroid shift — must be flagged as stuck.  Caught from
+        2026-05-09 telemetry: bot wedged in S_MINE for 130 s at the
+        left wall, oscillating in a 24×49 px box with rotation
+        active (which would have defeated the rotation gate)."""
+        # Bot oscillates 75↔105 in x, 4140↔4200 in y for the first
+        # 3 s, then settles into a tighter cluster for the last
+        # 1.5 s (so the short-window spread gate still classifies
+        # the bot as a stuck candidate).  Long-window max-dist
+        # exceeds LONG_PROGRESS_PX (oscillation amplitude); centroid
+        # of first / second half stays near (90, 4170) → < 15 px
+        # shift → oscillation override fires.  Heading rotates fast
+        # enough that the rotation gate would normally exempt.
+        samples = [
+            (0.0, 105.0, 4200.0,   0.0),  # corner A
+            (0.5,  75.0, 4140.0,  30.0),  # corner B
+            (1.0, 105.0, 4200.0,  60.0),  # A
+            (1.5,  75.0, 4140.0,  90.0),  # B
+            (2.0, 105.0, 4200.0, 120.0),  # A
+            (2.5,  75.0, 4140.0, 150.0),  # B
+            (3.0, 105.0, 4200.0, 180.0),  # A — last big swing
+            (3.5,  82.0, 4146.0, 210.0),  # tight cluster start
+            (4.0,  85.0, 4150.0, 240.0),
+            (4.5,  88.0, 4155.0, 270.0),
+            (4.8,  90.0, 4158.0, 290.0),
+            (5.0,  91.0, 4160.0, 300.0),  # current
+        ]
+        s = self._stuck_with_history(samples)
+        assert nav.detect_stuck(s) is True, (
+            "Wall-pin oscillation must fire stuck even when max-dist "
+            "exceeds LONG_PROGRESS_PX — the centroid override "
+            "catches oscillation that the original gate missed.")
+
+    def test_genuine_chase_not_stuck_centroid_shift(self):
+        """A real chase advances the centroid: first-half samples
+        cluster around the start, second-half samples cluster around
+        the new position.  Centroid displacement >> threshold so the
+        bot is correctly marked not-stuck.  Pins that the new
+        oscillation override doesn't false-fire on legitimate chases
+        that happen to also have small individual short-window
+        spread (e.g. early acceleration ramps)."""
+        # Bot creeps from ~(0, 0) to ~(120, 0) over 5 s.  Each
+        # sample inches forward; centroid of first half ~ (15, 0),
+        # second half ~ (90, 0); centroid shift ~75 px.
+        samples = [
+            (0.0,   0.0, 0.0, 0.0),
+            (0.5,  10.0, 0.0, 0.0),
+            (1.0,  20.0, 0.0, 0.0),
+            (1.5,  30.0, 0.0, 0.0),
+            (2.0,  40.0, 0.0, 0.0),
+            (2.5,  60.0, 0.0, 0.0),
+            (3.0,  80.0, 0.0, 0.0),
+            (3.5,  95.0, 0.0, 0.0),
+            (4.0, 105.0, 0.0, 0.0),
+            (4.5, 115.0, 0.0, 0.0),
+            (4.8, 118.0, 0.0, 0.0),
+            (5.0, 120.0, 0.0, 0.0),
+        ]
+        s = self._stuck_with_history(samples)
+        assert nav.detect_stuck(s) is False, (
+            "Forward progress with large centroid shift must remain "
+            "non-stuck — the oscillation override is gated by the "
+            "centroid-shift check.")
+
+    def test_oscillation_partial_history_not_stuck(self):
+        """Oscillation override requires the FULL long-history span
+        before firing — a fresh post-transition history with only
+        2-3 s of samples might naturally show oscillation patterns
+        during the velocity ramp.  Pins that the oscillation
+        override respects the same span guard the hard-pin override
+        uses."""
+        # 5 samples spanning only 2 s.  Position bounces ±25 px;
+        # max-dist ~50 px > LONG_PROGRESS_PX, but history span is
+        # under LONG_HISTORY_S so the override must abstain.
+        samples = [
+            (0.0,  80.0, 4144.0,   0.0),
+            (0.5, 105.0, 4193.0,  20.0),
+            (1.0,  82.0, 4148.0,  40.0),
+            (1.5, 100.0, 4185.0,  60.0),
+            (2.0,  90.0, 4170.0,  90.0),
+        ]
+        s = self._stuck_with_history(samples)
+        # Short-window spread is high (50 px > 25), so the spread
+        # gate exits first with "not stuck".  The override never
+        # gets a chance to fire — correct behaviour, pinned by this
+        # test as an explicit non-fire on partial-history input.
+        assert nav.detect_stuck(s) is False
+
 
 # ── Ship-clear gates ─────────────────────────────────────────────────
 
