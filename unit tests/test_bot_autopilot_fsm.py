@@ -5307,6 +5307,108 @@ class TestMineChaseClampedToWorld:
         assert keys.get("space") is True
 
 
+class TestMineNoProgressGiveup:
+    """``_do_mine_nearest`` watchdog that blacklists the current
+    target if ship_iron hasn't increased over MINE_NO_PROGRESS_S.
+    Caught from 2026-05-09 telemetry: 12-minute S_MINE wedge with
+    ship_iron static at 85, asteroid_blacklist empty throughout —
+    every nominal target passed A* but the bot never closed to
+    mining range.  This watchdog forces target rotation so the FSM
+    can recover instead of orbiting the same unreachable cluster."""
+
+    def _seed_mine_state(self):
+        ap._state.asteroid_blacklist.clear()
+        ap._state.pickup_blacklist.clear()
+        ap._state.chase_committed = False
+        ap._state.mine_iron_baseline = 0
+        ap._state.mine_progress_check_at = 0.0
+        ap._state.mining_weapon_pick = "Mining Beam"
+
+    def test_first_call_seeds_baseline(self, _clock, monkeypatch):
+        """The first ``_do_mine_nearest`` call after MINE entry must
+        capture the current ship_iron + arm the deadline.  No
+        blacklisting yet — the watchdog needs a full window before
+        firing."""
+        self._seed_mine_state()
+        monkeypatch.setattr(ap, "_do_goto", lambda *a, **kw: None)
+        monkeypatch.setattr(ap, "_ensure_weapon", lambda *a, **kw: None)
+        s = _state(
+            asteroids=[{"x": 3500.0, "y": 3200.0, "hp": 100}],
+            inventory_items={"iron": 50},
+            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            world_w=6400, world_h=6400,
+        )
+        ap._do_mine_nearest(s, s["player"])
+        assert ap._state.mine_iron_baseline == 50, (
+            "Baseline must equal ship_iron at first action call.")
+        assert ap._state.mine_progress_check_at == _clock[0] + ap.MINE_NO_PROGRESS_S
+        # No blacklist yet — fresh window.
+        assert len(ap._state.asteroid_blacklist) == 0
+
+    def test_no_progress_blacklists_target(self, _clock, monkeypatch):
+        """After MINE_NO_PROGRESS_S without ship_iron rising, the
+        watchdog must blacklist the current target so the FSM
+        re-targets next tick."""
+        self._seed_mine_state()
+        monkeypatch.setattr(ap, "_do_goto", lambda *a, **kw: None)
+        monkeypatch.setattr(ap, "_ensure_weapon", lambda *a, **kw: None)
+        s = _state(
+            asteroids=[{"x": 3500.0, "y": 3200.0, "hp": 100}],
+            inventory_items={"iron": 50},
+            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            world_w=6400, world_h=6400,
+        )
+        # Seed.
+        ap._do_mine_nearest(s, s["player"])
+        assert len(ap._state.asteroid_blacklist) == 0
+        # Advance past the deadline; iron unchanged.
+        _clock[0] += ap.MINE_NO_PROGRESS_S + 0.1
+        ap._do_mine_nearest(s, s["player"])
+        assert len(ap._state.asteroid_blacklist) == 1, (
+            "Watchdog must blacklist the stalled target so the FSM "
+            "rotates to a different asteroid.")
+        # Deadline must be re-armed for the next window.
+        assert ap._state.mine_progress_check_at >= _clock[0]
+
+    def test_progress_extends_window_no_blacklist(self, _clock,
+                                                   monkeypatch):
+        """If ship_iron has gone up by the deadline, the bot is
+        making progress — update baseline + bump deadline, do NOT
+        blacklist."""
+        self._seed_mine_state()
+        monkeypatch.setattr(ap, "_do_goto", lambda *a, **kw: None)
+        monkeypatch.setattr(ap, "_ensure_weapon", lambda *a, **kw: None)
+        s = _state(
+            asteroids=[{"x": 3500.0, "y": 3200.0, "hp": 100}],
+            inventory_items={"iron": 50},
+            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            world_w=6400, world_h=6400,
+        )
+        ap._do_mine_nearest(s, s["player"])
+        # Iron tick up — bot mined something.
+        s["inventory"]["items"]["iron"] = 75
+        # Advance past the deadline.
+        _clock[0] += ap.MINE_NO_PROGRESS_S + 0.1
+        ap._do_mine_nearest(s, s["player"])
+        # No blacklist — progress was real.
+        assert len(ap._state.asteroid_blacklist) == 0
+        # Baseline updated to the new iron value.
+        assert ap._state.mine_iron_baseline == 75
+
+    def test_on_enter_clears_deadline(self):
+        """``_on_enter(S_MINE)`` must reset the deadline sentinel so
+        a fresh MINE entry re-seeds the baseline against current
+        ship_iron rather than carrying a stale value across a
+        MINE→OTHER→MINE round trip."""
+        ap._state.mine_iron_baseline = 999
+        ap._state.mine_progress_check_at = 12345.6
+        ap._on_enter(ap.S_MINE)
+        assert ap._state.mine_progress_check_at == 0.0
+
+
 class TestGatherChaseClampedToWorld:
     """``_act_gather`` clamps the pickup chase target to the world
     rect.  Same rationale as the asteroid case: an edge-adjacent

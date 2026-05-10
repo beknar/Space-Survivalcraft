@@ -238,6 +238,54 @@ def _do_mine_nearest(state: dict, p: dict) -> None:
     import bot_autopilot_astar as _astar
     px = float(p.get("x", 0.0))
     py = float(p.get("y", 0.0))
+    # MINE-without-progress watchdog (2026-05-09).  Every nominal
+    # target passing A* doesn't guarantee the bot can actually close
+    # to mining range — boundary repulsion + alien interference +
+    # frequent re-targeting on new spawns can keep the bot orbiting
+    # without firing.  Track ship_iron over a deadline window; if it
+    # hasn't moved by the deadline, blacklist whatever asteroid is
+    # currently nearest so the next cascade picks a different target.
+    now = _ap._get_now()
+    cur_iron = _ap._iron_total(state)
+    if _ap._state.mine_progress_check_at == 0.0:
+        # Lazy initialization on first MINE-action call after entry.
+        _ap._state.mine_iron_baseline = cur_iron
+        _ap._state.mine_progress_check_at = now + _ap.MINE_NO_PROGRESS_S
+    elif now >= _ap._state.mine_progress_check_at:
+        if cur_iron > _ap._state.mine_iron_baseline:
+            # Mining is producing — restart the window from the new
+            # baseline.
+            _ap._state.mine_iron_baseline = cur_iron
+            _ap._state.mine_progress_check_at = (
+                now + _ap.MINE_NO_PROGRESS_S)
+        else:
+            # No progress — blacklist the current nearest target so
+            # the FSM picks a different asteroid next tick.  Reset
+            # the window so the new target gets a fair shot before
+            # we blacklist again.
+            stalled_target, _ = _ap._nearest_asteroid(state, px, py)
+            if stalled_target is not None:
+                _ap._blacklist_asteroid(stalled_target)
+                print(
+                    f"[autopilot] MINE-NO-PROGRESS: blacklist "
+                    f"({stalled_target['x']:.0f}, "
+                    f"{stalled_target['y']:.0f}) — ship_iron held "
+                    f"at {cur_iron} for {_ap.MINE_NO_PROGRESS_S:.0f}s")
+                _ap._telemetry_log(
+                    "mine_no_progress_giveup",
+                    blacklisted_asteroid={
+                        "x": round(float(stalled_target.get("x", 0.0)), 1),
+                        "y": round(float(stalled_target.get("y", 0.0)), 1),
+                        "hp": int(stalled_target.get("hp", 0)),
+                    },
+                    iron_baseline=int(_ap._state.mine_iron_baseline),
+                    iron_now=int(cur_iron),
+                    window_s=_ap.MINE_NO_PROGRESS_S,
+                    **_ap._telemetry_snapshot_fields(state, p))
+                _ap._astar_invalidate_path()
+            _ap._state.mine_iron_baseline = cur_iron
+            _ap._state.mine_progress_check_at = (
+                now + _ap.MINE_NO_PROGRESS_S)
     target, dist = _ap._nearest_asteroid(state, px, py)
     if target is None:
         _ap._do_idle()
