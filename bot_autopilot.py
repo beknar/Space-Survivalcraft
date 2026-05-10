@@ -652,6 +652,19 @@ IDLE_AT_BASE_GIVEUP_S: float = 10.0
 # transitions — confirming the cascade fell through to section 8
 # every tick because the targeting helpers all returned None.
 IDLE_BLACKLIST_FLUSH_S: float = 60.0
+# MINE-without-progress watchdog window.  The bot occasionally
+# wedges in S_MINE for many minutes without ship_iron rising —
+# every nominal target passes A* reachability and the position-
+# history detector (PR #74's centroid override included) doesn't
+# fire because the bot IS moving (just not making mining
+# progress).  After this many seconds in S_MINE without any
+# ship_iron increase, blacklist the current target so the next
+# FSM tick selects a different asteroid.  Caught from 2026-05-09
+# telemetry: 12-minute S_MINE session, 145/145 snapshots in
+# MINE, ship_iron static at 85, asteroid_blacklist empty
+# throughout — the bot orbited asteroids in a 185×295 px region
+# without ever closing to mining range.
+MINE_NO_PROGRESS_S: float = 60.0
 # Spiral angular advance per tick (radians) — 4° / 0.07 rad gives
 # tangential target speeds the ship can actually rotate to follow
 # at typical search-spiral radii.
@@ -900,6 +913,17 @@ class BotState:
     # bar is fully filled, matching the user spec ("use until 100 %").
     heal_hp_active: bool = False
     heal_shield_active: bool = False
+    # MINE no-progress watchdog (2026-05-09 follow-up).  Captures
+    # ship_iron at S_MINE entry and the next deadline at which the
+    # action handler must verify that mining is actually producing
+    # iron.  If MINE has held for ``MINE_NO_PROGRESS_S`` without a
+    # ship_iron increase, the current chase target gets blacklisted
+    # so the FSM re-targets next tick — breaks the deadlock pattern
+    # where the bot orbits asteroids that are nominally reachable
+    # (A* passes) but never closes to mining range, observed as a
+    # 12-minute zero-iron-progress S_MINE wedge in the telemetry.
+    mine_iron_baseline: int = 0
+    mine_progress_check_at: float = 0.0
 
     def reset(self) -> None:
         """Restore every field to its default.  Mutates dict fields
@@ -936,6 +960,8 @@ class BotState:
         self.path_target = (None, None)
         self.path_waypoints = []
         self.path_planned_at = 0.0
+        self.mine_iron_baseline = 0
+        self.mine_progress_check_at = 0.0
 
 
 _state = BotState()
@@ -1697,6 +1723,11 @@ def _on_enter(new_state: str) -> None:
             _state.mining_weapon_pick = "Energy Pickaxe"
         else:
             _state.mining_weapon_pick = "Mining Beam"
+        # Reset the MINE-without-progress watchdog so the action
+        # handler re-seeds the baseline + deadline on its first
+        # tick after this entry.  Avoids carrying stale baselines
+        # across MINE→OTHER→MINE cycles.
+        _state.mine_progress_check_at = 0.0
 
 
 def _do_auto(state: dict, p: dict) -> None:
