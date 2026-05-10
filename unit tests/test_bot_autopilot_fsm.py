@@ -1593,6 +1593,67 @@ class TestDepositTrigger:
             "even when an asteroid is in chase range — the cargo-"
             "near-full safety valve.")
 
+    def test_far_from_home_below_full_does_not_deposit(self, _clock):
+        """Distance gate (2026-05-09 follow-up): when ship_iron is
+        between THRESHOLD and FULL and the bot is more than
+        DEPOSIT_HS_MAX_DIST_PX from home, DEPOSIT must NOT fire —
+        the long round trip would almost certainly be interrupted
+        by combat (ENGAGE preempt) before reaching the station,
+        leaving the bot stranded mid-trip with unchanged cargo
+        state.  Caught from telemetry: bot at hs_dist=6340 px
+        triggered DEPOSIT with iron=320, traveled 600 px, hit an
+        alien, aborted; spent the next 2 minutes mining its way
+        back instead of one efficient close-range deposit."""
+        ap._state.asteroid_blacklist.clear()
+        # Player at the world edge, HS at the opposite edge —
+        # comfortably past DEPOSIT_HS_MAX_DIST_PX.
+        s = _state(
+            iron=ap.DEPOSIT_IRON_THRESHOLD + 50,
+            buildings=[_hs_building(x=6200.0, y=6200.0)],
+            player={"x": 100.0, "y": 100.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+        )
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] != ap.S_DEPOSIT, (
+            "Far-from-home deposit must be suppressed when cargo "
+            "isn't full so the bot keeps making local progress "
+            "instead of committing to an interrupt-prone round trip.")
+
+    def test_far_from_home_full_cargo_still_deposits(self, _clock):
+        """The distance gate is bypassed when cargo is genuinely
+        full (iron ≥ DEPOSIT_IRON_FULL_THRESHOLD) — at that point
+        the bot can't keep mining productively anyway, so the long
+        trip is worth the risk of interruption."""
+        ap._state.asteroid_blacklist.clear()
+        s = _state(
+            iron=ap.DEPOSIT_IRON_FULL_THRESHOLD,
+            buildings=[_hs_building(x=6200.0, y=6200.0)],
+            player={"x": 100.0, "y": 100.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+        )
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_DEPOSIT, (
+            "Cargo-full deposits must bypass the distance gate — "
+            "at DEPOSIT_IRON_FULL_THRESHOLD or above the bot can't "
+            "productively keep mining, so the trip is worth taking.")
+
+    def test_within_distance_gate_below_full_still_deposits(self, _clock):
+        """Sanity: when within DEPOSIT_HS_MAX_DIST_PX, deposit
+        fires normally for non-full cargo (per the existing iron-
+        threshold logic).  Pins that the new gate doesn't also
+        accidentally suppress short-trip deposits."""
+        ap._state.asteroid_blacklist.clear()
+        # Player at (3000, 3200), HS at (3200, 3200) — 200 px apart,
+        # well within the 5000 px gate.
+        s = _state(
+            iron=ap.DEPOSIT_IRON_THRESHOLD,
+            buildings=[_hs_building(x=3200.0, y=3200.0)],
+            player={"x": 3000.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+        )
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_DEPOSIT
+
     def test_deposit_fires_when_asteroid_out_of_chase_range(
             self, _clock):
         """The mine-before-deposit override only suppresses DEPOSIT

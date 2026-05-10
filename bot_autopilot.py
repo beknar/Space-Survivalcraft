@@ -607,6 +607,24 @@ DEPOSIT_IRON_THRESHOLD = 100
 DEPOSIT_IRON_FULL_THRESHOLD = 500
 DEPOSIT_RANGE_PX       = 200.0
 DEPOSIT_COOLDOWN_S     = 30.0
+# Distance gate for non-urgent deposit runs.  When ship_iron is
+# above DEPOSIT_IRON_THRESHOLD but below DEPOSIT_IRON_FULL_THRESHOLD
+# (i.e. cargo isn't critical), suppress S_DEPOSIT if the bot is
+# more than this far from the home station — a long round trip is
+# very likely to be interrupted by combat (ENGAGE preempt aborts
+# the deposit mid-flight, leaving the bot far from home with
+# unchanged cargo state).  Caught from 2026-05-09 telemetry: bot
+# at hs_dist=6340 px triggered DEPOSIT with iron=320, traveled
+# 600 px, hit an alien, aborted; spent the next 2 minutes mining
+# its way back instead of one efficient close-range deposit.
+# Cargo-full deposits (iron ≥ DEPOSIT_IRON_FULL_THRESHOLD) bypass
+# this gate — when cargo is critical, the trip is worth the risk.
+# 5000 px chosen as a comfortable upper bound: large enough that
+# typical mining runs near the station / mid-world remain
+# eligible (HS at (3200,3200), bot anywhere in the same half-world
+# is within ~4500 px), tight enough to suppress the worst-case
+# corner-of-world commits (the telemetry case fired at 6340 px).
+DEPOSIT_HS_MAX_DIST_PX = 5000.0
 # Single radius for "clear and quiet" — no asteroids, aliens,
 # pickups, or buildings within this distance of the player.
 # Approximately matches the visible game screen so the player's
@@ -1404,7 +1422,20 @@ def _choose_next_state(state: dict, p: dict, cur: str) -> str:
                 ast_for_mine is not None
                 and ast_for_mine_d < MAX_ASTEROID_CHASE_PX)
             cargo_near_full = ship_iron >= DEPOSIT_IRON_FULL_THRESHOLD
-            if not asteroid_in_chase_range or cargo_near_full:
+            # Distance gate (2026-05-09 follow-up): non-cargo-full
+            # deposit runs from far away tend to get interrupted by
+            # combat before reaching the station, leaving the bot
+            # stranded mid-trip.  Stay productive in the local area
+            # until either home is closer (mining drifts the bot
+            # back) or cargo genuinely fills.
+            hs_dist = math.hypot(
+                float(hs.get("x", 0.0)) - px,
+                float(hs.get("y", 0.0)) - py)
+            too_far_for_deposit = (
+                hs_dist > DEPOSIT_HS_MAX_DIST_PX
+                and not cargo_near_full)
+            if ((not asteroid_in_chase_range or cargo_near_full)
+                    and not too_far_for_deposit):
                 return S_DEPOSIT
 
     # 5.5  CRAFT / INSTALL — sequential post-build workflow.  Only
