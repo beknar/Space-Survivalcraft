@@ -1270,6 +1270,49 @@ def _choose_next_state(state: dict, p: dict, cur: str) -> str:
             _telemetry_log("fortify_done_short_circuit",
                            reason=f"defenders_{defenders}_meets_min",
                            **_telemetry_snapshot_fields(state, p))
+    # Mirror short-circuit for the consumable craft phase.  The QWI
+    # pipeline gate (section 5.6) requires ``_consumable_phase_finished()``,
+    # which only returns True after the bot crafts all
+    # REPAIR_PACK_CRAFT_BATCHES + SHIELD_RECHARGE_CRAFT_BATCHES
+    # batches itself — flips the queue's ``consumable_phase_started``
+    # flag along the way.  A loaded save (or pre-existing inventory)
+    # with the 25 + 25 consumables already present skips the craft
+    # phase entirely, leaving ``consumable_phase_started=False``
+    # forever, so the QWI build pipeline never fires even though
+    # everything else is ready.  User report 2026-05-09: "there is
+    # over 2000 iron and there are multiple copies of all the
+    # modules and 25 of each consumable, so why has the bot not
+    # built a QWI?".  Sum across station / ship / quick-use slots
+    # so the latch fires regardless of where the consumables sit.
+    if not _state.queue.consumable_phase_started:
+        sitems = (state.get("station_inventory") or {}).get("items") or {}
+        iitems = (state.get("inventory") or {}).get("items") or {}
+        quick_use = state.get("quick_use_slots") or []
+        quick_repair = sum(
+            int(s.get("count", 0)) for s in quick_use
+            if s.get("item_type") == "repair_pack")
+        quick_shield = sum(
+            int(s.get("count", 0)) for s in quick_use
+            if s.get("item_type") == "shield_recharge")
+        total_repair = (int(sitems.get("repair_pack", 0))
+                        + int(iitems.get("repair_pack", 0))
+                        + quick_repair)
+        total_shield = (int(sitems.get("shield_recharge", 0))
+                        + int(iitems.get("shield_recharge", 0))
+                        + quick_shield)
+        # Each batch yields 5 of the consumable.
+        needed_repair = REPAIR_PACK_CRAFT_BATCHES * 5
+        needed_shield = SHIELD_RECHARGE_CRAFT_BATCHES * 5
+        if (total_repair >= needed_repair
+                and total_shield >= needed_shield):
+            _state.queue.consumable_phase_started = True
+            _state.queue.repair_packs_remaining = 0
+            _state.queue.shield_recharges_remaining = 0
+            _telemetry_log(
+                "consumable_phase_done_short_circuit",
+                reason=(f"repair_{total_repair}_shield_{total_shield}"
+                        f"_meets_{needed_repair}_{needed_shield}"),
+                **_telemetry_snapshot_fields(state, p))
 
     # 1. REGEN — shields hurt; sit still and recover.  Preempts
     #    ENGAGE/GATHER/MINE so the bot actually idles instead of

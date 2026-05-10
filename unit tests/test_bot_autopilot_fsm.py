@@ -3007,6 +3007,111 @@ class TestBuildDoneShortCircuitIsUnconditional:
         assert ap._state.build_done is True
 
 
+class TestConsumablePhaseDoneShortCircuit:
+    """Regression for the bug where a loaded save with consumables
+    already crafted (or pre-existing in inventory) leaves the
+    queue's ``consumable_phase_started`` flag at False forever, so
+    ``_consumable_phase_finished()`` never returns True and the QWI
+    build pipeline never fires.  User report 2026-05-09: 'over
+    2000 iron, multiple copies of all the modules, 25 of each
+    consumable, why has the bot not built a QWI?'"""
+
+    def _fresh_queue(self):
+        from bot_autopilot import CraftQueue
+        ap._state.queue = CraftQueue()
+
+    def test_short_circuit_latches_phase_done_for_station_inventory(
+            self, _clock):
+        """When the station inventory has the full 25 + 25 already,
+        the short-circuit must flip ``consumable_phase_started`` True
+        and zero the remaining-batches counters so the QWI gate can
+        proceed."""
+        self._fresh_queue()
+        s = _state(
+            buildings=[_hs_building()],
+            station_inventory_items={
+                "iron": 2000,
+                "repair_pack": 25,
+                "shield_recharge": 25,
+            },
+        )
+        ap._do_auto(s, s["player"])
+        assert ap._state.queue.consumable_phase_started is True
+        assert ap._state.queue.repair_packs_remaining == 0
+        assert ap._state.queue.shield_recharges_remaining == 0
+
+    def test_short_circuit_counts_quick_use_slots(self, _clock):
+        """Consumables already equipped to the bot's quick-use slots
+        also satisfy the threshold — equipped consumables have left
+        station inventory but are still on hand."""
+        self._fresh_queue()
+        s = _state(
+            buildings=[_hs_building()],
+        )
+        s["quick_use_slots"] = [
+            {"item_type": "repair_pack", "count": 25},
+            {"item_type": "shield_recharge", "count": 25},
+        ]
+        ap._do_auto(s, s["player"])
+        assert ap._state.queue.consumable_phase_started is True
+
+    def test_short_circuit_sums_across_locations(self, _clock):
+        """Counts station + ship + quick-use slots together so a
+        partially-equipped player still hits the threshold."""
+        self._fresh_queue()
+        s = _state(
+            buildings=[_hs_building()],
+            inventory_items={"iron": 0, "repair_pack": 10},
+            station_inventory_items={"repair_pack": 15,
+                                      "shield_recharge": 25},
+        )
+        ap._do_auto(s, s["player"])
+        # 10 (ship) + 15 (station) = 25 repair packs >= 25 needed.
+        # 25 (station) shield recharges >= 25 needed.
+        assert ap._state.queue.consumable_phase_started is True
+
+    def test_short_circuit_skipped_when_below_threshold(self, _clock):
+        """When the user has fewer than the full 25 + 25, the
+        short-circuit must NOT fire — the bot still needs to craft
+        the rest, so the queue stays armed."""
+        self._fresh_queue()
+        s = _state(
+            buildings=[_hs_building()],
+            station_inventory_items={
+                "iron": 2000,
+                "repair_pack": 24,        # one short
+                "shield_recharge": 25,
+            },
+        )
+        ap._do_auto(s, s["player"])
+        assert ap._state.queue.consumable_phase_started is False
+        assert ap._state.queue.repair_packs_remaining > 0
+
+    def test_short_circuit_does_not_re_run_when_already_started(
+            self, _clock):
+        """Idempotency: once the phase flag is True, a subsequent
+        tick must NOT re-fire the short-circuit (or reset the
+        remaining counters mid-craft if the phase is genuinely
+        running)."""
+        self._fresh_queue()
+        # Simulate the phase having already started + 2 batches
+        # left for repair packs.
+        ap._state.queue.consumable_phase_started = True
+        ap._state.queue.repair_packs_remaining = 2
+        ap._state.queue.shield_recharges_remaining = 0
+        s = _state(
+            buildings=[_hs_building()],
+            station_inventory_items={
+                "iron": 2000,
+                "repair_pack": 25,
+                "shield_recharge": 25,
+            },
+        )
+        ap._do_auto(s, s["player"])
+        # repair_packs_remaining must NOT have been reset to 0.
+        assert ap._state.queue.repair_packs_remaining == 2
+
+
 class TestSearchExemptFromStuckDetect:
     """The spiral search's brake-coast motion at small radii looks
     indistinguishable from being pinned to the position+rotation
