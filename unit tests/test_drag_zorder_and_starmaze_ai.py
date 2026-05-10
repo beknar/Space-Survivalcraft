@@ -72,6 +72,23 @@ class TestStarMazeAIPilotPatrol:
         gv = GameView(faction="Earth", ship_type="Cruiser",
                       ship_level=1)
         gv._transition_zone(ZoneID.STAR_MAZE, "bottom")
+        # Clear every spawned hostile from the maze so the patrol
+        # mechanics test is isolated from engage-mode.  ``_world_seed``
+        # is randomised on zone construction (``zones/star_maze.py``),
+        # so without this the Z2 alien spawn positions vary between
+        # runs — when an alien lands within ``AI_PILOT_DETECT_RANGE``
+        # of the parked ship, the AI pilot enters engage mode (lateral
+        # chase at AI_PILOT_SPEED) instead of patrol (snap-to-ring at
+        # ~260 px on frame 1), and the 1-second movement budget falls
+        # short of the 100 px assertion.  The test specifically
+        # exercises the patrol code path; engagement mechanics are
+        # covered by the dedicated AI-pilot combat suite.
+        zone = gv._zone
+        for attr in ("_aliens", "_maze_aliens", "_stalkers"):
+            lst = getattr(zone, attr, None)
+            if lst is not None:
+                lst.clear()
+        gv.alien_list.clear()
         # Plant a Home Station inside the Star Maze.
         home_tex = gv._building_textures["Home Station"]
         home = create_building("Home Station", home_tex,
