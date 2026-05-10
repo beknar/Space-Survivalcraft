@@ -255,6 +255,20 @@ def _do_mine_nearest(state: dict, p: dict) -> None:
         _ap._blacklist_asteroid(target)
         print(f"[autopilot] ASTEROID-BLACKLIST (unreachable): "
               f"({target['x']:.0f}, {target['y']:.0f})")
+        # Telemetry mirror so post-hoc log analysis can see silent
+        # unreachable-blacklisting (which previously left no JSONL
+        # trace and made the IDLE_AT_BASE deadlock invisible —
+        # 2026-05-09).  ``stuck_detected`` is owned by the watchdog;
+        # reachability blacklisting gets its own event name so the
+        # two failure modes don't collide.
+        _ap._telemetry_log(
+            "asteroid_blacklist_unreachable",
+            blacklisted_asteroid={
+                "x": round(float(target.get("x", 0.0)), 1),
+                "y": round(float(target.get("y", 0.0)), 1),
+                "hp": int(target.get("hp", 0)),
+            },
+            **_ap._telemetry_snapshot_fields(state, p))
         _ap._astar_invalidate_path()
         target, dist = _ap._nearest_asteroid(state, px, py)
         if target is None:

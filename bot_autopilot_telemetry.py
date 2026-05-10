@@ -127,6 +127,15 @@ def make_snapshot_fields(
         "modules_to_install_left": len(bot_state.queue.modules_to_install),
         "module_phase_started": bot_state.queue.module_phase_started,
         "consumable_phase_started": bot_state.queue.consumable_phase_started,
+        # Blacklist sizes (added 2026-05-09): when the targeting
+        # helpers return None despite visible asteroids/pickups,
+        # the post-hoc analyst needs to know whether the cause is
+        # an empty world list or a saturated blacklist.  Cheap:
+        # two len() calls per snapshot.
+        "asteroid_blacklist_size": len(
+            getattr(bot_state, "asteroid_blacklist", {}) or {}),
+        "pickup_blacklist_size": len(
+            getattr(bot_state, "pickup_blacklist", {}) or {}),
     }
 
 

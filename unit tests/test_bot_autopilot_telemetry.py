@@ -151,6 +151,62 @@ class TestMakeSnapshotFields:
         assert snap["has_home_station"] is True
         assert snap["hs_dist"] is not None
 
+    def test_blacklist_sizes_in_snapshot(self):
+        """Snapshot must report current asteroid + pickup blacklist
+        sizes so post-hoc analysis can distinguish "world is empty"
+        from "all visible targets are blacklisted" (the deadlock
+        pattern that wedged the bot in IDLE_AT_BASE for 14 minutes
+        in the 2026-05-09 telemetry).  Missing-attr fall back to
+        empty-dict / size 0 so test fixtures using SimpleNamespace
+        don't have to thread the field."""
+        state = {"inventory": {"items": {}},
+                 "station_inventory": {"items": {}},
+                 "buildings": []}
+        p = {"x": 0.0, "y": 0.0}
+        # Construct a bot state that exposes both blacklists.
+        queue = SimpleNamespace(
+            modules_to_craft=[], modules_to_install=[],
+            module_phase_started=False,
+            consumable_phase_started=False)
+        bot = SimpleNamespace(
+            queue=queue, build_done=True, last_deposit_at=0.0,
+            asteroid_blacklist={(0.0, 0.0): 999.0,
+                                (10.0, 10.0): 999.0},
+            pickup_blacklist={(20.0, 20.0): 999.0})
+        snap = tlm.make_snapshot_fields(
+            state, p, bot,
+            deposit_cooldown_s=30.0,
+            find_home_station=lambda s: None,
+            get_now=lambda: 0.0,
+        )
+        assert snap["asteroid_blacklist_size"] == 2
+        assert snap["pickup_blacklist_size"] == 1
+
+    def test_blacklist_sizes_default_to_zero_when_missing(self):
+        """Older bot-state fixtures that pre-date the blacklist
+        attrs (e.g. SimpleNamespace constructed in unrelated tests)
+        must still produce a valid snapshot — the helper falls back
+        to ``{}`` via ``getattr`` so downstream JSON serialization
+        keeps working."""
+        state = {"inventory": {"items": {}},
+                 "station_inventory": {"items": {}},
+                 "buildings": []}
+        p = {"x": 0.0, "y": 0.0}
+        queue = SimpleNamespace(
+            modules_to_craft=[], modules_to_install=[],
+            module_phase_started=False,
+            consumable_phase_started=False)
+        bot = SimpleNamespace(queue=queue, build_done=True,
+                              last_deposit_at=0.0)
+        snap = tlm.make_snapshot_fields(
+            state, p, bot,
+            deposit_cooldown_s=30.0,
+            find_home_station=lambda s: None,
+            get_now=lambda: 0.0,
+        )
+        assert snap["asteroid_blacklist_size"] == 0
+        assert snap["pickup_blacklist_size"] == 0
+
     def test_no_home_station_yields_none_distance(self):
         state = {"inventory": {"items": {}},
                  "station_inventory": {}, "buildings": []}

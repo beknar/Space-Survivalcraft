@@ -639,6 +639,19 @@ SEARCH_GIVEUP_S: float = 60.0
 # **immediately** for in-chase-range asteroids; this gate only
 # kicks in for far targets that need the cap to be dropped.
 IDLE_AT_BASE_GIVEUP_S: float = 10.0
+# Stale-blacklist flush gate.  When the bot has been parked in
+# S_IDLE_AT_BASE this long AND the world has visible asteroids
+# (state.get("asteroids") non-empty) yet ``_nearest_asteroid``
+# keeps returning None, every visible asteroid must be inside the
+# active asteroid blacklist — almost always from silent
+# ``_do_mine_nearest`` "unreachable" blacklisting that accumulates
+# faster than the per-entry 60 s TTL evicts.  Wipe the asteroid +
+# pickup blacklists so the next FSM tick re-evaluates from a clean
+# slate.  Caught from 2026-05-09 telemetry: bot held S_IDLE_AT_BASE
+# for 852 s (14 min) with ast=14 / aliens=13 visible, zero
+# transitions — confirming the cascade fell through to section 8
+# every tick because the targeting helpers all returned None.
+IDLE_BLACKLIST_FLUSH_S: float = 60.0
 # Spiral angular advance per tick (radians) — 4° / 0.07 rad gives
 # tangential target speeds the ship can actually rotate to follow
 # at typical search-spiral radii.
@@ -1498,6 +1511,42 @@ def _choose_next_state(state: dict, p: dict, cur: str) -> str:
         # in /state) — clear the commitment so the next time an
         # asteroid appears we start fresh.
         _state.chase_committed = False
+        # Stale-blacklist flush (2026-05-09): when the bot has been
+        # parked in IDLE_AT_BASE for IDLE_BLACKLIST_FLUSH_S yet the
+        # world has visible asteroids that all happen to be
+        # blacklisted, the bot is wedged in a silent deadlock —
+        # ``_do_mine_nearest`` blacklists unreachable asteroids
+        # without emitting a stuck_detected, so the per-entry 60 s
+        # TTL can be continuously refreshed by repeated MINE
+        # attempts faster than entries evict.  Wipe both blacklists
+        # so the next tick re-targets from scratch.  Long enough to
+        # not interfere with normal short-cycle blacklisting; short
+        # enough to recover within the user's patience window.
+        idle_entered = _fsm.get("entered_at")
+        visible_asteroids = state.get("asteroids") or []
+        if (cur == S_IDLE_AT_BASE
+                and visible_asteroids
+                and idle_entered is not None
+                and (now - idle_entered) >= IDLE_BLACKLIST_FLUSH_S
+                and (_state.asteroid_blacklist
+                     or _state.pickup_blacklist)):
+            n_ast = len(_state.asteroid_blacklist)
+            n_pu = len(_state.pickup_blacklist)
+            _state.asteroid_blacklist.clear()
+            _state.pickup_blacklist.clear()
+            _telemetry_log(
+                "idle_blacklist_flush",
+                cleared_asteroid_entries=n_ast,
+                cleared_pickup_entries=n_pu,
+                visible_asteroids=len(visible_asteroids),
+                idle_dwell_s=round(now - idle_entered, 1),
+                **_telemetry_snapshot_fields(state, p))
+            # Re-query after the flush so this same tick can
+            # commit to MINE instead of waiting another tick.
+            nearest_ast, ast_d = _nearest_asteroid(state, px, py)
+            if nearest_ast is not None:
+                _state.chase_committed = True
+                return S_MINE
 
     # 7. HUNT — no asteroid available but an alien is in HUNT_RANGE_PX.
     #    The bot needs resources (iron drops on alien kills) and
