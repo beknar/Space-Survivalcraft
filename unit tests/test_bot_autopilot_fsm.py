@@ -2742,6 +2742,111 @@ class TestAsteroidChaseDistanceCap:
         assert ap._fsm["state"] == ap.S_MINE
 
 
+class TestIdleBlacklistFlush:
+    """Section 6 stale-blacklist flush valve.  Without this, silent
+    ``_do_mine_nearest`` reachability blacklisting could accumulate
+    past the per-entry 60 s TTL via repeated MINE attempts and wedge
+    the bot in S_IDLE_AT_BASE indefinitely (caught from 2026-05-09
+    telemetry: 14-minute idle stretch with ast=14 / aliens=13 visible
+    yet zero state transitions, indicating the targeting helpers were
+    returning None every tick).  The flush kicks in only after a
+    long dwell so it can't interfere with normal short-cycle
+    blacklisting that's intended to last a full 60 s TTL."""
+
+    def test_flush_clears_blacklist_and_fires_mine(self, _clock):
+        """After IDLE_BLACKLIST_FLUSH_S in IDLE_AT_BASE with visible
+        asteroids that all match a saturated blacklist, the FSM
+        must wipe the blacklist + immediately commit to MINE on the
+        same tick instead of waiting another full evaluation cycle."""
+        ap._state.asteroid_blacklist.clear()
+        ap._state.pickup_blacklist.clear()
+        ap._state.chase_committed = False
+        ap._state.build_done = True
+        # Asteroid is INSIDE chase range so once the blacklist is
+        # flushed, MINE fires via the in-range branch (not the
+        # giveup branch) — keeps the test focused on the flush.
+        s = _state(
+            asteroids=[{"x": 3700.0, "y": 3200.0, "hp": 100,
+                        "type": "Asteroid"}],
+            buildings=[_hs_building(x=3200.0, y=3200.0)],
+            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+        )
+        # Pre-blacklist the asteroid so ``_nearest_asteroid``
+        # returns None on the first cascade through section 6.
+        ap._blacklist_asteroid(s["asteroids"][0])
+        # Enter IDLE_AT_BASE.
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_IDLE_AT_BASE
+        assert len(ap._state.asteroid_blacklist) == 1, (
+            "Pre-condition: the asteroid must be blacklisted so "
+            "the cascade reaches section 6's else branch.")
+        # Advance past the flush gate.
+        _clock[0] += ap.IDLE_BLACKLIST_FLUSH_S + ap.MIN_DWELL_S + 0.1
+        ap._do_auto(s, s["player"])
+        # Flush must have wiped the blacklist + transitioned to MINE.
+        assert ap._fsm["state"] == ap.S_MINE, (
+            "Stale-blacklist flush must immediately commit to MINE "
+            "after wiping the blacklist on the same evaluation tick.")
+        assert len(ap._state.asteroid_blacklist) == 0, (
+            "Blacklist must be empty after the flush so the bot "
+            "can re-attempt the previously rejected targets.")
+
+    def test_flush_skipped_when_no_visible_asteroids(self, _clock):
+        """The flush valve must not fire when the world has zero
+        visible asteroids — there's nothing to mine, so wiping the
+        blacklist is pointless and would just churn entries.  Pins
+        that the gate's ``visible_asteroids`` check holds."""
+        ap._state.asteroid_blacklist.clear()
+        ap._state.pickup_blacklist.clear()
+        ap._state.chase_committed = False
+        ap._state.build_done = True
+        # Stale blacklist entry from a prior session — but the
+        # world list is empty right now.
+        ap._blacklist_asteroid({"x": 4000.0, "y": 4000.0})
+        s = _state(
+            buildings=[_hs_building(x=3200.0, y=3200.0)],
+            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+        )
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_IDLE_AT_BASE
+        _clock[0] += ap.IDLE_BLACKLIST_FLUSH_S + ap.MIN_DWELL_S + 0.1
+        ap._do_auto(s, s["player"])
+        # Still IDLE; blacklist preserved (nothing to flush against).
+        assert ap._fsm["state"] == ap.S_IDLE_AT_BASE
+        assert len(ap._state.asteroid_blacklist) == 1
+
+    def test_flush_skipped_before_threshold(self, _clock):
+        """Flushing too early would defeat the per-entry 60 s TTL
+        that normal short-cycle blacklisting depends on.  The flush
+        must wait the full IDLE_BLACKLIST_FLUSH_S window before
+        firing so legitimate "asteroid behind a wall" blacklisting
+        keeps its protective effect."""
+        ap._state.asteroid_blacklist.clear()
+        ap._state.pickup_blacklist.clear()
+        ap._state.chase_committed = False
+        ap._state.build_done = True
+        s = _state(
+            asteroids=[{"x": 3700.0, "y": 3200.0, "hp": 100,
+                        "type": "Asteroid"}],
+            buildings=[_hs_building(x=3200.0, y=3200.0)],
+            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+        )
+        ap._blacklist_asteroid(s["asteroids"][0])
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_IDLE_AT_BASE
+        # Advance only halfway — flush must NOT fire.
+        _clock[0] += ap.IDLE_BLACKLIST_FLUSH_S * 0.5
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_IDLE_AT_BASE, (
+            "Flush must wait the full IDLE_BLACKLIST_FLUSH_S — "
+            "early firing would defeat normal short-cycle "
+            "blacklisting.")
+        assert len(ap._state.asteroid_blacklist) == 1
+
+
 class TestSpiralAngleAdvanceTuning:
     """The spiral's angle-advance rate must stay slow enough that
     the tangential target speed at typical orbit radii is something
