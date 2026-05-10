@@ -73,6 +73,8 @@ Welcome to the full documentation for **Call of Orion**, a top-down space surviv
 
 ## General & Weapons
 
+- Sci-Fi space station Items: https://fabs133.itch.io/scifi-space-station-items (not yet bought)
+
 ### General Game Assets
 
 - Kenney All-in-1: https://kenney.itch.io/kenney-game-assets
@@ -81,6 +83,7 @@ Welcome to the full documentation for **Call of Orion**, a top-down space surviv
 
 - Light saber game assets (melee weapon sprites): https://willisthehy.itch.io/light-saber-game-assets
 - Energized pickaxe: https://pixelartmaker.com/offshoot/70c3591d158d1bd
+- Sci-Fi Items: https://iamtheheartist.itch.io/sci-fi-pixel-art-item-icons-pack-11-retro-futuristic-game-assets-free-donation
 
 ## Music & Sound Effects Licensing
 
