@@ -577,70 +577,14 @@ class _BaseDrone(arcade.Sprite):
             self.shields = min(self.max_shields, self.shields + bump)
 
     def _apply_asteroid_pushout(self, asteroids) -> bool:
-        """Push the drone out of any asteroid it overlaps after a
-        movement tick.  ``asteroids`` is a flat iterable of
-        sprites with ``center_x`` / ``center_y``; uses the constant
-        ``ASTEROID_RADIUS`` for every asteroid (matches the
-        collision layer used by player-vs-asteroid).  Returns True
-        iff a push fired this frame so the caller can suppress
-        further movement.
-
-        Cheap O(N) — drones run this every frame they actively
-        steer, but the overlap test short-circuits via squared
-        distance and the inner branch only runs on contacts."""
-        if not asteroids:
-            return False
-        from constants import ASTEROID_RADIUS
-        moved = False
-        r_total = self.radius + ASTEROID_RADIUS + self._ASTEROID_PUSH_PAD
-        r_total_sq = r_total * r_total
-        for a in asteroids:
-            dx = self.center_x - a.center_x
-            dy = self.center_y - a.center_y
-            d2 = dx * dx + dy * dy
-            if d2 >= r_total_sq or d2 == 0.0:
-                continue
-            d = math.sqrt(d2)
-            nx = dx / d
-            ny = dy / d
-            pen = r_total - d
-            self.center_x += nx * pen
-            self.center_y += ny * pen
-            moved = True
-        return moved
+        from sprites.drone_base_helpers import apply_asteroid_pushout
+        return apply_asteroid_pushout(self, asteroids)
 
     def _asteroid_avoidance(
         self, asteroids, base_x: float, base_y: float,
     ) -> tuple[float, float]:
-        """Return a steering vector blending the desired ``(base_x,
-        base_y)`` direction with a soft repulsion away from nearby
-        asteroids.  Vector is unit-magnitude (or zero).  Routing
-        emerges from this term combined with the per-frame push-out
-        — drones smoothly steer around rocks instead of grinding
-        on them when push-out shoves them sideways.
-        """
-        if not asteroids:
-            return (base_x, base_y)
-        from constants import ASTEROID_RADIUS
-        thresh = (self.radius + ASTEROID_RADIUS
-                  + self._ASTEROID_AVOID_RADIUS)
-        thresh_sq = thresh * thresh
-        sx, sy = base_x, base_y
-        for a in asteroids:
-            dx = self.center_x - a.center_x
-            dy = self.center_y - a.center_y
-            d2 = dx * dx + dy * dy
-            if d2 >= thresh_sq or d2 == 0.0:
-                continue
-            d = math.sqrt(d2)
-            # Linear falloff — stronger close, zero at threshold.
-            w = 1.0 - d / thresh
-            sx += (dx / d) * w
-            sy += (dy / d) * w
-        mag = math.hypot(sx, sy)
-        if mag < 0.001:
-            return (base_x, base_y)
-        return (sx / mag, sy / mag)
+        from sprites.drone_base_helpers import asteroid_avoidance
+        return asteroid_avoidance(self, asteroids, base_x, base_y)
 
     def _vacuum_pickups(self, gv: "GameView") -> None:
         """Flag any iron / blueprint pickup within reach as flying so
@@ -661,68 +605,8 @@ class _BaseDrone(arcade.Sprite):
     def _try_unstick_nudge(
         self, dt: float, target_x: float, target_y: float,
     ) -> bool:
-        """Safety-net nudge.  When the drone has been trying to
-        steer toward (target_x, target_y) but hasn't physically
-        moved more than ``_NUDGE_DIST`` over ``_NUDGE_TIME`` seconds,
-        slide one frame's worth of motion perpendicular to the
-        steering direction so a wall-corner wedge can pop free.
-
-        Returns True iff a nudge fired this frame; the caller should
-        treat it like a normal step (no further movement that frame).
-        Always advances the per-tick anchor / timer.
-        """
-        if self._nudge_anchor_x is None:
-            self._nudge_anchor_x = self.center_x
-            self._nudge_anchor_y = self.center_y
-            self._nudge_timer = 0.0
-            self._nudge_dir = (
-                self._nudge_dir if self._nudge_dir != 0.0
-                else 1.0)   # 1.0 = right-perpendicular, -1.0 = left
-            return False
-        moved_sq = (
-            (self.center_x - self._nudge_anchor_x) ** 2
-            + (self.center_y - self._nudge_anchor_y) ** 2
-        )
-        if moved_sq >= self._NUDGE_DIST * self._NUDGE_DIST:
-            # Real progress — reset the tracker so we only fire when
-            # actually stuck.
-            self._nudge_anchor_x = self.center_x
-            self._nudge_anchor_y = self.center_y
-            self._nudge_timer = 0.0
-            return False
-        self._nudge_timer += dt
-        if self._nudge_timer < self._NUDGE_TIME:
-            return False
-        # Trigger a perpendicular slide.  Direction toward target
-        # gives the steering vector; perpendicular rotates it 90°.
-        # Alternates side each fire so a single wall corner that
-        # blocks the right-slide gets a left-slide on the next try.
-        dx = target_x - self.center_x
-        dy = target_y - self.center_y
-        d = math.hypot(dx, dy)
-        if d <= 0.001:
-            self._nudge_timer = 0.0
-            return False
-        nx = dx / d
-        ny = dy / d
-        side = self._nudge_dir
-        # 90° rotation: (nx, ny) → (ny, -nx) for right, (-ny, nx) for left.
-        px = ny * side
-        py = -nx * side
-        step = self._NUDGE_IMPULSE * dt
-        # Cap the nudge to per-frame max speed so we never teleport.
-        max_step = DRONE_MAX_SPEED * dt
-        if step > max_step:
-            step = max_step
-        self.center_x += px * step
-        self.center_y += py * step
-        # Flip side for next attempt + reset the timer so we don't
-        # nudge again immediately if the wall is on both axes.
-        self._nudge_dir = -side
-        self._nudge_anchor_x = self.center_x
-        self._nudge_anchor_y = self.center_y
-        self._nudge_timer = 0.0
-        return True
+        from sprites.drone_base_helpers import try_unstick_nudge
+        return try_unstick_nudge(self, dt, target_x, target_y)
 
     def _run_return_home(
         self, dt: float, player_x: float, player_y: float,
@@ -880,66 +764,14 @@ class _BaseDrone(arcade.Sprite):
         follow-only)."""
         return self._target_cooldown <= 0.0
 
-    def _track_stuck_progress(
-        self, dt: float, target,
-    ) -> bool:
-        """Return True when the drone is "stuck" on this target —
-        same target in sight for ≥ 5 s with no HP loss.  Caller
-        should drop the target and enter the follow-only cooldown.
-        Resets internal state on any progress.
-        """
-        if target is None:
-            self._stuck_target = None
-            self._target_acquired_timer = 0.0
-            return False
-        if target is not self._stuck_target:
-            # New target — reset progress markers.
-            self._stuck_target = target
-            self._stuck_target_hp = int(getattr(target, "hp", 0))
-            self._target_acquired_timer = 0.0
-            return False
-        cur_hp = int(getattr(target, "hp", 0))
-        if cur_hp < self._stuck_target_hp:
-            # We damaged it — making progress, reset.
-            self._stuck_target_hp = cur_hp
-            self._target_acquired_timer = 0.0
-            return False
-        self._target_acquired_timer += dt
-        if self._target_acquired_timer >= 5.0:
-            self._target_acquired_timer = 0.0
-            self._target_cooldown = 5.0
-            self._stuck_target = None
-            return True
-        return False
+    def _track_stuck_progress(self, dt: float, target) -> bool:
+        from sprites.drone_base_helpers import track_stuck_progress
+        return track_stuck_progress(self, dt, target)
 
     # ── Fire ─────────────────────────────────────────────────────────
 
     def _aim_and_fire(
         self, target_x: float, target_y: float,
     ) -> Projectile | None:
-        """Spawn one Projectile aimed at ``(target_x, target_y)`` if
-        off cooldown; returns the projectile (or ``None``).  Caller
-        appends it to the projectile list."""
-        if self._fire_cd > 0.0:
-            return None
-        dx = target_x - self.center_x
-        dy = target_y - self.center_y
-        dist = math.hypot(dx, dy)
-        if dist > DRONE_LASER_RANGE or dist <= 0.001:
-            return None
-        heading = math.degrees(math.atan2(dx, dy)) % 360.0
-        self._fire_cd = DRONE_FIRE_COOLDOWN
-        self._heading = heading
-        self.angle = heading
-        if self._fire_snd is not None:
-            arcade.play_sound(self._fire_snd,
-                              volume=audio.sfx_volume * 0.4)
-        return Projectile(
-            self._laser_tex,
-            self.center_x, self.center_y,
-            heading,
-            DRONE_LASER_SPEED, DRONE_LASER_RANGE,
-            scale=0.5,
-            mines_rock=self._mines_rock,
-            damage=self._laser_damage,
-        )
+        from sprites.drone_base_helpers import aim_and_fire
+        return aim_and_fire(self, target_x, target_y)
