@@ -56,6 +56,21 @@ STUCK_DETECT_LONG_HISTORY_S = 5.0
 # tangent scenario), while a bot creeping 10 px/s for 5 s (50 px
 # net) does not.
 STUCK_DETECT_LONG_PROGRESS_PX = 40.0
+# Anti-oscillation companion to ``STUCK_DETECT_LONG_PROGRESS_PX``.
+# A bot oscillating between two points 50 px apart (e.g. wall-pin
+# back-and-forth: bounce off the wall, drift back, bounce again)
+# satisfies the max-dist gate above (any sample is 50 px from
+# current → "not stuck") but is making zero net progress.  When
+# the max-dist gate would mark the bot non-stuck, we additionally
+# split the long history into halves and require the centroid to
+# have shifted by at least this many pixels.  Oscillating motion
+# has roughly stationary centroids in both halves; genuine chase
+# motion has the second-half centroid offset along the chase
+# direction.  Caught from 2026-05-09 telemetry: bot wedged in
+# S_MINE for 130 s at the left wall (px 79-103, py 4144-4193,
+# 24×49 px bounding box) — exactly the oscillation-defeats-
+# max-dist failure mode this gate now rejects.
+STUCK_DETECT_LONG_CENTROID_PX = 15.0
 # Hard-pin override threshold: when the maximum distance from the
 # latest sample to ANY sample in the full long history is below this
 # AND the history spans the full window, the bot is genuinely
@@ -574,11 +589,22 @@ def detect_stuck(stuck_state: dict) -> bool:
        individual 1.5 s window only shows 20 px of motion (10 px/s
        acceleration ramp + station-cluster repulsion cross-currents).
        If any sample in the long history is more than
-       ``STUCK_DETECT_LONG_PROGRESS_PX`` from the latest position,
-       the bot is making net progress and is not stuck.  Caught
-       from 2026-05-07 telemetry (PR #58): 60 s ``hunt`` chase
-       from (317, 3875) to (603, 3525) — 7.5 px/s average — that
-       fired three stuck events near the start.
+       ``STUCK_DETECT_LONG_PROGRESS_PX`` from the latest position
+       AND the first-half / second-half centroids have shifted by
+       more than ``STUCK_DETECT_LONG_CENTROID_PX``, the bot is
+       making net progress and is not stuck.  Caught from 2026-05-07
+       telemetry (PR #58): 60 s ``hunt`` chase from (317, 3875) to
+       (603, 3525) — 7.5 px/s average — that fired three stuck
+       events near the start.
+
+       **Oscillation override** (2026-05-09): when the max-dist
+       gate would say "not stuck" but the centroid shift is below
+       ``STUCK_DETECT_LONG_CENTROID_PX``, the bot is bouncing
+       between two positions without net progress — declare stuck
+       directly so the rotation gate below can't mask the failure.
+       Caught from a 130-s S_MINE wedge at the left wall where the
+       bot oscillated in a 24×49 px box while rotating to track
+       aliens (rotation gate would have blocked the watchdog).
 
     3. **Hard-pin override** (full 5 s history).  When the bot has
        had near-zero translation for the *full* long-history
@@ -623,10 +649,49 @@ def detect_stuck(stuck_state: dict) -> bool:
         (s[1] - cur_x) ** 2 + (s[2] - cur_y) ** 2 for s in h)
 
     # Long-window net-progress gate: any sample > LONG_PROGRESS_PX
-    # away → bot is making net progress, not stuck.
+    # away → candidate "making progress".  Confirm it's real progress
+    # (not oscillation) by also splitting the history into halves and
+    # checking that the centroid has shifted.  Oscillation produces a
+    # roughly stationary centroid even when individual samples are far
+    # from current; a genuine chase shifts the centroid along the
+    # chase axis.  Caught from 2026-05-09 telemetry: bot wedged in
+    # S_MINE for 130 s at the left wall, 24×49 px bbox — max-dist
+    # gate alone marked it non-stuck so the watchdog never fired.
     if max_dist_sq > (STUCK_DETECT_LONG_PROGRESS_PX
                       * STUCK_DETECT_LONG_PROGRESS_PX):
-        return False
+        mid = len(h) // 2
+        if mid >= 1 and len(h) - mid >= 1:
+            inv_n1 = 1.0 / mid
+            inv_n2 = 1.0 / (len(h) - mid)
+            c1x = sum(s[1] for s in h[:mid]) * inv_n1
+            c1y = sum(s[2] for s in h[:mid]) * inv_n1
+            c2x = sum(s[1] for s in h[mid:]) * inv_n2
+            c2y = sum(s[2] for s in h[mid:]) * inv_n2
+            centroid_disp_sq = (c2x - c1x) ** 2 + (c2y - c1y) ** 2
+            if centroid_disp_sq > (STUCK_DETECT_LONG_CENTROID_PX
+                                   * STUCK_DETECT_LONG_CENTROID_PX):
+                return False
+            # Oscillation override: high max-dist + stationary
+            # centroid + full history span = bot is bouncing between
+            # two positions without making net progress.  Declare
+            # stuck immediately so the rotation gate below can't
+            # mask it (the wall-pin case in the 2026-05-09 log was
+            # also actively rotating to track aliens, which would
+            # have defeated the rotation gate).  Requires the full
+            # history span so post-transition ramps don't false-
+            # fire while the bot is still legitimately ramping up
+            # from zero velocity.
+            history_span_for_oscillation = h[-1][0] - h[0][0]
+            if (history_span_for_oscillation
+                    >= STUCK_DETECT_LONG_HISTORY_S - 0.1):
+                return True
+            # Sub-full history but centroid stationary — not enough
+            # data to be confident, treat as not-stuck for now.
+            return False
+        else:
+            # Degenerate history (< 2 samples) — trust max-dist as
+            # before to avoid false positives from sparse data.
+            return False
 
     # Hard-pin override: when the FULL long history sits within
     # ``STUCK_DETECT_HARD_PIN_PX`` of the current position the bot
