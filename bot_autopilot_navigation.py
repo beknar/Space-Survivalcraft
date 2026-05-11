@@ -134,7 +134,20 @@ BUILDING_REPULSION_TYPE_MULTIPLIER: dict = {
 # block deposit (200 px range), craft (200 px), and install (250 px)
 # from docking with their target building — the field would push
 # the bot back out of the action zone before the trigger fires.
-REPULSION_TARGET_SUPPRESS_PX: float = 50.0
+#
+# Widened from 50 to 100 px after 2026-05-10 telemetry: 3
+# stuck_detected events in S_CRAFT with cause="building", all
+# anchored at (~683, 1600) spread over 108 s.  The starter base
+# places the Repair Module at (60, 60) and the Basic Crafter at
+# (120, 60) -- exactly 60 px apart.  The pre-fix 50 px suppress
+# radius left the RM's 150 px field active when the bot navigated
+# to its neighbour, pushing the bot back out of the 200 px craft
+# interact range every approach.  100 px suppresses immediate
+# adjacent neighbours (the RM at 60 px) but still preserves the
+# protective field of more distant cluster members (Service
+# Module at 120 px from crafter, Home Station at 134 px) so
+# transit paths still curve around the cluster as a whole.
+REPULSION_TARGET_SUPPRESS_PX: float = 100.0
 
 # Distance the bot walks per tick when seeking a clear spot or
 # heading along the escape vector.  Re-exported here because
