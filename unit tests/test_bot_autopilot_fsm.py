@@ -5695,6 +5695,46 @@ class TestMineNoProgressGiveup:
         ap._on_enter(ap.S_MINE)
         assert ap._state.mine_progress_check_at == 0.0
 
+    def test_on_enter_pre_boss_mine_also_clears_deadline(self):
+        """2026-05-10 telemetry-anchored regression.
+
+        ``_on_enter(S_PRE_BOSS_MINE)`` must reset the watchdog the
+        same way ``_on_enter(S_MINE)`` does, because both states
+        share the same ``_do_mine_nearest`` action handler and the
+        same baseline / deadline pair.  Pre-fix this hook only
+        matched S_MINE, so the cycle PRE_BOSS_MINE → DEPOSIT →
+        PRE_BOSS_MINE carried a stale baseline from the first
+        PRE_BOSS_MINE session into the second one -- by the time
+        the 60 s deadline tripped, ship_iron had been deposited to
+        0 and the watchdog blacklisted whatever asteroid was
+        currently nearest as a false positive.  The captured
+        session fired 10 of these in 20 minutes (one every
+        ~120 s).
+        """
+        ap._state.mine_iron_baseline = 999
+        ap._state.mine_progress_check_at = 12345.6
+        ap._on_enter(ap.S_PRE_BOSS_MINE)
+        assert ap._state.mine_progress_check_at == 0.0, (
+            "PRE_BOSS_MINE entry must reset the watchdog so the "
+            "first action-handler call after the entry re-seeds "
+            "baseline against post-deposit ship_iron")
+
+    def test_on_enter_pre_boss_mine_also_rolls_mining_weapon(
+            self, monkeypatch):
+        """PRE_BOSS_MINE entry must ALSO re-roll the mining-weapon
+        dice -- otherwise a stale ``mining_weapon_pick`` from an
+        earlier entry decides whether the bot mines with Mining
+        Beam or Energy Pickaxe through the entire boss-prep grind.
+        The pick is the visible side-effect that S_MINE entry sets;
+        pinning it here ensures both states behave identically.
+        """
+        # Force the dice to deterministically pick the pickaxe.
+        monkeypatch.setattr(ap.random, "random",
+                            lambda: ap.MINING_PICKAXE_CHANCE - 0.01)
+        ap._state.mining_weapon_pick = "Mining Beam"  # stale carry
+        ap._on_enter(ap.S_PRE_BOSS_MINE)
+        assert ap._state.mining_weapon_pick == "Energy Pickaxe"
+
 
 class TestGatherChaseClampedToWorld:
     """``_act_gather`` clamps the pickup chase target to the world
