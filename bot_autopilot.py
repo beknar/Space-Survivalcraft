@@ -764,13 +764,32 @@ CONSUMABLE_PHASE_IRON_THRESHOLD: int = 500
 # Distance below which the bot is "at" the Basic Crafter and can
 # fire the /craft API call.  Wider than the player click range
 # (300 px) so the bot doesn't have to inch the last few pixels.
-CRAFT_INTERACT_RANGE_PX: float = 200.0
+#
+# Widened from 200 to 500 after 2026-05-10 telemetry: 9 stuck_detected
+# events in S_CRAFT in a single 39-minute session, all at hs_dist
+# 280-470 px (cluster-pin band, same root cause as the DEPOSIT pin
+# fixed in PR #86).  The Basic Crafter sits at HS+(120, 60), so the
+# bot-to-crafter distance at the wedge is 270-460 px -- past the
+# pre-fix 200 px gate, leaving the bot thrashing against building
+# repulsion forever.  Server-side ``start_craft`` doesn't enforce a
+# distance check (it just routes through the station inventory), so
+# widening the client-side gate is safe.  500 covers the observed
+# 470 px wedge with comfortable margin against future cluster
+# variations.
+CRAFT_INTERACT_RANGE_PX: float = 500.0
 # Same idea for installing a module — the install flow operates on
 # the station inventory + ship slots, no positional gate strictly
 # required, but we still close to the Home Station so the action
 # reads as deliberate (and so the bot is in safe territory when
 # installing).
-INSTALL_INTERACT_RANGE_PX: float = 250.0
+#
+# Widened from 250 to 500 after 2026-05-10 telemetry caught the same
+# cluster-pin pattern in CRAFT (see above); INSTALL shares the
+# station-cluster geometry and the same target-suppress gaps, so the
+# preventive widening keeps the install pipeline from wedging when
+# the bot retries after a death.  Server-side ``install_module``
+# doesn't enforce a distance check either.
+INSTALL_INTERACT_RANGE_PX: float = 500.0
 # Death-loot recovery (PR 2026-05-10): how close the bot must get to
 # the recorded death position before the dropped iron / module
 # pickups vacuum into the ship via the existing auto-attract loop.

@@ -2218,6 +2218,46 @@ class TestCraftAction:
         ap._do_auto(s, s["player"])
         assert ap._state.queue.modules_to_craft == before
 
+    def test_posts_craft_from_400px_post_2026_05_10(
+            self, _clock, monkeypatch):
+        """2026-05-10 telemetry-anchored regression.
+
+        Pre-fix CRAFT_INTERACT_RANGE_PX = 200 left the bot wedged
+        in S_CRAFT 9 times during a 39-minute session, all at
+        hs_dist 280-470 px (cluster-pin band: the 7 non-suppressed
+        cluster buildings stacked their repulsion fields and pushed
+        the bot to a force-balance equilibrium outside the pre-fix
+        200 px gate).
+
+        Post-fix CRAFT_INTERACT_RANGE_PX = 500 lets the bot fire
+        the craft POST from its actual wedged position outside the
+        cluster.  Server-side ``start_craft`` doesn't enforce a
+        distance check, so depositing from 400 px is safe.
+        """
+        post_calls: list = []
+        monkeypatch.setattr(
+            ap, "_post_craft",
+            lambda target, timeout_s=5.0: (post_calls.append(target)
+                                            or {"ok": True}))
+        # Bot 400 px from crafter -- right in the cluster-pin band
+        # the telemetry caught.  Pre-fix this would have navigated
+        # forever; post-fix it fires the POST.
+        s = _state(
+            player={"x": 4000.0, "y": 4000.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            buildings=[_hs_building(),
+                       _crafter_building(x=4400.0, y=4000.0)],
+            station_inventory_items=_all_blueprints_in_station(
+                {"iron": ap.CRAFT_PHASE_IRON_THRESHOLD}),
+        )
+        ap._do_auto(s, s["player"])
+        assert ap.CRAFT_INTERACT_RANGE_PX >= 500.0
+        assert post_calls == ["armor_plate"], (
+            "Bot at 400 px from crafter must fire the craft POST "
+            "under the widened CRAFT_INTERACT_RANGE_PX; pre-fix "
+            "this wedged at hs_dist 280-470 px in the captured "
+            "telemetry, producing 9 stuck_detected events in 39 min.")
+
 
 class TestInstallAction:
     """``_act_install`` navigates to the Home Station and fires
@@ -2242,6 +2282,32 @@ class TestInstallAction:
         assert post_calls == ["broadside"]
         # First entry of install queue is broadside; should pop.
         assert ap._state.queue.modules_to_install[0] == "shield_booster"
+
+    def test_posts_install_from_400px_post_2026_05_10(
+            self, _clock, monkeypatch):
+        """Mirror of the CRAFT regression: same cluster geometry,
+        same risk profile, same widened range
+        (INSTALL_INTERACT_RANGE_PX = 500).
+        """
+        post_calls: list = []
+        monkeypatch.setattr(
+            ap, "_post_install_module",
+            lambda mod_key, timeout_s=5.0: (post_calls.append(mod_key)
+                                             or {"ok": True, "slot": 0}))
+        # Bot 400 px from HS, in the cluster-pin band.
+        s = _state(
+            player={"x": 3600.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            buildings=[_hs_building(x=3200.0, y=3200.0),
+                       _crafter_building()],
+            station_inventory_items={"mod_broadside": 1},
+        )
+        ap._state.queue.modules_to_craft.clear()
+        ap._do_auto(s, s["player"])
+        assert ap.INSTALL_INTERACT_RANGE_PX >= 500.0
+        assert post_calls == ["broadside"], (
+            "Bot at 400 px from HS must fire the install POST "
+            "under the widened INSTALL_INTERACT_RANGE_PX.")
 
 
 class TestCraftQueueDefaults:
