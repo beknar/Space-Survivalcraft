@@ -2110,6 +2110,164 @@ class TestCraftQueueOrder:
         assert ap._next_craft_target(s) is None
 
 
+class TestCraftQueueSkipsAlreadyDoneModules:
+    """2026-05-10 user-reported bug: "the bot should only build the
+    modules once, and it has built them multiple times".
+
+    Root cause: ``CraftQueue.modules_to_craft`` resets to the full
+    ``MODULE_CRAFT_QUEUE`` on every process start (BotState default),
+    so a session resuming with already-crafted modules (sitting in
+    station inv as ``mod_<key>`` OR installed on the ship) would
+    re-craft them all.
+
+    Fix: ``_next_craft_target`` skip-pops heads that are already
+    crafted or installed, mirroring the equivalent guard in
+    ``_next_install_target``.
+    """
+
+    def test_skips_module_already_in_station_inv(self, _clock):
+        """Head of queue is ``armor_plate`` but station inv already
+        has ``mod_armor_plate`` -- must skip to ``engine_booster``."""
+        ap._state.queue.modules_to_craft = list(ap.MODULE_CRAFT_QUEUE)
+        s = _state(
+            buildings=[_hs_building(), _crafter_building()],
+            station_inventory_items=_all_blueprints_in_station({
+                "iron": ap.CRAFT_PHASE_IRON_THRESHOLD,
+                "mod_armor_plate": 1,
+            }),
+        )
+        target = ap._next_craft_target(s)
+        assert target == "engine_booster", (
+            f"expected next target to skip already-crafted "
+            f"armor_plate, got {target!r}")
+        # Queue head was popped.
+        assert ap._state.queue.modules_to_craft[0] == "engine_booster"
+
+    def test_skips_module_already_installed(self, _clock):
+        """Head of queue is ``armor_plate`` but ``armor_plate`` is
+        already in ``state.module_slots`` -- must skip."""
+        ap._state.queue.modules_to_craft = list(ap.MODULE_CRAFT_QUEUE)
+        s = _state(
+            buildings=[_hs_building(), _crafter_building()],
+            station_inventory_items=_all_blueprints_in_station(
+                {"iron": ap.CRAFT_PHASE_IRON_THRESHOLD}),
+        )
+        s["module_slots"] = ["armor_plate", None, None]
+        target = ap._next_craft_target(s)
+        assert target == "engine_booster"
+        assert ap._state.queue.modules_to_craft[0] == "engine_booster"
+
+    def test_skips_multiple_already_done_heads(self, _clock):
+        """Three modules already done -- must pop all three and
+        return the fourth."""
+        ap._state.queue.modules_to_craft = list(ap.MODULE_CRAFT_QUEUE)
+        s = _state(
+            buildings=[_hs_building(), _crafter_building()],
+            station_inventory_items=_all_blueprints_in_station({
+                "iron": ap.CRAFT_PHASE_IRON_THRESHOLD,
+                "mod_armor_plate": 1,
+                "mod_engine_booster": 1,
+            }),
+        )
+        # Third module already installed.
+        s["module_slots"] = ["shield_booster", None]
+        # MODULE_CRAFT_QUEUE order is [armor_plate, engine_booster,
+        # shield_booster, shield_enhancer, damage_absorber,
+        # broadside].  After popping the first three the head is
+        # shield_enhancer.
+        target = ap._next_craft_target(s)
+        assert target == "shield_enhancer"
+        assert ap._state.queue.modules_to_craft[0] == "shield_enhancer"
+
+    def test_drains_queue_when_all_modules_done(self, _clock):
+        """Every module already done -- queue empties and the
+        function falls through to consumable / shield phases."""
+        ap._state.queue.modules_to_craft = list(ap.MODULE_CRAFT_QUEUE)
+        ap._state.queue.modules_to_install.clear()
+        ap._state.queue.repair_packs_remaining = 0
+        ap._state.queue.shield_recharges_remaining = 0
+        # Every module installed.
+        s = _state(
+            buildings=[_hs_building(), _crafter_building()],
+            station_inventory_items={"iron": 5000},
+        )
+        s["module_slots"] = list(ap.MODULE_CRAFT_QUEUE)
+        target = ap._next_craft_target(s)
+        assert target is None
+        assert ap._state.queue.modules_to_craft == []
+
+    def test_does_not_skip_module_that_is_not_done(self, _clock):
+        """Asymmetry guard: a module that is NOT in station inv and
+        NOT installed must NOT be skipped."""
+        ap._state.queue.modules_to_craft = list(ap.MODULE_CRAFT_QUEUE)
+        s = _state(
+            buildings=[_hs_building(), _crafter_building()],
+            station_inventory_items=_all_blueprints_in_station(
+                {"iron": ap.CRAFT_PHASE_IRON_THRESHOLD}),
+        )
+        target = ap._next_craft_target(s)
+        assert target == "armor_plate"
+        # Queue head unchanged.
+        assert ap._state.queue.modules_to_craft[0] == "armor_plate"
+
+
+class TestModuleCraftPhaseShortCircuit:
+    """One-time short-circuit at FSM start.  When ALL modules in
+    the default queue are already crafted/installed, drain the
+    queue and latch ``module_phase_started`` so the FSM doesn't
+    even attempt a craft-phase round trip.  Mirrors
+    ``build_done_short_circuit`` and
+    ``consumable_phase_done_short_circuit`` patterns."""
+
+    def test_short_circuit_drains_queue_when_everything_done(
+            self, _clock, _fresh_bot_state):
+        """All 6 modules already installed -- short-circuit fires."""
+        s = _state(
+            buildings=[_hs_building()],
+            player={"x": 3250.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+        )
+        s["module_slots"] = list(ap.MODULE_CRAFT_QUEUE)
+        ap._do_auto(s, s["player"])
+        assert ap._state.queue.modules_to_craft == []
+        assert ap._state.queue.module_phase_started is True
+
+    def test_short_circuit_partial_pop(self, _clock, _fresh_bot_state):
+        """First 2 modules already done -- pops 2 heads but doesn't
+        latch module_phase_started (queue isn't empty yet)."""
+        s = _state(
+            buildings=[_hs_building()],
+            player={"x": 3250.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            station_inventory_items={
+                "iron": 100,
+                "mod_armor_plate": 1,
+                "mod_engine_booster": 1,
+            },
+        )
+        # The starter base SETUP doesn't have anything installed on
+        # the ship; the short-circuit detects via station inventory.
+        ap._do_auto(s, s["player"])
+        assert ap._state.queue.modules_to_craft[0] == "shield_booster", (
+            f"expected first two heads to be popped; got "
+            f"{ap._state.queue.modules_to_craft}")
+        # module_phase_started stays False because the queue isn't empty.
+        assert ap._state.queue.module_phase_started is False
+
+    def test_short_circuit_does_not_fire_when_nothing_done(
+            self, _clock, _fresh_bot_state):
+        """Asymmetry guard: empty inventory + no modules installed
+        means the queue is untouched."""
+        s = _state(
+            buildings=[_hs_building()],
+            player={"x": 3250.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+        )
+        before = list(ap._state.queue.modules_to_craft)
+        ap._do_auto(s, s["player"])
+        assert list(ap._state.queue.modules_to_craft) == before
+
+
 class TestInstallQueue:
     """Install priority + queue-pop behaviour for the four modules
     the bot installs after the craft phase."""

@@ -600,6 +600,29 @@ def _next_craft_target(state: dict) -> str | None:
     iron = int(items.get("iron", 0))
 
     # ── Module craft phase ────────────────────────────────────────
+    # Skip-and-pop heads that are already crafted (sitting in
+    # station inventory as ``mod_<key>``) or already installed on
+    # the ship.  Catches the session-restart case: a process that
+    # connects to an existing world with prior progress has
+    # ``CraftQueue`` reset to the full ``MODULE_CRAFT_QUEUE`` even
+    # though some modules are already done.  Without this skip the
+    # bot would re-craft every module it already had -- user
+    # complaint 2026-05-10: "the bot should only build the modules
+    # once, and it has built them multiple times".
+    #
+    # Mirrors the equivalent guard in ``_next_install_target``
+    # (which only checks "already installed"); here we also check
+    # the station-inv ``mod_<key>`` count so a previously-crafted
+    # but not-yet-installed module isn't re-crafted either.
+    while q.modules_to_craft:
+        head = q.modules_to_craft[0]
+        already_in_station = items.get(f"mod_{head}", 0) >= 1
+        already_installed = _module_already_installed(state, head)
+        if already_in_station or already_installed:
+            q.modules_to_craft.pop(0)
+            continue
+        break
+
     if q.modules_to_craft:
         # 2000-iron gate on the FIRST module craft only.
         if not q.module_phase_started and iron < _ap.CRAFT_PHASE_IRON_THRESHOLD:
