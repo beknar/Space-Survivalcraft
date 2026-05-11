@@ -116,6 +116,45 @@ def choose_next_state(state: dict, p: dict, cur: str) -> str:
                         f"_meets_{needed_repair}_{needed_shield}"),
                 **_ap._telemetry_snapshot_fields(state, p))
 
+    # Mirror short-circuit for the MODULE craft queue.  Catches the
+    # session-restart case (user complaint 2026-05-10: "the bot
+    # should only build the modules once, and it has built them
+    # multiple times"): a fresh process on an existing save has
+    # CraftQueue.modules_to_craft reset to the full MODULE_CRAFT_QUEUE
+    # even though some / all modules are already crafted (in
+    # station inv as mod_<key>) or installed on the ship.  Pop the
+    # already-done heads up front so the bot doesn't try to re-craft
+    # them.  _next_craft_target also skip-pops at call time, but
+    # latching the started flag here saves the bot from a useless
+    # craft-phase round trip when EVERY module is already done.
+    if not _ap._state.queue.module_phase_started \
+            and _ap._state.queue.modules_to_craft:
+        sitems = (state.get("station_inventory") or {}).get("items") or {}
+        installed = set(
+            m for m in (state.get("module_slots") or []) if m)
+        popped = 0
+        while _ap._state.queue.modules_to_craft:
+            head = _ap._state.queue.modules_to_craft[0]
+            already_in_station = int(sitems.get(f"mod_{head}", 0)) >= 1
+            already_installed = head in installed
+            if already_in_station or already_installed:
+                _ap._state.queue.modules_to_craft.pop(0)
+                popped += 1
+                continue
+            break
+        if popped > 0:
+            # If the queue is now empty, also latch
+            # module_phase_started so a stale gate check doesn't
+            # mis-fire next tick.
+            if not _ap._state.queue.modules_to_craft:
+                _ap._state.queue.module_phase_started = True
+            _ap._telemetry_log(
+                "module_craft_phase_short_circuit",
+                popped=popped,
+                queue_remaining=list(
+                    _ap._state.queue.modules_to_craft),
+                **_ap._telemetry_snapshot_fields(state, p))
+
     # 1. REGEN — shields hurt; sit still and recover.  Preempts
     #    ENGAGE/GATHER/MINE so the bot actually idles instead of
     #    burning thrust while shields are low.
