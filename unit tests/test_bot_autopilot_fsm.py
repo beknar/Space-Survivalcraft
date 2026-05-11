@@ -413,6 +413,73 @@ class TestMinDwell:
         ap._do_auto(s, s["player"])
         assert ap._fsm["state"] == ap.S_REGEN
 
+    def test_idle_at_base_bypasses_dwell_for_hunt(
+            self, _clock, _fresh_bot_state):
+        """2026-05-10 telemetry-anchored regression.
+
+        IDLE_AT_BASE is the bot's "doing nothing while parked"
+        state.  When the cascade picks a productive desired state
+        (HUNT, MINE, GATHER, anything), the bot must transition
+        IMMEDIATELY -- there's nothing to preserve about the idle
+        state.  Pre-fix MIN_DWELL_S held the FSM for 1 s per
+        transition, producing 87 suppressed idle_at_base->hunt
+        events in a single 10-minute session.
+        """
+        # Park the bot in IDLE_AT_BASE with no live alien.
+        s = _state(
+            buildings=[_hs_building()],
+            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+        )
+        ap._fsm["state"] = ap.S_IDLE_AT_BASE
+        ap._fsm["entered_at"] = _clock[0]
+        # An alien spawns within IDLE_HUNT_RANGE_PX -- cascade wants HUNT.
+        s["aliens"] = [{"x": 5000.0, "y": 3200.0, "hp": 50}]
+        # Re-eval well inside the dwell window.
+        _clock[0] += ap.MIN_DWELL_S / 4.0
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_HUNT, (
+            "IDLE_AT_BASE must bypass MIN_DWELL_S; pre-fix this "
+            "took 1 s to fire, producing 87 suppressed events per "
+            "10-minute session in the captured telemetry.")
+
+    def test_idle_at_base_bypasses_dwell_for_mine(
+            self, _clock, _fresh_bot_state):
+        """Same fast-reaction guarantee for MINE: an asteroid
+        appearing in chase range while the bot is idle must
+        transition immediately.
+        """
+        s = _state(
+            buildings=[_hs_building()],
+            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+        )
+        ap._fsm["state"] = ap.S_IDLE_AT_BASE
+        ap._fsm["entered_at"] = _clock[0]
+        # Asteroid in chase range.
+        s["asteroids"] = [{"x": 3500.0, "y": 3200.0, "hp": 100}]
+        _clock[0] += ap.MIN_DWELL_S / 4.0
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_MINE
+
+    def test_idle_at_base_bypass_does_not_break_other_transitions(
+            self, _clock, _fresh_bot_state):
+        """Asymmetry guard: only IDLE_AT_BASE bypasses dwell.  A
+        MINE state inside its dwell window with the cascade
+        wanting GATHER must STILL be held (no broader bypass)."""
+        s = _state(asteroids=[{"x": 200, "y": 0, "hp": 100}])
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_MINE
+        # Pickup appears -- cascade wants GATHER.
+        s["iron_pickups"] = [
+            {"x": 100, "y": 0, "amount": 10, "item_type": "iron"}]
+        # Mid-dwell.
+        _clock[0] += ap.MIN_DWELL_S / 4.0
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_MINE, (
+            "MIN_DWELL_S must STILL hold non-IDLE_AT_BASE states "
+            "so the bypass doesn't bleed into the general case.")
+
 
 # ── ENGAGE preemption ─────────────────────────────────────────────────────
 
