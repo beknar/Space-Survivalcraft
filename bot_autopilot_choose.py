@@ -204,6 +204,19 @@ def choose_next_state(state: dict, p: dict, cur: str) -> str:
 
     now = _ap._get_now()
 
+    # 2.5. RECOVER_LOOT — after the bot just died, navigate back to
+    #      the recorded death position so the dropped iron / module
+    #      / consumable pickups vacuum into the ship.  Above GATHER
+    #      because the death site is a high-value cluster of pickups
+    #      and we want the FSM to commit to the recovery trip rather
+    #      than nibbling at any incidental pickup along the way.
+    #      Below ENGAGE / REGEN so a fresh threat or low shields
+    #      still preempts -- a half-recovered loadout is better than
+    #      a second death on the way back.
+    _ap._maybe_clear_death_recovery(state, p, now)
+    if _ap._state.death_recovery_pending:
+        return _ap.S_RECOVER_LOOT
+
     # 3. GATHER — loot pickup within reach.
     pickup, pd = _ap._nearest_pickup(state, px, py)
     if cur == _ap.S_GATHER:

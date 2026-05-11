@@ -138,6 +138,11 @@ def _player_state(gv) -> dict:
         "faction": _safe(lambda: gv._faction),
         "ship_type": _safe(lambda: gv._ship_type),
         "ship_level": _safe(lambda: int(gv._ship_level), 1),
+        # Death state -- True during the 1.5 s death-animation window
+        # before respawn fires.  Bot observes the alive->dead and
+        # dead->alive transitions to drive loot-recovery + boss
+        # telemetry (PR 2026-05-10).
+        "is_dead": _safe(lambda: bool(gv._player_dead), False),
     }
 
 

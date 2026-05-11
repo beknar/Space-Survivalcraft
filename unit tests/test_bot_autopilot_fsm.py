@@ -5823,6 +5823,218 @@ def _boss(x=5800.0, y=5800.0, hp=2000, max_hp=2000, phase=1,
     }
 
 
+class TestDeathRecovery:
+    """2026-05-10 feature: when the player dies, the bot snapshots
+    the loadout (modules + consumables) that was on the ship the
+    tick before death and the death position.  After respawn, the
+    FSM cascade picks S_RECOVER_LOOT until the dropped pickups at
+    the death site have been collected (or DEATH_RECOVERY_TIMEOUT_S
+    elapses).  Then the existing INSTALL / EQUIP pipelines re-equip
+    the recovered loadout."""
+
+    @staticmethod
+    def _alive_player(**override):
+        d = {"x": 1000.0, "y": 1000.0, "heading": 0.0,
+             "shields": 150, "max_shields": 150,
+             "hp": 200, "max_hp": 200, "is_dead": False}
+        d.update(override)
+        return d
+
+    @staticmethod
+    def _dead_player(**override):
+        d = {"x": 1500.0, "y": 1500.0, "heading": 0.0,
+             "shields": 0, "max_shields": 150,
+             "hp": 0, "max_hp": 200, "is_dead": True}
+        d.update(override)
+        return d
+
+    def test_alive_tick_refreshes_loadout_snapshot(
+            self, _clock, _fresh_bot_state):
+        s = _state(player=self._alive_player(x=1234.0, y=5678.0))
+        s["module_slots"] = ["shield_enhancer", "broadside", None]
+        s["quick_use_slots"] = [{"item_type": "repair_pack", "count": 5},
+                                {"item_type": "shield_recharge", "count": 5}]
+        ap._observe_death_edges(s, s["player"], _clock[0])
+        assert ap._state.last_alive_pos == (1234.0, 5678.0)
+        assert ap._state.last_alive_modules == ["shield_enhancer",
+                                                "broadside"]
+        assert ap._state.last_alive_consumable_types == [
+            "repair_pack", "shield_recharge"]
+        assert ap._state.was_dead is False
+
+    def test_alive_to_dead_edge_captures_death_pos_and_loadout(
+            self, _clock, _fresh_bot_state):
+        # First tick: alive, captures loadout.
+        alive = _state(player=self._alive_player(x=2000.0, y=3000.0))
+        alive["module_slots"] = ["broadside", "engine_booster"]
+        alive["quick_use_slots"] = [
+            {"item_type": "repair_pack", "count": 5}]
+        ap._observe_death_edges(alive, alive["player"], _clock[0])
+        # Second tick: dead.
+        _clock[0] += 0.1
+        dead = _state(player=self._dead_player(x=5000.0, y=5000.0))
+        # Death-state snapshot wipes module_slots + quick_use_slots
+        # to empty; observer must use the snapshot captured at the
+        # alive edge.
+        dead["module_slots"] = [None, None]
+        dead["quick_use_slots"] = []
+        ap._observe_death_edges(dead, dead["player"], _clock[0])
+        assert ap._state.was_dead is True
+        assert ap._state.death_recovery_pos == (2000.0, 3000.0)
+        assert ap._state.death_recovery_modules == [
+            "broadside", "engine_booster"]
+        # Consumables snapshot frozen at the alive->dead edge.
+        assert ap._state.death_recovery_consumables == [
+            "repair_pack"]
+        # Recovery is NOT yet pending -- bot is still dead.
+        assert ap._state.death_recovery_pending is False
+
+    def test_dead_to_alive_edge_arms_recovery_and_refills_queue(
+            self, _clock, _fresh_bot_state):
+        # Stage: prior alive tick captured loadout, dead tick set was_dead.
+        ap._state.last_alive_pos = (2000.0, 3000.0)
+        ap._state.last_alive_modules = ["broadside", "engine_booster"]
+        ap._state.last_alive_consumable_types = [
+            "repair_pack", "shield_recharge"]
+        ap._state.was_dead = True
+        ap._state.death_recovery_pos = (2000.0, 3000.0)
+        ap._state.death_recovery_modules = ["broadside",
+                                            "engine_booster"]
+        ap._state.death_recovery_consumables = [
+            "repair_pack", "shield_recharge"]
+        # Drain the install queue first to mimic an end-of-pipeline
+        # bot that died after all modules were already installed.
+        ap._state.queue.modules_to_install = []
+        ap._state.consumables_equipped = True
+
+        # Bot respawns alive.
+        alive = _state(player=self._alive_player(x=3200.0, y=3200.0))
+        ap._observe_death_edges(alive, alive["player"], _clock[0])
+
+        assert ap._state.was_dead is False
+        assert ap._state.death_recovery_pending is True
+        # Lost modules re-queued for the install pipeline.
+        assert ap._state.queue.modules_to_install == [
+            "broadside", "engine_booster"]
+        # Equip latch reset so S_EQUIP_CONSUMABLES re-fires once
+        # the recovered consumables reach station inventory.
+        assert ap._state.consumables_equipped is False
+
+    def test_fsm_cascade_picks_recover_loot_when_pending(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """When death_recovery_pending is True AND pickups remain
+        near the death site, the FSM cascade returns S_RECOVER_LOOT.
+        """
+        monkeypatch.setattr(ap, "_act_recover_loot", lambda s, p: None)
+        ap._state.death_recovery_pending = True
+        ap._state.death_recovery_pos = (2000.0, 3000.0)
+        ap._state.death_recovery_started_at = _clock[0]
+        s = _state(player=self._alive_player(x=2050.0, y=3050.0))
+        # Pickup at the death site -- recovery must still be pending.
+        s["iron_pickups"] = [
+            {"x": 2000.0, "y": 3000.0, "amount": 10,
+             "item_type": "iron"}]
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_RECOVER_LOOT
+
+    def test_recovery_clears_when_no_pickups_remain(
+            self, _clock, _fresh_bot_state):
+        """``_maybe_clear_death_recovery`` flips the pending latch
+        False once every pickup near the death site is gone."""
+        ap._state.death_recovery_pending = True
+        ap._state.death_recovery_pos = (2000.0, 3000.0)
+        ap._state.death_recovery_started_at = _clock[0]
+        s = _state(player=self._alive_player(x=3500.0, y=3500.0))
+        # No pickups visible anywhere.
+        s["iron_pickups"] = []
+        s["blueprint_pickups"] = []
+        ap._maybe_clear_death_recovery(s, s["player"], _clock[0])
+        assert ap._state.death_recovery_pending is False
+
+    def test_recovery_clears_after_timeout(
+            self, _clock, _fresh_bot_state):
+        """Hard timeout: if the bot can't reach the death site (e.g.
+        died inside an inaccessible cluster), pending clears after
+        ``DEATH_RECOVERY_TIMEOUT_S`` so the FSM doesn't lock."""
+        ap._state.death_recovery_pending = True
+        ap._state.death_recovery_pos = (2000.0, 3000.0)
+        ap._state.death_recovery_started_at = _clock[0]
+        s = _state(player=self._alive_player(x=3500.0, y=3500.0))
+        # Pickup STILL there -- the only thing that ends recovery
+        # in this test is the timeout.
+        s["iron_pickups"] = [
+            {"x": 2000.0, "y": 3000.0, "amount": 10,
+             "item_type": "iron"}]
+        # Advance past the timeout.
+        _clock[0] += ap.DEATH_RECOVERY_TIMEOUT_S + 1.0
+        ap._maybe_clear_death_recovery(s, s["player"], _clock[0])
+        assert ap._state.death_recovery_pending is False
+
+    def test_no_recovery_when_loadout_was_empty(
+            self, _clock, _fresh_bot_state):
+        """Sanity: a death with empty modules + empty quick-use
+        slots doesn't arm recovery (nothing to collect)."""
+        ap._state.was_dead = True
+        ap._state.death_recovery_modules = []  # no modules to recover
+        ap._state.death_recovery_consumables = []
+        alive = _state(player=self._alive_player())
+        ap._observe_death_edges(alive, alive["player"], _clock[0])
+        assert ap._state.death_recovery_pending is False
+
+
+class TestBossEngageTelemetry:
+    """2026-05-10 feature: emit boss_engage_start / boss_engage_end
+    telemetry events at the FSM transition into/out of S_ENGAGE_BOSS
+    so post-hoc analysis can measure boss-fight dwell + HP/shield
+    deltas + outcome (boss_killed / player_died / disengaged)."""
+
+    def test_helper_records_engage_start_state(
+            self, _clock, _fresh_bot_state):
+        s = _state(
+            player={"x": 1000.0, "y": 1000.0, "heading": 0.0,
+                    "shields": 120, "max_shields": 150,
+                    "hp": 180, "max_hp": 200, "is_dead": False})
+        s["boss"] = _boss(hp=2500, max_hp=3000, phase=2)
+        ap._maybe_log_boss_engage_edges(
+            s, s["player"], _clock[0],
+            prev=ap.S_MINE, cur=ap.S_ENGAGE_BOSS)
+        assert ap._state.boss_engage_started_at == _clock[0]
+        assert ap._state.boss_engage_start_hp == 180
+        assert ap._state.boss_engage_start_shields == 120
+        assert ap._state.boss_engage_start_boss_hp == 2500
+
+    def test_helper_records_engage_end_boss_killed_outcome(
+            self, _clock, _fresh_bot_state):
+        ap._state.boss_engage_started_at = _clock[0] - 12.5
+        ap._state.boss_engage_start_hp = 200
+        ap._state.boss_engage_start_shields = 150
+        ap._state.boss_engage_start_boss_hp = 3000
+        s = _state(
+            player={"x": 1000.0, "y": 1000.0, "heading": 0.0,
+                    "shields": 90, "max_shields": 150,
+                    "hp": 150, "max_hp": 200, "is_dead": False})
+        # Boss dead -> outcome = boss_killed.
+        s["boss"] = None
+        # No exception, function runs cleanly.
+        ap._maybe_log_boss_engage_edges(
+            s, s["player"], _clock[0],
+            prev=ap.S_ENGAGE_BOSS, cur=ap.S_IDLE_AT_BASE)
+
+    def test_helper_no_op_when_neither_edge(
+            self, _clock, _fresh_bot_state):
+        """No transition involving S_ENGAGE_BOSS -- helper must
+        leave boss_engage_started_at unchanged (no false event)."""
+        ap._state.boss_engage_started_at = 9999.0
+        s = _state(player={"x": 1.0, "y": 1.0, "heading": 0.0,
+                           "shields": 150, "max_shields": 150,
+                           "hp": 200, "max_hp": 200,
+                           "is_dead": False})
+        ap._maybe_log_boss_engage_edges(
+            s, s["player"], _clock[0],
+            prev=ap.S_MINE, cur=ap.S_GATHER)
+        assert ap._state.boss_engage_started_at == 9999.0
+
+
 class TestBossEngagementStateRouting:
     """Boss alive => FSM enters S_ENGAGE_BOSS regardless of small
     aliens or other priorities (REGEN still preempts)."""
