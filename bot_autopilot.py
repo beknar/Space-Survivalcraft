@@ -1856,9 +1856,23 @@ def _do_auto(state: dict, p: dict) -> None:
         # ENGAGE and REGEN are defensive interrupts -- they bypass
         # MIN_DWELL so the bot reacts to a sudden threat or a sudden
         # shield collapse without waiting for the dwell timer.
+        #
+        # S_IDLE_AT_BASE is the bot's "doing nothing while parked"
+        # state.  Leaving it for ANY productive state should be
+        # immediate -- the bot was already idle, there's nothing
+        # to preserve.  2026-05-10 telemetry caught 87 suppressed
+        # idle_at_base->hunt transitions in a 10-minute session
+        # (one per ~10 ticks, each wasting 1 s of reaction time
+        # before the eventual hunt fired).  The hunt-stuck giveup
+        # mechanisms (HUNT_PIN_GIVEUP_S, HUNT_GIVEUP_S, the
+        # hunt_anchor_hits tracker) already prevent thrash on
+        # genuine wall pins, so making hunt-from-idle instant is
+        # safe.
+        idle_react = cur == S_IDLE_AT_BASE
         if desired in (S_ENGAGE, S_REGEN, S_ENGAGE_BOSS,
                        S_EQUIP_CONSUMABLES, S_FORTIFY,
                        S_BUILD_QWI) or \
+                idle_react or \
                 dwell >= MIN_DWELL_S:
             _fsm["state"] = desired
             _fsm["entered_at"] = now
