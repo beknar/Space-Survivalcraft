@@ -6340,6 +6340,151 @@ class TestActBuildQwi:
         assert ap._state.qwi_placed is True
 
 
+class TestStationPostSkipAfterLatch:
+    """The FSM keeps the bot in a station-post state (EQUIP_CONSUMABLES /
+    FORTIFY / BUILD_QWI) for the full MIN_DWELL_S window even after the
+    POST succeeds and the latch fires, because the next ``desired``
+    state has to outwait MIN_DWELL_S before the transition fires.  The
+    action handler is called every tick during that wait -- pre-fix the
+    second-through-Nth call would re-POST the endpoint, the server
+    would respond "no consumables in station inventory" / "already
+    placed", and the bot would burn 8-10 HTTP round-trips per latch.
+
+    2026-05-10 telemetry: equip_post_success at t=0.1s followed by 9
+    equip_post_failure events at t=0.2-1.0s, all latched=True with
+    reason "no consumables in station inventory".  This test class
+    pins the fix: a second call to any of the three handlers after
+    the latch is already set short-circuits to _do_idle without
+    POSTing.
+    """
+
+    @staticmethod
+    def _fake_key():
+        class _FakeKey:
+            @staticmethod
+            def hold(name, on): pass
+            @staticmethod
+            def release_all(): pass
+        return _FakeKey
+
+    def _at_station(self):
+        return _state(
+            buildings=[{"x": 1000.0, "y": 1000.0,
+                        "building_type": "Home Station"}],
+            player={"x": 1050.0, "y": 1000.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+        )
+
+    def test_equip_skips_post_when_already_latched(
+            self, _fresh_bot_state, monkeypatch):
+        called: list = []
+
+        def fake_post():
+            called.append(True)
+            return {"ok": False,
+                    "reason": "no consumables in station inventory"}
+        monkeypatch.setattr(ap, "_post_equip_consumables", fake_post)
+        monkeypatch.setattr(ap, "KeyState", self._fake_key())
+        ap._state.consumables_equipped = True
+
+        ap._act_equip_consumables(self._at_station(),
+                                  self._at_station()["player"])
+
+        assert called == [], (
+            "expected zero POSTs once the consumables_equipped latch "
+            f"is set; got {len(called)}")
+
+    def test_fortify_skips_post_when_already_latched(
+            self, _fresh_bot_state, monkeypatch):
+        called: list = []
+
+        def fake_post():
+            called.append(True)
+            return {"ok": False, "reason": "ring already complete"}
+        monkeypatch.setattr(ap, "_post_fortify", fake_post)
+        monkeypatch.setattr(ap, "KeyState", self._fake_key())
+        ap._state.fortify_done = True
+
+        ap._act_fortify(self._at_station(),
+                        self._at_station()["player"])
+
+        assert called == []
+
+    def test_build_qwi_skips_post_when_already_latched(
+            self, _fresh_bot_state, monkeypatch):
+        called: list = []
+
+        def fake_post():
+            called.append(True)
+            return {"ok": False, "reason": "QWI already placed"}
+        monkeypatch.setattr(ap, "_post_place_qwi", fake_post)
+        monkeypatch.setattr(ap, "KeyState", self._fake_key())
+        ap._state.qwi_placed = True
+
+        ap._act_build_qwi(self._at_station(),
+                          self._at_station()["player"])
+
+        assert called == []
+
+    def test_equip_still_posts_when_latch_not_set(
+            self, _fresh_bot_state, monkeypatch):
+        """Regression: the new skip guard must NOT fire when the
+        latch hasn't flipped yet -- the very first call this session
+        must still POST.  Pins the asymmetry: pre-latch POST, post-
+        latch skip."""
+        called: list = []
+
+        def fake_post():
+            called.append(True)
+            return {"ok": True, "repair_pack": 25,
+                    "shield_recharge": 25,
+                    "repair_slot": 0, "shield_slot": 1}
+        monkeypatch.setattr(ap, "_post_equip_consumables", fake_post)
+        monkeypatch.setattr(ap, "KeyState", self._fake_key())
+        assert ap._state.consumables_equipped is False
+
+        ap._act_equip_consumables(self._at_station(),
+                                  self._at_station()["player"])
+
+        assert called == [True]
+        assert ap._state.consumables_equipped is True
+
+    def test_post_burst_replicates_pre_fix_pathology(
+            self, _fresh_bot_state, monkeypatch):
+        """Drive the handler 10 ticks in a row at-station; the first
+        tick POSTs and latches, the remaining 9 must skip.  Matches
+        the pre-fix telemetry pattern (1 success + 9 failures within
+        the 1-second MIN_DWELL_S window) and is the strongest
+        regression signal."""
+        call_results = [
+            {"ok": True, "repair_pack": 25, "shield_recharge": 25,
+             "repair_slot": 0, "shield_slot": 1},
+        ] + [
+            {"ok": False, "reason": "no consumables in station inventory"}
+        ] * 9
+        idx = [0]
+
+        def fake_post():
+            r = call_results[idx[0]] if idx[0] < len(call_results) else (
+                {"ok": False, "reason": "exhausted"})
+            idx[0] += 1
+            return r
+        monkeypatch.setattr(ap, "_post_equip_consumables", fake_post)
+        monkeypatch.setattr(ap, "KeyState", self._fake_key())
+
+        for _ in range(10):
+            ap._act_equip_consumables(self._at_station(),
+                                      self._at_station()["player"])
+
+        # Exactly one POST -- the rest short-circuited via the
+        # latch_already_set guard.
+        assert idx[0] == 1, (
+            f"expected exactly 1 POST across 10 ticks once the "
+            f"latch is set; got {idx[0]}.  Pre-fix this was 10 "
+            f"(1 success + 9 'no consumables' retries).")
+        assert ap._state.consumables_equipped is True
+
+
 class TestMaybeUseConsumables:
     def test_low_hp_with_repair_pack_fires_slot(
             self, _clock, _fresh_bot_state, monkeypatch):
