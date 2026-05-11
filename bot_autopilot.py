@@ -627,10 +627,23 @@ DEPOSIT_COOLDOWN_S     = 30.0
 DEPOSIT_HS_MAX_DIST_PX = 5000.0
 # Single radius for "clear and quiet" — no asteroids, aliens,
 # pickups, or buildings within this distance of the player.
-# Approximately matches the visible game screen so the player's
-# inability to see threats from off-screen doesn't trigger the
-# build prematurely.
-BUILD_CLEAR_RADIUS_PX = 800.0
+#
+# Halved from 800 to 400 after 2026-05-10 telemetry: a 10-minute
+# session collected 1045 iron without ever firing S_BUILD.  Once
+# the iron gate cleared at t+495 s the bot entered BUILD_SEEK and
+# wandered for 104 s without finding a clear spot before getting
+# wall-pinned at (3084, 6219) (the south margin, py within 200 px
+# of world_h=6400).  At the captured density of 75 asteroids in
+# the 6400² world (density 1.83e-6/px²), the probability of any
+# random position having an asteroid-free 800-px clear disk is
+# exp(-density · π · 800²) ≈ 0.025 -- effectively unreachable.
+# Lowering to 400 raises that probability to ~0.4, so the bot can
+# find a buildable pocket in seconds instead of minutes-or-never.
+# The starter base footprint extends ~300 px from the anchor
+# (Solar Array 2 at +200, Turret 2 corners at +212 diagonal), so
+# 400 px still keeps placed buildings comfortably clear of nearby
+# asteroids on the outside of the ring.
+BUILD_CLEAR_RADIUS_PX = 400.0
 # Distance the bot walks per tick when seeking a clear spot.
 BUILD_SEEK_TARGET_DIST_PX = _nav.BUILD_SEEK_TARGET_DIST_PX
 # Blacklist tuning lives in bot_autopilot_blacklist; re-exported
