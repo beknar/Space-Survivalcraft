@@ -795,9 +795,10 @@ class TestHoldDistanceBehaviour:
 class TestStarterBaseBuildGate:
     """Pin the conditions for entering the one-shot S_BUILD state:
     ≥ BUILD_IRON_THRESHOLD iron AND no detectable within
-    BUILD_CLEAR_RADIUS_PX (800 px — asteroids, aliens, pickups,
-    buildings) AND not already attempted.  When iron is met but
-    the area isn't clear, the FSM enters S_BUILD_SEEK instead."""
+    BUILD_CLEAR_RADIUS_PX (400 px after the 2026-05-10 reduction;
+    asteroids, aliens, pickups, buildings) AND not already
+    attempted.  When iron is met but the area isn't clear, the FSM
+    enters S_BUILD_SEEK instead."""
 
     def test_no_build_below_iron_threshold(self, _clock):
         s = _state(iron=ap.BUILD_IRON_THRESHOLD - 1)
@@ -806,7 +807,7 @@ class TestStarterBaseBuildGate:
         assert ap._fsm["state"] != ap.S_BUILD_SEEK
 
     def test_seek_when_iron_met_but_asteroid_in_radius(self, _clock):
-        """Asteroid inside the 800 px clear radius — bot enters
+        """Asteroid inside the 400 px clear radius — bot enters
         S_BUILD_SEEK to walk away from it, not S_BUILD."""
         s = _state(
             iron=ap.BUILD_IRON_THRESHOLD,
@@ -820,20 +821,42 @@ class TestStarterBaseBuildGate:
         like asteroids + aliens.  (GATHER preempts BUILD_SEEK in the
         FSM when a pickup is in reach, so this is checked at the
         helper level rather than via _do_auto dispatch.)"""
-        # Pickup in the clear radius → not clear.
+        # Pickup at 300 px (inside the 400 px clear radius) → not clear.
         s = _state(
             iron_pickups=[
                 {"x": 300, "y": 0, "amount": 10, "item_type": "iron"}],
         )
         assert not ap._build_area_clear(
             s, s["player"]["x"], s["player"]["y"])
-        # Building in the clear radius → not clear.
+        # Building at 350 px (inside the 400 px clear radius) → not clear.
         s = _state()
-        s["buildings"] = [{"x": 500, "y": 0}]
+        s["buildings"] = [{"x": 350, "y": 0}]
         assert not ap._build_area_clear(
             s, s["player"]["x"], s["player"]["y"])
         # Empty state → clear.
         assert ap._build_area_clear(_state(), 0.0, 0.0)
+
+    def test_clear_radius_lowered_from_800_to_400(self, _clock):
+        """Pin the 2026-05-10 telemetry-anchored reduction.
+
+        A pickup at x=500 used to fail the clearance check (inside
+        the old 800 px radius); post-fix it's outside the 400 px
+        radius and the build area reads as clear.  Captures the
+        intent: the bot can now find buildable spots in a typical
+        asteroid field instead of wandering BUILD_SEEK forever.
+        """
+        assert ap.BUILD_CLEAR_RADIUS_PX == 400.0
+        # Detectable at exactly the old boundary -- outside new radius.
+        s = _state()
+        s["asteroids"] = [{"x": 500, "y": 0, "hp": 100}]
+        assert ap._build_area_clear(
+            s, s["player"]["x"], s["player"]["y"]), (
+            "asteroid at 500 px must be outside the new 400 px "
+            "clear radius (it was inside the pre-fix 800 px radius)")
+        # Detectable inside new radius still blocks.
+        s["asteroids"] = [{"x": 350, "y": 0, "hp": 100}]
+        assert not ap._build_area_clear(
+            s, s["player"]["x"], s["player"]["y"])
 
     def test_no_build_when_alien_too_close(self, _clock):
         s = _state(
@@ -1279,7 +1302,10 @@ class TestBuildSeek:
 
     def test_seek_walks_toward_open_space_with_clutter_north(
             self, _clock, _capture_goto, monkeypatch):
-        """Asteroids to the NORTH → bot heads SOUTH."""
+        """Asteroids to the NORTH → bot heads SOUTH.  Asteroids must
+        be inside BUILD_CLEAR_RADIUS_PX (400 px after 2026-05-10
+        reduction) to force the SEEK branch instead of the BUILD
+        branch."""
         monkeypatch.setattr(
             ap.KeyState, "hold",
             staticmethod(lambda k, v: None))
@@ -1288,8 +1314,8 @@ class TestBuildSeek:
                     "shields": 150, "max_shields": 150},
             iron=ap.BUILD_IRON_THRESHOLD,
             asteroids=[
-                {"x": 3050, "y": 3500, "hp": 100},
-                {"x": 2950, "y": 3500, "hp": 100},
+                {"x": 3050, "y": 3300, "hp": 100},
+                {"x": 2950, "y": 3300, "hp": 100},
             ],
         )
         ap._do_auto(s, s["player"])
@@ -1299,17 +1325,22 @@ class TestBuildSeek:
     def test_seek_target_clamped_to_world(
             self, _clock, _capture_goto, monkeypatch):
         """Even when the away-from-clutter direction would take
-        the bot off-map, the target is clamped to world bounds."""
+        the bot off-map, the target is clamped to world bounds.
+
+        Asteroid placed inside BUILD_CLEAR_RADIUS_PX (400 px) of the
+        bot so the FSM enters SEEK; the away-from-asteroid heading
+        then pushes east toward the world edge, exercising the clamp.
+        """
         monkeypatch.setattr(
             ap.KeyState, "hold",
             staticmethod(lambda k, v: None))
-        # Player near east edge with clutter east → bot wants to
-        # go further east, but clamp keeps target in world.
+        # Player near east edge with asteroid 200 px west.  Direction
+        # away from the asteroid points east, into the edge.
         s = _state(
             player={"x": 6300.0, "y": 3000.0, "heading": 0.0,
                     "shields": 150, "max_shields": 150},
             iron=ap.BUILD_IRON_THRESHOLD,
-            asteroids=[{"x": 5800, "y": 3000, "hp": 100}],
+            asteroids=[{"x": 6100, "y": 3000, "hp": 100}],
         )
         ap._do_auto(s, s["player"])
         # Target stays inside the world rect with margin.
