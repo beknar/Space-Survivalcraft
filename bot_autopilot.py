@@ -1277,7 +1277,7 @@ def _on_enter(new_state: str) -> None:
     """
     if new_state == S_SEARCH:
         _spiral_reset()
-    elif new_state == S_MINE:
+    elif new_state in (S_MINE, S_PRE_BOSS_MINE):
         # 50/50 dice roll: Mining Beam vs Energy Pickaxe.  Sticky
         # for the entire mining session so the bot doesn't tab-flap
         # mid-asteroid.  Re-rolled on each fresh entry into MINE.
@@ -1289,6 +1289,17 @@ def _on_enter(new_state: str) -> None:
         # handler re-seeds the baseline + deadline on its first
         # tick after this entry.  Avoids carrying stale baselines
         # across MINE→OTHER→MINE cycles.
+        #
+        # S_PRE_BOSS_MINE shares the same _do_mine_nearest action
+        # handler + watchdog as S_MINE, so it also needs the reset.
+        # 2026-05-10 telemetry caught 10 false-positive blacklists
+        # (one every ~120 s during the boss-prep mining grind), all
+        # with iron_now < baseline -- the baseline was set during an
+        # earlier MINE/PRE_BOSS_MINE before a deposit dropped
+        # ship_iron to 0, then PRE_BOSS_MINE re-entered without the
+        # watchdog being reset and the 60-s deadline tripped on the
+        # stale baseline.  Adding S_PRE_BOSS_MINE here fixes the
+        # cycle (PRE_BOSS_MINE → DEPOSIT → PRE_BOSS_MINE) cleanly.
         _state.mine_progress_check_at = 0.0
 
 
