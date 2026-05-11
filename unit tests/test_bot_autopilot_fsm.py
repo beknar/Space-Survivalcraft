@@ -2437,11 +2437,18 @@ class TestBuildingRepulsionDoesNotBlockDeposit:
     def test_install_action_target_passed_through(self):
         """Sanity: after the hardening cycle, INSTALL still works.
         Pin the constants so a regression that bumps repulsion
-        without bumping suppression is caught."""
-        # Suppression radius must be larger than the typical building
-        # contact distance (~50 px) so the docking building is
-        # excluded for the entire approach.
-        assert ap.REPULSION_TARGET_SUPPRESS_PX >= 50.0
+        without bumping suppression is caught.
+
+        Suppression radius widened from 50 to 100 in 2026-05-10:
+        the starter base places adjacent buildings at 60 px from
+        their neighbours (Repair Module 60 px from Basic Crafter),
+        so a 50 px gate left the RM repelling the bot away from
+        its CRAFT target.
+        """
+        # Suppression radius must cover the tightest adjacent-
+        # building distance in the starter base layout (60 px
+        # between Repair Module and Basic Crafter).
+        assert ap.REPULSION_TARGET_SUPPRESS_PX >= 100.0
 
 
 # ── Pickup blacklist (stuck-in-GATHER recovery) ──────────────────────────
@@ -4194,6 +4201,56 @@ class TestTargetAwareRepulsion:
         rx, ry = ap._building_repulsion(
             {"x": 75.0, "y": 0.0}, s, target=(1000.0, 1000.0))
         assert rx > 0.0
+
+    def test_adjacent_neighbor_60px_from_target_is_suppressed(self):
+        """2026-05-10 telemetry-anchored regression.
+
+        The starter base places the Repair Module at (60, 60) and
+        the Basic Crafter at (120, 60) -- exactly 60 px apart.  When
+        the bot navigates to the crafter, the RM (60 px from target)
+        is inside the 100 px suppression radius and is excluded from
+        repulsion.  Pre-fix (50 px suppress) the RM was just outside
+        the gate and its 150 px field pushed the bot back out of the
+        200 px craft interact range, producing 3 stuck_detected
+        events spaced 60 s apart at (683, 1600) before the bot gave
+        up.
+        """
+        # Simulate the RM at (60, 60) and the bot navigating to the
+        # crafter target at (120, 60).  Bot positioned BETWEEN them
+        # at (90, 60) -- 30 px from RM, 30 px from crafter.
+        crafter_target = (120.0, 60.0)
+        repair_module = {"x": 60.0, "y": 60.0, "hp": 100,
+                         "type": "StationModule",
+                         "building_type": "Repair Module"}
+        s = {"buildings": [repair_module]}
+        rx, ry = ap._building_repulsion(
+            {"x": 90.0, "y": 60.0}, s, target=crafter_target)
+        # RM is 60 px from the crafter target (60 < 100 suppress
+        # radius), so it must be excluded from the repulsion sum.
+        assert rx == 0.0 and ry == 0.0, (
+            f"Repair Module at 60 px from the Basic Crafter target "
+            f"must be suppressed (got repulsion ({rx}, {ry}))")
+
+    def test_distant_cluster_member_120px_from_target_still_pushes(
+            self):
+        """The widened 100 px suppression must NOT extend to more
+        distant cluster members.  Service Module at 120 px from
+        target (the actual SM->Crafter distance in the starter base
+        layout) still applies its protective field so transit
+        paths around the cluster aren't broken."""
+        crafter_target = (120.0, 60.0)
+        # Service Module at (0, 60) -- 120 px from crafter, west.
+        service_module = {"x": 0.0, "y": 60.0, "hp": 100,
+                          "type": "StationModule",
+                          "building_type": "Service Module"}
+        s = {"buildings": [service_module]}
+        # Bot 80 px east of the SM at (80, 60), inside its 150 px field.
+        rx, ry = ap._building_repulsion(
+            {"x": 80.0, "y": 60.0}, s, target=crafter_target)
+        # SM is 120 px from target (> 100 suppress), still pushes east.
+        assert rx > 0.0, (
+            f"Service Module at 120 px from target must NOT be "
+            f"suppressed (got rx={rx})")
 
 
 # ── 2026-05-04 hardening: per-building-type range multiplier ──────────
