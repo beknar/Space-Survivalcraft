@@ -4029,7 +4029,11 @@ class TestHuntStuckGiveup:
     HUNT kept routing the bot from inside the station cluster."""
 
     def test_constants_exist(self):
-        assert ap.HUNT_STUCK_THRESHOLD == 3
+        # Threshold lowered from 3 to 2 in 2026-05-10 after telemetry
+        # showed a 52 s HUNT cycle wasting time before the 3rd stuck
+        # event cleared the threshold.  Two stuck events inside the
+        # 30 s window are already sustained-pin evidence.
+        assert ap.HUNT_STUCK_THRESHOLD == 2
         assert ap.HUNT_STUCK_WINDOW_S == 30.0
         assert ap.HUNT_GIVEUP_S == 30.0
 
@@ -4096,6 +4100,35 @@ class TestHuntStuckGiveup:
         ap._fsm_reset()
         assert ap._state.hunt_giveup_until == 0.0
         assert ap._state.hunt_stuck_times == []
+
+    def test_single_stuck_event_does_not_trip_giveup(self, _clock):
+        """Asymmetry guard: a SINGLE stuck event in S_HUNT must
+        not trip the giveup (one-off stucks happen during normal
+        kill chains).  Pins HUNT_STUCK_THRESHOLD >= 2."""
+        ap._fsm["state"] = ap.S_HUNT
+        now = _clock[0]
+        ap._state.hunt_stuck_times = [now]
+        # Mirror the handler's trip check from bot_autopilot.py:
+        if len(ap._state.hunt_stuck_times) >= ap.HUNT_STUCK_THRESHOLD:
+            ap._state.hunt_giveup_until = now + ap.HUNT_GIVEUP_S
+        # One event must NOT have tripped the latch.
+        assert ap._state.hunt_giveup_until == 0.0
+
+    def test_two_stuck_events_trip_giveup_post_2026_05_10(
+            self, _clock):
+        """Pin the 2026-05-10 threshold lowering: two stuck events
+        within HUNT_STUCK_WINDOW_S now trip the giveup (pre-fix
+        needed three, which let a 52 s HUNT pin run unchecked)."""
+        ap._fsm["state"] = ap.S_HUNT
+        now = _clock[0]
+        # Two stuck events spaced 9 s apart (matches the telemetry
+        # pattern from the 2026-05-10 session: first stuck at +30s,
+        # second at +39s).
+        ap._state.hunt_stuck_times = [now - 9.0, now]
+        # Mirror the handler trip check.
+        if len(ap._state.hunt_stuck_times) >= ap.HUNT_STUCK_THRESHOLD:
+            ap._state.hunt_giveup_until = now + ap.HUNT_GIVEUP_S
+        assert ap._state.hunt_giveup_until == now + ap.HUNT_GIVEUP_S
 
 
 # ── 2026-05-04 hardening: target-aware repulsion ──────────────────────
