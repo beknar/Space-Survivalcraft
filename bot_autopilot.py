@@ -452,8 +452,19 @@ IDLE_AT_BASE_RADIUS_PX: float = 600.0
 # just barely over the threshold.  30 s catches realistic clusters
 # without false-positives during normal hunts (a clean kill chain
 # does not produce 3 stucks in any 30 s window).
+#
+# Threshold lowered from 3 to 2 after 2026-05-10 telemetry: a 52 s
+# HUNT cycle at (4447, 3628) with the bot moving 17 px total over
+# 22 s of stuck-detect activity.  Three stuck events fired at
+# t+30s / t+39s / t+51s — the acute window held the giveup until
+# the third stuck cleared the threshold, even though two stuck
+# events already inside the 30 s window are themselves sustained
+# evidence of a pin (one-off stucks during a clean kill chain
+# don't repeat within 30 s).  With threshold=2 the giveup would
+# have fired ~12 s sooner, ending the wasted HUNT at t+40s
+# instead of t+52s.
 HUNT_STUCK_WINDOW_S:   float = 30.0
-HUNT_STUCK_THRESHOLD:  int   = 3
+HUNT_STUCK_THRESHOLD:  int   = 2
 HUNT_GIVEUP_S:         float = 30.0
 
 # Building-cluster pin escape: the FSM-level guard added in PR #37
