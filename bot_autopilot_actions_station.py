@@ -240,6 +240,7 @@ def _act_at_station(
         on_success_log,
         latch_setter,
         latch_failure_keywords: tuple[str, ...] = (),
+        latch_already_set=None,
         ) -> None:
     """Shared "travel to Home Station, POST a one-shot endpoint,
     latch on success" helper for the boss-prep pipeline action
@@ -262,6 +263,21 @@ def _act_at_station(
                               moves on instead of looping forever
                               (e.g. ``"no consumables"`` after
                               consumables already withdrawn).
+      latch_already_set: optional zero-arg callable returning True
+                              iff the latch field is already set.
+                              When True, skip the POST entirely and
+                              ``_do_idle`` while the FSM waits out
+                              MIN_DWELL_S before transitioning.  The
+                              2026-05-10 telemetry caught the bot
+                              POSTing /equip_consumables 9 times in
+                              the 1-second dwell window after the
+                              first success -- every retry returned
+                              "no consumables in station inventory"
+                              and latched again redundantly.  Same
+                              pathology would hit fortify / build_qwi
+                              if their FSM exit was dwell-gated, so
+                              the latch-skip guard lives on all three
+                              station-post sites.
 
     Telemetry events emitted:
       * ``<label>_post_failure`` — POST returned ``ok=False`` or
@@ -271,6 +287,14 @@ def _act_at_station(
     """
     hs = _ap._find_home_station(state)
     if hs is None:
+        _ap._do_idle()
+        return
+    if latch_already_set is not None and latch_already_set():
+        # Latch already set this session -- waiting out MIN_DWELL_S
+        # before the FSM transitions away.  Skip the POST so we
+        # don't burn HTTP round-trips on requests we know will
+        # return "no consumables" / "already placed" / etc.
+        _ap.KeyState.release_all()
         _ap._do_idle()
         return
     px = float(p.get("x", 0.0))
@@ -320,6 +344,7 @@ def _act_equip_consumables(state: dict, p: dict) -> None:
             f"slots=({r.get('repair_slot')},{r.get('shield_slot')})"),
         latch_setter=_set_latch,
         latch_failure_keywords=("no consumables",),
+        latch_already_set=lambda: _ap._state.consumables_equipped,
     )
 
 
@@ -350,6 +375,7 @@ def _act_fortify(state: dict, p: dict) -> None:
         # advances rather than retrying every tick.
         latch_failure_keywords=("already complete", "no home",
                                 "no active home"),
+        latch_already_set=lambda: _ap._state.fortify_done,
     )
 
 
@@ -375,4 +401,5 @@ def _act_build_qwi(state: dict, p: dict) -> None:
         # test in _act_at_station — easiest is to include both
         # casings as keywords since the comparison is substring.
         latch_failure_keywords=("already placed", "already"),
+        latch_already_set=lambda: _ap._state.qwi_placed,
     )
