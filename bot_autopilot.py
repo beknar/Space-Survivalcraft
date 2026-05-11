@@ -401,12 +401,23 @@ S_PRE_BOSS_MINE     = "pre_boss_mine"
 # ``_state.fortify_done`` on success or "ring already complete".
 S_FORTIFY           = "fortify"
 S_BUILD_QWI         = "build_qwi"
+# S_RECOVER_LOOT (PR 2026-05-10): after the bot observes a dead->
+# alive transition, navigate back to the recorded death position
+# and idle until the dropped pickups (modules + consumables) vacuum
+# into the ship via the existing auto-attract loop.  Cleared by the
+# action handler once the loot is collected or
+# DEATH_RECOVERY_TIMEOUT_S elapses.  Fires AFTER REGEN / ENGAGE /
+# ENGAGE_BOSS / GATHER (defensive + opportunistic states take
+# priority) but BEFORE the boss-prep pipeline (re-install is
+# usually a prerequisite to re-engage).
+S_RECOVER_LOOT      = "recover_loot"
 
 ALL_STATES = (
     S_ENGAGE, S_GATHER, S_REGEN, S_MINE, S_SEARCH,
     S_BUILD, S_BUILD_SEEK, S_DEPOSIT, S_CRAFT, S_INSTALL,
     S_HUNT, S_IDLE_AT_BASE, S_ENGAGE_BOSS,
     S_EQUIP_CONSUMABLES, S_PRE_BOSS_MINE, S_FORTIFY, S_BUILD_QWI,
+    S_RECOVER_LOOT,
 )
 
 # Maximum range at which the bot will commit to chasing an alien
@@ -743,6 +754,20 @@ CRAFT_INTERACT_RANGE_PX: float = 200.0
 # reads as deliberate (and so the bot is in safe territory when
 # installing).
 INSTALL_INTERACT_RANGE_PX: float = 250.0
+# Death-loot recovery (PR 2026-05-10): how close the bot must get to
+# the recorded death position before the dropped iron / module
+# pickups vacuum into the ship via the existing auto-attract loop.
+# Iron pickups attract within 300 px (see ``IronPickup.update_pickup``),
+# so 200 px stop radius keeps the bot inside attract range without
+# pinning it on top of any stray asteroid that spawned at the spot.
+DEATH_RECOVERY_STOP_RADIUS_PX: float = 200.0
+# Hard ceiling on time spent in S_RECOVER_LOOT: if the bot can't
+# reach the death site within this window (e.g. it died inside an
+# inaccessible alien cluster, or the pickups despawned via
+# WORLD_ITEM_LIFETIME), give up and resume normal operation rather
+# than locking the FSM forever.  60 s is comfortably longer than
+# the bot's longest cross-world traversal (~30 s @ MAX_SPEED).
+DEATH_RECOVERY_TIMEOUT_S: float = 60.0
 # Sequence of modules the bot crafts after the starter base + all
 # blueprints have been deposited.  In the user's wording the fifth
 # entry was "damage enhancer" — the in-game module key for that is
@@ -966,6 +991,40 @@ class BotState:
     # 12-minute zero-iron-progress S_MINE wedge in the telemetry.
     mine_iron_baseline: int = 0
     mine_progress_check_at: float = 0.0
+    # Death detection + loot recovery (PR 2026-05-10).  The bot
+    # observes alive->dead transitions via ``player.is_dead`` in the
+    # snapshot; when it sees the player just died it records the
+    # death position and the loadout that was on the ship the tick
+    # BEFORE the death so the recovery action can navigate back and
+    # the install / equip pipelines can re-queue what was lost.
+    #
+    # ``last_alive_*`` refreshed every tick while is_dead=False so
+    # the snapshot at the alive->dead boundary captures the last
+    # known loadout (death wipes ``module_slots`` + ``quick_use_slots``
+    # to empty / None immediately, so we can't read them post-mortem).
+    last_alive_pos: tuple = (0.0, 0.0)
+    last_alive_modules: list = field(default_factory=list)
+    last_alive_consumable_types: list = field(default_factory=list)
+    was_dead: bool = False  # alive->dead edge detector
+    # ``death_recovery_pending`` flips True on the dead->alive edge
+    # when the prior loadout contained anything worth recovering.
+    # Cleared by the recovery action once the dropped pickups have
+    # been collected (or after RECOVERY_TIMEOUT_S elapses so a bot
+    # that can't reach the death site doesn't sit in S_RECOVER_LOOT
+    # forever).
+    death_recovery_pending: bool = False
+    death_recovery_pos: tuple = (0.0, 0.0)
+    death_recovery_modules: list = field(default_factory=list)
+    death_recovery_consumables: list = field(default_factory=list)
+    death_recovery_started_at: float = 0.0
+    # Boss combat metrics (PR 2026-05-10): captures the state of the
+    # ship + boss at S_ENGAGE_BOSS entry so the matching exit-time
+    # ``boss_engage_end`` event can log dwell + HP/shield deltas +
+    # outcome (boss_killed / player_died / disengaged).
+    boss_engage_started_at: float = 0.0
+    boss_engage_start_hp: int = 0
+    boss_engage_start_shields: int = 0
+    boss_engage_start_boss_hp: int = 0
 
     def reset(self) -> None:
         """Restore every field to its default.  Mutates dict fields
@@ -1004,6 +1063,19 @@ class BotState:
         self.path_planned_at = 0.0
         self.mine_iron_baseline = 0
         self.mine_progress_check_at = 0.0
+        self.last_alive_pos = (0.0, 0.0)
+        self.last_alive_modules = []
+        self.last_alive_consumable_types = []
+        self.was_dead = False
+        self.death_recovery_pending = False
+        self.death_recovery_pos = (0.0, 0.0)
+        self.death_recovery_modules = []
+        self.death_recovery_consumables = []
+        self.death_recovery_started_at = 0.0
+        self.boss_engage_started_at = 0.0
+        self.boss_engage_start_hp = 0
+        self.boss_engage_start_shields = 0
+        self.boss_engage_start_boss_hp = 0
 
 
 _state = BotState()
@@ -1236,11 +1308,216 @@ from bot_autopilot_movement import (
 from bot_autopilot_actions_station import (
     _act_build_seek, _act_deposit, _act_craft, _act_install, _act_build,
     _act_at_station, _act_equip_consumables, _act_fortify, _act_build_qwi,
+    _act_recover_loot,
 )
 from bot_autopilot_actions_combat import (
     _act_engage, _act_engage_boss, _maybe_use_consumables,
     _act_gather, _act_idle_at_base,
 )
+
+
+# ── Death detection + loot-recovery state machine (PR 2026-05-10) ────────
+
+def _observe_death_edges(state: dict, p: dict, now: float) -> None:
+    """Track alive->dead and dead->alive transitions to drive the
+    post-death loot-recovery action + boss telemetry.
+
+    While alive:
+      * Refresh ``last_alive_pos`` / ``last_alive_modules`` /
+        ``last_alive_consumable_types`` every tick so the snapshot
+        AT THE MOMENT OF DEATH captures the loadout that's about to
+        be dropped (``combat_helpers._drop_player_loadout`` wipes
+        the module + quick-use slots immediately).
+
+    On alive -> dead edge:
+      * Emit ``player_death`` telemetry with the FSM state, dropped
+        loadout size, and -- if the death happened during boss
+        combat -- a ``boss_context`` snapshot.
+
+    On dead -> alive edge:
+      * If the bot had anything worth recovering (modules OR
+        consumables), set ``death_recovery_pending=True`` with the
+        death position + lost-module list captured at the alive
+        edge so the FSM cascade picks S_RECOVER_LOOT until the
+        loot is collected.
+      * Refill ``queue.modules_to_install`` with the lost modules
+        so the existing install pipeline re-installs them after
+        the bot deposits the recovered loot.
+      * Reset ``consumables_equipped`` so the existing
+        S_EQUIP_CONSUMABLES action re-binds quick-use slots once
+        the recovered consumables land in station inventory.
+    """
+    is_dead_now = bool((state.get("player") or {}).get("is_dead",
+                                                       False))
+    px = float(p.get("x", 0.0))
+    py = float(p.get("y", 0.0))
+
+    if not is_dead_now:
+        # Snapshot live loadout each tick so the alive->dead edge
+        # captures the loadout that's about to drop.
+        _state.last_alive_pos = (px, py)
+        _state.last_alive_modules = [
+            m for m in (state.get("module_slots") or [])
+            if m is not None]
+        _state.last_alive_consumable_types = [
+            s.get("item_type") for s in (state.get("quick_use_slots") or [])
+            if s and s.get("item_type")
+            and s.get("item_type") != "missile"]
+        # dead -> alive edge: finalize recovery setup if there was
+        # anything to recover (snapshotted at the alive->dead edge
+        # in ``death_recovery_modules`` / ``_consumables``).
+        if _state.was_dead:
+            _state.was_dead = False
+            had_modules = bool(_state.death_recovery_modules)
+            had_consumables = bool(_state.death_recovery_consumables)
+            if had_modules or had_consumables:
+                _state.death_recovery_pending = True
+                _state.death_recovery_started_at = now
+                # Refill the install queue with what was lost so
+                # the existing INSTALL pipeline picks them up after
+                # the bot deposits the recovered modules.
+                for mod in _state.death_recovery_modules:
+                    if mod not in _state.queue.modules_to_install:
+                        _state.queue.modules_to_install.append(mod)
+                # Reset the consumables latch so the existing
+                # EQUIP pipeline re-binds quick-use slots once the
+                # recovered consumables reach station inventory.
+                if had_consumables:
+                    _state.consumables_equipped = False
+                _telemetry_log(
+                    "death_recovery_armed",
+                    death_pos=[round(_state.death_recovery_pos[0], 1),
+                               round(_state.death_recovery_pos[1], 1)],
+                    lost_modules=list(_state.death_recovery_modules),
+                    lost_consumables=list(
+                        _state.death_recovery_consumables),
+                )
+        return
+
+    # is_dead_now == True
+    if not _state.was_dead:
+        # alive -> dead edge.  Freeze the alive-tick snapshots into
+        # the death-recovery fields so the dead->alive edge can read
+        # them even after this same tick's wipe of module_slots /
+        # quick_use_slots clears the live values.
+        _state.was_dead = True
+        _state.death_recovery_pos = _state.last_alive_pos
+        _state.death_recovery_modules = list(
+            _state.last_alive_modules)
+        _state.death_recovery_consumables = list(
+            _state.last_alive_consumable_types)
+        boss = state.get("boss")
+        boss_ctx = None
+        if boss is not None:
+            boss_ctx = {
+                "boss_hp": int(boss.get("hp", 0)),
+                "boss_max_hp": int(boss.get("max_hp", 0)),
+                "boss_phase": int(boss.get("phase", 1)),
+            }
+        _telemetry_log(
+            "player_death",
+            fsm_state=_fsm["state"],
+            death_pos=[round(_state.death_recovery_pos[0], 1),
+                       round(_state.death_recovery_pos[1], 1)],
+            lost_modules=list(_state.death_recovery_modules),
+            lost_consumables=list(_state.death_recovery_consumables),
+            boss_context=boss_ctx,
+        )
+
+
+def _maybe_log_boss_engage_edges(state: dict, p: dict, now: float,
+                                 prev: str, cur: str) -> None:
+    """Emit ``boss_engage_start`` / ``boss_engage_end`` telemetry on
+    the matching FSM transitions so post-hoc log analysis can
+    measure how long each boss fight took, HP / shield deltas, and
+    the outcome (boss killed / player died / disengaged).
+
+    Pulled out into its own helper so the dispatch-loop call sites
+    stay one-line.
+    """
+    if cur == S_ENGAGE_BOSS and prev != S_ENGAGE_BOSS:
+        player = state.get("player") or {}
+        boss = state.get("boss") or {}
+        _state.boss_engage_started_at = now
+        _state.boss_engage_start_hp = int(player.get("hp", 0))
+        _state.boss_engage_start_shields = int(player.get("shields", 0))
+        _state.boss_engage_start_boss_hp = int(boss.get("hp", 0))
+        _telemetry_log(
+            "boss_engage_start",
+            from_state=prev,
+            player_hp=_state.boss_engage_start_hp,
+            player_max_hp=int(player.get("max_hp", 0)),
+            player_shields_at_start=_state.boss_engage_start_shields,
+            boss_hp=_state.boss_engage_start_boss_hp,
+            boss_max_hp=int(boss.get("max_hp", 0)),
+            boss_phase=int(boss.get("phase", 1)),
+            **_telemetry_snapshot_fields(state, p))
+    elif prev == S_ENGAGE_BOSS and cur != S_ENGAGE_BOSS:
+        player = state.get("player") or {}
+        boss = state.get("boss") or {}
+        # Outcome inference:
+        #   * boss_killed -- ``state.boss`` is now empty / hp <= 0
+        #   * player_died -- ``player.is_dead`` flipped True
+        #   * disengaged  -- neither; FSM cascade preempted (REGEN /
+        #                    something higher priority)
+        boss_alive = (state.get("boss") is not None
+                      and int(boss.get("hp", 0)) > 0)
+        if not boss_alive:
+            outcome = "boss_killed"
+        elif bool(player.get("is_dead", False)):
+            outcome = "player_died"
+        else:
+            outcome = "disengaged"
+        dwell = now - _state.boss_engage_started_at
+        _telemetry_log(
+            "boss_engage_end",
+            to_state=cur,
+            outcome=outcome,
+            dwell_s=round(dwell, 2),
+            player_hp_delta=int(player.get("hp", 0))
+                            - _state.boss_engage_start_hp,
+            player_shields_delta=int(player.get("shields", 0))
+                                 - _state.boss_engage_start_shields,
+            boss_hp_delta=int(boss.get("hp", 0))
+                          - _state.boss_engage_start_boss_hp,
+            **_telemetry_snapshot_fields(state, p))
+
+
+def _maybe_clear_death_recovery(state: dict, p: dict, now: float) -> None:
+    """Clear the recovery pending flag when the loot at the death
+    site is no longer there (collected, or despawned via
+    WORLD_ITEM_LIFETIME), OR when ``DEATH_RECOVERY_TIMEOUT_S`` has
+    elapsed since the recovery was armed.  Called by the FSM
+    cascade so the bot doesn't sit in S_RECOVER_LOOT forever.
+    """
+    if not _state.death_recovery_pending:
+        return
+    if now - _state.death_recovery_started_at >= DEATH_RECOVERY_TIMEOUT_S:
+        _telemetry_log(
+            "death_recovery_timeout",
+            elapsed_s=round(now - _state.death_recovery_started_at, 1),
+            **_telemetry_snapshot_fields(state, p))
+        _state.death_recovery_pending = False
+        return
+    # Check whether any pickup is still within range of the death
+    # position.  If none remain (everything collected / despawned),
+    # we're done.
+    drx, dry = _state.death_recovery_pos
+    radius_sq = 600.0 * 600.0   # generous match radius
+    for plist_key in ("iron_pickups", "blueprint_pickups"):
+        for pu in (state.get(plist_key) or []):
+            dx = float(pu.get("x", 0.0)) - drx
+            dy = float(pu.get("y", 0.0)) - dry
+            if dx * dx + dy * dy <= radius_sq:
+                return  # loot still on the floor near the death site
+    # No loot remains -- clear the latch and let the FSM fall
+    # through to its normal cascade (which will then deposit any
+    # recovered items and route through the INSTALL pipeline).
+    _telemetry_log(
+        "death_recovery_complete",
+        elapsed_s=round(now - _state.death_recovery_started_at, 1),
+        **_telemetry_snapshot_fields(state, p))
+    _state.death_recovery_pending = False
 
 
 # ── FSM core (orchestrator) ──────────────────────────────────────────────
@@ -1330,6 +1607,13 @@ def _do_auto(state: dict, p: dict) -> None:
     # The HP threshold + cooldown live in
     # ``_maybe_use_consumables`` — see its docstring.
     _maybe_use_consumables(state, p)
+
+    # Death edge detection + loadout snapshot (PR 2026-05-10).
+    # Tracks the alive->dead transition so the bot can drive a
+    # recovery action after respawn that picks up the dropped
+    # modules + consumables.  See ``_observe_death_edges`` for the
+    # full state machine.
+    _observe_death_edges(state, p, now)
 
     # Stuck watchdog: if the ship has been pinned against either
     # the world boundary OR a station building cluster, override
@@ -1546,6 +1830,7 @@ def _do_auto(state: dict, p: dict) -> None:
             _stuck_state["history"] = []
             _astar_invalidate_path()
         _on_enter(cur)
+        _maybe_log_boss_engage_edges(state, p, now, prev, cur)
         _telemetry_log("state_transition", reason="first_tick",
                        from_state=prev, to_state=cur, desired=desired,
                        **_telemetry_snapshot_fields(state, p))
@@ -1572,6 +1857,7 @@ def _do_auto(state: dict, p: dict) -> None:
             _astar_invalidate_path()
             cur = desired
             _on_enter(cur)
+            _maybe_log_boss_engage_edges(state, p, now, prev, cur)
             _telemetry_log("state_transition", reason="dwell_or_preempt",
                            from_state=prev, to_state=cur, desired=desired,
                            dwell_s=round(dwell, 3),
@@ -1624,6 +1910,8 @@ def _do_auto(state: dict, p: dict) -> None:
         _act_fortify(state, p)
     elif cur == S_BUILD_QWI:
         _act_build_qwi(state, p)
+    elif cur == S_RECOVER_LOOT:
+        _act_recover_loot(state, p)
     else:  # S_SEARCH
         _do_spiral_search(state, p)
 

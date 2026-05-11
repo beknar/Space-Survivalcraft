@@ -11,6 +11,36 @@ import math
 import bot_autopilot as _ap
 
 
+def _act_recover_loot(state: dict, p: dict) -> None:
+    """RECOVER_LOOT: navigate back to the recorded death position so
+    the dropped iron / module / consumable pickups vacuum into the
+    ship via the existing auto-attract loop.
+
+    No POST required -- pickup collection happens passively as the
+    bot drives within attract range of each item.  Weapons stay
+    cold so a stray asteroid in the area doesn't burn the cycle
+    mining instead of recovering.
+
+    Cleared by ``_maybe_clear_death_recovery`` once no pickups
+    remain near the death position (either collected by the bot or
+    despawned via WORLD_ITEM_LIFETIME) or after
+    ``DEATH_RECOVERY_TIMEOUT_S`` elapses.
+    """
+    target_x, target_y = _ap._state.death_recovery_pos
+    zone = state.get("zone") or {}
+    world_w = float(zone.get("world_w", 6400) or 6400)
+    world_h = float(zone.get("world_h", 6400) or 6400)
+    # Clamp to the world rect so a death right at the boundary
+    # doesn't push the bot into the edge-repulsion pin.
+    tx = max(_ap.STUCK_WORLD_MARGIN_PX,
+             min(world_w - _ap.STUCK_WORLD_MARGIN_PX, target_x))
+    ty = max(_ap.STUCK_WORLD_MARGIN_PX,
+             min(world_h - _ap.STUCK_WORLD_MARGIN_PX, target_y))
+    _ap.KeyState.hold("space", False)
+    _ap._do_goto(state, p, tx, ty,
+                 stop_radius=_ap.DEATH_RECOVERY_STOP_RADIUS_PX)
+
+
 def _act_build_seek(state: dict, p: dict) -> None:
     """BUILD_SEEK: walk in the direction of least detectable
     density, looking for a clear pocket to build the starter
