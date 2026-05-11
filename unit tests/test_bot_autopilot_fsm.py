@@ -1759,6 +1759,43 @@ class TestDepositTrigger:
         assert len(post_calls) == 1
         assert ap._state.last_deposit_at == _clock[0]
 
+    def test_act_deposit_posts_at_400px_post_2026_05_10(
+            self, _clock, monkeypatch):
+        """2026-05-10 telemetry-anchored regression.
+
+        Pre-fix DEPOSIT_RANGE_PX = 200 left the bot wedged in
+        S_DEPOSIT for 38.7 seconds at hs_dist 361-393 px -- the
+        force-balance equilibrium of the 7 non-suppressed cluster
+        buildings' stacked repulsion fields.  The bot couldn't
+        close the final ~190 px, so ship_iron stayed at 110 and
+        the deposit never landed.
+
+        Post-fix DEPOSIT_RANGE_PX = 500 lets the bot fire the POST
+        from its actual wedged position, unblocking the deposit
+        cycle.  Server-side
+        ``deposit_ship_resources_to_station`` doesn't enforce a
+        distance check, so depositing from 400 px is safe.
+        """
+        post_calls: list = []
+        monkeypatch.setattr(
+            ap, "_post_deposit_to_station",
+            lambda timeout_s=5.0: (post_calls.append(True)
+                                   or {"deposited": {"iron": 110}}))
+        # Bot 400 px from HS -- right in the cluster-pin band the
+        # telemetry caught (361-393 px).  Pre-fix this would have
+        # navigated forever; post-fix it fires the POST.
+        s = _state(
+            player={"x": 3600.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            iron=ap.DEPOSIT_IRON_THRESHOLD,
+            buildings=[_hs_building(x=3200.0, y=3200.0)])
+        ap._do_auto(s, s["player"])
+        assert ap.DEPOSIT_RANGE_PX >= 500.0
+        assert len(post_calls) == 1, (
+            "Bot at 400 px from HS must fire the deposit POST "
+            "under the widened DEPOSIT_RANGE_PX; pre-fix this "
+            "wedged for 38.7 s in the captured telemetry.")
+
     def test_act_deposit_does_not_repost_within_cooldown(
             self, _clock, monkeypatch):
         """Once a deposit POST has fired, ``_act_deposit`` must

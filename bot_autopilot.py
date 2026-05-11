@@ -627,7 +627,24 @@ DEPOSIT_IRON_THRESHOLD = 100
 # stack = 24975), and matches the per-trip "this is enough to
 # make the round trip worth it" feel.
 DEPOSIT_IRON_FULL_THRESHOLD = 500
-DEPOSIT_RANGE_PX       = 200.0
+#
+# Widened from 200 to 500 after 2026-05-10 telemetry: a 45-second
+# session captured the bot wedged in S_DEPOSIT for 38.7 seconds
+# (t+6.7s through t+45.4s) with ship_iron stuck at 110 and hs_dist
+# oscillating between 361-393 px.  The bot couldn't close the
+# final 161-193 px because the 7 non-suppressed buildings of the
+# 11-building cluster (Power Receiver, Solar Array 2, Turret 2
+# corners, fortify-ring turrets, Basic Crafter -- everything past
+# the 100 px target-suppression gate from PR #83) stacked their
+# repulsion fields and pushed the bot to a force-balance
+# equilibrium outside the pre-fix 200 px DEPOSIT_RANGE.  Server-
+# side ``deposit_ship_resources_to_station`` does NOT enforce a
+# distance check (it just dumps inventory at the HS), so a wider
+# range is safe -- the only effect is letting the bot fire the
+# POST from its actual stop position outside the cluster rather
+# than wedging inside the cluster forever.  500 covers the
+# observed 393 px wedge with comfortable margin.
+DEPOSIT_RANGE_PX       = 500.0
 DEPOSIT_COOLDOWN_S     = 30.0
 # Distance gate for non-urgent deposit runs.  When ship_iron is
 # above DEPOSIT_IRON_THRESHOLD but below DEPOSIT_IRON_FULL_THRESHOLD
