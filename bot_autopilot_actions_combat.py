@@ -128,23 +128,26 @@ def _act_engage_boss(state: dict, p: dict) -> None:
     windup = float(boss.get("charge_windup", 0.0))
 
     # ── LURE-mode latch ──────────────────────────────────────────
-    # User spec (2026-05-11, revised): the bot should kite + lure +
-    # dodge as primary strategies, consumables as last resort.
-    # Telemetry from PR #94's first session showed the
-    # shield-threshold trigger fired too late -- the bot chased the
-    # boss to hs_dist=3000 px before shields dropped, then couldn't
-    # retreat in time.  Lure now PRE-EMPTIVELY activates whenever a
-    # boss is alive AND a Home Station exists, regardless of
-    # shields.  Once active, the latch holds until the boss dies
-    # (cleared in the boss-is-None branch above) so the bot doesn't
-    # yo-yo between kite ring + lure when shields oscillate.  The
-    # boss_lure_enter telemetry fires once per activation so
-    # post-hoc analysis still sees the engagement window.
+    # User spec (2026-05-11 fifth pass): the bot should ATTACK the
+    # boss first (kite at BOSS_KITE_RANGE_PX) and only retreat to
+    # lure when shields drop below BOSS_LURE_SHIELDS_PCT (50 %).
+    # Reverts PR #95's pre-emptive trigger -- always-luring left
+    # the boss alive for too long because the bot's basic-laser DPS
+    # from the station perimeter was too low to make a dent before
+    # turrets finished it.  Telemetry from the fifth pass also
+    # showed the bot lured immediately at boss_engage_start
+    # (sh=120/120) and then died because the boss reached station
+    # perimeter fast.  The sticky-once-activated property is
+    # preserved (latch holds until the boss dies, cleared in the
+    # boss-is-None branch above) so we don't yo-yo between kite +
+    # lure when shields oscillate around the 50 % threshold.
     sh_now = int(p.get("shields", 0))
     max_sh = max(1, int(p.get("max_shields", 1)))
     sh_frac = sh_now / max_sh
     hs_preview = _ap._find_home_station(state)
-    if hs_preview is not None and not _ap._state.boss_lure_active:
+    if (hs_preview is not None
+            and not _ap._state.boss_lure_active
+            and sh_frac < _ap.BOSS_LURE_SHIELDS_PCT):
         _ap._state.boss_lure_active = True
         _ap._telemetry_log("boss_lure_enter",
                            shields=sh_now, max_shields=max_sh,

@@ -3506,6 +3506,72 @@ class TestConsumablePhaseDoneShortCircuit:
         assert ap._state.queue.repair_packs_remaining == 2
 
 
+class TestEquipConsumablesGateSelfHeals:
+    """User report (2026-05-11 fifth pass): after the boss is killed
+    and the bot picks up dropped consumables, the bot deposits them
+    but never re-equips.  Root cause: the EQUIP gate used the
+    ``consumables_equipped`` latch, which was set True at session
+    start and never re-armed because the dead->alive edge only
+    resets it when the prior loadout snapshot includes consumables
+    (which on deaths 2-4 of a multi-death cycle, it doesn't).  The
+    gate now checks the actual quick-use slot state and self-heals
+    whenever a slot is empty AND station inventory has a matching
+    consumable."""
+
+    def test_gate_fires_when_quick_use_empty_despite_stale_latch(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """The exact pathology from telemetry: latch True (stale),
+        quick-use slots empty (post-death), station has consumables.
+        Gate must fire S_EQUIP_CONSUMABLES anyway."""
+        monkeypatch.setattr(
+            ap, "_act_equip_consumables", lambda s, p: None)
+        ap._state.consumables_equipped = True  # stale from session start
+        ap._state.queue.consumable_phase_started = True
+        ap._state.queue.repair_packs_remaining = 0
+        ap._state.queue.shield_recharges_remaining = 0
+        ap._state.build_done = True  # past starter-base build
+        s = _state(
+            buildings=[{"x": 3200.0, "y": 3200.0,
+                        "building_type": "Home Station"}],
+            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            station_inventory_items={"repair_pack": 5,
+                                     "shield_recharge": 5},
+        )
+        s["quick_use_slots"] = [
+            {"item_type": None, "count": 0},  # empty after death
+            {"item_type": None, "count": 0},
+        ]
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_EQUIP_CONSUMABLES
+        # Latch reset so the action will actually POST, not idle.
+        assert ap._state.consumables_equipped is False
+
+    def test_gate_does_not_fire_when_quick_use_already_loaded(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """Sanity: when the quick-use slots already have consumables,
+        the gate must NOT fire even if station inv has more."""
+        ap._state.consumables_equipped = False
+        ap._state.queue.consumable_phase_started = True
+        ap._state.queue.repair_packs_remaining = 0
+        ap._state.queue.shield_recharges_remaining = 0
+        ap._state.build_done = True
+        s = _state(
+            buildings=[{"x": 3200.0, "y": 3200.0,
+                        "building_type": "Home Station"}],
+            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            station_inventory_items={"repair_pack": 5,
+                                     "shield_recharge": 5},
+        )
+        s["quick_use_slots"] = [
+            {"item_type": "repair_pack", "count": 5},
+            {"item_type": "shield_recharge", "count": 5},
+        ]
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] != ap.S_EQUIP_CONSUMABLES
+
+
 class TestSearchExemptFromStuckDetect:
     """The spiral search's brake-coast motion at small radii looks
     indistinguishable from being pinned to the position+rotation
@@ -6535,22 +6601,37 @@ class TestBossKiteAtRange:
 
 
 class TestBossLureMode:
-    """User spec (2026-05-11, revised): the bot should kite + lure +
-    dodge as primary strategies, consumables as last resort.  Lure
-    pre-emptively activates whenever a boss is alive and a Home
-    Station exists (no shield gate); the latch holds until the boss
-    dies so the bot doesn't yo-yo between kite ring + lure when
-    shields oscillate."""
+    """User spec (2026-05-11 fifth pass): the bot should ATTACK the
+    boss first (kite at BOSS_KITE_RANGE_PX) and only retreat to
+    lure when shields drop below BOSS_LURE_SHIELDS_PCT (50 %).
+    Once activated, the latch holds until the boss dies so the
+    bot doesn't yo-yo between kite + lure when shields oscillate
+    around the threshold."""
 
-    def test_lure_activates_when_boss_and_station_exist(
-            self, monkeypatch):
-        """Lure arms pre-emptively -- doesn't wait for shields to drop."""
+    def test_lure_does_not_arm_at_full_shields(self, monkeypatch):
+        """User spec: bot should attack first, NOT lure pre-emptively."""
         monkeypatch.setattr(ap, "_do_goto", lambda *a, **kw: None)
         monkeypatch.setattr(ap, "_ensure_weapon", lambda *a, **kw: None)
         ap._state.boss_lure_active = False
         s = _state(
             player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
                     "shields": 150, "max_shields": 150},  # full
+            buildings=[{"x": 2000.0, "y": 3200.0,
+                        "building_type": "Home Station"}],
+        )
+        s["boss"] = _boss()
+        ap._act_engage_boss(s, s["player"])
+        assert ap._state.boss_lure_active is False
+
+    def test_lure_activates_when_shields_drop_below_threshold(
+            self, monkeypatch):
+        """User spec: retreat when shields fall under 50 %."""
+        monkeypatch.setattr(ap, "_do_goto", lambda *a, **kw: None)
+        monkeypatch.setattr(ap, "_ensure_weapon", lambda *a, **kw: None)
+        ap._state.boss_lure_active = False
+        s = _state(
+            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 40, "max_shields": 150},  # 27 %
             buildings=[{"x": 2000.0, "y": 3200.0,
                         "building_type": "Home Station"}],
         )
