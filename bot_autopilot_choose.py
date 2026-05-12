@@ -175,6 +175,21 @@ def choose_next_state(state: dict, p: dict, cur: str) -> str:
     pct = sh / sh_max
     aliens = state.get("aliens") or []
     threat, td = _ap.nearest(aliens, px, py)
+    # Treat the boss as a threat for REGEN escape-valve purposes
+    # (2026-05-11 telemetry): without this the bot sat in REGEN at
+    # point-blank cannon range -- ``nearest(aliens, ...)`` returned
+    # None, the escape-valve threat check evaluated False, and the
+    # bot idled while the boss drained 86 shields over 28 s, then
+    # died.  Boss is at most one entity, so a single distance check
+    # is cheaper than rebuilding the alien list with the boss
+    # appended.  ENGAGE_ENTER_PX (800) matches BOSS_DETECT_RANGE so
+    # the threat band lines up with the boss's own aggro distance.
+    boss = state.get("boss")
+    if boss is not None:
+        bd = math.hypot(float(boss.get("x", 0.0)) - px,
+                        float(boss.get("y", 0.0)) - py)
+        if bd < _ap.ENGAGE_ENTER_PX and (threat is None or bd < td):
+            threat, td = boss, bd
     if cur == _ap.S_REGEN:
         if pct < _ap.REGEN_EXIT_PCT:
             shields_recovering = (sh > _ap._state.last_regen_shields)

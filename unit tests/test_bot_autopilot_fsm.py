@@ -257,6 +257,34 @@ class TestRegenEscapeValve:
         ap._fsm_reset()
         assert ap._state.last_regen_shields == 0
 
+    def test_close_boss_counts_as_threat_for_escape_valve(
+            self, _clock, monkeypatch):
+        """User-spec follow-up (2026-05-11): the escape valve must
+        treat the boss as a threat too -- otherwise the bot sits in
+        REGEN at point-blank cannon range, takes damage continuously,
+        and dies because ``nearest(aliens, ...)`` returns None.
+        Telemetry showed 86 shields drained over 28 s of REGEN with
+        no aliens nearby, then player_death."""
+        monkeypatch.setattr(ap, "_act_engage_boss", lambda s, p: None)
+        # Enter REGEN cleanly (no boss, no alien).
+        s = _state(
+            player={"x": 0, "y": 0, "heading": 0,
+                    "shields": 50, "max_shields": 150},
+        )
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_REGEN
+        # A boss appears within ENGAGE_ENTER_PX and shields keep
+        # dropping.  Escape valve must fire even though aliens=[].
+        _clock[0] += ap.MIN_DWELL_S + 0.1
+        s["boss"] = _boss(x=500.0, y=0.0)  # within ENGAGE_ENTER_PX (800)
+        s["player"]["shields"] = 40  # dropped from 50
+        ap._do_auto(s, s["player"])
+        # Cascade picks S_ENGAGE_BOSS (above REGEN now that the
+        # escape valve fired).
+        assert ap._fsm["state"] == ap.S_ENGAGE_BOSS, (
+            "REGEN deadlock at boss point-blank range -- escape "
+            "valve must count the boss as a threat")
+
 
 # ── REGEN entry-side mirror (2026-05-04 anti-thrash) ─────────────────
 
