@@ -297,8 +297,14 @@ def building_repulsion(p: dict, state: dict,
     suppress_sq = (REPULSION_TARGET_SUPPRESS_PX
                    * REPULSION_TARGET_SUPPRESS_PX)
     # Cluster-suppression check: when target is inside the cluster
-    # core, suppress every building in the cluster.  Computed once
-    # up front to avoid per-building overhead.
+    # core, suppress every building in the cluster.  Also activates
+    # when the BOT is inside the cluster trying to reach a target
+    # outside it -- otherwise the bot pins in equilibrium at the
+    # cluster centroid (every direction is uphill in the repulsion
+    # field).  Telemetry from the 2026-05-11 fourth pass caught this
+    # at session start: bot oscillated within ~100 px of the cluster
+    # centroid for 40 s trying to reach an asteroid 1800 px away.
+    # Computed once up front to avoid per-building overhead.
     cluster_suppress_active = False
     cx_cluster = cy_cluster = r_cluster = 0.0
     if target is not None and len(buildings) >= CLUSTER_MIN_BUILDINGS:
@@ -306,7 +312,17 @@ def building_repulsion(p: dict, state: dict,
         if ccx is not None:
             target_to_centre = math.hypot(target[0] - ccx,
                                           target[1] - ccy)
-            if target_to_centre < cr + CLUSTER_DETOUR_TARGET_INSIDE_PX:
+            bot_to_centre = math.hypot(px - ccx, py - ccy)
+            target_inside = (
+                target_to_centre < cr + CLUSTER_DETOUR_TARGET_INSIDE_PX)
+            # Bot inside cluster AND target outside -- need to escape.
+            # Use ``cr`` (the cluster's enclosing radius) without the
+            # CLUSTER_DETOUR_TARGET_INSIDE_PX buffer so the suppression
+            # only fires when the bot is genuinely inside the building
+            # ring, not just adjacent to it.
+            bot_inside_escaping = (
+                bot_to_centre < cr and not target_inside)
+            if target_inside or bot_inside_escaping:
                 cluster_suppress_active = True
                 cx_cluster, cy_cluster, r_cluster = ccx, ccy, cr
     rx = 0.0

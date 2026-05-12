@@ -255,6 +255,34 @@ def choose_next_state(state: dict, p: dict, cur: str) -> str:
     if _ap._state.death_recovery_pending:
         return _ap.S_RECOVER_LOOT
 
+    # 1.45 POST-RECOVERY DEPOSIT/INSTALL — after S_RECOVER_LOOT vacuums
+    #      up dropped modules, they sit in SHIP cargo as ``mod_<key>``
+    #      items and the install queue still has the keys.  Without
+    #      this priority bump, ENGAGE_BOSS at 1.5 wins and the bot
+    #      fights the rest of the fight with no loadout -- telemetry
+    #      from the 2026-05-11 fourth pass showed 4 modules in cargo
+    #      (ship_mods=4) + mod_q=4 stuck for 50 s of S_ENGAGE_BOSS
+    #      after a recovery timeout.  ``mod_<key>`` items appear in
+    #      ship cargo ONLY after a death-drop pickup (normal craft
+    #      flow deposits the crafted module straight into station
+    #      inventory), so this signal cleanly identifies the
+    #      "post-recovery, need to install" window without false
+    #      positives.  Deposits the modules into station inv first,
+    #      then the next tick routes to S_INSTALL.
+    hs_pri145 = _ap._find_home_station(state)
+    if hs_pri145 is not None:
+        inv_items = (state.get("inventory") or {}).get("items") or {}
+        has_mod_in_cargo = any(
+            k.startswith("mod_") and v > 0
+            for k, v in inv_items.items())
+        if has_mod_in_cargo:
+            return _ap.S_DEPOSIT
+        if _ap._next_install_target(state) is not None:
+            # Only fires when station inv has the queued mod_<key>
+            # AND the key isn't already installed -- the
+            # ``_next_install_target`` helper enforces both.
+            return _ap.S_INSTALL
+
     # 1.5  ENGAGE_BOSS — boss alive, station-anchor kite owns the fight.
     #      Above ENGAGE so a roaming small alien at 200 px doesn't
     #      pull the bot off the station perimeter into the boss's

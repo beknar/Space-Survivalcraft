@@ -5855,6 +5855,20 @@ class TestClusterAwareRepulsionSuppression:
         # East building NOT suppressed → push from it.
         assert rx > 0.0
 
+    def test_bot_inside_cluster_with_far_target_suppresses(self):
+        """User-spec follow-up (2026-05-11 fourth pass): bot at the
+        cluster centroid trying to reach an asteroid 1800 px outside
+        the cluster pinned for 40 s.  With suppression also firing
+        when the BOT is inside the cluster (and target outside), the
+        repulsion field zeros out and the bot can escape on the
+        attract vector alone."""
+        s = self._cluster_state(cx=3200.0, cy=3200.0, r=200.0)
+        # Bot AT centroid, target way outside cluster.
+        rx, ry = ap._building_repulsion(
+            {"x": 3200.0, "y": 3200.0}, s, target=(5000.0, 5000.0))
+        # All cluster buildings suppressed → zero field.
+        assert abs(rx) < 1e-9 and abs(ry) < 1e-9
+
 
 # ── 2026-05-04 hardening: MINE/GATHER chase clamped to world ──────────
 
@@ -6362,6 +6376,54 @@ class TestDeathRecovery:
              "item_type": "iron"}]
         ap._do_auto(s, s["player"])
         assert ap._fsm["state"] == ap.S_RECOVER_LOOT
+
+    def test_post_recovery_deposit_preempts_engage_boss(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """User-spec follow-up (2026-05-11): after S_RECOVER_LOOT
+        vacuums up dropped modules, the bot has them in SHIP cargo
+        but the install queue is still non-empty.  Without this
+        priority bump, ENGAGE_BOSS at 1.5 wins and the bot fights
+        without modules forever.  Telemetry caught 4 modules
+        (ship_mods=4) sitting in cargo for 50 s of S_ENGAGE_BOSS
+        after a recovery timeout."""
+        monkeypatch.setattr(ap, "_act_deposit", lambda s, p: None)
+        monkeypatch.setattr(ap, "_act_engage_boss", lambda s, p: None)
+        # Boss alive, modules in cargo from a recent loot pickup.
+        s = _state(
+            player={"x": 4000.0, "y": 4000.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            buildings=[{"x": 4000.0, "y": 4000.0,
+                        "building_type": "Home Station"}],
+            inventory_items={"mod_broadside": 1, "mod_armor_plate": 1},
+        )
+        s["boss"] = _boss()
+        ap._do_auto(s, s["player"])
+        # Priority 1.45 must win over 1.5 ENGAGE_BOSS.
+        assert ap._fsm["state"] == ap.S_DEPOSIT
+
+    def test_post_recovery_install_preempts_engage_boss(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """Step 2 of the post-recovery pipeline: after deposit,
+        modules are in station inventory and the install queue
+        head matches.  S_INSTALL must beat ENGAGE_BOSS."""
+        monkeypatch.setattr(ap, "_act_install", lambda s, p: None)
+        monkeypatch.setattr(ap, "_act_engage_boss", lambda s, p: None)
+        monkeypatch.setattr(
+            ap, "_find_basic_crafter",
+            lambda state, idle_only=False: {"x": 4000.0, "y": 4000.0})
+        ap._state.queue.modules_to_install = ["broadside"]
+        s = _state(
+            player={"x": 4000.0, "y": 4000.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            buildings=[{"x": 4000.0, "y": 4000.0,
+                        "building_type": "Home Station"}],
+            station_inventory_items={"mod_broadside": 1},
+            # No mod_<key> in ship cargo -- past the deposit stage.
+            inventory_items={},
+        )
+        s["boss"] = _boss()
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_INSTALL
 
 
 class TestBossEngageTelemetry:
