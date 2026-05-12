@@ -388,8 +388,33 @@ def choose_next_state(state: dict, p: dict, cur: str) -> str:
     #           /place_qwi.  The QWI auto-spawns the Double Star
     #           boss; from there _ap.S_ENGAGE_BOSS takes over.
     if hs is not None and _ap._consumable_phase_finished():
-        if not _ap._state.consumables_equipped \
-                and _ap._consumables_in_station_inv(state):
+        # EQUIP gate (2026-05-11 fifth pass): self-heal by checking
+        # the actual quick-use slot state, not just the
+        # ``consumables_equipped`` latch.  The latch alone misses
+        # the post-death case the user reported: bot picks up the
+        # dropped consumables and deposits them, but the latch was
+        # set True at session start and never re-armed because the
+        # dead->alive edge only resets it when the bot's prior
+        # loadout snapshot included consumables (which on deaths
+        # 2-4 of a multi-death cycle, it doesn't).  Checking the
+        # actual quick-use slot contents makes the gate fire
+        # whenever the slot needs a consumable AND station has one
+        # to give -- so a fresh session, a post-death pickup, or
+        # any other quick-use-empty state all route through EQUIP.
+        # The latch is still useful as the one-tick MIN_DWELL-skip
+        # helper inside ``_act_at_station``.
+        quick_use = state.get("quick_use_slots") or []
+        has_consumable_equipped = any(
+            s and s.get("item_type") in ("repair_pack", "shield_recharge")
+            and int(s.get("count", 0)) > 0
+            for s in quick_use)
+        if (not has_consumable_equipped
+                and _ap._consumables_in_station_inv(state)):
+            # Reset the latch so ``_act_equip_consumables`` actually
+            # POSTs.  The action's skip-condition is the latch
+            # itself; a stale-True latch from a previous session
+            # would otherwise make the action ``_do_idle`` forever.
+            _ap._state.consumables_equipped = False
             return _ap.S_EQUIP_CONSUMABLES
         if not _ap._state.qwi_placed \
                 and not _ap._qwi_already_built(state):
