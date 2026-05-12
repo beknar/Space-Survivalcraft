@@ -299,20 +299,23 @@ BOSS_KITE_STATION_TETHER_PX:  float = 600.0    # max distance from station while
 BOSS_DODGE_PERP_PX:           float = 250.0    # perpendicular strafe during charge windup
 BOSS_PHASE3_PRESS_RANGE_PX:   float = 600.0    # Phase 3 (no shield regen): close in for DPS
 
-# Boss LURE mode (2026-05-11): when shields drop below
-# BOSS_LURE_SHIELDS_PCT of max, the bot abandons the kite ring and
-# retreats toward the Home Station, dragging the boss into the
-# turret + missile-array DPS zone so allied defenses finish the
-# fight while the bot regenerates.  The threshold matches
-# CONSUMABLE_USE_SHIELD_PCT so the shield-recharge consumable
-# fires at the same edge.  Holds the lure at
-# BOSS_LURE_TURRET_RADIUS_PX from the station (inside TURRET_RANGE
+# Boss LURE mode (2026-05-11, revised after second telemetry pass):
+# The bot now PRE-EMPTIVELY activates lure whenever a boss is alive
+# and a Home Station exists -- the previous shields-only trigger let
+# the bot chase the boss into the world corner (hs_dist=3000+) and
+# die before the threshold ever fired.  Once active, the lure stays
+# latched until the boss dies; the prior shield-recovery exit caused
+# yo-yo behavior (kite into cannon range -> lose shields -> lure
+# back -> shields recover -> kite back into range).  Holds the bot
+# at BOSS_LURE_TURRET_RADIUS_PX from the station (inside TURRET_RANGE
 # = 400 + a small margin) so turrets land every shot but the bot
-# isn't sitting on top of the HS where the boss's charge dash
-# could one-shot the station.
+# isn't sitting on top of the HS where the boss's charge dash could
+# one-shot the station.  The shields constant is retained for
+# telemetry hysteresis (boss_lure_enter logs the entry shields) but
+# no longer gates lure activation.
 BOSS_LURE_SHIELDS_PCT:        float = 0.50
 BOSS_LURE_TURRET_RADIUS_PX:   float = 350.0
-BOSS_LURE_EXIT_SHIELDS_PCT:   float = 0.85    # exit lure once shields recover
+BOSS_LURE_EXIT_SHIELDS_PCT:   float = 1.00    # only exit at full shields (kept for compat)
 
 # QWI (Quantum Wave Integrator) staging gate (Choice 1):
 # the autopilot refuses to push the boss-trigger build until the
@@ -342,8 +345,14 @@ FORTIFY_IRON_COST:            int   = 4 * 75
 EQUIP_QUICK_USE_REPAIR_SLOT:  int   = 0      # quick-use slot for repair packs
 EQUIP_QUICK_USE_SHIELD_SLOT:  int   = 1      # quick-use slot for shield recharges
 QWI_BUILD_IRON_TARGET:        int   = 2000   # station-iron buffer before placing QWI
-CONSUMABLE_USE_HP_PCT:        float = 0.50   # use repair pack at <= 50 % HP
-CONSUMABLE_USE_SHIELD_PCT:    float = 0.50   # use shield recharge at <= 50 % shields
+# Consumables are LAST RESORT (user spec 2026-05-11): the bot should
+# rely on kite + lure + dodge to manage damage during a boss fight.
+# Consumables only fire once those strategies have failed.  Lowered
+# from 0.50 / 0.50 so kite and lure get the first try; the bot
+# wastes a consumable charge less often on small dips that the
+# station-tether kite + shield regen handle on their own.
+CONSUMABLE_USE_HP_PCT:        float = 0.30   # use repair pack at <= 30 % HP
+CONSUMABLE_USE_SHIELD_PCT:    float = 0.20   # use shield recharge at <= 20 % shields
 # Cooldown between auto-use POSTs so the bot doesn't spam the
 # endpoint when a tick hits the threshold.  REPAIR_PACK_HEAL +
 # SHIELD_RECHARGE_HEAL are 0.5 each so one use brings 50 % to

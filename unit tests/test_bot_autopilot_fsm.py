@@ -6507,62 +6507,59 @@ class TestBossKiteAtRange:
 
 
 class TestBossLureMode:
-    """User spec (2026-05-11): when shields drop below 50 % of max,
-    the bot abandons the kite ring and heads for a perimeter point
-    near the Home Station so allied turrets share DPS.  Hysteresis
-    via ``BOSS_LURE_EXIT_SHIELDS_PCT`` (85 %) keeps the latch from
-    flapping at the threshold boundary."""
+    """User spec (2026-05-11, revised): the bot should kite + lure +
+    dodge as primary strategies, consumables as last resort.  Lure
+    pre-emptively activates whenever a boss is alive and a Home
+    Station exists (no shield gate); the latch holds until the boss
+    dies so the bot doesn't yo-yo between kite ring + lure when
+    shields oscillate."""
 
-    def test_lure_latches_when_shields_drop_below_threshold(
+    def test_lure_activates_when_boss_and_station_exist(
             self, monkeypatch):
+        """Lure arms pre-emptively -- doesn't wait for shields to drop."""
         monkeypatch.setattr(ap, "_do_goto", lambda *a, **kw: None)
         monkeypatch.setattr(ap, "_ensure_weapon", lambda *a, **kw: None)
         ap._state.boss_lure_active = False
         s = _state(
             player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
-                    "shields": 40, "max_shields": 150},  # 26 %
+                    "shields": 150, "max_shields": 150},  # full
+            buildings=[{"x": 2000.0, "y": 3200.0,
+                        "building_type": "Home Station"}],
         )
         s["boss"] = _boss()
         ap._act_engage_boss(s, s["player"])
         assert ap._state.boss_lure_active is True
 
-    def test_lure_does_not_arm_with_full_shields(self, monkeypatch):
+    def test_lure_does_not_arm_without_station(self, monkeypatch):
+        """No Home Station -> no lure; the bot falls back to the
+        standard kite ring."""
         monkeypatch.setattr(ap, "_do_goto", lambda *a, **kw: None)
         monkeypatch.setattr(ap, "_ensure_weapon", lambda *a, **kw: None)
         ap._state.boss_lure_active = False
+        s = _state(
+            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 40, "max_shields": 150},
+            # no buildings -> no station
+        )
+        s["boss"] = _boss()
+        ap._act_engage_boss(s, s["player"])
+        assert ap._state.boss_lure_active is False
+
+    def test_lure_holds_even_when_shields_recover(self, monkeypatch):
+        """Sticky latch: shields back to 100 % must KEEP the lure
+        active so the bot doesn't yo-yo back into kite range."""
+        monkeypatch.setattr(ap, "_do_goto", lambda *a, **kw: None)
+        monkeypatch.setattr(ap, "_ensure_weapon", lambda *a, **kw: None)
+        ap._state.boss_lure_active = True
         s = _state(
             player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
                     "shields": 150, "max_shields": 150},  # 100 %
-        )
-        s["boss"] = _boss()
-        ap._act_engage_boss(s, s["player"])
-        assert ap._state.boss_lure_active is False
-
-    def test_lure_holds_until_exit_threshold(self, monkeypatch):
-        """Hysteresis: shields at 60 % (above enter 50 % but below
-        exit 85 %) must KEEP the lure active once it's armed."""
-        monkeypatch.setattr(ap, "_do_goto", lambda *a, **kw: None)
-        monkeypatch.setattr(ap, "_ensure_weapon", lambda *a, **kw: None)
-        ap._state.boss_lure_active = True
-        s = _state(
-            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
-                    "shields": 90, "max_shields": 150},  # 60 %
+            buildings=[{"x": 2000.0, "y": 3200.0,
+                        "building_type": "Home Station"}],
         )
         s["boss"] = _boss()
         ap._act_engage_boss(s, s["player"])
         assert ap._state.boss_lure_active is True
-
-    def test_lure_exits_when_shields_recover(self, monkeypatch):
-        monkeypatch.setattr(ap, "_do_goto", lambda *a, **kw: None)
-        monkeypatch.setattr(ap, "_ensure_weapon", lambda *a, **kw: None)
-        ap._state.boss_lure_active = True
-        s = _state(
-            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
-                    "shields": 140, "max_shields": 150},  # ~93 %
-        )
-        s["boss"] = _boss()
-        ap._act_engage_boss(s, s["player"])
-        assert ap._state.boss_lure_active is False
 
     def test_lure_target_is_station_perimeter(self, monkeypatch):
         """When lure is active and a Home Station exists, the goto
@@ -6577,7 +6574,7 @@ class TestBossLureMode:
         ap._state.boss_lure_active = False  # will arm in handler
         s = _state(
             player={"x": 4500.0, "y": 4000.0, "heading": 0.0,
-                    "shields": 30, "max_shields": 150},  # 20 % -> arm
+                    "shields": 30, "max_shields": 150},  # 20 %
             buildings=[{"x": 2000.0, "y": 4000.0,
                         "building_type": "Home Station"}],
         )
@@ -6682,6 +6679,67 @@ class TestBossPhase2ChargeDodge:
         ap._act_engage_boss(s, s["player"])
         # Kite stays on the y=3200 axis (no perpendicular displacement).
         assert abs(captured["ty"] - 3200.0) < 1.0
+
+
+class TestBossDodgeSignDeterministic:
+    """The dodge sign was previously alternated with windup time at
+    ~0.1 s flips, which locked the bot in a tight zigzag (21 dodge
+    events at frozen bdist=143 in the 2026-05-11 telemetry).  Now
+    the sign is deterministic for the entire windup, picked to
+    point the dodge toward the Home Station so dodge + retreat
+    combine."""
+
+    def test_dodge_picks_station_side(self, monkeypatch):
+        """Station NORTH of bot, boss EAST.  Perpendicular options
+        are ±y.  The dodge must pick +y (north) to move toward
+        station, not -y (south, away from station)."""
+        captured: dict = {}
+        monkeypatch.setattr(
+            ap, "_do_goto",
+            lambda state, p, tx, ty, stop_radius=80.0,
+            brake_on_arrival=True: captured.update(tx=tx, ty=ty))
+        monkeypatch.setattr(ap, "_ensure_weapon", lambda *a, **kw: None)
+        ap._state.boss_lure_active = False
+        s = _state(
+            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            buildings=[{"x": 3200.0, "y": 5000.0,  # station NORTH
+                        "building_type": "Home Station"}],
+        )
+        s["boss"] = _boss(x=3400.0, y=3200.0, phase=2,
+                          charging=True, windup=2.0)
+        ap._act_engage_boss(s, s["player"])
+        # The lure target sits between bot and station — assert the
+        # commanded y is NORTH of the bot's current y (station side).
+        assert captured["ty"] > 3200.0
+
+    def test_dodge_sign_stable_across_windup_decay(self, monkeypatch):
+        """The previous alternating-sign code flipped every 0.1 s as
+        windup decayed.  Now repeated calls with decreasing windup
+        must keep the same sign (station-side picks aren't
+        influenced by windup magnitude)."""
+        sign_values: list = []
+
+        def _capture_dodge(event, **kw):
+            if event == "engage_boss_dodge":
+                sign_values.append(kw.get("sign"))
+
+        monkeypatch.setattr(ap, "_telemetry_log", _capture_dodge)
+        monkeypatch.setattr(ap, "_do_goto", lambda *a, **kw: None)
+        monkeypatch.setattr(ap, "_ensure_weapon", lambda *a, **kw: None)
+        ap._state.boss_lure_active = True  # skip lure-arm telemetry
+        s = _state(
+            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            buildings=[{"x": 3200.0, "y": 5000.0,
+                        "building_type": "Home Station"}],
+        )
+        for w in (2.0, 1.9, 1.8, 1.7, 1.0, 0.5, 0.1):
+            s["boss"] = _boss(x=3400.0, y=3200.0, phase=2,
+                              charging=True, windup=w)
+            ap._act_engage_boss(s, s["player"])
+        assert len(set(sign_values)) == 1, (
+            f"dodge sign flipped during a single windup: {sign_values}")
 
 
 class TestBossPhase3Press:
@@ -7341,10 +7399,12 @@ class TestMaybeUseConsumables:
         monkeypatch.setattr(
             ap, "_post_use_quick_use",
             lambda slot: captured.append(slot) or {"ok": True})
+        # Shields at 20 % (CONSUMABLE_USE_SHIELD_PCT) -- last-resort
+        # threshold so kite + lure get the first try at managing damage.
         s = _state(
             player={"x": 0.0, "y": 0.0, "heading": 0.0,
                     "hp": 100, "max_hp": 100,
-                    "shields": 50, "max_shields": 150},
+                    "shields": 25, "max_shields": 150},  # ~17 %
         )
         s["quick_use_slots"] = [
             {"item_type": "repair_pack", "count": 25},
@@ -7352,6 +7412,27 @@ class TestMaybeUseConsumables:
         ]
         ap._maybe_use_consumables(s, s["player"])
         assert captured == [1]
+
+    def test_shields_above_last_resort_threshold_does_not_fire(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """Shields at 33 % -- above the 20 % last-resort threshold.
+        Bot should rely on kite + lure to manage this, not burn a
+        shield-recharge charge."""
+        captured: list = []
+        monkeypatch.setattr(
+            ap, "_post_use_quick_use",
+            lambda slot: captured.append(slot) or {"ok": True})
+        s = _state(
+            player={"x": 0.0, "y": 0.0, "heading": 0.0,
+                    "hp": 100, "max_hp": 100,
+                    "shields": 50, "max_shields": 150},  # 33 %
+        )
+        s["quick_use_slots"] = [
+            {"item_type": "repair_pack", "count": 25},
+            {"item_type": "shield_recharge", "count": 25},
+        ]
+        ap._maybe_use_consumables(s, s["player"])
+        assert captured == []
 
     def test_full_hp_and_shields_does_nothing(
             self, _clock, _fresh_bot_state, monkeypatch):

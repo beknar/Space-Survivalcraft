@@ -127,32 +127,29 @@ def _act_engage_boss(state: dict, p: dict) -> None:
     charging = bool(boss.get("charging", False))
     windup = float(boss.get("charge_windup", 0.0))
 
-    # ── LURE-mode hysteresis ──────────────────────────────────────
-    # User spec (2026-05-11): "bot should start kiting the boss when
-    # it has lost 50% of its shields ... lead the boss back to the
-    # base to be destroyed by turrets."  Below the entry threshold
-    # we abandon the kite-ring point and retreat toward the Home
-    # Station, dragging the boss into the turret + missile-array
-    # DPS zone.  Hysteresis: BOSS_LURE_EXIT_SHIELDS_PCT (85 %) must
-    # be reached before we drop the lure, so a single shield-tick
-    # of recovery doesn't kick us back out into kite range.
+    # ── LURE-mode latch ──────────────────────────────────────────
+    # User spec (2026-05-11, revised): the bot should kite + lure +
+    # dodge as primary strategies, consumables as last resort.
+    # Telemetry from PR #94's first session showed the
+    # shield-threshold trigger fired too late -- the bot chased the
+    # boss to hs_dist=3000 px before shields dropped, then couldn't
+    # retreat in time.  Lure now PRE-EMPTIVELY activates whenever a
+    # boss is alive AND a Home Station exists, regardless of
+    # shields.  Once active, the latch holds until the boss dies
+    # (cleared in the boss-is-None branch above) so the bot doesn't
+    # yo-yo between kite ring + lure when shields oscillate.  The
+    # boss_lure_enter telemetry fires once per activation so
+    # post-hoc analysis still sees the engagement window.
     sh_now = int(p.get("shields", 0))
     max_sh = max(1, int(p.get("max_shields", 1)))
     sh_frac = sh_now / max_sh
-    was_lure = _ap._state.boss_lure_active
-    if was_lure:
-        if sh_frac >= _ap.BOSS_LURE_EXIT_SHIELDS_PCT:
-            _ap._state.boss_lure_active = False
-            _ap._telemetry_log("boss_lure_exit",
-                               shields=sh_now, max_shields=max_sh,
-                               sh_frac=round(sh_frac, 3))
-    else:
-        if sh_frac < _ap.BOSS_LURE_SHIELDS_PCT:
-            _ap._state.boss_lure_active = True
-            _ap._telemetry_log("boss_lure_enter",
-                               shields=sh_now, max_shields=max_sh,
-                               sh_frac=round(sh_frac, 3),
-                               boss_phase=phase)
+    hs_preview = _ap._find_home_station(state)
+    if hs_preview is not None and not _ap._state.boss_lure_active:
+        _ap._state.boss_lure_active = True
+        _ap._telemetry_log("boss_lure_enter",
+                           shields=sh_now, max_shields=max_sh,
+                           sh_frac=round(sh_frac, 3),
+                           boss_phase=phase)
 
     # Vector from boss to bot — defines the kite ray and the
     # perpendicular axis for the charge dodge.
@@ -227,12 +224,28 @@ def _act_engage_boss(state: dict, p: dict) -> None:
     # bot's current position, so any perpendicular displacement
     # during the 2 s windup makes it miss.
     if (phase >= 2) and (charging or windup > 0.0):
-        # Perpendicular to (ux, uy) is (-uy, ux).  Sign chosen by
-        # alternating with windup time so the bot doesn't lock to
-        # one side mid-windup if multiple charges fire back-to-back.
-        sign = 1.0 if (int(windup * 10) % 2 == 0) else -1.0
-        kite_x += -uy * sign * _ap.BOSS_DODGE_PERP_PX
-        kite_y += ux * sign * _ap.BOSS_DODGE_PERP_PX
+        # Perpendicular to (ux, uy) is (-uy, ux).  Sign was
+        # previously alternated with ``int(windup * 10) % 2`` --
+        # that flipped every 0.1 s and locked the bot in a tight
+        # zigzag, gaining zero radial distance from the boss (21
+        # dodge events at frozen bdist=143 in the 2026-05-11 second
+        # telemetry pass).  Now we COMMIT to one side for the whole
+        # windup, picking the side that moves the bot toward the
+        # Home Station (so dodge + retreat combine).  Falls back to
+        # ``+1`` when no station / station coincident with boss.
+        perp_x = -uy
+        perp_y = ux
+        if hs is not None:
+            hsx = float(hs.get("x", 0.0))
+            hsy = float(hs.get("y", 0.0))
+            to_hs_x = hsx - px
+            to_hs_y = hsy - py
+            sign = 1.0 if (perp_x * to_hs_x
+                           + perp_y * to_hs_y) >= 0.0 else -1.0
+        else:
+            sign = 1.0
+        kite_x += perp_x * sign * _ap.BOSS_DODGE_PERP_PX
+        kite_y += perp_y * sign * _ap.BOSS_DODGE_PERP_PX
         _ap._telemetry_log("engage_boss_dodge",
                        phase=phase,
                        charging=bool(charging),
