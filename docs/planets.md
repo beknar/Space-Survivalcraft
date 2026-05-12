@@ -84,3 +84,48 @@ below.
 
 - **Thunder Worm — Double Laser**: fires two projectiles at once
   per cooldown.
+
+---
+
+## Planet Surface HUD
+
+When the player exits the landing scene through the top edge and
+loads the planet surface scene, a HUD is displayed that mirrors the
+ship HUD layout but with planet-specific elements.
+
+### Layout
+
+| Element | Source |
+|---|---|
+| Character video panel | Replaces the ship HUD's character animation; uses the planet-surface animation set (see *Character Animations* below) |
+| Character name | Shown directly below the video panel |
+| HP bar | Below the character name (same widget as the ship HUD) |
+| Ability meter | Below the HP bar (same widget as the ship HUD) |
+
+### Character Animations
+
+| Property | Value |
+|---|---|
+| Source directory | `assets/ai generated/planetary/character-animation/` |
+| Filename | `<CharacterName>.mp4` — e.g. `Debra.mp4` |
+| Lookup | Picked at scene load from the active character (`audio.character_name`) |
+
+### Playback Algorithm
+
+The planet-surface HUD video uses a hybrid of fixed-start playback
+and discrete random-seek windows, layered over the same seamless
+standby-player loop used by the ship-HUD character video
+(`video_player.VideoPlayer.play_segments` → `_build_standby` →
+`_restart_for_loop`).
+
+1. On load, start playing from `0:00`.
+2. After 10 seconds of playback, seek to a random offset chosen
+   uniformly from `{0:00, 10:00, 20:00, 30:00, 40:00}`.
+3. Continue forward playback from the chosen offset.
+4. When the source is exhausted, seamlessly swap to the pre-built
+   standby player and restart the cycle (steps 1-3 repeat).
+
+The seamless-loop machinery (`_build_standby` background load
+~5 s before end of source, main-thread swap on exhaustion) is
+inherited unchanged from the ship-HUD video pipeline. Only the
+initial seek behavior at the 10-second mark is added on top.
