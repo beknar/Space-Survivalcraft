@@ -221,6 +221,25 @@ def choose_next_state(state: dict, p: dict, cur: str) -> str:
                 _ap._state.last_regen_shields = sh
                 return _ap.S_REGEN
 
+    now = _ap._get_now()
+
+    # 1.4  RECOVER_LOOT — after the bot just died, navigate back to
+    #      the recorded death position so the dropped iron / module
+    #      / consumable pickups vacuum into the ship.  Promoted above
+    #      ENGAGE_BOSS (2026-05-11): without this the bot dies during
+    #      a boss fight, respawns shieldless + moduleless, and is
+    #      pulled straight back into S_ENGAGE_BOSS by section 1.5 —
+    #      it never visits S_RECOVER_LOOT, so the lost loadout stays
+    #      on the floor and the bot dies again with no modules
+    #      installed.  Telemetry caught the death loop: 5 player_death
+    #      events with lost_modules=[] after the first death, mod_q=4
+    #      stuck in the install queue.  REGEN still preempts (above)
+    #      so a half-recovered loadout doesn't get the bot killed
+    #      mid-trip.
+    _ap._maybe_clear_death_recovery(state, p, now)
+    if _ap._state.death_recovery_pending:
+        return _ap.S_RECOVER_LOOT
+
     # 1.5  ENGAGE_BOSS — boss alive, station-anchor kite owns the fight.
     #      Above ENGAGE so a roaming small alien at 200 px doesn't
     #      pull the bot off the station perimeter into the boss's
@@ -240,21 +259,6 @@ def choose_next_state(state: dict, p: dict, cur: str) -> str:
     else:
         if threat is not None and td < _ap.ENGAGE_ENTER_PX:
             return _ap.S_ENGAGE
-
-    now = _ap._get_now()
-
-    # 2.5. RECOVER_LOOT — after the bot just died, navigate back to
-    #      the recorded death position so the dropped iron / module
-    #      / consumable pickups vacuum into the ship.  Above GATHER
-    #      because the death site is a high-value cluster of pickups
-    #      and we want the FSM to commit to the recovery trip rather
-    #      than nibbling at any incidental pickup along the way.
-    #      Below ENGAGE / REGEN so a fresh threat or low shields
-    #      still preempts -- a half-recovered loadout is better than
-    #      a second death on the way back.
-    _ap._maybe_clear_death_recovery(state, p, now)
-    if _ap._state.death_recovery_pending:
-        return _ap.S_RECOVER_LOOT
 
     # 3. GATHER — loot pickup within reach.
     pickup, pd = _ap._nearest_pickup(state, px, py)

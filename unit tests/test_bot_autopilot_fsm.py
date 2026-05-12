@@ -6309,6 +6309,32 @@ class TestDeathRecovery:
         ap._observe_death_edges(alive, alive["player"], _clock[0])
         assert ap._state.death_recovery_pending is False
 
+    def test_recovery_preempts_engage_boss(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """User spec (2026-05-11): "during the boss fight, bot does
+        not pick up dropped modules and consumables when it is killed.
+        it should pick those up when it respawns before it goes back
+        to fight the boss."  death_recovery_pending must outrank a
+        live boss in ``_choose_next_state`` so the bot visits the
+        death site before re-engaging.
+        """
+        monkeypatch.setattr(ap, "_act_recover_loot", lambda s, p: None)
+        monkeypatch.setattr(ap, "_act_engage_boss", lambda s, p: None)
+        ap._state.death_recovery_pending = True
+        ap._state.death_recovery_pos = (2000.0, 3000.0)
+        ap._state.death_recovery_started_at = _clock[0]
+        s = _state(
+            player={"x": 2050.0, "y": 3050.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+        )
+        # Both a boss AND a pending loot recovery on the floor.
+        s["boss"] = _boss()
+        s["iron_pickups"] = [
+            {"x": 2000.0, "y": 3000.0, "amount": 10,
+             "item_type": "iron"}]
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_RECOVER_LOOT
+
 
 class TestBossEngageTelemetry:
     """2026-05-10 feature: emit boss_engage_start / boss_engage_end
@@ -6478,6 +6504,110 @@ class TestBossKiteAtRange:
                           y=3200.0)
         ap._act_engage_boss(s, s["player"])
         assert recorded["space"] is False
+
+
+class TestBossLureMode:
+    """User spec (2026-05-11): when shields drop below 50 % of max,
+    the bot abandons the kite ring and heads for a perimeter point
+    near the Home Station so allied turrets share DPS.  Hysteresis
+    via ``BOSS_LURE_EXIT_SHIELDS_PCT`` (85 %) keeps the latch from
+    flapping at the threshold boundary."""
+
+    def test_lure_latches_when_shields_drop_below_threshold(
+            self, monkeypatch):
+        monkeypatch.setattr(ap, "_do_goto", lambda *a, **kw: None)
+        monkeypatch.setattr(ap, "_ensure_weapon", lambda *a, **kw: None)
+        ap._state.boss_lure_active = False
+        s = _state(
+            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 40, "max_shields": 150},  # 26 %
+        )
+        s["boss"] = _boss()
+        ap._act_engage_boss(s, s["player"])
+        assert ap._state.boss_lure_active is True
+
+    def test_lure_does_not_arm_with_full_shields(self, monkeypatch):
+        monkeypatch.setattr(ap, "_do_goto", lambda *a, **kw: None)
+        monkeypatch.setattr(ap, "_ensure_weapon", lambda *a, **kw: None)
+        ap._state.boss_lure_active = False
+        s = _state(
+            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},  # 100 %
+        )
+        s["boss"] = _boss()
+        ap._act_engage_boss(s, s["player"])
+        assert ap._state.boss_lure_active is False
+
+    def test_lure_holds_until_exit_threshold(self, monkeypatch):
+        """Hysteresis: shields at 60 % (above enter 50 % but below
+        exit 85 %) must KEEP the lure active once it's armed."""
+        monkeypatch.setattr(ap, "_do_goto", lambda *a, **kw: None)
+        monkeypatch.setattr(ap, "_ensure_weapon", lambda *a, **kw: None)
+        ap._state.boss_lure_active = True
+        s = _state(
+            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 90, "max_shields": 150},  # 60 %
+        )
+        s["boss"] = _boss()
+        ap._act_engage_boss(s, s["player"])
+        assert ap._state.boss_lure_active is True
+
+    def test_lure_exits_when_shields_recover(self, monkeypatch):
+        monkeypatch.setattr(ap, "_do_goto", lambda *a, **kw: None)
+        monkeypatch.setattr(ap, "_ensure_weapon", lambda *a, **kw: None)
+        ap._state.boss_lure_active = True
+        s = _state(
+            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 140, "max_shields": 150},  # ~93 %
+        )
+        s["boss"] = _boss()
+        ap._act_engage_boss(s, s["player"])
+        assert ap._state.boss_lure_active is False
+
+    def test_lure_target_is_station_perimeter(self, monkeypatch):
+        """When lure is active and a Home Station exists, the goto
+        target must land within ``BOSS_LURE_TURRET_RADIUS_PX`` of
+        the station -- not on the kite ring."""
+        captured: dict = {}
+        monkeypatch.setattr(
+            ap, "_do_goto",
+            lambda state, p, tx, ty, stop_radius=80.0,
+            brake_on_arrival=True: captured.update(tx=tx, ty=ty))
+        monkeypatch.setattr(ap, "_ensure_weapon", lambda *a, **kw: None)
+        ap._state.boss_lure_active = False  # will arm in handler
+        s = _state(
+            player={"x": 4500.0, "y": 4000.0, "heading": 0.0,
+                    "shields": 30, "max_shields": 150},  # 20 % -> arm
+            buildings=[{"x": 2000.0, "y": 4000.0,
+                        "building_type": "Home Station"}],
+        )
+        s["boss"] = _boss(x=4800.0, y=4000.0)
+        ap._act_engage_boss(s, s["player"])
+        import math
+        d = math.hypot(captured["tx"] - 2000.0,
+                       captured["ty"] - 4000.0)
+        assert abs(d - ap.BOSS_LURE_TURRET_RADIUS_PX) < 1.0
+
+    def test_lure_clears_when_boss_dies_mid_tick(self, monkeypatch):
+        """Boss vanishing during ENGAGE_BOSS clears the latch so a
+        future encounter starts from kite mode."""
+        monkeypatch.setattr(ap, "_do_goto", lambda *a, **kw: None)
+        monkeypatch.setattr(ap, "_ensure_weapon", lambda *a, **kw: None)
+
+        class _FakeKey:
+            @staticmethod
+            def hold(name, on):
+                pass
+
+        monkeypatch.setattr(ap, "KeyState", _FakeKey)
+        ap._state.boss_lure_active = True
+        s = _state(
+            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 30, "max_shields": 150},
+        )
+        s["boss"] = None
+        ap._act_engage_boss(s, s["player"])
+        assert ap._state.boss_lure_active is False
 
 
 class TestBossKiteStationAnchor:

@@ -299,6 +299,21 @@ BOSS_KITE_STATION_TETHER_PX:  float = 600.0    # max distance from station while
 BOSS_DODGE_PERP_PX:           float = 250.0    # perpendicular strafe during charge windup
 BOSS_PHASE3_PRESS_RANGE_PX:   float = 600.0    # Phase 3 (no shield regen): close in for DPS
 
+# Boss LURE mode (2026-05-11): when shields drop below
+# BOSS_LURE_SHIELDS_PCT of max, the bot abandons the kite ring and
+# retreats toward the Home Station, dragging the boss into the
+# turret + missile-array DPS zone so allied defenses finish the
+# fight while the bot regenerates.  The threshold matches
+# CONSUMABLE_USE_SHIELD_PCT so the shield-recharge consumable
+# fires at the same edge.  Holds the lure at
+# BOSS_LURE_TURRET_RADIUS_PX from the station (inside TURRET_RANGE
+# = 400 + a small margin) so turrets land every shot but the bot
+# isn't sitting on top of the HS where the boss's charge dash
+# could one-shot the station.
+BOSS_LURE_SHIELDS_PCT:        float = 0.50
+BOSS_LURE_TURRET_RADIUS_PX:   float = 350.0
+BOSS_LURE_EXIT_SHIELDS_PCT:   float = 0.85    # exit lure once shields recover
+
 # QWI (Quantum Wave Integrator) staging gate (Choice 1):
 # the autopilot refuses to push the boss-trigger build until the
 # station has at least this many friendly turrets/defenses and the
@@ -1061,6 +1076,13 @@ class BotState:
     boss_engage_start_hp: int = 0
     boss_engage_start_shields: int = 0
     boss_engage_start_boss_hp: int = 0
+    # Boss LURE latch (2026-05-11): True while the bot is actively
+    # retreating toward the Home Station to drag the boss into the
+    # turret + missile-array DPS zone.  Hysteresis is driven by
+    # BOSS_LURE_SHIELDS_PCT (enter) / BOSS_LURE_EXIT_SHIELDS_PCT
+    # (exit) so the bot doesn't oscillate between kite ring + lure
+    # at the threshold boundary.
+    boss_lure_active: bool = False
 
     def reset(self) -> None:
         """Restore every field to its default.  Mutates dict fields
@@ -1112,6 +1134,7 @@ class BotState:
         self.boss_engage_start_hp = 0
         self.boss_engage_start_shields = 0
         self.boss_engage_start_boss_hp = 0
+        self.boss_lure_active = False
 
 
 _state = BotState()
