@@ -24,7 +24,8 @@ from PIL import Image as PILImage
 
 from combat_helpers import (
     _drop_player_loadout, _reset_alien_aggro, _resolve_respawn_target,
-    _send_bosses_home, respawn_player, trigger_player_death,
+    _resume_bosses_pursuit, _send_bosses_home, respawn_player,
+    trigger_player_death,
 )
 
 
@@ -186,6 +187,31 @@ class TestSendBossesHome:
         gv = _make_gv(tex)
         # Neither boss attribute set — must not raise.
         _send_bosses_home(gv)
+
+
+# ── _resume_bosses_pursuit ─────────────────────────────────────────────────
+
+class TestResumeBossesPursuit:
+    """Respawn-side counterpart to ``_send_bosses_home``: clears
+    ``_patrol_home`` so the boss starts chasing the new player
+    position immediately, without waiting for the player to walk
+    back into the boss's 800 px priority range."""
+
+    def test_clears_double_star_boss(self, tex):
+        gv = _make_gv(tex)
+        gv._boss = SimpleNamespace(_patrol_home=True)
+        _resume_bosses_pursuit(gv)
+        assert gv._boss._patrol_home is False
+
+    def test_clears_nebula_boss(self, tex):
+        gv = _make_gv(tex)
+        gv._nebula_boss = SimpleNamespace(_patrol_home=True)
+        _resume_bosses_pursuit(gv)
+        assert gv._nebula_boss._patrol_home is False
+
+    def test_no_boss_is_safe(self, tex):
+        gv = _make_gv(tex)
+        _resume_bosses_pursuit(gv)
 
 
 # ── _reset_alien_aggro ─────────────────────────────────────────────────────

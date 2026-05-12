@@ -364,6 +364,23 @@ def _send_bosses_home(gv: GameView) -> None:
         nb._patrol_home = True
 
 
+def _resume_bosses_pursuit(gv: GameView) -> None:
+    """Clear every live boss's ``_patrol_home`` flag so it resumes
+    chasing the player immediately on respawn -- without waiting for
+    the player to walk back into ``_PLAYER_PRIORITY_RANGE`` (800 px).
+    The respawn target is the Home Station, which is typically far
+    from the boss's spawn corner; relying on the proximity-only
+    clear leaves the boss idling at its spawn while the player
+    rebuilds at base.  Called from ``respawn_player`` so the boss
+    starts moving toward the new player position immediately."""
+    boss = getattr(gv, "_boss", None)
+    if boss is not None:
+        boss._patrol_home = False
+    nb = getattr(gv, "_nebula_boss", None)
+    if nb is not None:
+        nb._patrol_home = False
+
+
 def _reset_alien_aggro(gv: GameView) -> None:
     """Drop every alien's pursuit state across every zone so they
     forget the dying player.  Iterating the live zone list plus the
@@ -427,6 +444,7 @@ def respawn_player(gv: GameView) -> None:
     else:
         _full_reset_respawn(gv)
     _restore_player_after_death(gv)
+    _resume_bosses_pursuit(gv)
 
 
 def _resolve_respawn_target(gv: GameView):

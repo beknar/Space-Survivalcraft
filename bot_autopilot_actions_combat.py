@@ -113,6 +113,8 @@ def _act_engage_boss(state: dict, p: dict) -> None:
     if boss is None:
         # Boss vanished mid-tick (killed); next tick re-routes.
         _ap.KeyState.hold("space", False)
+        # Clear the lure latch so a future boss fight starts fresh.
+        _ap._state.boss_lure_active = False
         return
 
     _ap._ensure_weapon(state, "Basic Laser")
@@ -124,6 +126,33 @@ def _act_engage_boss(state: dict, p: dict) -> None:
     phase = int(boss.get("phase", 1))
     charging = bool(boss.get("charging", False))
     windup = float(boss.get("charge_windup", 0.0))
+
+    # ── LURE-mode hysteresis ──────────────────────────────────────
+    # User spec (2026-05-11): "bot should start kiting the boss when
+    # it has lost 50% of its shields ... lead the boss back to the
+    # base to be destroyed by turrets."  Below the entry threshold
+    # we abandon the kite-ring point and retreat toward the Home
+    # Station, dragging the boss into the turret + missile-array
+    # DPS zone.  Hysteresis: BOSS_LURE_EXIT_SHIELDS_PCT (85 %) must
+    # be reached before we drop the lure, so a single shield-tick
+    # of recovery doesn't kick us back out into kite range.
+    sh_now = int(p.get("shields", 0))
+    max_sh = max(1, int(p.get("max_shields", 1)))
+    sh_frac = sh_now / max_sh
+    was_lure = _ap._state.boss_lure_active
+    if was_lure:
+        if sh_frac >= _ap.BOSS_LURE_EXIT_SHIELDS_PCT:
+            _ap._state.boss_lure_active = False
+            _ap._telemetry_log("boss_lure_exit",
+                               shields=sh_now, max_shields=max_sh,
+                               sh_frac=round(sh_frac, 3))
+    else:
+        if sh_frac < _ap.BOSS_LURE_SHIELDS_PCT:
+            _ap._state.boss_lure_active = True
+            _ap._telemetry_log("boss_lure_enter",
+                               shields=sh_now, max_shields=max_sh,
+                               sh_frac=round(sh_frac, 3),
+                               boss_phase=phase)
 
     # Vector from boss to bot — defines the kite ray and the
     # perpendicular axis for the charge dodge.
@@ -142,28 +171,56 @@ def _act_engage_boss(state: dict, p: dict) -> None:
     desired_range = (_ap.BOSS_PHASE3_PRESS_RANGE_PX
                      if phase >= 3 else _ap.BOSS_KITE_RANGE_PX)
 
-    # Default kite target: ``desired_range`` along the boss→bot ray.
-    kite_x = bx + ux * desired_range
-    kite_y = by + uy * desired_range
-
-    # Anchor on the Home Station when one exists — pick the kite
-    # point on the boss→bot ray that's also closest to the station.
     hs = _ap._find_home_station(state)
-    if hs is not None:
+
+    # LURE mode: ignore the kite ring entirely and head for a point
+    # just inside turret range of the Home Station, dragging the
+    # boss into the defense umbrella.  Falls back to the standard
+    # kite when no station exists (early Nebula spawn) or when the
+    # bot is so far from the station that retreat would expose its
+    # tail to boss fire longer than just kiting through the recovery.
+    use_lure = (_ap._state.boss_lure_active and hs is not None)
+    if use_lure:
         hx = float(hs.get("x", 0.0))
         hy = float(hs.get("y", 0.0))
-        # If the default kite point is too far from the station,
-        # project the station's position onto the kite-radius ring
-        # around the boss instead.  This pulls the bot to the side
-        # of the boss that's closest to the station perimeter.
-        kite_to_hs = math.hypot(kite_x - hx, kite_y - hy)
-        if kite_to_hs > _ap.BOSS_KITE_STATION_TETHER_PX:
-            shx = hx - bx
-            shy = hy - by
-            shdist = math.hypot(shx, shy)
-            if shdist > 1.0:
-                kite_x = bx + (shx / shdist) * desired_range
-                kite_y = by + (shy / shdist) * desired_range
+        # Aim for a perimeter point on the boss-side of the station
+        # so the bot ends up between the station and the boss --
+        # turrets can fire over the bot and the boss eats DPS while
+        # closing in.  Vector from station to boss, normalized to
+        # the lure radius.
+        sdx = bx - hx
+        sdy = by - hy
+        sdist = math.hypot(sdx, sdy)
+        if sdist > 1.0:
+            lure_x = hx + (sdx / sdist) * _ap.BOSS_LURE_TURRET_RADIUS_PX
+            lure_y = hy + (sdy / sdist) * _ap.BOSS_LURE_TURRET_RADIUS_PX
+        else:
+            # Boss on top of station — orbit any side of the HS.
+            lure_x = hx + _ap.BOSS_LURE_TURRET_RADIUS_PX
+            lure_y = hy
+        kite_x, kite_y = lure_x, lure_y
+    else:
+        # Default kite target: ``desired_range`` along the boss→bot ray.
+        kite_x = bx + ux * desired_range
+        kite_y = by + uy * desired_range
+
+        # Anchor on the Home Station when one exists — pick the kite
+        # point on the boss→bot ray that's also closest to the station.
+        if hs is not None:
+            hx = float(hs.get("x", 0.0))
+            hy = float(hs.get("y", 0.0))
+            # If the default kite point is too far from the station,
+            # project the station's position onto the kite-radius ring
+            # around the boss instead.  This pulls the bot to the side
+            # of the boss that's closest to the station perimeter.
+            kite_to_hs = math.hypot(kite_x - hx, kite_y - hy)
+            if kite_to_hs > _ap.BOSS_KITE_STATION_TETHER_PX:
+                shx = hx - bx
+                shy = hy - by
+                shdist = math.hypot(shx, shy)
+                if shdist > 1.0:
+                    kite_x = bx + (shx / shdist) * desired_range
+                    kite_y = by + (shy / shdist) * desired_range
 
     # Charge dodge — applied LAST so it perturbs whichever kite
     # point we picked above.  The boss's charge dash heads for the
