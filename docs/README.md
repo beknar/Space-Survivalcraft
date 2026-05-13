@@ -73,7 +73,7 @@ Welcome to the full documentation for **Call of Orion**, a top-down space surviv
 
 ## General & Weapons
 
-- Sci-Fi space station Items: https://fabs133.itch.io/scifi-space-station-items (not yet bought)
+- Sci-Fi space station items: https://fabs133.itch.io/scifi-space-station-items
 
 ### General Game Assets
 
