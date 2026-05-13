@@ -1287,7 +1287,10 @@ def _astar_next_waypoint(state: dict, sx: float, sy: float,
     """
     # Direct line of sight first — most ticks have no cluster in
     # the way, so this fast path skips the planner entirely.
-    blocked, _gw, _gh = _astar._build_grid(state)
+    # Uses the hard-block set (physical ship clearance) under cost
+    # weighting; under the legacy binary mode this is the wider
+    # safety-margin set.
+    blocked = _astar.los_blocked_set(state)
     if _astar._line_of_sight((sx, sy), (gx, gy), blocked):
         # Direct path is clear; invalidate any stale cached path so
         # the next blocked target plans from scratch.
