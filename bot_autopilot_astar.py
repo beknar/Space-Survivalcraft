@@ -81,6 +81,40 @@ ASTAR_MAX_VISITED: int = 5000
 BUILDING_RADIUS_PX: float = 30.0
 
 
+# ── Cost-weighted A* (2026-05-12) ───────────────────────────────────────
+#
+# Replaces the binary blocked/free grid with a per-cell traversal cost.
+# Solves a class of bugs where the previous binary grid reported the
+# target ``unreachable`` from a blocked start cell whose neighbors
+# were also all blocked (the gap between station body and turret
+# ring, telemetered repeatedly in 2026-05-12 logs).  Under cost
+# weighting the planner ALWAYS finds a path; it just prefers wide
+# corridors and falls back to tight gaps with high cost.
+#
+# Layering:
+#
+#  * ``ASTAR_HARD_BLOCK_RADIUS_PX`` (55 px = 30 building + 25 ship
+#    physical clearance): cells with a building centre within this
+#    distance are HARD-blocked.  The ship physically cannot occupy
+#    them.  Line-of-sight smoothing still uses this set.
+#  * ``ASTAR_SOFT_COST_RADIUS_PX`` (150 px = building-repulsion
+#    range): cells in the soft annulus get graduated extra cost.
+#    Quadratic falloff from ``ASTAR_SOFT_COST_MAX`` at the hard
+#    radius down to 0 at the soft radius.  Multiple buildings in
+#    range stack additively (a cell wedged between two turrets is
+#    twice as costly as next to one).
+#  * Cells outside the soft radius have 0 extra cost; A* runs as
+#    normal there.
+#
+# The flag ``ASTAR_USE_COST_WEIGHTED`` defaults to True.  Setting it
+# False reverts to the legacy binary grid for A/B comparison; existing
+# unit tests run under both modes by parametrizing the flag.
+ASTAR_USE_COST_WEIGHTED: bool = True
+ASTAR_HARD_BLOCK_RADIUS_PX: float = 55.0
+ASTAR_SOFT_COST_RADIUS_PX: float = 150.0
+ASTAR_SOFT_COST_MAX: float = 8.0
+
+
 # ── Grid construction ──────────────────────────────────────────────────
 
 def _cell_of(x: float, y: float, cell_px: int) -> tuple[int, int]:
@@ -153,6 +187,99 @@ def _build_grid(state: dict, cell_px: int = ASTAR_CELL_PX,
     return blocked, grid_w, grid_h
 
 
+def _build_cost_grid(state: dict, cell_px: int = ASTAR_CELL_PX,
+                     hard_radius_px: float = ASTAR_HARD_BLOCK_RADIUS_PX,
+                     soft_radius_px: float = ASTAR_SOFT_COST_RADIUS_PX,
+                     soft_cost_max: float = ASTAR_SOFT_COST_MAX,
+                     include_boundary: bool = False,
+                     boundary_margin_px: float = ASTAR_BOUNDARY_MARGIN_PX
+                     ) -> tuple[set[tuple[int, int]],
+                                dict[tuple[int, int], float],
+                                int, int]:
+    """Build the cost-weighted grid.
+
+    Returns ``(blocked, costs, grid_w, grid_h)``:
+
+    * ``blocked``: HARD-blocked cells where a building centre is
+      within ``hard_radius_px`` of the cell centre.  These are
+      physically impassable and used both by A* and the line-of-
+      sight check.
+    * ``costs``: ``dict[(cx, cy), float]`` mapping cells in the
+      soft annulus (``hard_radius_px < d <= soft_radius_px``) to
+      an extra traversal cost.  Cost falls off quadratically from
+      ``soft_cost_max`` at the inner edge to 0 at the outer edge.
+      Multiple buildings stack additively.
+    * ``grid_w, grid_h``: cell grid dimensions.
+
+    The hard radius is calibrated to the ship's physical collision
+    (``BUILDING_RADIUS_PX`` + ~25 px ship hitbox), not the legacy
+    binary block's 100 px (which conflated "ship can't fit" with
+    "the repulsion field is strong here").  Paths through tight
+    gaps are now findable; the field's continued role is to keep
+    the bot from clipping during high-speed transit.
+    """
+    zone = state.get("zone") or {}
+    world_w = float(zone.get("world_w", 6400.0) or 6400.0)
+    world_h = float(zone.get("world_h", 6400.0) or 6400.0)
+    grid_w = int(math.ceil(world_w / cell_px))
+    grid_h = int(math.ceil(world_h / cell_px))
+    blocked: set[tuple[int, int]] = set()
+    costs: dict[tuple[int, int], float] = {}
+
+    if include_boundary:
+        margin_cells = int(math.ceil(boundary_margin_px / cell_px))
+        if margin_cells > 0:
+            for cx in range(grid_w):
+                for cy in range(grid_h):
+                    if (cx < margin_cells or cx >= grid_w - margin_cells
+                            or cy < margin_cells
+                            or cy >= grid_h - margin_cells):
+                        blocked.add((cx, cy))
+
+    hard_sq = hard_radius_px * hard_radius_px
+    soft_sq = soft_radius_px * soft_radius_px
+    soft_span = soft_radius_px - hard_radius_px
+    for b in (state.get("buildings") or []):
+        bx = float(b.get("x", 0.0))
+        by = float(b.get("y", 0.0))
+        radius_cells = int(math.ceil(soft_radius_px / cell_px)) + 1
+        cx0, cy0 = _cell_of(bx, by, cell_px)
+        # Always hard-block the cell containing the building's
+        # centre, even if its centre happens to sit > hard_radius
+        # from the building (a building at a cell corner can be
+        # 56.6 px from the cell centre with a 55 px hard radius;
+        # without this explicit step the building's own cell would
+        # be "traversable" and ``target_reachable`` would falsely
+        # report an inside-building target as reachable).
+        if 0 <= cx0 < grid_w and 0 <= cy0 < grid_h:
+            blocked.add((cx0, cy0))
+            costs.pop((cx0, cy0), None)
+        for cx in range(cx0 - radius_cells, cx0 + radius_cells + 1):
+            if not (0 <= cx < grid_w):
+                continue
+            for cy in range(cy0 - radius_cells, cy0 + radius_cells + 1):
+                if not (0 <= cy < grid_h):
+                    continue
+                wx, wy = _world_of(cx, cy, cell_px)
+                d_sq = (wx - bx) ** 2 + (wy - by) ** 2
+                if d_sq <= hard_sq:
+                    blocked.add((cx, cy))
+                    # Drop any soft cost already recorded — hard
+                    # block subsumes it.
+                    costs.pop((cx, cy), None)
+                elif d_sq <= soft_sq:
+                    if (cx, cy) in blocked:
+                        continue
+                    d = math.sqrt(d_sq)
+                    t = (d - hard_radius_px) / soft_span
+                    # Quadratic falloff: max cost at the hard edge,
+                    # 0 at the soft edge.  Stacks additively across
+                    # overlapping buildings.
+                    extra = soft_cost_max * (1.0 - t) * (1.0 - t)
+                    costs[(cx, cy)] = costs.get((cx, cy), 0.0) + extra
+    return blocked, costs, grid_w, grid_h
+
+
 # ── A* search ──────────────────────────────────────────────────────────
 
 # 8-neighbour moves with proper Euclidean costs.
@@ -175,6 +302,87 @@ def _heuristic(a: tuple[int, int], b: tuple[int, int]) -> float:
     dx = abs(a[0] - b[0])
     dy = abs(a[1] - b[1])
     return (max(dx, dy) - min(dx, dy)) + math.sqrt(2.0) * min(dx, dy)
+
+
+def los_blocked_set(state: dict, cell_px: int = ASTAR_CELL_PX
+                    ) -> set[tuple[int, int]]:
+    """Return the hard-blocked cell set used by line-of-sight
+    smoothing + the bot's per-tick LoS fast-path check.
+
+    Under cost weighting (``ASTAR_USE_COST_WEIGHTED=True``) this is
+    the cells inside ``ASTAR_HARD_BLOCK_RADIUS_PX`` of any
+    building -- the tight physical-clearance set.  Under the
+    legacy binary mode it's the wider ``BUILDING_RADIUS_PX +
+    ASTAR_SAFETY_MARGIN_PX`` block set.
+    """
+    if ASTAR_USE_COST_WEIGHTED:
+        blocked, _costs, _gw, _gh = _build_cost_grid(state, cell_px)
+        return blocked
+    blocked, _gw, _gh = _build_grid(state, cell_px)
+    return blocked
+
+
+def _astar_cost(start: tuple[int, int], goal: tuple[int, int],
+                blocked: set[tuple[int, int]],
+                costs: dict[tuple[int, int], float],
+                grid_w: int, grid_h: int
+                ) -> list[tuple[int, int]]:
+    """Cost-weighted A* over the cell grid.
+
+    Cells in ``blocked`` are infinite cost (impassable).  Cells in
+    ``costs`` contribute ``base_step_cost + costs[cell]`` when
+    entered.  Cells not in either dict cost their base step cost
+    only.  Returns the cell path (inclusive of start + goal) or
+    ``[]`` if no path exists.
+
+    Same start-cell tolerance as the binary variant: a blocked
+    start cell is permitted so a bot that drifted inside a
+    building's hard radius can plan its way out.  The goal cell's
+    blocked status is still decisive.
+    """
+    if start == goal:
+        return [start]
+    if goal in blocked:
+        return []
+
+    open_heap: list[tuple[float, int, tuple[int, int]]] = []
+    counter = 0
+    came_from: dict[tuple[int, int], tuple[int, int]] = {}
+    g_score: dict[tuple[int, int], float] = {start: 0.0}
+
+    heapq.heappush(open_heap, (_heuristic(start, goal), counter, start))
+    counter += 1
+    visited: set[tuple[int, int]] = set()
+
+    while open_heap and len(visited) < ASTAR_MAX_VISITED:
+        _f, _, current = heapq.heappop(open_heap)
+        if current in visited:
+            continue
+        if current == goal:
+            path = [current]
+            while current in came_from:
+                current = came_from[current]
+                path.append(current)
+            path.reverse()
+            return path
+        visited.add(current)
+        cur_g = g_score[current]
+        for dx, dy, step in _NEIGHBOR_OFFSETS:
+            nbr = (current[0] + dx, current[1] + dy)
+            if nbr in visited or nbr in blocked:
+                continue
+            if not (0 <= nbr[0] < grid_w and 0 <= nbr[1] < grid_h):
+                continue
+            move_cost = step + costs.get(nbr, 0.0)
+            tentative = cur_g + move_cost
+            if tentative < g_score.get(nbr, float("inf")):
+                came_from[nbr] = current
+                g_score[nbr] = tentative
+                heapq.heappush(
+                    open_heap,
+                    (tentative + _heuristic(nbr, goal), counter, nbr))
+                counter += 1
+    return []
 
 
 def _astar(start: tuple[int, int], goal: tuple[int, int],
@@ -364,12 +572,18 @@ def plan_path(state: dict, sx: float, sy: float, gx: float, gy: float,
     cell's "blocked" status is ignored so a bot that slipped into
     the cluster can still plan its way out.
     """
-    blocked, grid_w, grid_h = _build_grid(state, cell_px)
+    if ASTAR_USE_COST_WEIGHTED:
+        blocked, costs, grid_w, grid_h = _build_cost_grid(state, cell_px)
+    else:
+        blocked, grid_w, grid_h = _build_grid(state, cell_px)
+        costs = {}
     start = _cell_of(sx, sy, cell_px)
     goal = _cell_of(gx, gy, cell_px)
 
     # Bot may have drifted into the safety margin; allow planning out
-    # by removing only the start cell's block.
+    # by removing only the start cell's block.  (Under cost weighting
+    # the hard radius is tighter, but the same tolerance still
+    # applies when the bot clips a wall during high-speed transit.)
     blocked.discard(start)
 
     # Goal-cell-blocked relaxation for docking actions.  The literal
@@ -390,7 +604,11 @@ def plan_path(state: dict, sx: float, sy: float, gx: float, gy: float,
         # waypoint is the precise literal goal point.
         return [(gx, gy)]
 
-    cell_path = _astar(start, goal, blocked, grid_w, grid_h)
+    if ASTAR_USE_COST_WEIGHTED:
+        cell_path = _astar_cost(start, goal, blocked, costs,
+                                grid_w, grid_h)
+    else:
+        cell_path = _astar(start, goal, blocked, grid_w, grid_h)
     if not cell_path:
         return []
 
