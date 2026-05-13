@@ -442,10 +442,21 @@ def equip_consumables_to_quick_use(
     """
     rp_avail = int(gv._station_inv.count_item("repair_pack"))
     sr_avail = int(gv._station_inv.count_item("shield_recharge"))
-    if rp_avail <= 0 and sr_avail <= 0:
+    # 2026-05-12 eleventh-pass extension: consumables recovered from
+    # a death drop sit in SHIP inventory (the deposit code skips
+    # SHIP_ONLY_ITEM_TYPES by design).  Without checking ship-side
+    # stock, the endpoint rejected those calls with "no consumables
+    # in station inventory" -- but binding the ship-side stock to
+    # the quick-use slots is the WHOLE POINT of EQUIP in that case.
+    # Read ship counts up front; allow the endpoint to proceed when
+    # either source has stock.
+    rp_ship_pre = int(gv.inventory.count_item("repair_pack"))
+    sr_ship_pre = int(gv.inventory.count_item("shield_recharge"))
+    if (rp_avail <= 0 and sr_avail <= 0
+            and rp_ship_pre <= 0 and sr_ship_pre <= 0):
         return {
             "ok": False,
-            "reason": "no consumables in station inventory",
+            "reason": "no consumables in station or ship inventory",
         }
 
     rp_take = min(rp_avail, int(max_each))
