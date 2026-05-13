@@ -230,9 +230,22 @@ def _act_engage_boss(state: dict, p: dict) -> None:
             lure_y = hy
         kite_x, kite_y = lure_x, lure_y
     else:
-        # Default kite target: ``desired_range`` along the boss→bot ray.
-        kite_x = bx + ux * desired_range
-        kite_y = by + uy * desired_range
+        # ORBIT kite target: a tangent point ``BOSS_ORBIT_LEAD_RAD``
+        # ahead of the bot's current angle around the boss, at
+        # ``desired_range``.  Continuous tangential motion has two
+        # benefits over the static boss->bot ray:
+        #   * The bot is harder for the boss cannon to hit (moving
+        #     target vs static one).
+        #   * Bot heading is tangent to the orbit -- the broadside
+        #     module's perpendicular shots land on the boss.
+        # Ninth-pass telemetry: bot held at hs_dist ~415 for 17 s
+        # in fight 1 doing zero damage because the static kite point
+        # left it nose-pointed at the boss with broadside firing
+        # uselessly to the side.
+        theta = math.atan2(py - by, px - bx)
+        theta_lead = theta + _ap.BOSS_ORBIT_LEAD_RAD
+        kite_x = bx + math.cos(theta_lead) * desired_range
+        kite_y = by + math.sin(theta_lead) * desired_range
 
         # Anchor on the Home Station when one exists — pick the kite
         # point on the boss→bot ray that's also closest to the station.
