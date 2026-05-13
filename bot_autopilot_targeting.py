@@ -517,6 +517,24 @@ def _consumables_in_station_inv(state: dict) -> bool:
             or int(items.get("shield_recharge", 0)) > 0)
 
 
+def _consumables_in_ship_inv(state: dict) -> bool:
+    """True when the SHIP inventory has at least one repair pack
+    OR shield recharge that hasn't been bound to a quick-use slot.
+
+    Triggered by death-drop recovery: the dropped consumables are
+    vacuumed back into the ship by ``recover_loot``, but the
+    deposit code path SKIPS them
+    (``SHIP_ONLY_ITEM_TYPES`` in ``bot_builder``) so they stay in
+    cargo.  Without this predicate, the EQUIP gate only fired when
+    the station inventory had consumables -- which it never did
+    after the post-recovery skip -- and the bot fought the rest
+    of the encounter without any heal cooldowns available.
+    """
+    items = (state.get("inventory") or {}).get("items") or {}
+    return (int(items.get("repair_pack", 0)) > 0
+            or int(items.get("shield_recharge", 0)) > 0)
+
+
 def _qwi_already_built(state: dict) -> bool:
     """True when a Quantum Wave Integrator is already in the
     building list (either placed by the bot earlier or — defensively

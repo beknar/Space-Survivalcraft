@@ -436,8 +436,17 @@ def choose_next_state(state: dict, p: dict, cur: str) -> str:
             s and s.get("item_type") in ("repair_pack", "shield_recharge")
             and int(s.get("count", 0)) > 0
             for s in quick_use)
+        # 2026-05-12 eleventh-pass extension: also fire EQUIP when
+        # the consumables sit in the SHIP inventory (not station).
+        # Death-drop recovery puts them in ship cargo, the deposit
+        # code skips them by design (SHIP_ONLY_ITEM_TYPES), so the
+        # station-only predicate never saw them and the bot fought
+        # the rest of the boss fight without any heal cooldowns.
+        has_consumables_available = (
+            _ap._consumables_in_station_inv(state)
+            or _ap._consumables_in_ship_inv(state))
         if (not has_consumable_equipped
-                and _ap._consumables_in_station_inv(state)):
+                and has_consumables_available):
             # Reset the latch so ``_act_equip_consumables`` actually
             # POSTs.  The action's skip-condition is the latch
             # itself; a stale-True latch from a previous session

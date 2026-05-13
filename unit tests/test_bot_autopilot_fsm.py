@@ -3571,6 +3571,57 @@ class TestEquipConsumablesGateSelfHeals:
         ap._do_auto(s, s["player"])
         assert ap._fsm["state"] != ap.S_EQUIP_CONSUMABLES
 
+    def test_gate_fires_when_consumables_only_in_ship_inv(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """2026-05-12 eleventh-pass pin: death-drop recovery puts
+        the consumables back in SHIP inventory (deposit skips them
+        by design).  Station inventory has none.  Quick-use slots
+        are empty post-death.  The gate must STILL fire so the bot
+        binds the ship-side stock to its quick-use slots.
+        """
+        monkeypatch.setattr(
+            ap, "_act_equip_consumables", lambda s, p: None)
+        ap._state.consumables_equipped = True  # stale from session
+        ap._state.queue.consumable_phase_started = True
+        ap._state.queue.repair_packs_remaining = 0
+        ap._state.queue.shield_recharges_remaining = 0
+        ap._state.build_done = True
+        s = _state(
+            buildings=[{"x": 3200.0, "y": 3200.0,
+                        "building_type": "Home Station"}],
+            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            # Station empty (deposit skipped consumables) but ship
+            # has them in cargo from death-drop recovery.
+            inventory_items={"repair_pack": 1, "shield_recharge": 1},
+            station_inventory_items={},
+        )
+        s["quick_use_slots"] = [
+            {"item_type": None, "count": 0},
+            {"item_type": None, "count": 0},
+        ]
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_EQUIP_CONSUMABLES
+        assert ap._state.consumables_equipped is False
+
+    def test_consumables_in_ship_inv_predicate(self):
+        """Direct test of the helper predicate added for the
+        eleventh-pass fix."""
+        # Empty ship inv.
+        s = _state(player={"x": 0.0, "y": 0.0, "heading": 0.0,
+                           "shields": 150, "max_shields": 150})
+        assert ap._consumables_in_ship_inv(s) is False
+        # Repair pack in ship inv.
+        s["inventory"]["items"] = {"repair_pack": 1}
+        assert ap._consumables_in_ship_inv(s) is True
+        # Shield recharge in ship inv.
+        s["inventory"]["items"] = {"shield_recharge": 3}
+        assert ap._consumables_in_ship_inv(s) is True
+        # Zero counts don't count.
+        s["inventory"]["items"] = {"repair_pack": 0,
+                                   "shield_recharge": 0}
+        assert ap._consumables_in_ship_inv(s) is False
+
 
 class TestSearchExemptFromStuckDetect:
     """The spiral search's brake-coast motion at small radii looks
