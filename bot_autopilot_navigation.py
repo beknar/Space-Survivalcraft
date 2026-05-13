@@ -297,8 +297,23 @@ def building_repulsion(p: dict, state: dict,
     suppress_sq = (REPULSION_TARGET_SUPPRESS_PX
                    * REPULSION_TARGET_SUPPRESS_PX)
     # Cluster-suppression check: when target is inside the cluster
-    # core, suppress every building in the cluster.  Computed once
-    # up front to avoid per-building overhead.
+    # core, suppress every building in the cluster.  Also activates
+    # when the BOT is inside the cluster trying to reach a target
+    # outside it -- otherwise the bot pins in equilibrium at the
+    # cluster centroid (every direction is uphill in the repulsion
+    # field).  Pinned by two 2026-05-12 telemetry pathologies:
+    #
+    #   * Startup: bot oscillated inside the cluster for ~114 s
+    #     trying to reach a far-edge asteroid, the only events in
+    #     that window being snapshots showing px/py drifting <300
+    #     px from the spawn point near the station.
+    #   * After-respawn recover_loot: bot fired
+    #     ``stuck_detected cause=building`` 1.3 s after respawning
+    #     inside the station, then made only ~620 px of progress
+    #     toward dropped loot 3100 px away in the next 21 s before
+    #     dying again to the still-pursuing boss.
+    #
+    # Computed once up front to avoid per-building overhead.
     cluster_suppress_active = False
     cx_cluster = cy_cluster = r_cluster = 0.0
     if target is not None and len(buildings) >= CLUSTER_MIN_BUILDINGS:
@@ -306,7 +321,17 @@ def building_repulsion(p: dict, state: dict,
         if ccx is not None:
             target_to_centre = math.hypot(target[0] - ccx,
                                           target[1] - ccy)
-            if target_to_centre < cr + CLUSTER_DETOUR_TARGET_INSIDE_PX:
+            bot_to_centre = math.hypot(px - ccx, py - ccy)
+            target_inside = (
+                target_to_centre < cr + CLUSTER_DETOUR_TARGET_INSIDE_PX)
+            # Bot inside cluster AND target outside -- need to escape.
+            # Use ``cr`` (the cluster's enclosing radius) without the
+            # CLUSTER_DETOUR_TARGET_INSIDE_PX buffer so the suppression
+            # only fires when the bot is genuinely inside the building
+            # ring, not just adjacent to it.
+            bot_inside_escaping = (
+                bot_to_centre < cr and not target_inside)
+            if target_inside or bot_inside_escaping:
                 cluster_suppress_active = True
                 cx_cluster, cy_cluster, r_cluster = ccx, ccy, cr
     rx = 0.0

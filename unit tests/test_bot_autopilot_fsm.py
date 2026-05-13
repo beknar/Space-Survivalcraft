@@ -5921,6 +5921,35 @@ class TestClusterAwareRepulsionSuppression:
         # East building NOT suppressed → push from it.
         assert rx > 0.0
 
+    def test_bot_inside_cluster_with_far_target_suppresses(self):
+        """2026-05-12 sixth-pass pin: bot respawns / spawns INSIDE the
+        station cluster.  Target is the death-loot pickup (or a far
+        asteroid) WELL outside the cluster.  Without the bot-inside
+        suppression the cluster pins the bot in equilibrium at the
+        centroid (every direction is uphill).  WITH it the field is
+        zero and the bot can escape.
+        """
+        s = self._cluster_state(cx=3200.0, cy=3200.0, r=200.0)
+        # Bot AT the cluster centroid; target far outside.
+        rx, ry = ap._building_repulsion(
+            {"x": 3200.0, "y": 3200.0}, s, target=(800.0, 800.0))
+        # Suppressed → exactly zero field.
+        assert abs(rx) < 1e-9 and abs(ry) < 1e-9
+
+    def test_bot_just_outside_cluster_with_far_target_no_suppress(self):
+        """Sanity: bot just *outside* the cluster radius (not inside)
+        with a far target -- regular repulsion still fires.  Without
+        this boundary, every long-range goto would suppress every
+        building."""
+        s = self._cluster_state(cx=3200.0, cy=3200.0, r=200.0)
+        # Bot 50 px past the cluster bounding radius.  East cluster
+        # building sits at (3400, 3200); bot at (3450, 3200) is
+        # outside the cluster (centroid distance 250 > r=200).
+        rx, ry = ap._building_repulsion(
+            {"x": 3450.0, "y": 3200.0}, s, target=(5000.0, 5000.0))
+        # Eastern cluster building still pushes the bot east.
+        assert rx > 0.0
+
 
 # ── 2026-05-04 hardening: MINE/GATHER chase clamped to world ──────────
 
@@ -6693,6 +6722,45 @@ class TestBossLureMode:
         d = math.hypot(captured["tx"] - 2000.0,
                        captured["ty"] - 4000.0)
         assert abs(d - ap.BOSS_LURE_TURRET_RADIUS_PX) < 1.0
+
+    def test_lure_target_is_on_far_side_of_station_from_boss(
+            self, monkeypatch):
+        """Pinning the 2026-05-12 sixth-pass fix: lure target sits
+        on the FAR side of the station from the boss.  The bot
+        then turns ~180 degrees and forward-thrusts past the
+        station, dragging the boss into the umbrella -- it never
+        has to drive toward the boss to reach the umbrella, and
+        never reverse-thrusts.
+        """
+        captured: dict = {}
+        monkeypatch.setattr(
+            ap, "_do_goto",
+            lambda state, p, tx, ty, stop_radius=80.0,
+            brake_on_arrival=True: captured.update(tx=tx, ty=ty))
+        monkeypatch.setattr(ap, "_ensure_weapon", lambda *a, **kw: None)
+        ap._state.boss_lure_active = False  # will arm in handler
+        # Station west, boss east -- the far-side anchor should sit
+        # WEST of the station (smaller x than HS.x).  Pre-fix this
+        # landed EAST of the station (between station and boss).
+        s = _state(
+            player={"x": 3500.0, "y": 4000.0, "heading": 0.0,
+                    "shields": 30, "max_shields": 150},  # 20 %
+            buildings=[{"x": 2000.0, "y": 4000.0,
+                        "building_type": "Home Station"}],
+        )
+        s["boss"] = _boss(x=4800.0, y=4000.0)
+        ap._act_engage_boss(s, s["player"])
+        # Far-side: target.x < station.x because boss is east.
+        assert captured["tx"] < 2000.0
+        # And on the far-side ray, the station lies between target
+        # and boss -- vector station->target opposes station->boss.
+        import math
+        sx_to_tx = captured["tx"] - 2000.0
+        sx_to_bx = 4800.0 - 2000.0
+        sy_to_ty = captured["ty"] - 4000.0
+        sy_to_by = 4000.0 - 4000.0
+        # Dot product must be negative (opposing rays).
+        assert sx_to_tx * sx_to_bx + sy_to_ty * sy_to_by < 0.0
 
     def test_lure_clears_when_boss_dies_mid_tick(self, monkeypatch):
         """Boss vanishing during ENGAGE_BOSS clears the latch so a
