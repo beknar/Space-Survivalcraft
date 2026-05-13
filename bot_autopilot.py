@@ -299,6 +299,24 @@ BOSS_KITE_STATION_TETHER_PX:  float = 600.0    # max distance from station while
 BOSS_DODGE_PERP_PX:           float = 250.0    # perpendicular strafe during charge windup
 BOSS_PHASE3_PRESS_RANGE_PX:   float = 600.0    # Phase 3 (no shield regen): close in for DPS
 
+# Boss-orbit kite (2026-05-12, ninth telemetry pass).  Instead of a
+# STATIC kite point on the boss->bot ray, the kite target leads the
+# bot by ``BOSS_ORBIT_LEAD_RAD`` radians along the orbit circle.
+# Two reasons:
+#   1. Continuous tangential motion -- the bot stops looking
+#      "stuck on the boss" (ninth-pass log: 17 s of fight 1 at
+#      hs_dist ~415 with zero damage dealt).
+#   2. Heading lines up tangent to the boss, so the broadside
+#      module's perpendicular shots HIT the boss (90 deg offset
+#      from heading = directly at the boss when orbiting).  Basic
+#      laser still tracks via the combat-assist aim override.
+# The lead is the angular offset of the "carrot" target ahead of
+# the bot's current angle around the boss.  At 0.30 rad (~17 deg)
+# and kite radius 750 px the lead arc is ~225 px -- always reachable
+# in one tick at the bot's top speed but far enough to keep the
+# bot chasing a moving target indefinitely.
+BOSS_ORBIT_LEAD_RAD:          float = 0.30
+
 # Boss LURE mode (2026-05-11, revised after second telemetry pass):
 # The bot now PRE-EMPTIVELY activates lure whenever a boss is alive
 # and a Home Station exists -- the previous shields-only trigger let

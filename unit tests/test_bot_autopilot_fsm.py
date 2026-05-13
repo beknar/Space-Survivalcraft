@@ -6755,6 +6755,136 @@ class TestBossKiteAtRange:
         assert recorded["space"] is False
 
 
+class TestBossOrbitKite:
+    """2026-05-12 ninth-pass change: when the bot is in the
+    legacy kite phase (NOT turret-assist, NOT lure), the kite
+    target is a TANGENT point ahead on the orbit circle.  This
+    produces continuous tangential motion so the bot isn't
+    "stuck on the boss" and the broadside module's perpendicular
+    shots align with the boss.
+    """
+
+    def _record_goto(self, monkeypatch):
+        captured: dict = {}
+        monkeypatch.setattr(
+            ap, "_do_goto",
+            lambda state, p, tx, ty, stop_radius=80.0,
+            brake_on_arrival=True: captured.update(tx=tx, ty=ty))
+        monkeypatch.setattr(ap, "_ensure_weapon", lambda *a, **kw: None)
+        return captured
+
+    def test_orbit_target_off_boss_to_bot_ray(self, monkeypatch):
+        """The orbit lead places the target OFF the boss→bot ray
+        (which would have angle equal to the bot's angle around the
+        boss).  Verify the dot product of (target - boss) and
+        (bot - boss) is strictly less than ``range^2`` -- i.e., the
+        target is not radial from the boss."""
+        import math
+        captured = self._record_goto(monkeypatch)
+        s = _state(
+            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+        )
+        s["boss"] = _boss(x=3500.0, y=3200.0)
+        ap._act_engage_boss(s, s["player"])
+        bot_vec = (3200.0 - 3500.0, 3200.0 - 3200.0)
+        tgt_vec = (captured["tx"] - 3500.0, captured["ty"] - 3500.0)
+        # Old (static-ray) code: |dot| == |bot_vec| * |tgt_vec|.
+        # Orbit code: |dot| < |bot_vec| * |tgt_vec| -- the target
+        # is at an angle to the ray.
+        dot = bot_vec[0] * tgt_vec[0] + bot_vec[1] * tgt_vec[1]
+        bot_mag = math.hypot(*bot_vec)
+        tgt_mag = math.hypot(*tgt_vec)
+        # cosine of angle between rays = dot / (|a| * |b|)
+        cos_angle = dot / (bot_mag * tgt_mag) if bot_mag * tgt_mag else 0
+        # Lead = 0.30 rad => cos(0.30) ~ 0.955.  Strictly less than 1.
+        assert cos_angle < 0.99
+
+    def test_orbit_target_at_desired_range(self, monkeypatch):
+        """Orbit target distance from boss equals BOSS_KITE_RANGE_PX
+        in phases 1-2 (BOSS_PHASE3_PRESS_RANGE_PX in phase 3)."""
+        import math
+        captured = self._record_goto(monkeypatch)
+        s = _state(
+            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+        )
+        # Phase 1: default kite range.
+        s["boss"] = _boss(x=3400.0, y=3200.0, phase=1)
+        ap._act_engage_boss(s, s["player"])
+        d_p1 = math.hypot(captured["tx"] - 3400.0,
+                          captured["ty"] - 3200.0)
+        assert abs(d_p1 - ap.BOSS_KITE_RANGE_PX) < 1.0
+        # Phase 3: PRESS range (closer for DPS).
+        captured.clear()
+        s["boss"] = _boss(x=3400.0, y=3200.0, phase=3)
+        ap._act_engage_boss(s, s["player"])
+        d_p3 = math.hypot(captured["tx"] - 3400.0,
+                          captured["ty"] - 3200.0)
+        assert abs(d_p3 - ap.BOSS_PHASE3_PRESS_RANGE_PX) < 1.0
+
+    def test_orbit_advances_consistently_around_boss(
+            self, monkeypatch):
+        """Two consecutive ticks with the bot at progressively
+        more advanced angles around the boss produce orbit targets
+        whose angles advance by the same lead.  Tests the orbit's
+        angular consistency (CCW or CW, but never alternating)."""
+        import math
+        captured = self._record_goto(monkeypatch)
+        # Bot due west of boss.
+        s = _state(
+            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+        )
+        s["boss"] = _boss(x=3400.0, y=3200.0)
+        ap._act_engage_boss(s, s["player"])
+        theta_1 = math.atan2(captured["ty"] - 3200.0,
+                             captured["tx"] - 3400.0)
+        # Move bot 0.1 rad along the orbit (CCW in math coords).
+        captured.clear()
+        new_theta = math.pi + 0.1
+        s["player"]["x"] = 3400.0 + 200.0 * math.cos(new_theta)
+        s["player"]["y"] = 3200.0 + 200.0 * math.sin(new_theta)
+        ap._act_engage_boss(s, s["player"])
+        theta_2 = math.atan2(captured["ty"] - 3200.0,
+                             captured["tx"] - 3400.0)
+        # theta_2 should be ahead of theta_1 (CCW), i.e., advance
+        # by ~0.1 rad (the bot moved 0.1, lead is constant).
+        # Both targets are at their respective bot-angle + lead.
+        # difference = (new_theta + LEAD) - (PI + LEAD) = 0.1.
+        diff = theta_2 - theta_1
+        # Wrap-safe difference in [-π, π].
+        diff = (diff + math.pi) % (2 * math.pi) - math.pi
+        assert abs(diff - 0.1) < 0.01
+
+    def test_orbit_snaps_to_station_when_too_far(self, monkeypatch):
+        """Existing station-tether logic still kicks in: when the
+        orbit point lands > BOSS_KITE_STATION_TETHER_PX from the
+        station, snap to the station-side ray.  Preserves the
+        umbrella discipline when the boss is on the wrong side."""
+        captured = self._record_goto(monkeypatch)
+        # Bot east of boss; station WEST of boss far away.  Boss
+        # outside turret-assist enter range so this exercises the
+        # legacy kite path with snap.
+        ap._state.boss_lure_active = False
+        ap._state.boss_turret_assist_active = False
+        s = _state(
+            player={"x": 4500.0, "y": 4000.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            buildings=[{"x": 2000.0, "y": 4000.0,
+                        "building_type": "Home Station"}],
+        )
+        # Boss 2500 px east of station -- outside turret-assist
+        # enter range (1500).
+        s["boss"] = _boss(x=4500.0, y=4000.0)
+        # Bot exactly on boss => degenerate; use slightly offset.
+        s["player"]["x"] = 4600.0
+        ap._act_engage_boss(s, s["player"])
+        # Snap pulls the kite to the station side of the boss
+        # (west) at desired_range.
+        assert captured["tx"] < 4500.0
+
+
 class TestBossLureMode:
     """User spec (2026-05-11 fifth pass): the bot should ATTACK the
     boss first (kite at BOSS_KITE_RANGE_PX) and only retreat to
@@ -7160,7 +7290,11 @@ class TestBossPhase2ChargeDodge:
 
     def test_phase1_charge_fields_ignored_no_dodge(self, monkeypatch):
         """charging=True at phase=1 (impossible in-game, defensive
-        check) must NOT trigger the dodge — bot stays on the kite ray."""
+        check) must NOT trigger the dodge -- the kite target equals
+        the bare ORBIT point with no perpendicular dodge offset.
+        Post-2026-05-12 the orbit lead puts the target naturally
+        off-axis from the boss→bot ray; this test confirms NO
+        ADDITIONAL displacement on top of the orbit lead."""
         captured: dict = {}
         monkeypatch.setattr(
             ap, "_do_goto",
@@ -7174,8 +7308,17 @@ class TestBossPhase2ChargeDodge:
         s["boss"] = _boss(x=3400.0, y=3200.0, phase=1,
                           charging=True, windup=2.0)
         ap._act_engage_boss(s, s["player"])
-        # Kite stays on the y=3200 axis (no perpendicular displacement).
-        assert abs(captured["ty"] - 3200.0) < 1.0
+        # Expected bare orbit point: bot due west of boss => theta=π.
+        # Lead by BOSS_ORBIT_LEAD_RAD, project to BOSS_KITE_RANGE_PX
+        # around the boss.  No dodge displacement applied in phase 1.
+        import math
+        expected_theta = math.pi + ap.BOSS_ORBIT_LEAD_RAD
+        expected_x = (3400.0
+                      + math.cos(expected_theta) * ap.BOSS_KITE_RANGE_PX)
+        expected_y = (3200.0
+                      + math.sin(expected_theta) * ap.BOSS_KITE_RANGE_PX)
+        assert abs(captured["tx"] - expected_x) < 1.0
+        assert abs(captured["ty"] - expected_y) < 1.0
 
 
 class TestBossDodgeSignDeterministic:
