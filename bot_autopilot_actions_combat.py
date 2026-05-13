@@ -183,19 +183,31 @@ def _act_engage_boss(state: dict, p: dict) -> None:
     if use_lure:
         hx = float(hs.get("x", 0.0))
         hy = float(hs.get("y", 0.0))
-        # Aim for a perimeter point on the boss-side of the station
-        # so the bot ends up between the station and the boss --
-        # turrets can fire over the bot and the boss eats DPS while
-        # closing in.  Vector from station to boss, normalized to
-        # the lure radius.
-        sdx = bx - hx
-        sdy = by - hy
+        # Aim for a perimeter point on the FAR side of the station
+        # from the boss.  Two reasons (2026-05-12 sixth telemetry
+        # pass):
+        #   (a) The previous "boss-side" target forced the bot to
+        #       *drive toward the boss* to reach the umbrella.  In
+        #       the captured run the bot died 9 s after lure_enter
+        #       at (967, 2846) -- ~3100 px AWAY from a station at
+        #       (4016, 3878), because the lure point sat between
+        #       the bot's current position and the boss.
+        #   (b) Aiming at the far side instead means the station
+        #       always sits between the bot's heading and the
+        #       boss.  The bot rotates roughly 180 degrees, then
+        #       FORWARD thrusts past the station -- never reverse-
+        #       thrusts.  Boss follows into the turret + missile
+        #       umbrella, the bot pops out the back side.
+        # Vector from boss to station, normalized to the lure
+        # radius gives the far-side anchor point.
+        sdx = hx - bx
+        sdy = hy - by
         sdist = math.hypot(sdx, sdy)
         if sdist > 1.0:
             lure_x = hx + (sdx / sdist) * _ap.BOSS_LURE_TURRET_RADIUS_PX
             lure_y = hy + (sdy / sdist) * _ap.BOSS_LURE_TURRET_RADIUS_PX
         else:
-            # Boss on top of station — orbit any side of the HS.
+            # Boss on top of station -- orbit any side of the HS.
             lure_x = hx + _ap.BOSS_LURE_TURRET_RADIUS_PX
             lure_y = hy
         kite_x, kite_y = lure_x, lure_y
