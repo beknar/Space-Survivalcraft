@@ -231,19 +231,33 @@ def _act_engage_boss(state: dict, p: dict) -> None:
         kite_x, kite_y = lure_x, lure_y
     else:
         # ORBIT kite target: a tangent point ``BOSS_ORBIT_LEAD_RAD``
-        # ahead of the bot's current angle around the boss, at
-        # ``desired_range``.  Continuous tangential motion has two
-        # benefits over the static boss->bot ray:
-        #   * The bot is harder for the boss cannon to hit (moving
-        #     target vs static one).
-        #   * Bot heading is tangent to the orbit -- the broadside
-        #     module's perpendicular shots land on the boss.
-        # Ninth-pass telemetry: bot held at hs_dist ~415 for 17 s
-        # in fight 1 doing zero damage because the static kite point
-        # left it nose-pointed at the boss with broadside firing
-        # uselessly to the side.
-        theta = math.atan2(py - by, px - bx)
-        theta_lead = theta + _ap.BOSS_ORBIT_LEAD_RAD
+        # ahead of the boss->station axis (or boss->bot axis when no
+        # station exists).  Tangential motion lets the broadside
+        # module land perpendicular shots; the station anchor keeps
+        # the bot from drifting into the corner.
+        #
+        # Why anchor on the station axis (2026-05-12 tenth pass): the
+        # PR #106 orbit used the BOT'S current angle, so as the boss
+        # moved NE toward the station the orbit point shifted SW and
+        # the bot trailed the boss into the corner.  Tenth-pass log:
+        # bot drifted from hs_dist=429 to hs_dist=2921 over 20 s,
+        # shields dropped to 5/120, 14 shield consumables fired to
+        # survive, bot finished the boss fight after barely escaping
+        # close-range charge dashes (boss_dist frozen at 143 px for
+        # 27 dodge events).
+        #
+        # The station-anchored orbit point is on the boss->station
+        # ray at ``desired_range`` plus a small angular lead.  Bot
+        # heads to a point near the station regardless of its
+        # current drift, and tangential motion still happens as
+        # the boss + station relative angle changes tick-to-tick.
+        if hs is not None:
+            hx = float(hs.get("x", 0.0))
+            hy = float(hs.get("y", 0.0))
+            theta_anchor = math.atan2(hy - by, hx - bx)
+        else:
+            theta_anchor = math.atan2(py - by, px - bx)
+        theta_lead = theta_anchor + _ap.BOSS_ORBIT_LEAD_RAD
         kite_x = bx + math.cos(theta_lead) * desired_range
         kite_y = by + math.sin(theta_lead) * desired_range
 
