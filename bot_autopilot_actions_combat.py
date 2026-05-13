@@ -113,8 +113,10 @@ def _act_engage_boss(state: dict, p: dict) -> None:
     if boss is None:
         # Boss vanished mid-tick (killed); next tick re-routes.
         _ap.KeyState.hold("space", False)
-        # Clear the lure latch so a future boss fight starts fresh.
+        # Clear the lure + turret-assist latches so a future boss
+        # fight starts fresh.
         _ap._state.boss_lure_active = False
+        _ap._state.boss_turret_assist_active = False
         return
 
     _ap._ensure_weapon(state, "Basic Laser")
@@ -127,24 +129,49 @@ def _act_engage_boss(state: dict, p: dict) -> None:
     charging = bool(boss.get("charging", False))
     windup = float(boss.get("charge_windup", 0.0))
 
-    # ── LURE-mode latch ──────────────────────────────────────────
-    # User spec (2026-05-11 fifth pass): the bot should ATTACK the
-    # boss first (kite at BOSS_KITE_RANGE_PX) and only retreat to
-    # lure when shields drop below BOSS_LURE_SHIELDS_PCT (50 %).
-    # Reverts PR #95's pre-emptive trigger -- always-luring left
-    # the boss alive for too long because the bot's basic-laser DPS
-    # from the station perimeter was too low to make a dent before
-    # turrets finished it.  Telemetry from the fifth pass also
-    # showed the bot lured immediately at boss_engage_start
-    # (sh=120/120) and then died because the boss reached station
-    # perimeter fast.  The sticky-once-activated property is
-    # preserved (latch holds until the boss dies, cleared in the
-    # boss-is-None branch above) so we don't yo-yo between kite +
-    # lure when shields oscillate around the 50 % threshold.
+    # ── TURRET-ASSIST mode latch ─────────────────────────────────
+    # User spec (2026-05-12 eighth telemetry pass): when the boss
+    # is near the Home Station, ORBIT the station's far perimeter
+    # and let the turret + missile umbrella solo it.  Eighth-pass
+    # log: bot died 7 times trying to kite directly, did 0 damage
+    # in the first fight, lost all modules on first death, then
+    # the turrets finished the boss while the bot kept respawning.
+    # The bot's actual combat value is long-range basic-laser fire
+    # at zero death risk -- not direct kite engagement.
+    #
+    # Hysteresis: enter at BOSS_TURRET_ASSIST_ENTER_PX from the
+    # station, exit at BOSS_TURRET_ASSIST_EXIT_PX (wider) so a
+    # boss hovering at the boundary doesn't flap the bot between
+    # orbit and kite.
     sh_now = int(p.get("shields", 0))
     max_sh = max(1, int(p.get("max_shields", 1)))
     sh_frac = sh_now / max_sh
     hs_preview = _ap._find_home_station(state)
+    if hs_preview is not None:
+        hpx = float(hs_preview.get("x", 0.0))
+        hpy = float(hs_preview.get("y", 0.0))
+        boss_to_hs = math.hypot(bx - hpx, by - hpy)
+        if (not _ap._state.boss_turret_assist_active
+                and boss_to_hs < _ap.BOSS_TURRET_ASSIST_ENTER_PX):
+            _ap._state.boss_turret_assist_active = True
+            _ap._telemetry_log(
+                "boss_turret_assist_enter",
+                boss_to_hs=round(boss_to_hs, 1),
+                boss_phase=phase)
+        elif (_ap._state.boss_turret_assist_active
+                and boss_to_hs > _ap.BOSS_TURRET_ASSIST_EXIT_PX):
+            _ap._state.boss_turret_assist_active = False
+            _ap._telemetry_log(
+                "boss_turret_assist_exit",
+                boss_to_hs=round(boss_to_hs, 1),
+                boss_phase=phase)
+
+    # ── LURE-mode latch (legacy fallback) ────────────────────────
+    # Retained for the boss-far-from-station case: when the
+    # turret-assist latch is OFF (boss too far for turrets) and
+    # shields drop below 50 %, the bot drags the boss home.  Once
+    # the boss enters TURRET_ASSIST_ENTER_PX the new orbit logic
+    # takes over.
     if (hs_preview is not None
             and not _ap._state.boss_lure_active
             and sh_frac < _ap.BOSS_LURE_SHIELDS_PCT):
@@ -173,42 +200,33 @@ def _act_engage_boss(state: dict, p: dict) -> None:
 
     hs = _ap._find_home_station(state)
 
-    # LURE mode: ignore the kite ring entirely and head for a point
-    # just inside turret range of the Home Station, dragging the
-    # boss into the defense umbrella.  Falls back to the standard
-    # kite when no station exists (early Nebula spawn) or when the
-    # bot is so far from the station that retreat would expose its
-    # tail to boss fire longer than just kiting through the recovery.
-    use_lure = (_ap._state.boss_lure_active and hs is not None)
-    if use_lure:
+    # TURRET-ASSIST / LURE mode: orbit the FAR side of the home
+    # station so the station sits between the bot and the boss.
+    # Falls back to the standard kite when no station exists
+    # (early Nebula spawn) or when neither latch is active.
+    use_orbit = ((_ap._state.boss_turret_assist_active
+                  or _ap._state.boss_lure_active)
+                 and hs is not None)
+    if use_orbit:
         hx = float(hs.get("x", 0.0))
         hy = float(hs.get("y", 0.0))
-        # Aim for a perimeter point on the FAR side of the station
-        # from the boss.  Two reasons (2026-05-12 sixth telemetry
-        # pass):
-        #   (a) The previous "boss-side" target forced the bot to
-        #       *drive toward the boss* to reach the umbrella.  In
-        #       the captured run the bot died 9 s after lure_enter
-        #       at (967, 2846) -- ~3100 px AWAY from a station at
-        #       (4016, 3878), because the lure point sat between
-        #       the bot's current position and the boss.
-        #   (b) Aiming at the far side instead means the station
-        #       always sits between the bot's heading and the
-        #       boss.  The bot rotates roughly 180 degrees, then
-        #       FORWARD thrusts past the station -- never reverse-
-        #       thrusts.  Boss follows into the turret + missile
-        #       umbrella, the bot pops out the back side.
-        # Vector from boss to station, normalized to the lure
-        # radius gives the far-side anchor point.
+        # Far-side perimeter anchor: station between bot heading
+        # and boss.  Pre-fix (PR #100) the bot aimed at the boss-
+        # side perimeter and drove toward the boss to reach the
+        # umbrella; the far-side anchor means the bot rotates ~180
+        # and forward-thrusts past the station instead.  Turrets
+        # fire over the bot at the closing boss; bot stays inside
+        # turret range, contributing basic-laser DPS without dying.
         sdx = hx - bx
         sdy = hy - by
         sdist = math.hypot(sdx, sdy)
+        radius = _ap.BOSS_TURRET_ASSIST_ORBIT_PX
         if sdist > 1.0:
-            lure_x = hx + (sdx / sdist) * _ap.BOSS_LURE_TURRET_RADIUS_PX
-            lure_y = hy + (sdy / sdist) * _ap.BOSS_LURE_TURRET_RADIUS_PX
+            lure_x = hx + (sdx / sdist) * radius
+            lure_y = hy + (sdy / sdist) * radius
         else:
             # Boss on top of station -- orbit any side of the HS.
-            lure_x = hx + _ap.BOSS_LURE_TURRET_RADIUS_PX
+            lure_x = hx + radius
             lure_y = hy
         kite_x, kite_y = lure_x, lure_y
     else:

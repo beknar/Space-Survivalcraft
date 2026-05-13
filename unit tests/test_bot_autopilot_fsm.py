@@ -6863,6 +6863,200 @@ class TestBossLureMode:
         assert ap._state.boss_lure_active is False
 
 
+class TestBossTurretAssistOrbit:
+    """User spec (2026-05-12 eighth telemetry pass): when the boss
+    is within ``BOSS_TURRET_ASSIST_ENTER_PX`` of the Home Station,
+    the bot orbits the station's far perimeter and lets the turret +
+    missile umbrella solo it instead of kiting directly.  When the
+    boss is far from the station, the legacy kite-at-range behavior
+    runs so a boss that spawned outside turret range gets drawn in.
+    Hysteresis on (ENTER_PX, EXIT_PX) keeps the latch stable.
+    """
+
+    def _record_goto(self, monkeypatch):
+        captured: dict = {}
+        monkeypatch.setattr(
+            ap, "_do_goto",
+            lambda state, p, tx, ty, stop_radius=80.0,
+            brake_on_arrival=True: captured.update(tx=tx, ty=ty))
+        monkeypatch.setattr(ap, "_ensure_weapon", lambda *a, **kw: None)
+        return captured
+
+    def test_turret_assist_arms_when_boss_near_station(
+            self, monkeypatch):
+        """Boss within ENTER_PX of HS -> latch becomes True."""
+        self._record_goto(monkeypatch)
+        ap._state.boss_turret_assist_active = False
+        ap._state.boss_lure_active = False
+        s = _state(
+            player={"x": 4500.0, "y": 4000.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},  # full
+            buildings=[{"x": 4000.0, "y": 4000.0,
+                        "building_type": "Home Station"}],
+        )
+        # Boss 1000 px east of HS -- well within ENTER_PX (1500).
+        s["boss"] = _boss(x=5000.0, y=4000.0)
+        ap._act_engage_boss(s, s["player"])
+        assert ap._state.boss_turret_assist_active is True
+
+    def test_turret_assist_does_not_arm_when_boss_far(
+            self, monkeypatch):
+        """Boss > ENTER_PX from HS -> latch stays False (legacy
+        kite engages to draw the boss in)."""
+        self._record_goto(monkeypatch)
+        ap._state.boss_turret_assist_active = False
+        ap._state.boss_lure_active = False
+        s = _state(
+            player={"x": 4500.0, "y": 4000.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            buildings=[{"x": 2000.0, "y": 4000.0,
+                        "building_type": "Home Station"}],
+        )
+        # Boss 4000 px east of HS -- well outside ENTER_PX (1500).
+        s["boss"] = _boss(x=6000.0, y=4000.0)
+        ap._act_engage_boss(s, s["player"])
+        assert ap._state.boss_turret_assist_active is False
+
+    def test_turret_assist_hysteresis_holds_between_thresholds(
+            self, monkeypatch):
+        """Once armed, the latch survives until boss leaves EXIT_PX.
+        At intermediate distance (ENTER < d < EXIT) the latch holds.
+        """
+        self._record_goto(monkeypatch)
+        ap._state.boss_turret_assist_active = True  # already armed
+        ap._state.boss_lure_active = False
+        s = _state(
+            player={"x": 4500.0, "y": 4000.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            buildings=[{"x": 4000.0, "y": 4000.0,
+                        "building_type": "Home Station"}],
+        )
+        # Boss at d=1650 (between ENTER=1500 and EXIT=1800).
+        s["boss"] = _boss(x=5650.0, y=4000.0)
+        ap._act_engage_boss(s, s["player"])
+        assert ap._state.boss_turret_assist_active is True
+
+    def test_turret_assist_clears_when_boss_exits_far(
+            self, monkeypatch):
+        """Boss leaves EXIT_PX -> latch drops, kite resumes for a
+        future boss-far engagement."""
+        self._record_goto(monkeypatch)
+        ap._state.boss_turret_assist_active = True
+        ap._state.boss_lure_active = False
+        s = _state(
+            player={"x": 4500.0, "y": 4000.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            buildings=[{"x": 4000.0, "y": 4000.0,
+                        "building_type": "Home Station"}],
+        )
+        # Boss at d=2000 (> EXIT=1800).
+        s["boss"] = _boss(x=6000.0, y=4000.0)
+        ap._act_engage_boss(s, s["player"])
+        assert ap._state.boss_turret_assist_active is False
+
+    def test_turret_assist_clears_when_boss_dies(self, monkeypatch):
+        """Boss=None -> latch cleared so a future fight starts
+        fresh (same lifecycle as the lure latch)."""
+        monkeypatch.setattr(ap, "_do_goto", lambda *a, **kw: None)
+        monkeypatch.setattr(ap, "_ensure_weapon", lambda *a, **kw: None)
+
+        class _FakeKey:
+            @staticmethod
+            def hold(name, on):
+                pass
+        monkeypatch.setattr(ap, "KeyState", _FakeKey)
+        ap._state.boss_turret_assist_active = True
+        s = _state(
+            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            buildings=[{"x": 4000.0, "y": 4000.0,
+                        "building_type": "Home Station"}],
+        )
+        s["boss"] = None
+        ap._act_engage_boss(s, s["player"])
+        assert ap._state.boss_turret_assist_active is False
+
+    def test_orbit_target_is_far_side_of_station(self, monkeypatch):
+        """When turret-assist is active, the goto target is the
+        station's far-side perimeter at BOSS_TURRET_ASSIST_ORBIT_PX.
+        Station between bot heading and boss => bot rotates ~180,
+        forward-thrusts past the station.
+        """
+        captured = self._record_goto(monkeypatch)
+        ap._state.boss_turret_assist_active = False
+        ap._state.boss_lure_active = False
+        # Station at (4000, 4000), boss east at (5000, 4000) --
+        # within ENTER_PX so latch arms this tick.  Far-side
+        # orbit point should be WEST of the station.
+        s = _state(
+            player={"x": 4500.0, "y": 4000.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            buildings=[{"x": 4000.0, "y": 4000.0,
+                        "building_type": "Home Station"}],
+        )
+        s["boss"] = _boss(x=5000.0, y=4000.0)
+        ap._act_engage_boss(s, s["player"])
+        # Target sits at ORBIT_PX from station, on the FAR side.
+        import math
+        d = math.hypot(captured["tx"] - 4000.0,
+                       captured["ty"] - 4000.0)
+        assert abs(d - ap.BOSS_TURRET_ASSIST_ORBIT_PX) < 1.0
+        # And on the FAR side: dot(station->target, station->boss) < 0
+        sx_to_tx = captured["tx"] - 4000.0
+        sx_to_bx = 5000.0 - 4000.0
+        sy_to_ty = captured["ty"] - 4000.0
+        sy_to_by = 4000.0 - 4000.0
+        assert sx_to_tx * sx_to_bx + sy_to_ty * sy_to_by < 0.0
+
+    def test_no_station_falls_back_to_kite(self, monkeypatch):
+        """No Home Station -> turret-assist can't arm, the bot
+        kites at standard range (eg. early Nebula boss spawn)."""
+        captured = self._record_goto(monkeypatch)
+        ap._state.boss_turret_assist_active = False
+        ap._state.boss_lure_active = False
+        s = _state(
+            player={"x": 4500.0, "y": 4000.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            # no buildings -> no station
+        )
+        s["boss"] = _boss(x=5000.0, y=4000.0)
+        ap._act_engage_boss(s, s["player"])
+        assert ap._state.boss_turret_assist_active is False
+        # Target is a kite-range point, not a far-side orbit.
+        # With boss at (5000, 4000) and bot at (4500, 4000), the
+        # kite point sits along the boss->bot ray at BOSS_KITE_RANGE
+        # from the boss => west of the boss.
+        import math
+        boss_to_target = math.hypot(captured["tx"] - 5000.0,
+                                    captured["ty"] - 4000.0)
+        assert abs(boss_to_target - ap.BOSS_KITE_RANGE_PX) < 50.0
+
+    def test_turret_assist_overrides_full_shields_kite(
+            self, monkeypatch):
+        """Even with full shields (lure normally wouldn't arm),
+        if the boss is near the station the bot orbits.  This is
+        the core spec: the bot should NOT engage near-station
+        bosses directly even when healthy."""
+        captured = self._record_goto(monkeypatch)
+        ap._state.boss_turret_assist_active = False
+        ap._state.boss_lure_active = False
+        s = _state(
+            player={"x": 4500.0, "y": 4000.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},  # full shields
+            buildings=[{"x": 4000.0, "y": 4000.0,
+                        "building_type": "Home Station"}],
+        )
+        s["boss"] = _boss(x=5000.0, y=4000.0)
+        ap._act_engage_boss(s, s["player"])
+        # Turret-assist armed; orbit target landed on far-side
+        # perimeter (not a kite point).
+        assert ap._state.boss_turret_assist_active is True
+        import math
+        d = math.hypot(captured["tx"] - 4000.0,
+                       captured["ty"] - 4000.0)
+        assert abs(d - ap.BOSS_TURRET_ASSIST_ORBIT_PX) < 1.0
+
+
 class TestBossKiteStationAnchor:
     """When a Home Station exists, the kite target prefers the side
     of the boss closest to the station so friendly turrets share DPS."""

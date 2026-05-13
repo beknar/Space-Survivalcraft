@@ -317,6 +317,35 @@ BOSS_LURE_SHIELDS_PCT:        float = 0.50
 BOSS_LURE_TURRET_RADIUS_PX:   float = 350.0
 BOSS_LURE_EXIT_SHIELDS_PCT:   float = 1.00    # only exit at full shields (kept for compat)
 
+# Boss TURRET-ASSIST mode (2026-05-12, eighth telemetry pass):
+# Replaces the "kite at 750 px from the boss" default with an
+# "orbit the station's far perimeter and let turrets work" default
+# whenever the boss is within ``BOSS_TURRET_ASSIST_ENTER_PX`` of
+# the Home Station.  Sets:
+#
+#   * Eighth-pass telemetry: bot died 7 times in two engage_boss
+#     sessions, doing 0 damage to the boss in fight 1 and only
+#     respawn-cycling near the station in fight 2.  Final boss
+#     death came from turrets while the bot kept respawning.
+#     The bot's contribution was effectively zero -- its repeated
+#     deaths cost it permanent modules (lost on first death,
+#     never recovered before the boss died).
+#   * The turret + missile umbrella around the Home Station soloes
+#     bosses on station-approach attacks; the bot's value is
+#     long-range basic-laser support that doesn't risk dying.
+#
+# Hysteresis: enter at ENTER_PX, exit at EXIT_PX (> ENTER_PX) so a
+# boss hovering at the threshold doesn't flap the bot between
+# orbit and kite.  When neither condition is met (boss far AND no
+# active orbit latch), the legacy kite behavior runs so a boss
+# that spawned far from the station gets drawn in.
+BOSS_TURRET_ASSIST_ENTER_PX:  float = 1500.0
+BOSS_TURRET_ASSIST_EXIT_PX:   float = 1800.0
+# Radius from the home station the bot orbits at while turret-
+# assisting.  Uses the existing lure radius so the bot sits inside
+# both the laser turret range (500) and the missile array radius.
+BOSS_TURRET_ASSIST_ORBIT_PX:  float = BOSS_LURE_TURRET_RADIUS_PX
+
 # QWI (Quantum Wave Integrator) staging gate (Choice 1):
 # the autopilot refuses to push the boss-trigger build until the
 # station has at least this many friendly turrets/defenses and the
@@ -1092,6 +1121,14 @@ class BotState:
     # (exit) so the bot doesn't oscillate between kite ring + lure
     # at the threshold boundary.
     boss_lure_active: bool = False
+    # Boss TURRET-ASSIST latch (2026-05-12): True while the bot is
+    # orbiting the home station instead of kiting the boss directly
+    # (the boss is close enough to the station that turrets can
+    # solo it).  Set when the boss enters
+    # ``BOSS_TURRET_ASSIST_ENTER_PX`` of the station; cleared when
+    # it leaves ``BOSS_TURRET_ASSIST_EXIT_PX`` (hysteresis so a
+    # boss hovering at the threshold doesn't flap the bot).
+    boss_turret_assist_active: bool = False
 
     def reset(self) -> None:
         """Restore every field to its default.  Mutates dict fields
@@ -1144,6 +1181,7 @@ class BotState:
         self.boss_engage_start_shields = 0
         self.boss_engage_start_boss_hp = 0
         self.boss_lure_active = False
+        self.boss_turret_assist_active = False
 
 
 _state = BotState()
