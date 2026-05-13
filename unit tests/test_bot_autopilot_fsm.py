@@ -6884,6 +6884,99 @@ class TestBossOrbitKite:
         # (west) at desired_range.
         assert captured["tx"] < 4500.0
 
+    def test_orbit_anchored_on_boss_to_station_axis(
+            self, monkeypatch):
+        """2026-05-12 tenth-pass pin: when an HS exists, the orbit
+        angle anchors on the BOSS->HOME-STATION axis (theta_hs),
+        not on the bot's current angle.  Otherwise the bot trails
+        the boss into the corner -- tenth-pass log captured the
+        bot drifting from hs_dist=429 to 2921 in 20 s because the
+        bot-anchored orbit kept it on the SW side of the boss as
+        the boss moved NE toward the station.
+        """
+        import math
+        captured = self._record_goto(monkeypatch)
+        ap._state.boss_lure_active = False
+        ap._state.boss_turret_assist_active = False
+        # Station NE of boss; bot SW of boss (drifted into corner
+        # by the old bot-anchored orbit).  Boss outside turret-
+        # assist enter range so we exercise the legacy kite path.
+        s = _state(
+            player={"x": 1500.0, "y": 1500.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            buildings=[{"x": 4000.0, "y": 4000.0,
+                        "building_type": "Home Station"}],
+        )
+        # Boss between bot and station -- mid-way.
+        s["boss"] = _boss(x=2500.0, y=2500.0)
+        ap._act_engage_boss(s, s["player"])
+        # Expected: orbit target is on the boss->HS ray side
+        # (NE of boss), NOT on the bot side (SW of boss).
+        # Compute the dot product of (target-boss) with (HS-boss);
+        # positive means the target is on the station side.
+        hs_vec = (4000.0 - 2500.0, 4000.0 - 2500.0)  # NE
+        tgt_vec = (captured["tx"] - 2500.0,
+                   captured["ty"] - 2500.0)
+        dot = hs_vec[0] * tgt_vec[0] + hs_vec[1] * tgt_vec[1]
+        assert dot > 0, (
+            "Orbit target must sit on the station-side semicircle "
+            "of the boss, not trail the bot's drift.")
+
+    def test_orbit_target_stable_as_bot_drifts(
+            self, monkeypatch):
+        """The new station-anchored orbit must produce a stable
+        kite point regardless of the bot's current position --
+        moving the bot to different drifted positions yields the
+        SAME orbit target (boss + station positions unchanged).
+        Catches accidental dependency on theta_bot.
+        """
+        import math
+        captured = self._record_goto(monkeypatch)
+        ap._state.boss_lure_active = False
+        ap._state.boss_turret_assist_active = False
+        s = _state(
+            player={"x": 3000.0, "y": 3000.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            buildings=[{"x": 4000.0, "y": 4000.0,
+                        "building_type": "Home Station"}],
+        )
+        # Boss outside turret-assist enter range.
+        s["boss"] = _boss(x=2000.0, y=2000.0)
+        ap._act_engage_boss(s, s["player"])
+        tx1, ty1 = captured["tx"], captured["ty"]
+        # Move the bot to a drastically different position.
+        captured.clear()
+        s["player"]["x"] = 1000.0
+        s["player"]["y"] = 1000.0
+        ap._act_engage_boss(s, s["player"])
+        tx2, ty2 = captured["tx"], captured["ty"]
+        # Same orbit point (within rounding) because boss + HS
+        # positions are unchanged.
+        assert abs(tx1 - tx2) < 0.5
+        assert abs(ty1 - ty2) < 0.5
+
+    def test_orbit_no_station_uses_bot_angle(self, monkeypatch):
+        """No-station fallback (early Nebula spawn, Star Maze):
+        orbit uses the bot's current angle (PR #106 behavior).
+        Without this fallback the bot's orbit would be undefined.
+        """
+        import math
+        captured = self._record_goto(monkeypatch)
+        ap._state.boss_lure_active = False
+        ap._state.boss_turret_assist_active = False
+        s = _state(
+            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            # no buildings
+        )
+        s["boss"] = _boss(x=3500.0, y=3200.0)
+        ap._act_engage_boss(s, s["player"])
+        # PR #106 invariant: target on circle of radius
+        # BOSS_KITE_RANGE_PX, off the boss->bot ray by ~LEAD.
+        d = math.hypot(captured["tx"] - 3500.0,
+                       captured["ty"] - 3200.0)
+        assert abs(d - ap.BOSS_KITE_RANGE_PX) < 1.0
+
 
 class TestBossLureMode:
     """User spec (2026-05-11 fifth pass): the bot should ATTACK the
