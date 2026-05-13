@@ -485,6 +485,18 @@ def cluster_detour_waypoint(state: dict, px: float, py: float,
     Suppressed when the target is inside the cluster's expanded
     radius — the bot is intentionally heading into the cluster
     (deposit / craft / install) so don't redirect it.
+
+    Bot-inside-cluster override (2026-05-12 seventh telemetry
+    pass): when the bot itself is inside the cluster bounding
+    radius and the target is outside, return a radial **exit
+    waypoint** on the cluster perimeter in the direction of the
+    target.  The bot exits the cluster cleanly along that ray
+    before pursuing the original target -- otherwise it pins on
+    a building between the station body and the turret ring (the
+    user-observed oscillation: bot drifted from hs_dist=208 to
+    108 to 132 over 15 s in pre_boss_mine, then stopped).  The
+    direction toward the target avoids re-entering the cluster
+    immediately after exit.
     """
     cx, cy, r = cluster_centroid_and_radius(state)
     if cx is None:
@@ -499,6 +511,21 @@ def cluster_detour_waypoint(state: dict, px: float, py: float,
     dy = ty - py
     seg_len = math.hypot(dx, dy)
     if seg_len < 1.0:
+        return None
+    # Bot-inside-cluster override.  Tested before the segment-
+    # projection logic because the segment from an inside-bot to
+    # an outside-target has the centroid "behind" the bot
+    # (t_proj < 0), which would otherwise return None here.
+    bot_to_centre = math.hypot(px - cx, py - cy)
+    if bot_to_centre < r:
+        ctx = tx - cx
+        cty = ty - cy
+        ct_len = math.hypot(ctx, cty)
+        if ct_len > 1.0:
+            return (cx + (ctx / ct_len) * R_path,
+                    cy + (cty / ct_len) * R_path)
+        # Degenerate: target on top of centroid (shouldn't happen
+        # given the target_to_centre check above, but be defensive).
         return None
     # Project centroid onto the segment from start→target.
     sx = cx - px

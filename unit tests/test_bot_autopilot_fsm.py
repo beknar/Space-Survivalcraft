@@ -3670,6 +3670,48 @@ class TestDoGotoBrakeFlag:
         assert keys.get("s") is False
         assert keys.get("w") is False
 
+    def test_astar_unreachable_inside_cluster_uses_exit_waypoint(
+            self, monkeypatch):
+        """2026-05-12 seventh-pass pin: when A* reports the target
+        unreachable AND the bot is inside the station cluster,
+        ``_do_goto`` must call ``cluster_detour_waypoint`` to
+        compute a radial exit so the bot peels out of the cluster
+        before A* gets another shot.  Without this the bot
+        direct-thrusts into the building that was blocking A*."""
+        self._record_keys(monkeypatch)
+        # Force A* to return the unreachable sentinel.
+        monkeypatch.setattr(ap, "_astar_next_waypoint",
+                            lambda *a, **kw: "unreachable")
+        called_with: dict = {}
+        # Wrap the real cluster detour to record its inputs while
+        # still returning a deterministic exit waypoint.
+        def _record(state, px, py, tx, ty):
+            called_with.update(px=px, py=py, tx=tx, ty=ty)
+            return (-100.0, 0.0)  # arbitrary exit waypoint
+        monkeypatch.setattr(ap._nav, "cluster_detour_waypoint", _record)
+        # 4-building cluster centered at origin; bot at (50, 0)
+        # (inside r=200); target far west.
+        s = _state(
+            player={"x": 50.0, "y": 0.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            buildings=[
+                {"x": 200.0, "y": 0.0,
+                 "building_type": "Service Module"},
+                {"x": -200.0, "y": 0.0,
+                 "building_type": "Service Module"},
+                {"x": 0.0, "y": 200.0,
+                 "building_type": "Home Station"},
+                {"x": 0.0, "y": -200.0,
+                 "building_type": "Service Module"},
+            ],
+        )
+        ap._do_goto(s, s["player"], -3000.0, 0.0, stop_radius=80.0)
+        # cluster_detour_waypoint was invoked with the original
+        # (px, py, tx, ty) -- proves the unreachable branch took
+        # the new code path.
+        assert called_with == {
+            "px": 50.0, "py": 0.0, "tx": -3000.0, "ty": 0.0}
+
 
 class TestSpiralStopRadiusReduced:
     """The spiral search's stop_radius dropped from 120 to 40 px so
@@ -4797,6 +4839,43 @@ class TestClusterDetourWaypoint:
         # Player on east side of cluster, target further east.
         wp = ap._cluster_detour_waypoint(s, 1000.0, 0.0, 5000.0, 0.0)
         assert wp is None
+
+    def test_bot_inside_cluster_returns_radial_exit_waypoint(self):
+        """2026-05-12 seventh-pass pin: bot wedged between the
+        station body and the turret ring, target far outside.
+        cluster_detour_waypoint must return a radial exit waypoint
+        in the direction of the target, NOT None (the pre-fix
+        behaviour, which let the bot direct-thrust into a building).
+        """
+        s = self._cluster_state(cx=0.0, cy=0.0, r=200.0)
+        # Bot 100 px from centroid (well inside r=200); target far
+        # to the west.
+        wp = ap._cluster_detour_waypoint(s, 100.0, 0.0, -3000.0, 0.0)
+        assert wp is not None
+        wx, wy = wp
+        import math as _m
+        # Exit waypoint is on the cluster perimeter at
+        # R = r + CLUSTER_DETOUR_MARGIN_PX from centroid, in the
+        # direction of the target (west — so x is negative).
+        d_to_centre = _m.hypot(wx - 0.0, wy - 0.0)
+        assert abs(d_to_centre
+                   - (200.0 + ap.CLUSTER_DETOUR_MARGIN_PX)) < 0.5
+        assert wx < 0.0  # exit toward the target side
+
+    def test_bot_at_cluster_perimeter_no_exit_waypoint(self):
+        """Bot exactly on the cluster bounding radius is NOT
+        ``inside`` -- existing detour logic handles it (or returns
+        None if the path doesn't actually penetrate).  Keeps the
+        new override surgical."""
+        s = self._cluster_state(cx=0.0, cy=0.0, r=200.0)
+        # Bot at the perimeter (200 px from centroid); target far west.
+        wp = ap._cluster_detour_waypoint(s, 200.0, 0.0, -3000.0, 0.0)
+        # Segment from (200, 0) west passes through centroid -- this
+        # is the cross-cluster case, NOT the inside-bot case.  Result
+        # is a tangent waypoint (not the radial exit), so y != 0.
+        assert wp is not None
+        _wx, wy = wp
+        assert abs(wy) > 0.0  # perpendicular tangent, not radial exit
 
 
 # ── 2026-05-04 hardening: long-term per-anchor hunt-stuck giveup ──────
