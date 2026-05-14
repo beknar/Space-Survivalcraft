@@ -7314,7 +7314,9 @@ class TestBossPhase2ChargeDodge:
         # Phase 2 boss directly east, charging.  Bot is west of boss
         # along +x axis, so default kite is at (3200 - extra, 3200)
         # — the perpendicular dodge must change y by BOSS_DODGE_PERP.
-        s["boss"] = _boss(x=3400.0, y=3200.0, phase=2,
+        # Boss positioned outside BOSS_CHARGE_PANIC_DIST_PX so the
+        # standard perpendicular dodge fires (not the panic escape).
+        s["boss"] = _boss(x=3700.0, y=3200.0, phase=2,
                           charging=True, windup=2.0)
         ap._act_engage_boss(s, s["player"])
         # Default kite y would be 3200; dodge displaces it by
@@ -7379,7 +7381,10 @@ class TestBossDodgeSignDeterministic:
             buildings=[{"x": 3200.0, "y": 5000.0,  # station NORTH
                         "building_type": "Home Station"}],
         )
-        s["boss"] = _boss(x=3400.0, y=3200.0, phase=2,
+        # Boss outside BOSS_CHARGE_PANIC_DIST_PX so the standard
+        # perpendicular dodge (which picks the station-side sign)
+        # fires, not the panic escape.
+        s["boss"] = _boss(x=3700.0, y=3200.0, phase=2,
                           charging=True, windup=2.0)
         ap._act_engage_boss(s, s["player"])
         # The lure target sits between bot and station — assert the
@@ -7407,12 +7412,152 @@ class TestBossDodgeSignDeterministic:
             buildings=[{"x": 3200.0, "y": 5000.0,
                         "building_type": "Home Station"}],
         )
+        # Boss outside BOSS_CHARGE_PANIC_DIST_PX so the standard
+        # perpendicular dodge fires and its sign is observable
+        # (under panic the helper logs sign=0.0 for every call).
         for w in (2.0, 1.9, 1.8, 1.7, 1.0, 0.5, 0.1):
-            s["boss"] = _boss(x=3400.0, y=3200.0, phase=2,
+            s["boss"] = _boss(x=3700.0, y=3200.0, phase=2,
                               charging=True, windup=w)
             ap._act_engage_boss(s, s["player"])
         assert len(set(sign_values)) == 1, (
             f"dodge sign flipped during a single windup: {sign_values}")
+
+
+class TestBossChargePanicEscape:
+    """2026-05-13 thirteenth-pass pin: when the bot is too close to
+    the boss during a charge windup, the standard perpendicular
+    dodge displacement is dominated by the long-range kite/lure
+    target vector -- bot drifts ALONGSIDE the boss instead of
+    opening distance.  Captured 28 dodge events at frozen
+    ``boss_dist=143 px`` across 1.9 s of a Phase 2 charge windup
+    (boss collision radius is 114 + ship 25 = 139 px, so 143
+    means one frame from a heavy collision bump).
+
+    Fix: when ``boss_dist < BOSS_CHARGE_PANIC_DIST_PX`` and the
+    boss is charging, override the kite target with a point
+    directly away from the boss at ``BOSS_CHARGE_PANIC_ESCAPE_PX``.
+    """
+
+    def _record_goto(self, monkeypatch):
+        captured: dict = {}
+        monkeypatch.setattr(
+            ap, "_do_goto",
+            lambda state, p, tx, ty, stop_radius=80.0,
+            brake_on_arrival=True: captured.update(tx=tx, ty=ty))
+        monkeypatch.setattr(ap, "_ensure_weapon", lambda *a, **kw: None)
+        return captured
+
+    def test_panic_fires_when_close_to_boss_during_charge(
+            self, monkeypatch):
+        """Bot 200 px from boss + charging => kite overridden to a
+        point at BOSS_CHARGE_PANIC_ESCAPE_PX from boss along the
+        boss->bot ray (i.e., directly away)."""
+        captured = self._record_goto(monkeypatch)
+        ap._state.boss_lure_active = True  # so lure target would
+        # otherwise dominate; panic must override
+        ap._state.boss_turret_assist_active = False
+        s = _state(
+            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            buildings=[{"x": 5000.0, "y": 5000.0,  # far NE
+                        "building_type": "Home Station"}],
+        )
+        s["boss"] = _boss(x=3400.0, y=3200.0, phase=2,
+                          charging=True, windup=1.5)
+        ap._act_engage_boss(s, s["player"])
+        # Panic target = boss + (bot-boss)/|bot-boss| * ESCAPE_PX
+        # = (3400, 3200) + (-1, 0) * 600 = (2800, 3200).
+        import math
+        target_dist = math.hypot(captured["tx"] - 3400.0,
+                                 captured["ty"] - 3200.0)
+        assert abs(target_dist
+                   - ap.BOSS_CHARGE_PANIC_ESCAPE_PX) < 1.0
+        # Direction must be AWAY from boss (same side as bot).
+        # Bot west of boss => target west of boss => tx < 3400.
+        assert captured["tx"] < 3400.0
+
+    def test_panic_does_not_fire_outside_panic_range(
+            self, monkeypatch):
+        """Bot 500 px from boss + charging => standard
+        perpendicular dodge (NOT panic)."""
+        captured = self._record_goto(monkeypatch)
+        ap._state.boss_lure_active = False
+        ap._state.boss_turret_assist_active = False
+        s = _state(
+            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+        )
+        # 500 px east of bot -- outside BOSS_CHARGE_PANIC_DIST_PX=300.
+        s["boss"] = _boss(x=3700.0, y=3200.0, phase=2,
+                          charging=True, windup=1.5)
+        ap._act_engage_boss(s, s["player"])
+        # Standard perp dodge displaces kite y by ±250 px from the
+        # boss->station-axis baseline (no HS here, so it's
+        # boss->bot axis).  Panic would set kite at 600 from boss
+        # along boss->bot ray with ty == 3200 (no displacement).
+        # Confirm we are NOT in panic by checking |ty - 3200| > 100.
+        assert abs(captured["ty"] - 3200.0) > 100.0, (
+            "Boss at 500 px should fall outside panic range "
+            "-- standard perpendicular dodge should fire instead")
+
+    def test_panic_does_not_fire_when_not_charging(
+            self, monkeypatch):
+        """Bot 100 px from boss but boss NOT charging => no panic
+        (panic only triggers on charge windup, not just proximity).
+        """
+        captured = self._record_goto(monkeypatch)
+        ap._state.boss_lure_active = False
+        ap._state.boss_turret_assist_active = False
+        s = _state(
+            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+        )
+        # 100 px east of bot -- well inside panic radius -- but boss
+        # is not charging.
+        s["boss"] = _boss(x=3300.0, y=3200.0, phase=2,
+                          charging=False, windup=0.0)
+        ap._act_engage_boss(s, s["player"])
+        # No HS, no charge => standard orbit kite at desired_range
+        # from boss.  Target distance from boss == BOSS_KITE_RANGE_PX.
+        import math
+        d = math.hypot(captured["tx"] - 3300.0,
+                       captured["ty"] - 3200.0)
+        # Panic would put target at ESCAPE_PX (600).  Standard kite
+        # puts it at BOSS_KITE_RANGE_PX (750).  Differ enough to
+        # tell them apart.
+        assert abs(d - ap.BOSS_KITE_RANGE_PX) < 1.0
+
+    def test_panic_logs_telemetry_with_panic_marker(
+            self, monkeypatch):
+        """Panic-escape branch emits an engage_boss_dodge event with
+        a ``panic=True`` flag so post-hoc analysis can distinguish
+        panic firings from standard dodges."""
+        self._record_goto(monkeypatch)
+        ap._state.boss_lure_active = False
+        ap._state.boss_turret_assist_active = False
+        events: list = []
+
+        def _capture(event, **kw):
+            if event == "engage_boss_dodge":
+                events.append(kw)
+        monkeypatch.setattr(ap, "_telemetry_log", _capture)
+        s = _state(
+            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+        )
+        s["boss"] = _boss(x=3400.0, y=3200.0, phase=2,
+                          charging=True, windup=1.5)
+        ap._act_engage_boss(s, s["player"])
+        assert len(events) == 1
+        assert events[0].get("panic") is True
+
+    def test_panic_constants_sane(self):
+        """Sanity gates on the panic constants -- the escape
+        distance must be strictly greater than the panic-entry
+        distance, otherwise the panic target would be inside the
+        panic region itself and the bot would never exit."""
+        assert (ap.BOSS_CHARGE_PANIC_ESCAPE_PX
+                > ap.BOSS_CHARGE_PANIC_DIST_PX)
 
 
 class TestBossPhase3Press:

@@ -299,6 +299,28 @@ BOSS_KITE_STATION_TETHER_PX:  float = 600.0    # max distance from station while
 BOSS_DODGE_PERP_PX:           float = 250.0    # perpendicular strafe during charge windup
 BOSS_PHASE3_PRESS_RANGE_PX:   float = 600.0    # Phase 3 (no shield regen): close in for DPS
 
+# Boss CHARGE panic-escape (2026-05-13 thirteenth telemetry pass).
+# When the bot is dangerously close to the boss AND a charge is
+# winding up, the standard ``BOSS_DODGE_PERP_PX`` perpendicular
+# displacement is dominated by the kite/lure target vector
+# (which can be 2700 px away when lure-mode is active).  Net
+# result: the bot drifts ALONGSIDE the boss instead of escaping
+# perpendicular to its dash line -- thirteenth-pass log captured
+# 28 dodge events all at ``boss_dist=143 px`` over 1.9 s of a
+# Phase 2 charge windup, the bot stuck inside collision range.
+#
+# Fix: when boss_dist < ``BOSS_CHARGE_PANIC_DIST_PX`` and the
+# boss is charging (windup > 0 OR currently dashing), OVERRIDE
+# the kite target with a point ``BOSS_CHARGE_PANIC_ESCAPE_PX``
+# from the boss along the boss->bot ray.  Bot heads directly
+# away from boss -- doesn't matter what the long-range kite
+# target was, the short-range escape vector dominates while
+# the panic condition holds.  Releases when boss_dist >=
+# BOSS_CHARGE_PANIC_DIST_PX so the bot re-engages the standard
+# kite + perpendicular dodge once it has breathing room.
+BOSS_CHARGE_PANIC_DIST_PX:    float = 300.0
+BOSS_CHARGE_PANIC_ESCAPE_PX:  float = 600.0
+
 # Boss-orbit kite (2026-05-12, ninth telemetry pass).  Instead of a
 # STATIC kite point on the boss->bot ray, the kite target leads the
 # bot by ``BOSS_ORBIT_LEAD_RAD`` radians along the orbit circle.
