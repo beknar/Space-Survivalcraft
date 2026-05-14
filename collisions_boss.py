@@ -52,12 +52,48 @@ def _boss_death(gv: GameView) -> None:
     gv._t_boss_subtitle.text = "Wormholes have appeared at the edges of the sector!"
 
 
-def _projectiles_vs_boss(gv: GameView, boss, on_death) -> None:
+def damage_boss(gv: GameView, boss, amount: int) -> bool:
+    """Apply ``amount`` damage to ``boss`` + fire the appropriate
+    death helper (``_boss_death`` / ``_nebula_boss_death``) if HP
+    reaches 0.  Returns ``True`` if the boss died this call.
+
+    Consolidates the take_damage + post-damage death routing that
+    was previously duplicated across three call sites
+    (projectiles, missiles, melee).  Caught a real bug:
+    ``_update_blade_aoe`` in update_blade.py forgot to call
+    ``_boss_death`` after a lethal melee hit, leaving the boss as
+    a spriteless ghost still referenced by ``gv._boss`` (twelfth
+    telemetry pass, fixed in PR #110).  This helper makes that
+    class of bug unreachable -- every player-damage path now
+    funnels through one function.
+
+    Caller is responsible for hit detection / VFX / projectile
+    cleanup; this function only handles the
+    ``take_damage + check hp + dispatch death helper`` triad.
+    """
+    if boss is None or boss.hp <= 0:
+        return False
+    boss.take_damage(int(amount))
+    if boss.hp > 0:
+        return False
+    if boss is gv._boss:
+        _boss_death(gv)
+    elif boss is getattr(gv, "_nebula_boss", None):
+        _nebula_boss_death(gv)
+    return True
+
+
+def _projectiles_vs_boss(gv: GameView, boss, _on_death=None) -> None:
     """Shared helper: player + turret projectiles damage ``boss``.
 
     Used for both the Double Star and the Nebula boss -- the same
     player laser or station-turret shot should hurt whichever boss
-    is alive.  ``on_death(gv)`` runs exactly once when HP hits 0.
+    is alive.  Death routing is handled by ``damage_boss`` based
+    on whether ``boss`` is ``gv._boss`` or ``gv._nebula_boss``.
+
+    The legacy ``on_death`` parameter is accepted but ignored for
+    backwards-compat with any out-of-tree callers; new code should
+    just pass ``(gv, boss)``.
     """
     if boss is None or boss.hp <= 0:
         return
@@ -71,9 +107,7 @@ def _projectiles_vs_boss(gv: GameView, boss, on_death) -> None:
             gv.hit_sparks.append(HitSpark(proj.center_x, proj.center_y))
             gv._trigger_shake()
             proj.remove_from_sprite_lists()
-            boss.take_damage(int(proj.damage))
-            if boss.hp <= 0:
-                on_death(gv)
+            if damage_boss(gv, boss, proj.damage):
                 return
     for proj in list(gv.turret_projectile_list):
         if boss.hp <= 0:
@@ -83,15 +117,13 @@ def _projectiles_vs_boss(gv: GameView, boss, on_death) -> None:
         if math.hypot(dx, dy) <= hit_r:
             gv.hit_sparks.append(HitSpark(proj.center_x, proj.center_y))
             proj.remove_from_sprite_lists()
-            boss.take_damage(int(proj.damage))
-            if boss.hp <= 0:
-                on_death(gv)
+            if damage_boss(gv, boss, proj.damage):
                 return
 
 
 def handle_boss_projectile_hits(gv: GameView) -> None:
     """Player + turret projectiles hitting the Double Star boss."""
-    _projectiles_vs_boss(gv, gv._boss, _boss_death)
+    _projectiles_vs_boss(gv, gv._boss)
 
 
 def _nebula_boss_death(gv: GameView) -> None:
@@ -137,7 +169,7 @@ def _nebula_boss_death(gv: GameView) -> None:
 def handle_nebula_boss_projectile_hits(gv: GameView) -> None:
     """Player + turret projectiles hitting the Nebula boss."""
     nb = getattr(gv, "_nebula_boss", None)
-    _projectiles_vs_boss(gv, nb, _nebula_boss_death)
+    _projectiles_vs_boss(gv, nb)
 
 
 def handle_boss_laser_hits(gv: GameView) -> None:

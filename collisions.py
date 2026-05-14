@@ -61,6 +61,7 @@ from collisions_boss import (
     _NEBULA_BOSS_COPPER_DROP,
     _boss_death,
     _projectiles_vs_boss,
+    damage_boss,
     handle_boss_projectile_hits,
     _nebula_boss_death,
     handle_nebula_boss_projectile_hits,
@@ -92,7 +93,7 @@ __all__ = [
     "handle_turret_projectile_hits",
     # boss
     "_NEBULA_BOSS_IRON_DROP", "_NEBULA_BOSS_COPPER_DROP",
-    "_boss_death", "_projectiles_vs_boss",
+    "_boss_death", "_projectiles_vs_boss", "damage_boss",
     "handle_boss_projectile_hits",
     "_nebula_boss_death", "handle_nebula_boss_projectile_hits",
     "handle_boss_laser_hits", "handle_boss_player_collision",

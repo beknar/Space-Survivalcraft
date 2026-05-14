@@ -75,6 +75,162 @@ def _act_engage(state: dict, p: dict) -> None:
     _ap.KeyState.hold("space", td < _ap.FIRE_RANGE_PX)
 
 
+def _update_combat_latches(state: dict, p: dict, boss: dict,
+                           hs: dict | None, phase: int) -> None:
+    """Edge-triggered transitions for the two boss-fight latches:
+
+    * ``boss_turret_assist_active`` — set when the boss enters
+      ``BOSS_TURRET_ASSIST_ENTER_PX`` of the station, cleared on
+      ``BOSS_TURRET_ASSIST_EXIT_PX`` exit (hysteresis prevents
+      flap when the boss hovers at the boundary).  Eighth pass.
+    * ``boss_lure_active`` — set when shields drop below
+      ``BOSS_LURE_SHIELDS_PCT`` and an HS exists.  Sticky for
+      the duration of the boss fight (cleared when boss dies).
+
+    Telemetry events fire on edge transitions only, not per tick.
+    """
+    if hs is None:
+        return
+    bx = float(boss.get("x", 0.0))
+    by = float(boss.get("y", 0.0))
+    hpx = float(hs.get("x", 0.0))
+    hpy = float(hs.get("y", 0.0))
+    boss_to_hs = math.hypot(bx - hpx, by - hpy)
+    if (not _ap._state.boss_turret_assist_active
+            and boss_to_hs < _ap.BOSS_TURRET_ASSIST_ENTER_PX):
+        _ap._state.boss_turret_assist_active = True
+        _ap._telemetry_log(
+            "boss_turret_assist_enter",
+            boss_to_hs=round(boss_to_hs, 1),
+            boss_phase=phase)
+    elif (_ap._state.boss_turret_assist_active
+            and boss_to_hs > _ap.BOSS_TURRET_ASSIST_EXIT_PX):
+        _ap._state.boss_turret_assist_active = False
+        _ap._telemetry_log(
+            "boss_turret_assist_exit",
+            boss_to_hs=round(boss_to_hs, 1),
+            boss_phase=phase)
+
+    sh_now = int(p.get("shields", 0))
+    max_sh = max(1, int(p.get("max_shields", 1)))
+    sh_frac = sh_now / max_sh
+    if (not _ap._state.boss_lure_active
+            and sh_frac < _ap.BOSS_LURE_SHIELDS_PCT):
+        _ap._state.boss_lure_active = True
+        _ap._telemetry_log("boss_lure_enter",
+                           shields=sh_now, max_shields=max_sh,
+                           sh_frac=round(sh_frac, 3),
+                           boss_phase=phase)
+
+
+def _compute_kite_target(p: dict, boss: dict, hs: dict | None,
+                         desired_range: float
+                         ) -> tuple[float, float]:
+    """Compute the goto target for the boss-fight kite, before
+    charge-dodge perturbation.
+
+    Two anchor modes:
+
+    * **TURRET-ASSIST / LURE** (either latch active, HS exists):
+      orbit the FAR side of the station from the boss at
+      ``BOSS_TURRET_ASSIST_ORBIT_PX`` so the station sits between
+      the bot's heading and the boss.  PR #100/#103.
+    * **Default kite**: a tangent orbit point
+      ``BOSS_ORBIT_LEAD_RAD`` ahead of the boss->station axis
+      (or boss->bot axis when no HS).  PR #106/#107.  The
+      legacy station-tether snap (PR #95) still snaps the kite
+      to the boss->station ray when it lands outside
+      ``BOSS_KITE_STATION_TETHER_PX`` of the station.
+    """
+    px = float(p.get("x", 0.0))
+    py = float(p.get("y", 0.0))
+    bx = float(boss.get("x", 0.0))
+    by = float(boss.get("y", 0.0))
+
+    use_orbit = ((_ap._state.boss_turret_assist_active
+                  or _ap._state.boss_lure_active)
+                 and hs is not None)
+    if use_orbit:
+        hx = float(hs.get("x", 0.0))
+        hy = float(hs.get("y", 0.0))
+        sdx = hx - bx
+        sdy = hy - by
+        sdist = math.hypot(sdx, sdy)
+        radius = _ap.BOSS_TURRET_ASSIST_ORBIT_PX
+        if sdist > 1.0:
+            return (hx + (sdx / sdist) * radius,
+                    hy + (sdy / sdist) * radius)
+        # Boss on top of station — orbit any side of the HS.
+        return (hx + radius, hy)
+
+    # Default kite: tangent orbit point on the desired-range ring.
+    if hs is not None:
+        hx = float(hs.get("x", 0.0))
+        hy = float(hs.get("y", 0.0))
+        theta_anchor = math.atan2(hy - by, hx - bx)
+    else:
+        theta_anchor = math.atan2(py - by, px - bx)
+    theta_lead = theta_anchor + _ap.BOSS_ORBIT_LEAD_RAD
+    kite_x = bx + math.cos(theta_lead) * desired_range
+    kite_y = by + math.sin(theta_lead) * desired_range
+
+    # Station-tether snap: if the orbit drifted out of the
+    # umbrella, pull the kite to the boss->station ray.
+    if hs is not None:
+        hx = float(hs.get("x", 0.0))
+        hy = float(hs.get("y", 0.0))
+        kite_to_hs = math.hypot(kite_x - hx, kite_y - hy)
+        if kite_to_hs > _ap.BOSS_KITE_STATION_TETHER_PX:
+            shx = hx - bx
+            shy = hy - by
+            shdist = math.hypot(shx, shy)
+            if shdist > 1.0:
+                kite_x = bx + (shx / shdist) * desired_range
+                kite_y = by + (shy / shdist) * desired_range
+    return kite_x, kite_y
+
+
+def _apply_charge_dodge(p: dict, boss: dict, hs: dict | None,
+                        kite_x: float, kite_y: float,
+                        ux: float, uy: float, bdist: float,
+                        phase: int) -> tuple[float, float]:
+    """Phase 2+ charge dodge: when the boss is winding up a dash,
+    add a perpendicular ``BOSS_DODGE_PERP_PX`` displacement to the
+    kite target.  The dodge sign points toward the home station
+    so dodge + retreat combine (PR #95).  Telemetry fires once
+    per dodging tick.
+
+    No-op outside Phase 2+ or when the boss isn't charging.
+    """
+    charging = bool(boss.get("charging", False))
+    windup = float(boss.get("charge_windup", 0.0))
+    if phase < 2 or (not charging and windup <= 0.0):
+        return kite_x, kite_y
+
+    px = float(p.get("x", 0.0))
+    py = float(p.get("y", 0.0))
+    perp_x = -uy
+    perp_y = ux
+    if hs is not None:
+        hsx = float(hs.get("x", 0.0))
+        hsy = float(hs.get("y", 0.0))
+        to_hs_x = hsx - px
+        to_hs_y = hsy - py
+        sign = 1.0 if (perp_x * to_hs_x
+                       + perp_y * to_hs_y) >= 0.0 else -1.0
+    else:
+        sign = 1.0
+    kite_x += perp_x * sign * _ap.BOSS_DODGE_PERP_PX
+    kite_y += perp_y * sign * _ap.BOSS_DODGE_PERP_PX
+    _ap._telemetry_log("engage_boss_dodge",
+                       phase=phase,
+                       charging=bool(charging),
+                       windup=round(float(windup), 3),
+                       sign=sign,
+                       boss_dist=round(bdist, 1))
+    return kite_x, kite_y
+
+
 def _act_engage_boss(state: dict, p: dict) -> None:
     """ENGAGE_BOSS: station-anchor kite + phase-aware strafe.
 
@@ -108,6 +264,13 @@ def _act_engage_boss(state: dict, p: dict) -> None:
         + exit valve in ``_choose_next_state`` will yank the bot
         out to S_REGEN if shields collapse, so this handler
         doesn't need its own retreat path.
+
+    Decomposed into three composable helpers:
+    ``_update_combat_latches`` (turret-assist + lure latches),
+    ``_compute_kite_target`` (geometric target picker),
+    ``_apply_charge_dodge`` (perpendicular dash dodge).  This
+    function is the orchestrator + boss-vanished early-out + fire
+    gate + world clamp + ``_do_goto`` dispatch.
     """
     boss = state.get("boss")
     if boss is None:
@@ -126,63 +289,13 @@ def _act_engage_boss(state: dict, p: dict) -> None:
     bx = float(boss.get("x", 0.0))
     by = float(boss.get("y", 0.0))
     phase = int(boss.get("phase", 1))
-    charging = bool(boss.get("charging", False))
-    windup = float(boss.get("charge_windup", 0.0))
 
-    # ── TURRET-ASSIST mode latch ─────────────────────────────────
-    # User spec (2026-05-12 eighth telemetry pass): when the boss
-    # is near the Home Station, ORBIT the station's far perimeter
-    # and let the turret + missile umbrella solo it.  Eighth-pass
-    # log: bot died 7 times trying to kite directly, did 0 damage
-    # in the first fight, lost all modules on first death, then
-    # the turrets finished the boss while the bot kept respawning.
-    # The bot's actual combat value is long-range basic-laser fire
-    # at zero death risk -- not direct kite engagement.
-    #
-    # Hysteresis: enter at BOSS_TURRET_ASSIST_ENTER_PX from the
-    # station, exit at BOSS_TURRET_ASSIST_EXIT_PX (wider) so a
-    # boss hovering at the boundary doesn't flap the bot between
-    # orbit and kite.
-    sh_now = int(p.get("shields", 0))
-    max_sh = max(1, int(p.get("max_shields", 1)))
-    sh_frac = sh_now / max_sh
-    hs_preview = _ap._find_home_station(state)
-    if hs_preview is not None:
-        hpx = float(hs_preview.get("x", 0.0))
-        hpy = float(hs_preview.get("y", 0.0))
-        boss_to_hs = math.hypot(bx - hpx, by - hpy)
-        if (not _ap._state.boss_turret_assist_active
-                and boss_to_hs < _ap.BOSS_TURRET_ASSIST_ENTER_PX):
-            _ap._state.boss_turret_assist_active = True
-            _ap._telemetry_log(
-                "boss_turret_assist_enter",
-                boss_to_hs=round(boss_to_hs, 1),
-                boss_phase=phase)
-        elif (_ap._state.boss_turret_assist_active
-                and boss_to_hs > _ap.BOSS_TURRET_ASSIST_EXIT_PX):
-            _ap._state.boss_turret_assist_active = False
-            _ap._telemetry_log(
-                "boss_turret_assist_exit",
-                boss_to_hs=round(boss_to_hs, 1),
-                boss_phase=phase)
+    hs = _ap._find_home_station(state)
 
-    # ── LURE-mode latch (legacy fallback) ────────────────────────
-    # Retained for the boss-far-from-station case: when the
-    # turret-assist latch is OFF (boss too far for turrets) and
-    # shields drop below 50 %, the bot drags the boss home.  Once
-    # the boss enters TURRET_ASSIST_ENTER_PX the new orbit logic
-    # takes over.
-    if (hs_preview is not None
-            and not _ap._state.boss_lure_active
-            and sh_frac < _ap.BOSS_LURE_SHIELDS_PCT):
-        _ap._state.boss_lure_active = True
-        _ap._telemetry_log("boss_lure_enter",
-                           shields=sh_now, max_shields=max_sh,
-                           sh_frac=round(sh_frac, 3),
-                           boss_phase=phase)
+    _update_combat_latches(state, p, boss, hs, phase)
 
-    # Vector from boss to bot — defines the kite ray and the
-    # perpendicular axis for the charge dodge.
+    # Boss-to-bot unit vector — defines the perpendicular axis for
+    # the charge dodge and the fire-gate distance check.
     dx = px - bx
     dy = py - by
     bdist = math.hypot(dx, dy)
@@ -194,124 +307,12 @@ def _act_engage_boss(state: dict, p: dict) -> None:
     else:
         ux, uy = dx / bdist, dy / bdist
 
-    # Phase-3 press range overrides the default 750 px kite.
     desired_range = (_ap.BOSS_PHASE3_PRESS_RANGE_PX
                      if phase >= 3 else _ap.BOSS_KITE_RANGE_PX)
 
-    hs = _ap._find_home_station(state)
-
-    # TURRET-ASSIST / LURE mode: orbit the FAR side of the home
-    # station so the station sits between the bot and the boss.
-    # Falls back to the standard kite when no station exists
-    # (early Nebula spawn) or when neither latch is active.
-    use_orbit = ((_ap._state.boss_turret_assist_active
-                  or _ap._state.boss_lure_active)
-                 and hs is not None)
-    if use_orbit:
-        hx = float(hs.get("x", 0.0))
-        hy = float(hs.get("y", 0.0))
-        # Far-side perimeter anchor: station between bot heading
-        # and boss.  Pre-fix (PR #100) the bot aimed at the boss-
-        # side perimeter and drove toward the boss to reach the
-        # umbrella; the far-side anchor means the bot rotates ~180
-        # and forward-thrusts past the station instead.  Turrets
-        # fire over the bot at the closing boss; bot stays inside
-        # turret range, contributing basic-laser DPS without dying.
-        sdx = hx - bx
-        sdy = hy - by
-        sdist = math.hypot(sdx, sdy)
-        radius = _ap.BOSS_TURRET_ASSIST_ORBIT_PX
-        if sdist > 1.0:
-            lure_x = hx + (sdx / sdist) * radius
-            lure_y = hy + (sdy / sdist) * radius
-        else:
-            # Boss on top of station -- orbit any side of the HS.
-            lure_x = hx + radius
-            lure_y = hy
-        kite_x, kite_y = lure_x, lure_y
-    else:
-        # ORBIT kite target: a tangent point ``BOSS_ORBIT_LEAD_RAD``
-        # ahead of the boss->station axis (or boss->bot axis when no
-        # station exists).  Tangential motion lets the broadside
-        # module land perpendicular shots; the station anchor keeps
-        # the bot from drifting into the corner.
-        #
-        # Why anchor on the station axis (2026-05-12 tenth pass): the
-        # PR #106 orbit used the BOT'S current angle, so as the boss
-        # moved NE toward the station the orbit point shifted SW and
-        # the bot trailed the boss into the corner.  Tenth-pass log:
-        # bot drifted from hs_dist=429 to hs_dist=2921 over 20 s,
-        # shields dropped to 5/120, 14 shield consumables fired to
-        # survive, bot finished the boss fight after barely escaping
-        # close-range charge dashes (boss_dist frozen at 143 px for
-        # 27 dodge events).
-        #
-        # The station-anchored orbit point is on the boss->station
-        # ray at ``desired_range`` plus a small angular lead.  Bot
-        # heads to a point near the station regardless of its
-        # current drift, and tangential motion still happens as
-        # the boss + station relative angle changes tick-to-tick.
-        if hs is not None:
-            hx = float(hs.get("x", 0.0))
-            hy = float(hs.get("y", 0.0))
-            theta_anchor = math.atan2(hy - by, hx - bx)
-        else:
-            theta_anchor = math.atan2(py - by, px - bx)
-        theta_lead = theta_anchor + _ap.BOSS_ORBIT_LEAD_RAD
-        kite_x = bx + math.cos(theta_lead) * desired_range
-        kite_y = by + math.sin(theta_lead) * desired_range
-
-        # Anchor on the Home Station when one exists — pick the kite
-        # point on the boss→bot ray that's also closest to the station.
-        if hs is not None:
-            hx = float(hs.get("x", 0.0))
-            hy = float(hs.get("y", 0.0))
-            # If the default kite point is too far from the station,
-            # project the station's position onto the kite-radius ring
-            # around the boss instead.  This pulls the bot to the side
-            # of the boss that's closest to the station perimeter.
-            kite_to_hs = math.hypot(kite_x - hx, kite_y - hy)
-            if kite_to_hs > _ap.BOSS_KITE_STATION_TETHER_PX:
-                shx = hx - bx
-                shy = hy - by
-                shdist = math.hypot(shx, shy)
-                if shdist > 1.0:
-                    kite_x = bx + (shx / shdist) * desired_range
-                    kite_y = by + (shy / shdist) * desired_range
-
-    # Charge dodge — applied LAST so it perturbs whichever kite
-    # point we picked above.  The boss's charge dash heads for the
-    # bot's current position, so any perpendicular displacement
-    # during the 2 s windup makes it miss.
-    if (phase >= 2) and (charging or windup > 0.0):
-        # Perpendicular to (ux, uy) is (-uy, ux).  Sign was
-        # previously alternated with ``int(windup * 10) % 2`` --
-        # that flipped every 0.1 s and locked the bot in a tight
-        # zigzag, gaining zero radial distance from the boss (21
-        # dodge events at frozen bdist=143 in the 2026-05-11 second
-        # telemetry pass).  Now we COMMIT to one side for the whole
-        # windup, picking the side that moves the bot toward the
-        # Home Station (so dodge + retreat combine).  Falls back to
-        # ``+1`` when no station / station coincident with boss.
-        perp_x = -uy
-        perp_y = ux
-        if hs is not None:
-            hsx = float(hs.get("x", 0.0))
-            hsy = float(hs.get("y", 0.0))
-            to_hs_x = hsx - px
-            to_hs_y = hsy - py
-            sign = 1.0 if (perp_x * to_hs_x
-                           + perp_y * to_hs_y) >= 0.0 else -1.0
-        else:
-            sign = 1.0
-        kite_x += perp_x * sign * _ap.BOSS_DODGE_PERP_PX
-        kite_y += perp_y * sign * _ap.BOSS_DODGE_PERP_PX
-        _ap._telemetry_log("engage_boss_dodge",
-                       phase=phase,
-                       charging=bool(charging),
-                       windup=round(float(windup), 3),
-                       sign=sign,
-                       boss_dist=round(bdist, 1))
+    kite_x, kite_y = _compute_kite_target(p, boss, hs, desired_range)
+    kite_x, kite_y = _apply_charge_dodge(
+        p, boss, hs, kite_x, kite_y, ux, uy, bdist, phase)
 
     # World-edge clamp — same pattern as _act_engage so a corner
     # boss doesn't pull the bot into the boundary repulsion field.

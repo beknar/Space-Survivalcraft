@@ -154,14 +154,12 @@ def update_missiles(gv: GameView, dt: float) -> None:
                           m.center_y - _boss.center_y) < _boss_hit:
                 gv.hit_sparks.append(HitSpark(m.center_x, m.center_y))
                 gv._spawn_explosion(m.center_x, m.center_y)
-                _boss.take_damage(int(m.damage))
                 m.remove_from_sprite_lists()
-                if _boss.hp <= 0:
-                    from collisions import _boss_death, _nebula_boss_death
-                    if _boss is gv._boss:
-                        _boss_death(gv)
-                    else:
-                        _nebula_boss_death(gv)
+                # Funnels through the same death-routing helper that
+                # projectiles + melee use -- one place to update if
+                # the boss-death pipeline grows new side effects.
+                from collisions import damage_boss
+                damage_boss(gv, _boss, int(m.damage))
                 break
 
 

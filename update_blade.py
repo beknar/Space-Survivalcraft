@@ -244,28 +244,20 @@ def _update_blade_aoe(gv: GameView, dt: float, kind: _BladeKind) -> None:
         dy = t.center_y - cy
         if dx * dx + dy * dy > r_sq:
             continue
+        # Route boss hits through the shared ``damage_boss`` helper
+        # so the death pipeline fires regardless of weapon (PR #110
+        # bug: melee path bypassed _boss_death, leaving the boss as
+        # a spriteless ghost).  Non-boss targets keep the existing
+        # alien reward path.
+        if t is gv._boss or t is getattr(gv, "_nebula_boss", None):
+            from collisions import damage_boss
+            damage_boss(gv, t, int(blade.damage))
+            blade.mark_hit(t)
+            continue
         t.take_damage(int(blade.damage))
         blade.mark_hit(t)
         if getattr(t, "hp", 1) <= 0:
-            # 2026-05-13 boss-death-via-melee fix: bosses have their
-            # own death pipeline (explosion, iron drop, XP, wormhole
-            # spawn, ``gv._boss = None``, ``_boss_defeated = True``).
-            # ``_reward_alien_kill`` only PARTIALLY skips bosses
-            # (checks ``_charging`` which is False outside the dash
-            # window), then calls ``remove_from_sprite_lists`` on the
-            # boss -- so the sprite disappears but ``gv._boss`` still
-            # references the corpse and the bot keeps engaging a
-            # ghost.  Mirror the missile-vs-boss path
-            # (update_logic_missiles.py) and call the death helper
-            # directly when the lethal hit lands on either boss.
-            if t is gv._boss:
-                from collisions import _boss_death
-                _boss_death(gv)
-            elif t is getattr(gv, "_nebula_boss", None):
-                from collisions import _nebula_boss_death
-                _nebula_boss_death(gv)
-            else:
-                kind.kill_reward_fn(gv, t)
+            kind.kill_reward_fn(gv, t)
 
 
 # ── Backwards-compat shims for existing call sites ───────────────────────

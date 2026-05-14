@@ -82,21 +82,14 @@ def _do_goto(state: dict, p: dict, tx: float, ty: float,
     if astar_wp == "unreachable":
         # Goal cell is blocked or unreachable — caller's stuck-
         # detect / blacklist machinery will handle abandoning the
-        # target.  Before falling through to direct-goto, check
-        # whether the bot is inside the station cluster: an A*
-        # "unreachable" here can mean *no path from a blocked
-        # start cell whose neighbors are also all blocked*, which
-        # is exactly the bot-between-station-body-and-turret-ring
-        # case.  cluster_detour_waypoint returns a radial exit
-        # waypoint in that situation, letting the bot peel out
-        # before A* tries again from a free cell.  Caught from
-        # 2026-05-12 seventh telemetry pass: bot oscillated at
-        # hs_dist~130 for the entire log span in pre_boss_mine
-        # with one asteroid in the world.
-        cluster_exit = _nav.cluster_detour_waypoint(
-            state, px, py, tx, ty)
-        if cluster_exit is not None:
-            tx, ty = cluster_exit
+        # target.  Fall through to the existing direct-goto so the
+        # bot at least faces the right direction while the
+        # higher-level FSM re-evaluates.  Cost-weighted A* (PR
+        # #102) makes the "no path from blocked start cell" case
+        # extremely rare: every cell has a finite traversal cost,
+        # so the planner finds a path through any gap a target is
+        # actually reachable through.
+        pass
     elif astar_wp is not None:
         tx, ty = astar_wp
 

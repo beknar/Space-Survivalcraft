@@ -174,6 +174,119 @@ class TestNebulaKillReward:
             "Nebula kill should not call _add_xp — per user spec")
 
 
+# ─── damage_boss helper (consolidated take_damage + death routing) ────────
+
+
+class TestDamageBossHelper:
+    """``damage_boss`` consolidates the take_damage + post-damage
+    death routing that previously lived inline in three call sites
+    (projectiles, missiles, melee).  The melee site forgot to call
+    ``_boss_death`` (PR #110) leaving a ghost boss; this helper
+    makes that class of bug unreachable -- every player-damage path
+    funnels through one function.
+    """
+
+    def _make_gv(self):
+        """Stub gv with the attributes damage_boss needs."""
+        from types import SimpleNamespace
+        return SimpleNamespace(_boss=None, _nebula_boss=None)
+
+    def _make_boss(self, hp=100):
+        from types import SimpleNamespace
+        b = SimpleNamespace(hp=hp, _hits=[])
+
+        def _td(dmg):
+            b.hp = max(0, b.hp - int(dmg))
+            b._hits.append(int(dmg))
+        b.take_damage = _td
+        return b
+
+    def test_returns_false_when_boss_is_none(self):
+        from collisions import damage_boss
+        gv = self._make_gv()
+        assert damage_boss(gv, None, 50) is False
+
+    def test_returns_false_when_boss_already_dead(self):
+        from collisions import damage_boss
+        gv = self._make_gv()
+        dead = self._make_boss(hp=0)
+        assert damage_boss(gv, dead, 50) is False
+        # No take_damage call on an already-dead boss.
+        assert dead._hits == []
+
+    def test_returns_false_when_damage_does_not_kill(self):
+        from collisions import damage_boss
+        gv = self._make_gv()
+        boss = self._make_boss(hp=100)
+        gv._boss = boss
+        assert damage_boss(gv, boss, 30) is False
+        assert boss.hp == 70
+        assert boss._hits == [30]
+
+    def test_fires_boss_death_on_lethal_damage_to_main_boss(
+            self, monkeypatch):
+        from collisions import damage_boss
+        import collisions_boss
+        calls = {"main": 0, "nebula": 0}
+        monkeypatch.setattr(
+            collisions_boss, "_boss_death",
+            lambda g: calls.__setitem__("main", calls["main"] + 1))
+        monkeypatch.setattr(
+            collisions_boss, "_nebula_boss_death",
+            lambda g: calls.__setitem__(
+                "nebula", calls["nebula"] + 1))
+        gv = self._make_gv()
+        boss = self._make_boss(hp=20)
+        gv._boss = boss
+        assert damage_boss(gv, boss, 50) is True
+        assert boss.hp == 0
+        assert calls == {"main": 1, "nebula": 0}
+
+    def test_fires_nebula_death_on_lethal_damage_to_nebula_boss(
+            self, monkeypatch):
+        from collisions import damage_boss
+        import collisions_boss
+        calls = {"main": 0, "nebula": 0}
+        monkeypatch.setattr(
+            collisions_boss, "_boss_death",
+            lambda g: calls.__setitem__("main", calls["main"] + 1))
+        monkeypatch.setattr(
+            collisions_boss, "_nebula_boss_death",
+            lambda g: calls.__setitem__(
+                "nebula", calls["nebula"] + 1))
+        gv = self._make_gv()
+        nb = self._make_boss(hp=20)
+        gv._nebula_boss = nb
+        assert damage_boss(gv, nb, 50) is True
+        assert nb.hp == 0
+        assert calls == {"main": 0, "nebula": 1}
+
+    def test_does_not_fire_death_when_boss_not_in_gv(
+            self, monkeypatch):
+        """Defensive: damage_boss only routes death when the
+        target is identical to gv._boss or gv._nebula_boss.  An
+        unowned boss (shouldn't happen in production but easy to
+        accidentally construct in a test) takes damage without
+        triggering the death pipeline."""
+        from collisions import damage_boss
+        import collisions_boss
+        calls = {"main": 0, "nebula": 0}
+        monkeypatch.setattr(
+            collisions_boss, "_boss_death",
+            lambda g: calls.__setitem__("main", calls["main"] + 1))
+        monkeypatch.setattr(
+            collisions_boss, "_nebula_boss_death",
+            lambda g: calls.__setitem__(
+                "nebula", calls["nebula"] + 1))
+        gv = self._make_gv()
+        # gv._boss is None; this boss is unrooted.
+        orphan = self._make_boss(hp=20)
+        assert damage_boss(gv, orphan, 50) is True
+        assert orphan.hp == 0
+        # Neither death helper fired (no identity match).
+        assert calls == {"main": 0, "nebula": 0}
+
+
 # ─── Nebula boss sprite randomisation ─────────────────────────────────────
 
 class TestNebulaSpriteRandomisation:
