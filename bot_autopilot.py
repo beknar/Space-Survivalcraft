@@ -267,6 +267,15 @@ REGEN_EXIT_PCT:  float = 0.60
 # still applies, so boss-in-laser-range still gets engaged.
 REGEN_ENTER_PCT_BOSS_ALIVE: float = 0.70
 REGEN_EXIT_PCT_BOSS_ALIVE:  float = 0.85
+# REGEN escape-valve hysteresis (2026-05-13 fifteenth telemetry pass).
+# The previous escape-valve fired on a SINGLE tick where shields
+# didn't gain (``sh > last_regen_shields`` was False).  Captured in
+# the log: bot at station regenerating, shields 50 → 68 over 12 s
+# (net +18, clearly recovering), but a brief damage spike on one
+# tick made shields_recovering=False and the valve fired -- bot
+# exited REGEN into recover_loot mid-attack and died 3 more times.
+# Require N seconds of sustained no-progress before the valve fires.
+REGEN_NO_PROGRESS_TIMEOUT_S: float = 1.5
 MELEE_ENTER_PX:  float = 100.0
 MELEE_EXIT_PX:   float = 130.0
 PICKUP_STOP_RADIUS: float = 60.0
@@ -1073,6 +1082,17 @@ class BotState:
     # to 0 on REGEN exit so the trend check restarts cleanly on
     # next entry.
     last_regen_shields: int = 0
+    # Timestamp of the most recent tick where shields gained ground
+    # during REGEN.  Used by the escape valve's hysteresis: the
+    # valve only fires when no progress has been seen for
+    # REGEN_NO_PROGRESS_TIMEOUT_S consecutive seconds.  Without
+    # this, a single tick of damage during recovery flips
+    # ``shields_recovering`` to False and kicks the bot out --
+    # 2026-05-13 fifteenth telemetry pass captured the symptom:
+    # shields 50 → 68 over 12 s (recovering), then escape valve
+    # fired on a damage spike, bot exited REGEN → recover_loot,
+    # died 3 more times near station.
+    last_regen_progress_at: float = 0.0
     # Boss-prep pipeline flags.  Flip True after the matching
     # one-shot action confirms success (consumables equipped /
     # QWI placed).  Once both are True the FSM trusts that the
@@ -1204,6 +1224,7 @@ class BotState:
         self.hunt_giveup_until = 0.0
         self.hunt_anchor_hits.clear()
         self.last_regen_shields = 0
+        self.last_regen_progress_at = 0.0
         self.consumables_equipped = False
         self.fortify_done = False
         self.qwi_placed = False

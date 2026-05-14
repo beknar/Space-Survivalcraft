@@ -175,8 +175,9 @@ class TestRegenEscapeValve:
 
     def test_close_threat_and_falling_shields_breaks_regen(self, _clock):
         """Bot enters REGEN cleanly (no threat), then a threat
-        appears mid-regen and shields aren't recovering — the
-        escape valve fires and ENGAGE preempts.
+        appears mid-regen and shields aren't recovering — after
+        the REGEN_NO_PROGRESS_TIMEOUT_S hysteresis window expires,
+        the escape valve fires and ENGAGE preempts.
 
         (The entry-side mirror now also suppresses REGEN entry
         when threatened, so the original "enter REGEN with threat
@@ -191,8 +192,9 @@ class TestRegenEscapeValve:
         )
         ap._do_auto(s, s["player"])
         assert ap._fsm["state"] == ap.S_REGEN
-        # Step 2: an alien closes in mid-regen, shields drop.
-        _clock[0] += ap.MIN_DWELL_S + 0.1
+        # Step 2: an alien closes in mid-regen, shields drop AND
+        # stay no-progress for past the hysteresis window.
+        _clock[0] += ap.REGEN_NO_PROGRESS_TIMEOUT_S + 0.2
         s["aliens"] = [{"x": 500, "y": 0, "hp": 50}]  # now close
         s["player"]["shields"] = 40  # dropped from 50
         ap._do_auto(s, s["player"])
@@ -274,8 +276,10 @@ class TestRegenEscapeValve:
         ap._do_auto(s, s["player"])
         assert ap._fsm["state"] == ap.S_REGEN
         # A boss appears within ENGAGE_ENTER_PX and shields keep
-        # dropping.  Escape valve must fire even though aliens=[].
-        _clock[0] += ap.MIN_DWELL_S + 0.1
+        # dropping.  Wait past REGEN_NO_PROGRESS_TIMEOUT_S so the
+        # hysteresis window expires; escape valve must then fire
+        # even though aliens=[].
+        _clock[0] += ap.REGEN_NO_PROGRESS_TIMEOUT_S + 0.2
         s["boss"] = _boss(x=500.0, y=0.0)  # within ENGAGE_ENTER_PX (800)
         s["player"]["shields"] = 40  # dropped from 50
         ap._do_auto(s, s["player"])
@@ -284,6 +288,106 @@ class TestRegenEscapeValve:
         assert ap._fsm["state"] == ap.S_ENGAGE_BOSS, (
             "REGEN deadlock at boss point-blank range -- escape "
             "valve must count the boss as a threat")
+
+
+class TestRegenEscapeValveHysteresis:
+    """2026-05-13 fifteenth telemetry pass: the escape valve used
+    to fire on a SINGLE tick where ``shields_recovering`` was
+    False.  Captured pathology: shields 50 → 68 over 12 s
+    (clearly recovering), one damage spike on one tick flipped
+    ``shields_recovering`` to False, escape valve fired, bot
+    exited REGEN into recover_loot, then died 3 more times in
+    rapid succession to the boss attacking the station.
+
+    Fix: require ``REGEN_NO_PROGRESS_TIMEOUT_S`` seconds of
+    sustained no-progress before the valve fires.  A brief dip
+    or stall doesn't bounce the bot out of REGEN.
+    """
+
+    def test_constants_pinned(self):
+        """The hysteresis window must be > 0 (otherwise no
+        hysteresis at all) and reasonably short (< 5 s, otherwise
+        the bot deadlocks in REGEN under a sustained attack)."""
+        assert 0.0 < ap.REGEN_NO_PROGRESS_TIMEOUT_S < 5.0
+
+    def test_single_tick_dip_does_not_fire_escape_valve(
+            self, _clock):
+        """Brief damage spike while overall recovering must NOT
+        kick the bot out of REGEN.  This is the 2026-05-13 log
+        pathology: shields trending up but a single tick had no
+        gain (damage offset regen), the escape valve fired."""
+        # Step 1: enter REGEN cleanly with no threat.
+        s = _state(
+            player={"x": 0, "y": 0, "heading": 0,
+                    "shields": 50, "max_shields": 150},
+            aliens=[{"x": 5000, "y": 0, "hp": 50}],  # far
+        )
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_REGEN
+        # Step 2: alien closes mid-regen, shields took a brief dip
+        # (single tick of no progress), but BEFORE the hysteresis
+        # window expires.
+        _clock[0] += 0.3  # well under REGEN_NO_PROGRESS_TIMEOUT_S
+        s["aliens"] = [{"x": 500, "y": 0, "hp": 50}]
+        s["player"]["shields"] = 48  # tiny dip
+        ap._do_auto(s, s["player"])
+        # Hysteresis: still in REGEN despite the dip.
+        assert ap._fsm["state"] == ap.S_REGEN, (
+            "single-tick damage spike must not kick bot out of "
+            "REGEN -- hysteresis window required before escape "
+            "valve fires")
+
+    def test_sustained_no_progress_fires_after_timeout(
+            self, _clock):
+        """Sustained no-progress for the full hysteresis window
+        DOES fire the escape valve."""
+        # Enter REGEN cleanly.
+        s = _state(
+            player={"x": 0, "y": 0, "heading": 0,
+                    "shields": 50, "max_shields": 150},
+            aliens=[{"x": 5000, "y": 0, "hp": 50}],
+        )
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_REGEN
+        # Threat closes; shields drop and stay at low level for
+        # past the hysteresis window.
+        _clock[0] += ap.REGEN_NO_PROGRESS_TIMEOUT_S + 0.5
+        s["aliens"] = [{"x": 500, "y": 0, "hp": 50}]
+        s["player"]["shields"] = 45  # dropped + no recovery
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_ENGAGE, (
+            "after REGEN_NO_PROGRESS_TIMEOUT_S of sustained "
+            "no-progress while threatened, escape valve must fire")
+
+    def test_intermittent_progress_keeps_regen_active(
+            self, _clock):
+        """Shields oscillating up and down but trending up overall
+        keeps REGEN active.  Each tick of progress resets the
+        no-progress timer, so the hysteresis window never elapses."""
+        # Enter REGEN cleanly.
+        s = _state(
+            player={"x": 0, "y": 0, "heading": 0,
+                    "shields": 50, "max_shields": 150},
+            aliens=[{"x": 5000, "y": 0, "hp": 50}],
+        )
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_REGEN
+        # Threat closes.  Simulate 5 alternating ticks: dip-gain-
+        # dip-gain-... covering longer than REGEN_NO_PROGRESS_TIMEOUT_S.
+        s["aliens"] = [{"x": 500, "y": 0, "hp": 50}]
+        sh = 50
+        for tick in range(8):
+            _clock[0] += 0.3  # each tick < timeout
+            # Alternate -1 / +3 (net positive over time).
+            sh += -1 if tick % 2 == 0 else 3
+            s["player"]["shields"] = sh
+            ap._do_auto(s, s["player"])
+        # Bot stayed in REGEN because each gain-tick reset the
+        # no-progress timer, so the hysteresis window never
+        # actually elapsed.
+        assert ap._fsm["state"] == ap.S_REGEN, (
+            "intermittent progress should reset the no-progress "
+            "timer; bot must stay in REGEN")
 
 
 # ── REGEN entry-side mirror (2026-05-04 anti-thrash) ─────────────────
@@ -467,7 +571,8 @@ class TestRegenBossAliveThresholds:
     def test_escape_valve_still_fires_under_boss_alive(
             self, _clock):
         """Boss alive + shields not recovering + boss within
-        ENGAGE_ENTER_PX => REGEN escape valve fires regardless of
+        ENGAGE_ENTER_PX => after the REGEN_NO_PROGRESS_TIMEOUT_S
+        hysteresis window, the escape valve fires regardless of
         the higher boss-alive thresholds, so the bot doesn't
         deadlock at the station while the boss attacks."""
         # Force REGEN entry.
@@ -478,8 +583,9 @@ class TestRegenBossAliveThresholds:
         s["boss"] = _boss(x=5000.0, y=5000.0)  # far for entry
         ap._do_auto(s, s["player"])
         assert ap._fsm["state"] == ap.S_REGEN
-        # Boss closes to ENGAGE range; shields not recovering.
-        _clock[0] += ap.MIN_DWELL_S + 0.1
+        # Boss closes to ENGAGE range; shields not recovering for
+        # the hysteresis window.
+        _clock[0] += ap.REGEN_NO_PROGRESS_TIMEOUT_S + 0.2
         s["boss"] = _boss(x=400.0, y=0.0)  # within ENGAGE_ENTER_PX
         s["player"]["shields"] = 25  # dropped (not recovering)
         ap._do_auto(s, s["player"])
