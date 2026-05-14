@@ -210,31 +210,44 @@ def _apply_charge_dodge(p: dict, boss: dict, hs: dict | None,
     px = float(p.get("x", 0.0))
     py = float(p.get("y", 0.0))
 
-    # Panic escape (2026-05-13 thirteenth telemetry pass): when
-    # the bot is already dangerously close to the boss, OVERRIDE
-    # the kite target with a point directly away from the boss
-    # at safe distance.  The standard perpendicular displacement
-    # is dominated by the long-range kite vector (the lure target
-    # can be 2700 px from the bot), so the bot drifts ALONGSIDE
-    # the boss instead of opening distance.  Captured 28 dodge
-    # events at frozen boss_dist=143 in the log.  Boss radius is
-    # 114 + ship radius 25 = 139 px collision range, so 143 means
-    # the bot is one collision tick away from a heavy bump.
-    bx = float(boss.get("x", 0.0))
-    by = float(boss.get("y", 0.0))
+    # Panic escape (2026-05-13 thirteenth telemetry pass +
+    # sixteenth-pass correction): when the bot is dangerously
+    # close to the boss, OVERRIDE the kite target with a point
+    # perpendicular to the boss->bot axis at
+    # ``BOSS_CHARGE_PANIC_ESCAPE_PX``.  The previous panic version
+    # (PR #112) used the radial ``(ux, uy)`` direction (directly
+    # away from boss).  That sent the bot in the SAME direction
+    # the boss dashes -- boss dashes toward bot's pre-windup
+    # position at 600 px/s, bot escapes at ~150 px/s in the same
+    # direction => boss catches up, collision damage every tick.
+    # Sixteenth-pass log: 28 ``boss_dist=143, panic=true`` events
+    # over 1.5 s, bot at collision edge the entire time.
+    #
+    # Perpendicular escape moves the bot off the dash line so the
+    # boss's commit-direction dash misses by ``ESCAPE_PX``.  The
+    # sign points toward home so the dodge combines with retreat.
     if bdist < _ap.BOSS_CHARGE_PANIC_DIST_PX:
-        # Replace kite with bot's current position + (escape - bdist)
-        # along the boss->bot direction so the absolute distance from
-        # boss becomes BOSS_CHARGE_PANIC_ESCAPE_PX.  ux,uy = (bot-boss)/bdist
-        # points AWAY from boss, so adding more of (ux,uy) moves
-        # further away.
-        kite_x = bx + ux * _ap.BOSS_CHARGE_PANIC_ESCAPE_PX
-        kite_y = by + uy * _ap.BOSS_CHARGE_PANIC_ESCAPE_PX
+        perp_x = -uy
+        perp_y = ux
+        if hs is not None:
+            hsx = float(hs.get("x", 0.0))
+            hsy = float(hs.get("y", 0.0))
+            to_hs_x = hsx - px
+            to_hs_y = hsy - py
+            sign = 1.0 if (perp_x * to_hs_x
+                           + perp_y * to_hs_y) >= 0.0 else -1.0
+        else:
+            sign = 1.0
+        # Override kite to bot's current position + perp * ESCAPE_PX.
+        # The dash is on the boss->bot ray; moving perpendicular
+        # by ESCAPE_PX clears the dash line by ESCAPE_PX.
+        kite_x = px + perp_x * sign * _ap.BOSS_CHARGE_PANIC_ESCAPE_PX
+        kite_y = py + perp_y * sign * _ap.BOSS_CHARGE_PANIC_ESCAPE_PX
         _ap._telemetry_log("engage_boss_dodge",
                            phase=phase,
                            charging=bool(charging),
                            windup=round(float(windup), 3),
-                           sign=0.0,
+                           sign=sign,
                            boss_dist=round(bdist, 1),
                            panic=True)
         return kite_x, kite_y

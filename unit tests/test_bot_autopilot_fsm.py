@@ -7667,8 +7667,13 @@ class TestBossChargePanicEscape:
     def test_panic_fires_when_close_to_boss_during_charge(
             self, monkeypatch):
         """Bot 200 px from boss + charging => kite overridden to a
-        point at BOSS_CHARGE_PANIC_ESCAPE_PX from boss along the
-        boss->bot ray (i.e., directly away)."""
+        point ``BOSS_CHARGE_PANIC_ESCAPE_PX`` PERPENDICULAR to the
+        boss->bot axis from the bot's current position.  The
+        previous panic direction was radial (directly away), but
+        that put the bot in the same direction the boss dashes --
+        boss caught up at 600 vs 150 px/s.  Perpendicular escape
+        moves the bot off the dash line."""
+        import math
         captured = self._record_goto(monkeypatch)
         ap._state.boss_lure_active = True  # so lure target would
         # otherwise dominate; panic must override
@@ -7682,16 +7687,20 @@ class TestBossChargePanicEscape:
         s["boss"] = _boss(x=3400.0, y=3200.0, phase=2,
                           charging=True, windup=1.5)
         ap._act_engage_boss(s, s["player"])
-        # Panic target = boss + (bot-boss)/|bot-boss| * ESCAPE_PX
-        # = (3400, 3200) + (-1, 0) * 600 = (2800, 3200).
-        import math
-        target_dist = math.hypot(captured["tx"] - 3400.0,
+        # Bot at (3200, 3200), boss at (3400, 3200) => ux = -1, uy = 0,
+        # perp = (-uy, ux) = (0, -1).  HS NE => station-side sign = -1
+        # (so perp * sign = (0, +1) heads NORTH toward station).
+        # Panic kite = bot + perp*sign*ESCAPE_PX = (3200, 3800).
+        # The distance from BOT to kite must equal ESCAPE_PX exactly.
+        bot_to_kite = math.hypot(captured["tx"] - 3200.0,
                                  captured["ty"] - 3200.0)
-        assert abs(target_dist
+        assert abs(bot_to_kite
                    - ap.BOSS_CHARGE_PANIC_ESCAPE_PX) < 1.0
-        # Direction must be AWAY from boss (same side as bot).
-        # Bot west of boss => target west of boss => tx < 3400.
-        assert captured["tx"] < 3400.0
+        # And the kite displacement is PERPENDICULAR to the boss->bot
+        # axis (which is purely along x here): so the kite must have
+        # changed y from the bot's y, not x.
+        assert abs(captured["tx"] - 3200.0) < 1.0
+        assert abs(captured["ty"] - 3200.0) > 100.0
 
     def test_panic_does_not_fire_outside_panic_range(
             self, monkeypatch):
@@ -7775,6 +7784,75 @@ class TestBossChargePanicEscape:
         panic region itself and the bot would never exit."""
         assert (ap.BOSS_CHARGE_PANIC_ESCAPE_PX
                 > ap.BOSS_CHARGE_PANIC_DIST_PX)
+
+    def test_panic_escape_is_perpendicular_not_radial(
+            self, monkeypatch):
+        """2026-05-13 sixteenth-pass pin: the panic-escape kite
+        target must sit PERPENDICULAR to the boss->bot axis, NOT
+        along the radial (boss->bot) direction.  PR #112's
+        original radial-escape sent the bot in the same direction
+        the boss dashes -- boss caught up at 600 px/s, bot stuck
+        at collision edge for 28 dodge ticks.
+        """
+        import math
+        captured = self._record_goto(monkeypatch)
+        ap._state.boss_lure_active = False
+        ap._state.boss_turret_assist_active = False
+        s = _state(
+            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+        )
+        # Boss directly east; bot west of boss => boss->bot axis
+        # is purely along -x.  Perpendicular axis is y.  Panic
+        # kite should sit on the y axis from the bot, NOT
+        # further west along x.
+        s["boss"] = _boss(x=3400.0, y=3200.0, phase=2,
+                          charging=True, windup=1.5)
+        ap._act_engage_boss(s, s["player"])
+        # Dot product of (kite - bot) and (bot - boss) must be ~0
+        # (they're perpendicular).
+        kx_minus_px = captured["tx"] - 3200.0
+        ky_minus_py = captured["ty"] - 3200.0
+        px_minus_bx = 3200.0 - 3400.0  # -200
+        py_minus_by = 3200.0 - 3200.0  # 0
+        dot = (kx_minus_px * px_minus_bx
+               + ky_minus_py * py_minus_by)
+        # Magnitudes: |kite-bot| should be ESCAPE_PX, |bot-boss|=200.
+        # Perpendicular => |dot| << product of magnitudes.
+        magnitude_product = (
+            math.hypot(kx_minus_px, ky_minus_py)
+            * math.hypot(px_minus_bx, py_minus_by))
+        cos_angle = (dot / magnitude_product
+                     if magnitude_product else 0.0)
+        assert abs(cos_angle) < 0.01, (
+            f"panic kite must be perpendicular to boss->bot axis; "
+            f"cos(angle)={cos_angle:.3f} indicates non-perpendicular "
+            f"displacement")
+
+    def test_panic_escape_picks_station_side_perpendicular(
+            self, monkeypatch):
+        """The perpendicular axis has two directions.  Pick the
+        sign that moves the bot toward the home station, so the
+        panic-escape + retreat combine."""
+        captured = self._record_goto(monkeypatch)
+        ap._state.boss_lure_active = False
+        ap._state.boss_turret_assist_active = False
+        # Bot at origin, boss to the east, HS to the NORTH.
+        # Perpendicular options are +y or -y.  Sign must pick +y
+        # (toward station).
+        s = _state(
+            player={"x": 0.0, "y": 0.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            buildings=[{"x": 0.0, "y": 5000.0,  # HS due north
+                        "building_type": "Home Station"}],
+        )
+        s["boss"] = _boss(x=200.0, y=0.0, phase=2,
+                          charging=True, windup=1.5)
+        ap._act_engage_boss(s, s["player"])
+        # ty must be positive (toward station).
+        assert captured["ty"] > 0.0, (
+            "panic escape must pick the perpendicular sign that "
+            "moves toward the home station")
 
 
 class TestBossPhase3Press:
