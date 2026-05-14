@@ -257,6 +257,16 @@ GATHER_ENTER_PX: float = 1500.0
 GATHER_EXIT_PX:  float = 1700.0
 REGEN_ENTER_PCT: float = 0.40
 REGEN_EXIT_PCT:  float = 0.60
+# Boss-alive REGEN thresholds (2026-05-13 fourteenth telemetry pass).
+# When a boss is alive, regen further before re-engaging so the bot
+# doesn't repeat the death-loop captured in the log: post-recovery
+# install → engage_boss fired at shields=54/120 (45 %), one lure
+# trigger later (35 %), then died.  At 70 % enter / 85 % exit the
+# bot pauses longer when boss is out of immediate threat range.
+# The existing REGEN escape valve (exit when threat < ENGAGE_ENTER_PX)
+# still applies, so boss-in-laser-range still gets engaged.
+REGEN_ENTER_PCT_BOSS_ALIVE: float = 0.70
+REGEN_EXIT_PCT_BOSS_ALIVE:  float = 0.85
 MELEE_ENTER_PX:  float = 100.0
 MELEE_EXIT_PX:   float = 130.0
 PICKUP_STOP_RADIUS: float = 60.0

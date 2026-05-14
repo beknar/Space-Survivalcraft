@@ -190,8 +190,20 @@ def choose_next_state(state: dict, p: dict, cur: str) -> str:
                         float(boss.get("y", 0.0)) - py)
         if bd < _ap.ENGAGE_ENTER_PX and (threat is None or bd < td):
             threat, td = boss, bd
+    # Boss-alive thresholds (2026-05-13 fourteenth telemetry pass):
+    # when a boss is alive, regen further before re-engaging.  Death-
+    # loop captured in the log was: post-recovery install → engage_boss
+    # fired at shields=54/120 (45 %), one lure trigger later (35 %),
+    # then died.  Escape valve still applies, so boss-in-range still
+    # gets engaged regardless of threshold.
+    if boss is not None:
+        regen_enter = _ap.REGEN_ENTER_PCT_BOSS_ALIVE
+        regen_exit = _ap.REGEN_EXIT_PCT_BOSS_ALIVE
+    else:
+        regen_enter = _ap.REGEN_ENTER_PCT
+        regen_exit = _ap.REGEN_EXIT_PCT
     if cur == _ap.S_REGEN:
-        if pct < _ap.REGEN_EXIT_PCT:
+        if pct < regen_exit:
             shields_recovering = (sh > _ap._state.last_regen_shields)
             threatened = (threat is not None
                           and td < _ap.ENGAGE_ENTER_PX)
@@ -209,7 +221,7 @@ def choose_next_state(state: dict, p: dict, cur: str) -> str:
             # Shields fully recovered — leave REGEN cleanly.
             _ap._state.last_regen_shields = 0
     else:
-        if pct < _ap.REGEN_ENTER_PCT:
+        if pct < regen_enter:
             # Entry-side mirror of the escape valve: don't enter
             # REGEN if a close threat is already engaging us.  The
             # escape valve in the cur==_ap.S_REGEN branch above would

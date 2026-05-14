@@ -377,6 +377,117 @@ class TestRegenEntryWhileThreatenedSuppressed:
         assert ap._fsm["state"] == ap.S_ENGAGE
 
 
+class TestRegenBossAliveThresholds:
+    """2026-05-13 fourteenth telemetry pass: post-recovery
+    install → engage_boss fired at shields=54/120 (45 %), one
+    lure trigger later (35 %), then died.  With a boss alive
+    the bot must regen further before re-engaging.  Raise the
+    thresholds when ``state.boss is not None``: enter at
+    ``REGEN_ENTER_PCT_BOSS_ALIVE`` (0.70) instead of 0.40; exit
+    at ``REGEN_EXIT_PCT_BOSS_ALIVE`` (0.85) instead of 0.60.
+    Escape valve (close-threat exit) still applies.
+    """
+
+    def test_constants_pinned(self):
+        """Sanity gate on the new constants: enter < exit (so
+        REGEN has room to actually run), and both > the no-boss
+        baselines (so boss-alive is strictly more conservative)."""
+        assert ap.REGEN_ENTER_PCT_BOSS_ALIVE > ap.REGEN_ENTER_PCT
+        assert ap.REGEN_EXIT_PCT_BOSS_ALIVE > ap.REGEN_EXIT_PCT
+        assert (ap.REGEN_ENTER_PCT_BOSS_ALIVE
+                < ap.REGEN_EXIT_PCT_BOSS_ALIVE)
+
+    def test_boss_alive_higher_enter_threshold(self, _clock):
+        """Boss alive + shields = 50 % + boss out of immediate
+        threat range (> ENGAGE_ENTER_PX) => REGEN fires.  Without
+        the boss-alive bump (enter=40 %), 50 % > 40 % so REGEN
+        wouldn't fire and the bot would engage the boss.
+        """
+        s = _state(
+            player={"x": 0.0, "y": 0.0, "heading": 0.0,
+                    "shields": 75, "max_shields": 150},  # 50 %
+            # No aliens nearby; boss far away (out of escape-valve
+            # range so REGEN holds).
+        )
+        s["boss"] = _boss(x=5000.0, y=5000.0)  # far
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_REGEN, (
+            "boss alive + 50 % shields + boss out of threat range "
+            "must enter REGEN under boss-alive thresholds")
+
+    def test_no_boss_unchanged_baseline_enter_threshold(
+            self, _clock):
+        """Sanity: no boss => baseline thresholds, so 50 % shields
+        does NOT enter REGEN (above the 40 % baseline enter)."""
+        s = _state(
+            player={"x": 0.0, "y": 0.0, "heading": 0.0,
+                    "shields": 75, "max_shields": 150},  # 50 %
+        )
+        # No boss.  50 % > 40 % baseline => no REGEN.
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] != ap.S_REGEN
+
+    def test_boss_alive_higher_exit_threshold(self, _clock):
+        """In REGEN with boss alive + shields = 70 % + boss far =>
+        REGEN holds (70 % < 85 % boss-alive exit).  Without the
+        bump (exit=60 %), 70 % > 60 % so REGEN would exit early.
+        """
+        # Force REGEN entry first.
+        s = _state(
+            player={"x": 0.0, "y": 0.0, "heading": 0.0,
+                    "shields": 30, "max_shields": 150},  # 20 %
+        )
+        s["boss"] = _boss(x=5000.0, y=5000.0)
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_REGEN
+        # Shields recover to 70 %.
+        _clock[0] += ap.MIN_DWELL_S + 0.1
+        s["player"]["shields"] = 105  # 70 %
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_REGEN, (
+            "boss alive + 70 % shields must hold REGEN under "
+            "the 85 % boss-alive exit threshold")
+
+    def test_boss_alive_exit_at_high_shields(self, _clock):
+        """Shields reach the boss-alive exit threshold (85 %+) =>
+        REGEN exits and the FSM proceeds to ENGAGE_BOSS."""
+        s = _state(
+            player={"x": 0.0, "y": 0.0, "heading": 0.0,
+                    "shields": 30, "max_shields": 150},
+        )
+        s["boss"] = _boss(x=5000.0, y=5000.0)
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_REGEN
+        # Shields recover to 90 % -- past the 85 % exit threshold.
+        _clock[0] += ap.MIN_DWELL_S + 0.1
+        s["player"]["shields"] = 135  # 90 %
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] != ap.S_REGEN
+
+    def test_escape_valve_still_fires_under_boss_alive(
+            self, _clock):
+        """Boss alive + shields not recovering + boss within
+        ENGAGE_ENTER_PX => REGEN escape valve fires regardless of
+        the higher boss-alive thresholds, so the bot doesn't
+        deadlock at the station while the boss attacks."""
+        # Force REGEN entry.
+        s = _state(
+            player={"x": 0.0, "y": 0.0, "heading": 0.0,
+                    "shields": 30, "max_shields": 150},  # 20 %
+        )
+        s["boss"] = _boss(x=5000.0, y=5000.0)  # far for entry
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_REGEN
+        # Boss closes to ENGAGE range; shields not recovering.
+        _clock[0] += ap.MIN_DWELL_S + 0.1
+        s["boss"] = _boss(x=400.0, y=0.0)  # within ENGAGE_ENTER_PX
+        s["player"]["shields"] = 25  # dropped (not recovering)
+        ap._do_auto(s, s["player"])
+        # Escape valve fires => bot exits REGEN, takes another
+        # priority (ENGAGE_BOSS).
+        assert ap._fsm["state"] != ap.S_REGEN
+
+
 # ── GATHER hysteresis ─────────────────────────────────────────────────────
 
 
