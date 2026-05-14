@@ -377,6 +377,117 @@ class TestRegenEntryWhileThreatenedSuppressed:
         assert ap._fsm["state"] == ap.S_ENGAGE
 
 
+class TestRegenBossAliveThresholds:
+    """2026-05-13 fourteenth telemetry pass: post-recovery
+    install → engage_boss fired at shields=54/120 (45 %), one
+    lure trigger later (35 %), then died.  With a boss alive
+    the bot must regen further before re-engaging.  Raise the
+    thresholds when ``state.boss is not None``: enter at
+    ``REGEN_ENTER_PCT_BOSS_ALIVE`` (0.70) instead of 0.40; exit
+    at ``REGEN_EXIT_PCT_BOSS_ALIVE`` (0.85) instead of 0.60.
+    Escape valve (close-threat exit) still applies.
+    """
+
+    def test_constants_pinned(self):
+        """Sanity gate on the new constants: enter < exit (so
+        REGEN has room to actually run), and both > the no-boss
+        baselines (so boss-alive is strictly more conservative)."""
+        assert ap.REGEN_ENTER_PCT_BOSS_ALIVE > ap.REGEN_ENTER_PCT
+        assert ap.REGEN_EXIT_PCT_BOSS_ALIVE > ap.REGEN_EXIT_PCT
+        assert (ap.REGEN_ENTER_PCT_BOSS_ALIVE
+                < ap.REGEN_EXIT_PCT_BOSS_ALIVE)
+
+    def test_boss_alive_higher_enter_threshold(self, _clock):
+        """Boss alive + shields = 50 % + boss out of immediate
+        threat range (> ENGAGE_ENTER_PX) => REGEN fires.  Without
+        the boss-alive bump (enter=40 %), 50 % > 40 % so REGEN
+        wouldn't fire and the bot would engage the boss.
+        """
+        s = _state(
+            player={"x": 0.0, "y": 0.0, "heading": 0.0,
+                    "shields": 75, "max_shields": 150},  # 50 %
+            # No aliens nearby; boss far away (out of escape-valve
+            # range so REGEN holds).
+        )
+        s["boss"] = _boss(x=5000.0, y=5000.0)  # far
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_REGEN, (
+            "boss alive + 50 % shields + boss out of threat range "
+            "must enter REGEN under boss-alive thresholds")
+
+    def test_no_boss_unchanged_baseline_enter_threshold(
+            self, _clock):
+        """Sanity: no boss => baseline thresholds, so 50 % shields
+        does NOT enter REGEN (above the 40 % baseline enter)."""
+        s = _state(
+            player={"x": 0.0, "y": 0.0, "heading": 0.0,
+                    "shields": 75, "max_shields": 150},  # 50 %
+        )
+        # No boss.  50 % > 40 % baseline => no REGEN.
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] != ap.S_REGEN
+
+    def test_boss_alive_higher_exit_threshold(self, _clock):
+        """In REGEN with boss alive + shields = 70 % + boss far =>
+        REGEN holds (70 % < 85 % boss-alive exit).  Without the
+        bump (exit=60 %), 70 % > 60 % so REGEN would exit early.
+        """
+        # Force REGEN entry first.
+        s = _state(
+            player={"x": 0.0, "y": 0.0, "heading": 0.0,
+                    "shields": 30, "max_shields": 150},  # 20 %
+        )
+        s["boss"] = _boss(x=5000.0, y=5000.0)
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_REGEN
+        # Shields recover to 70 %.
+        _clock[0] += ap.MIN_DWELL_S + 0.1
+        s["player"]["shields"] = 105  # 70 %
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_REGEN, (
+            "boss alive + 70 % shields must hold REGEN under "
+            "the 85 % boss-alive exit threshold")
+
+    def test_boss_alive_exit_at_high_shields(self, _clock):
+        """Shields reach the boss-alive exit threshold (85 %+) =>
+        REGEN exits and the FSM proceeds to ENGAGE_BOSS."""
+        s = _state(
+            player={"x": 0.0, "y": 0.0, "heading": 0.0,
+                    "shields": 30, "max_shields": 150},
+        )
+        s["boss"] = _boss(x=5000.0, y=5000.0)
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_REGEN
+        # Shields recover to 90 % -- past the 85 % exit threshold.
+        _clock[0] += ap.MIN_DWELL_S + 0.1
+        s["player"]["shields"] = 135  # 90 %
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] != ap.S_REGEN
+
+    def test_escape_valve_still_fires_under_boss_alive(
+            self, _clock):
+        """Boss alive + shields not recovering + boss within
+        ENGAGE_ENTER_PX => REGEN escape valve fires regardless of
+        the higher boss-alive thresholds, so the bot doesn't
+        deadlock at the station while the boss attacks."""
+        # Force REGEN entry.
+        s = _state(
+            player={"x": 0.0, "y": 0.0, "heading": 0.0,
+                    "shields": 30, "max_shields": 150},  # 20 %
+        )
+        s["boss"] = _boss(x=5000.0, y=5000.0)  # far for entry
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_REGEN
+        # Boss closes to ENGAGE range; shields not recovering.
+        _clock[0] += ap.MIN_DWELL_S + 0.1
+        s["boss"] = _boss(x=400.0, y=0.0)  # within ENGAGE_ENTER_PX
+        s["player"]["shields"] = 25  # dropped (not recovering)
+        ap._do_auto(s, s["player"])
+        # Escape valve fires => bot exits REGEN, takes another
+        # priority (ENGAGE_BOSS).
+        assert ap._fsm["state"] != ap.S_REGEN
+
+
 # ── GATHER hysteresis ─────────────────────────────────────────────────────
 
 
@@ -7314,7 +7425,9 @@ class TestBossPhase2ChargeDodge:
         # Phase 2 boss directly east, charging.  Bot is west of boss
         # along +x axis, so default kite is at (3200 - extra, 3200)
         # — the perpendicular dodge must change y by BOSS_DODGE_PERP.
-        s["boss"] = _boss(x=3400.0, y=3200.0, phase=2,
+        # Boss positioned outside BOSS_CHARGE_PANIC_DIST_PX so the
+        # standard perpendicular dodge fires (not the panic escape).
+        s["boss"] = _boss(x=3700.0, y=3200.0, phase=2,
                           charging=True, windup=2.0)
         ap._act_engage_boss(s, s["player"])
         # Default kite y would be 3200; dodge displaces it by
@@ -7379,7 +7492,10 @@ class TestBossDodgeSignDeterministic:
             buildings=[{"x": 3200.0, "y": 5000.0,  # station NORTH
                         "building_type": "Home Station"}],
         )
-        s["boss"] = _boss(x=3400.0, y=3200.0, phase=2,
+        # Boss outside BOSS_CHARGE_PANIC_DIST_PX so the standard
+        # perpendicular dodge (which picks the station-side sign)
+        # fires, not the panic escape.
+        s["boss"] = _boss(x=3700.0, y=3200.0, phase=2,
                           charging=True, windup=2.0)
         ap._act_engage_boss(s, s["player"])
         # The lure target sits between bot and station — assert the
@@ -7407,12 +7523,152 @@ class TestBossDodgeSignDeterministic:
             buildings=[{"x": 3200.0, "y": 5000.0,
                         "building_type": "Home Station"}],
         )
+        # Boss outside BOSS_CHARGE_PANIC_DIST_PX so the standard
+        # perpendicular dodge fires and its sign is observable
+        # (under panic the helper logs sign=0.0 for every call).
         for w in (2.0, 1.9, 1.8, 1.7, 1.0, 0.5, 0.1):
-            s["boss"] = _boss(x=3400.0, y=3200.0, phase=2,
+            s["boss"] = _boss(x=3700.0, y=3200.0, phase=2,
                               charging=True, windup=w)
             ap._act_engage_boss(s, s["player"])
         assert len(set(sign_values)) == 1, (
             f"dodge sign flipped during a single windup: {sign_values}")
+
+
+class TestBossChargePanicEscape:
+    """2026-05-13 thirteenth-pass pin: when the bot is too close to
+    the boss during a charge windup, the standard perpendicular
+    dodge displacement is dominated by the long-range kite/lure
+    target vector -- bot drifts ALONGSIDE the boss instead of
+    opening distance.  Captured 28 dodge events at frozen
+    ``boss_dist=143 px`` across 1.9 s of a Phase 2 charge windup
+    (boss collision radius is 114 + ship 25 = 139 px, so 143
+    means one frame from a heavy collision bump).
+
+    Fix: when ``boss_dist < BOSS_CHARGE_PANIC_DIST_PX`` and the
+    boss is charging, override the kite target with a point
+    directly away from the boss at ``BOSS_CHARGE_PANIC_ESCAPE_PX``.
+    """
+
+    def _record_goto(self, monkeypatch):
+        captured: dict = {}
+        monkeypatch.setattr(
+            ap, "_do_goto",
+            lambda state, p, tx, ty, stop_radius=80.0,
+            brake_on_arrival=True: captured.update(tx=tx, ty=ty))
+        monkeypatch.setattr(ap, "_ensure_weapon", lambda *a, **kw: None)
+        return captured
+
+    def test_panic_fires_when_close_to_boss_during_charge(
+            self, monkeypatch):
+        """Bot 200 px from boss + charging => kite overridden to a
+        point at BOSS_CHARGE_PANIC_ESCAPE_PX from boss along the
+        boss->bot ray (i.e., directly away)."""
+        captured = self._record_goto(monkeypatch)
+        ap._state.boss_lure_active = True  # so lure target would
+        # otherwise dominate; panic must override
+        ap._state.boss_turret_assist_active = False
+        s = _state(
+            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            buildings=[{"x": 5000.0, "y": 5000.0,  # far NE
+                        "building_type": "Home Station"}],
+        )
+        s["boss"] = _boss(x=3400.0, y=3200.0, phase=2,
+                          charging=True, windup=1.5)
+        ap._act_engage_boss(s, s["player"])
+        # Panic target = boss + (bot-boss)/|bot-boss| * ESCAPE_PX
+        # = (3400, 3200) + (-1, 0) * 600 = (2800, 3200).
+        import math
+        target_dist = math.hypot(captured["tx"] - 3400.0,
+                                 captured["ty"] - 3200.0)
+        assert abs(target_dist
+                   - ap.BOSS_CHARGE_PANIC_ESCAPE_PX) < 1.0
+        # Direction must be AWAY from boss (same side as bot).
+        # Bot west of boss => target west of boss => tx < 3400.
+        assert captured["tx"] < 3400.0
+
+    def test_panic_does_not_fire_outside_panic_range(
+            self, monkeypatch):
+        """Bot 500 px from boss + charging => standard
+        perpendicular dodge (NOT panic)."""
+        captured = self._record_goto(monkeypatch)
+        ap._state.boss_lure_active = False
+        ap._state.boss_turret_assist_active = False
+        s = _state(
+            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+        )
+        # 500 px east of bot -- outside BOSS_CHARGE_PANIC_DIST_PX=300.
+        s["boss"] = _boss(x=3700.0, y=3200.0, phase=2,
+                          charging=True, windup=1.5)
+        ap._act_engage_boss(s, s["player"])
+        # Standard perp dodge displaces kite y by ±250 px from the
+        # boss->station-axis baseline (no HS here, so it's
+        # boss->bot axis).  Panic would set kite at 600 from boss
+        # along boss->bot ray with ty == 3200 (no displacement).
+        # Confirm we are NOT in panic by checking |ty - 3200| > 100.
+        assert abs(captured["ty"] - 3200.0) > 100.0, (
+            "Boss at 500 px should fall outside panic range "
+            "-- standard perpendicular dodge should fire instead")
+
+    def test_panic_does_not_fire_when_not_charging(
+            self, monkeypatch):
+        """Bot 100 px from boss but boss NOT charging => no panic
+        (panic only triggers on charge windup, not just proximity).
+        """
+        captured = self._record_goto(monkeypatch)
+        ap._state.boss_lure_active = False
+        ap._state.boss_turret_assist_active = False
+        s = _state(
+            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+        )
+        # 100 px east of bot -- well inside panic radius -- but boss
+        # is not charging.
+        s["boss"] = _boss(x=3300.0, y=3200.0, phase=2,
+                          charging=False, windup=0.0)
+        ap._act_engage_boss(s, s["player"])
+        # No HS, no charge => standard orbit kite at desired_range
+        # from boss.  Target distance from boss == BOSS_KITE_RANGE_PX.
+        import math
+        d = math.hypot(captured["tx"] - 3300.0,
+                       captured["ty"] - 3200.0)
+        # Panic would put target at ESCAPE_PX (600).  Standard kite
+        # puts it at BOSS_KITE_RANGE_PX (750).  Differ enough to
+        # tell them apart.
+        assert abs(d - ap.BOSS_KITE_RANGE_PX) < 1.0
+
+    def test_panic_logs_telemetry_with_panic_marker(
+            self, monkeypatch):
+        """Panic-escape branch emits an engage_boss_dodge event with
+        a ``panic=True`` flag so post-hoc analysis can distinguish
+        panic firings from standard dodges."""
+        self._record_goto(monkeypatch)
+        ap._state.boss_lure_active = False
+        ap._state.boss_turret_assist_active = False
+        events: list = []
+
+        def _capture(event, **kw):
+            if event == "engage_boss_dodge":
+                events.append(kw)
+        monkeypatch.setattr(ap, "_telemetry_log", _capture)
+        s = _state(
+            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+        )
+        s["boss"] = _boss(x=3400.0, y=3200.0, phase=2,
+                          charging=True, windup=1.5)
+        ap._act_engage_boss(s, s["player"])
+        assert len(events) == 1
+        assert events[0].get("panic") is True
+
+    def test_panic_constants_sane(self):
+        """Sanity gates on the panic constants -- the escape
+        distance must be strictly greater than the panic-entry
+        distance, otherwise the panic target would be inside the
+        panic region itself and the bot would never exit."""
+        assert (ap.BOSS_CHARGE_PANIC_ESCAPE_PX
+                > ap.BOSS_CHARGE_PANIC_DIST_PX)
 
 
 class TestBossPhase3Press:

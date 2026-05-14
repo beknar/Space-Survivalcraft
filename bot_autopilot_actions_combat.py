@@ -209,6 +209,36 @@ def _apply_charge_dodge(p: dict, boss: dict, hs: dict | None,
 
     px = float(p.get("x", 0.0))
     py = float(p.get("y", 0.0))
+
+    # Panic escape (2026-05-13 thirteenth telemetry pass): when
+    # the bot is already dangerously close to the boss, OVERRIDE
+    # the kite target with a point directly away from the boss
+    # at safe distance.  The standard perpendicular displacement
+    # is dominated by the long-range kite vector (the lure target
+    # can be 2700 px from the bot), so the bot drifts ALONGSIDE
+    # the boss instead of opening distance.  Captured 28 dodge
+    # events at frozen boss_dist=143 in the log.  Boss radius is
+    # 114 + ship radius 25 = 139 px collision range, so 143 means
+    # the bot is one collision tick away from a heavy bump.
+    bx = float(boss.get("x", 0.0))
+    by = float(boss.get("y", 0.0))
+    if bdist < _ap.BOSS_CHARGE_PANIC_DIST_PX:
+        # Replace kite with bot's current position + (escape - bdist)
+        # along the boss->bot direction so the absolute distance from
+        # boss becomes BOSS_CHARGE_PANIC_ESCAPE_PX.  ux,uy = (bot-boss)/bdist
+        # points AWAY from boss, so adding more of (ux,uy) moves
+        # further away.
+        kite_x = bx + ux * _ap.BOSS_CHARGE_PANIC_ESCAPE_PX
+        kite_y = by + uy * _ap.BOSS_CHARGE_PANIC_ESCAPE_PX
+        _ap._telemetry_log("engage_boss_dodge",
+                           phase=phase,
+                           charging=bool(charging),
+                           windup=round(float(windup), 3),
+                           sign=0.0,
+                           boss_dist=round(bdist, 1),
+                           panic=True)
+        return kite_x, kite_y
+
     perp_x = -uy
     perp_y = ux
     if hs is not None:
