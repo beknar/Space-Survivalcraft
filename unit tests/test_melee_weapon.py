@@ -362,6 +362,115 @@ class TestSwingDealsDamage:
         assert target.hp == 500 - MELEE_DAMAGE
 
 
+class TestMeleeKillsBossThroughDeathPipeline:
+    """2026-05-13 twelfth-pass pin: a lethal melee hit on a boss
+    must trigger the boss's death pipeline (explosion, iron drop,
+    wormholes, ``gv._boss = None``, ``_boss_defeated = True``).
+    Pre-fix the AOE handler fell through to ``_reward_alien_kill``,
+    which only PARTIALLY skipped bosses (the ``_charging`` check
+    misses non-charging bosses) -- so the sprite got removed by
+    ``remove_from_sprite_lists`` but ``gv._boss`` still referenced
+    the corpse and the bot stayed in S_ENGAGE_BOSS forever dodging
+    a ghost.
+    """
+
+    def test_lethal_lightsabre_swing_calls_boss_death(self):
+        from update_logic import update_weapons
+        from game_view import GameView
+        from constants import MELEE_DAMAGE
+        gv = GameView(faction="Earth", ship_type="Cruiser",
+                       skip_music=True)
+        gv._cycle_weapon(); gv._cycle_weapon()
+        # Stub a "boss" object at the blade's hit position with
+        # hp == MELEE_DAMAGE so one swing reduces it to 0.  Assign
+        # to ``gv._boss`` so the AOE handler routes through the
+        # boss-death branch.
+        boss = SimpleNamespace(
+            center_x=gv.player.center_x,
+            center_y=gv.player.center_y + 80.0,
+            hp=MELEE_DAMAGE,
+            _charging=False)
+        boss.take_damage = lambda dmg: setattr(
+            boss, "hp", max(0, boss.hp - dmg))
+        boss.remove_from_sprite_lists = lambda: None
+        gv._boss = boss
+        # Stub the death helper so the test isn't entangled with
+        # the full explosion / wormhole / loot pipeline.
+        death_calls = {"count": 0}
+        import collisions
+        original = collisions._boss_death
+
+        def _spy(g):
+            death_calls["count"] += 1
+        with patch.object(collisions, "_boss_death", _spy):
+            # ``_enemies_for_lightsabre`` only includes the boss when
+            # ``gv._boss is not None and hp > 0`` -- which is true
+            # at this point (hp = MELEE_DAMAGE > 0).  The swing then
+            # drops hp to 0 and the kill branch fires _boss_death.
+            update_weapons(gv, 1 / 60, fire=True)
+        assert boss.hp == 0
+        assert death_calls["count"] == 1, (
+            "lethal melee hit on boss must trigger _boss_death, "
+            "not fall through to _reward_alien_kill")
+
+    def test_lethal_lightsabre_swing_calls_nebula_boss_death(self):
+        from update_logic import update_weapons
+        from game_view import GameView
+        from constants import MELEE_DAMAGE
+        gv = GameView(faction="Earth", ship_type="Cruiser",
+                       skip_music=True)
+        gv._cycle_weapon(); gv._cycle_weapon()
+        nb = SimpleNamespace(
+            center_x=gv.player.center_x,
+            center_y=gv.player.center_y + 80.0,
+            hp=MELEE_DAMAGE,
+            _charging=False)
+        nb.take_damage = lambda dmg: setattr(
+            nb, "hp", max(0, nb.hp - dmg))
+        nb.remove_from_sprite_lists = lambda: None
+        gv._nebula_boss = nb
+        death_calls = {"count": 0}
+        import collisions
+
+        def _spy(g):
+            death_calls["count"] += 1
+        with patch.object(collisions, "_nebula_boss_death", _spy):
+            update_weapons(gv, 1 / 60, fire=True)
+        assert nb.hp == 0
+        assert death_calls["count"] == 1
+
+    def test_lethal_swing_on_alien_still_uses_reward_path(self):
+        """Sanity: when the target ISN'T a boss, the existing alien
+        reward / sprite-removal path must still run -- the boss-
+        death branch only fires on identity match with gv._boss /
+        gv._nebula_boss."""
+        from update_logic import update_weapons
+        from game_view import GameView
+        from constants import MELEE_DAMAGE
+        gv = GameView(faction="Earth", ship_type="Cruiser",
+                       skip_music=True)
+        gv._cycle_weapon(); gv._cycle_weapon()
+        alien = SimpleNamespace(
+            center_x=gv.player.center_x,
+            center_y=gv.player.center_y + 80.0,
+            hp=MELEE_DAMAGE)
+        alien.take_damage = lambda dmg: setattr(
+            alien, "hp", max(0, alien.hp - dmg))
+        removed = {"called": False}
+
+        def _remove():
+            removed["called"] = True
+        alien.remove_from_sprite_lists = _remove
+        gv.alien_list = [alien]
+        # No boss alive -- ensure the boss branch is inert.
+        gv._boss = None
+        update_weapons(gv, 1 / 60, fire=True)
+        assert alien.hp == 0
+        # The alien reward path calls remove_from_sprite_lists; the
+        # boss path doesn't (boss death helper handles that itself).
+        assert removed["called"] is True
+
+
 # ── Sword scale = half the ship ──────────────────────────────────────────
 
 
