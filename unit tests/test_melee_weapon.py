@@ -395,14 +395,17 @@ class TestMeleeKillsBossThroughDeathPipeline:
         boss.remove_from_sprite_lists = lambda: None
         gv._boss = boss
         # Stub the death helper so the test isn't entangled with
-        # the full explosion / wormhole / loot pipeline.
+        # the full explosion / wormhole / loot pipeline.  Patch at
+        # ``collisions_boss`` (the module that defines _boss_death
+        # AND the damage_boss helper that calls it) so the patch
+        # takes effect through whichever import path the AOE
+        # handler uses.
         death_calls = {"count": 0}
-        import collisions
-        original = collisions._boss_death
+        import collisions_boss
 
         def _spy(g):
             death_calls["count"] += 1
-        with patch.object(collisions, "_boss_death", _spy):
+        with patch.object(collisions_boss, "_boss_death", _spy):
             # ``_enemies_for_lightsabre`` only includes the boss when
             # ``gv._boss is not None and hp > 0`` -- which is true
             # at this point (hp = MELEE_DAMAGE > 0).  The swing then
@@ -430,11 +433,11 @@ class TestMeleeKillsBossThroughDeathPipeline:
         nb.remove_from_sprite_lists = lambda: None
         gv._nebula_boss = nb
         death_calls = {"count": 0}
-        import collisions
+        import collisions_boss
 
         def _spy(g):
             death_calls["count"] += 1
-        with patch.object(collisions, "_nebula_boss_death", _spy):
+        with patch.object(collisions_boss, "_nebula_boss_death", _spy):
             update_weapons(gv, 1 / 60, fire=True)
         assert nb.hp == 0
         assert death_calls["count"] == 1

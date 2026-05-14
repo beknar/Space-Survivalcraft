@@ -297,23 +297,12 @@ def building_repulsion(p: dict, state: dict,
     suppress_sq = (REPULSION_TARGET_SUPPRESS_PX
                    * REPULSION_TARGET_SUPPRESS_PX)
     # Cluster-suppression check: when target is inside the cluster
-    # core, suppress every building in the cluster.  Also activates
-    # when the BOT is inside the cluster trying to reach a target
-    # outside it -- otherwise the bot pins in equilibrium at the
-    # cluster centroid (every direction is uphill in the repulsion
-    # field).  Pinned by two 2026-05-12 telemetry pathologies:
-    #
-    #   * Startup: bot oscillated inside the cluster for ~114 s
-    #     trying to reach a far-edge asteroid, the only events in
-    #     that window being snapshots showing px/py drifting <300
-    #     px from the spawn point near the station.
-    #   * After-respawn recover_loot: bot fired
-    #     ``stuck_detected cause=building`` 1.3 s after respawning
-    #     inside the station, then made only ~620 px of progress
-    #     toward dropped loot 3100 px away in the next 21 s before
-    #     dying again to the still-pursuing boss.
-    #
-    # Computed once up front to avoid per-building overhead.
+    # core, suppress every building in the cluster so the bot can
+    # thread through to the docking target without the surrounding
+    # buildings pushing it back out.  The cost-weighted A* (PR
+    # #102) handles the "bot inside cluster + target outside"
+    # case at the planner level; this field-side suppression only
+    # needs to cover the docking-into-cluster scenario now.
     cluster_suppress_active = False
     cx_cluster = cy_cluster = r_cluster = 0.0
     if target is not None and len(buildings) >= CLUSTER_MIN_BUILDINGS:
@@ -321,17 +310,7 @@ def building_repulsion(p: dict, state: dict,
         if ccx is not None:
             target_to_centre = math.hypot(target[0] - ccx,
                                           target[1] - ccy)
-            bot_to_centre = math.hypot(px - ccx, py - ccy)
-            target_inside = (
-                target_to_centre < cr + CLUSTER_DETOUR_TARGET_INSIDE_PX)
-            # Bot inside cluster AND target outside -- need to escape.
-            # Use ``cr`` (the cluster's enclosing radius) without the
-            # CLUSTER_DETOUR_TARGET_INSIDE_PX buffer so the suppression
-            # only fires when the bot is genuinely inside the building
-            # ring, not just adjacent to it.
-            bot_inside_escaping = (
-                bot_to_centre < cr and not target_inside)
-            if target_inside or bot_inside_escaping:
+            if target_to_centre < cr + CLUSTER_DETOUR_TARGET_INSIDE_PX:
                 cluster_suppress_active = True
                 cx_cluster, cy_cluster, r_cluster = ccx, ccy, cr
     rx = 0.0
@@ -486,17 +465,11 @@ def cluster_detour_waypoint(state: dict, px: float, py: float,
     radius — the bot is intentionally heading into the cluster
     (deposit / craft / install) so don't redirect it.
 
-    Bot-inside-cluster override (2026-05-12 seventh telemetry
-    pass): when the bot itself is inside the cluster bounding
-    radius and the target is outside, return a radial **exit
-    waypoint** on the cluster perimeter in the direction of the
-    target.  The bot exits the cluster cleanly along that ray
-    before pursuing the original target -- otherwise it pins on
-    a building between the station body and the turret ring (the
-    user-observed oscillation: bot drifted from hs_dist=208 to
-    108 to 132 over 15 s in pre_boss_mine, then stopped).  The
-    direction toward the target avoids re-entering the cluster
-    immediately after exit.
+    The previous "bot inside cluster, target outside" radial-
+    exit override (PR #101) is no longer needed: cost-weighted
+    A* (PR #102) finds a path through the soft-cost annulus from
+    any blocked start cell, so the bot can no longer get pinned
+    inside the ring with no planner solution.
     """
     cx, cy, r = cluster_centroid_and_radius(state)
     if cx is None:
@@ -511,21 +484,6 @@ def cluster_detour_waypoint(state: dict, px: float, py: float,
     dy = ty - py
     seg_len = math.hypot(dx, dy)
     if seg_len < 1.0:
-        return None
-    # Bot-inside-cluster override.  Tested before the segment-
-    # projection logic because the segment from an inside-bot to
-    # an outside-target has the centroid "behind" the bot
-    # (t_proj < 0), which would otherwise return None here.
-    bot_to_centre = math.hypot(px - cx, py - cy)
-    if bot_to_centre < r:
-        ctx = tx - cx
-        cty = ty - cy
-        ct_len = math.hypot(ctx, cty)
-        if ct_len > 1.0:
-            return (cx + (ctx / ct_len) * R_path,
-                    cy + (cty / ct_len) * R_path)
-        # Degenerate: target on top of centroid (shouldn't happen
-        # given the target_to_centre check above, but be defensive).
         return None
     # Project centroid onto the segment from start→target.
     sx = cx - px
