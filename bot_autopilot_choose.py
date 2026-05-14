@@ -204,22 +204,42 @@ def choose_next_state(state: dict, p: dict, cur: str) -> str:
         regen_exit = _ap.REGEN_EXIT_PCT
     if cur == _ap.S_REGEN:
         if pct < regen_exit:
-            shields_recovering = (sh > _ap._state.last_regen_shields)
+            # Time-based hysteresis (2026-05-13 fifteenth pass):
+            # the escape valve previously fired on a SINGLE tick
+            # where shields didn't gain ground.  Captured in the
+            # log: shields 50 → 68 over 12 s (clearly recovering),
+            # one damage spike flipped ``shields_recovering`` to
+            # False on a single tick, the valve fired, and the
+            # bot exited REGEN mid-recovery into recover_loot
+            # where the boss killed it 3 more times near the
+            # station.  Now require
+            # ``REGEN_NO_PROGRESS_TIMEOUT_S`` seconds of sustained
+            # no-progress before the valve fires.
+            now = _ap._get_now()
+            if sh > _ap._state.last_regen_shields:
+                _ap._state.last_regen_shields = sh
+                _ap._state.last_regen_progress_at = now
+            elif _ap._state.last_regen_progress_at == 0.0:
+                # First tick after REGEN entry -- initialize timer.
+                _ap._state.last_regen_progress_at = now
+            no_progress_s = (now - _ap._state.last_regen_progress_at)
+            shields_stalled = (no_progress_s
+                               >= _ap.REGEN_NO_PROGRESS_TIMEOUT_S)
             threatened = (threat is not None
                           and td < _ap.ENGAGE_ENTER_PX)
-            if threatened and not shields_recovering:
-                # Escape valve — let priority cascade pick ENGAGE
-                # (or whatever fits) instead of sitting in REGEN
-                # forever.  Don't update last_regen_shields here so
-                # if we re-enter REGEN later the trend check starts
-                # fresh.
+            if threatened and shields_stalled:
+                # Escape valve — sustained no-progress while
+                # threatened means we're truly deadlocked.  Let
+                # priority cascade pick ENGAGE (or whatever fits).
+                # Don't update trackers so a future REGEN re-entry
+                # starts fresh.
                 pass
             else:
-                _ap._state.last_regen_shields = sh
                 return _ap.S_REGEN
         else:
             # Shields fully recovered — leave REGEN cleanly.
             _ap._state.last_regen_shields = 0
+            _ap._state.last_regen_progress_at = 0.0
     else:
         if pct < regen_enter:
             # Entry-side mirror of the escape valve: don't enter
@@ -244,8 +264,10 @@ def choose_next_state(state: dict, p: dict, cur: str) -> str:
             if threatened:
                 pass  # stay in current state; ENGAGE/etc preempts
             else:
-                # Entering REGEN — initialize the trend baseline.
+                # Entering REGEN — initialize the trend baseline
+                # AND the no-progress timer.
                 _ap._state.last_regen_shields = sh
+                _ap._state.last_regen_progress_at = _ap._get_now()
                 return _ap.S_REGEN
 
     now = _ap._get_now()
