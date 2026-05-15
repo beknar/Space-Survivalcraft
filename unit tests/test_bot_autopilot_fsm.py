@@ -7776,6 +7776,88 @@ class TestGasRepulsion:
         assert rx < 0.0 and ry < 0.0
 
 
+class TestWormholeRepulsion:
+    """2026-05-15: wormholes in non-MAIN zones that target MAIN
+    are RETURN wormholes -- using one undoes the post-boss
+    progression.  ``wormhole_repulsion`` deflects the bot away
+    from them so any in-zone navigation steers clear.
+
+    User report: "make sure bot avoids the return wormhole while
+    in the nebula zone."  Central wormhole in ZONE2 has
+    zone_target=MAIN -- exactly this case.
+    """
+
+    def test_main_zone_no_repulsion(self):
+        """In MAIN, the wormholes are OUTBOUND (target=WARP_*)
+        and the bot may want to use one.  Early-return (0, 0)
+        regardless of wormhole content."""
+        from bot_autopilot_navigation import wormhole_repulsion
+        s = _state(
+            player={"x": 200.0, "y": 200.0, "heading": 0.0})
+        s["zone"]["id"] = "ZoneID.MAIN"
+        s["wormholes"] = [
+            {"x": 250.0, "y": 250.0,
+             "zone_target": "ZoneID.WARP_METEOR"},
+        ]
+        rx, ry = wormhole_repulsion(s["player"], s)
+        assert rx == 0.0 and ry == 0.0
+
+    def test_nebula_main_target_repulses(self):
+        """In ZONE2 with the central return wormhole pointing to
+        MAIN, the bot is pushed away from it."""
+        from bot_autopilot_navigation import wormhole_repulsion
+        s = _state(
+            player={"x": 1700.0, "y": 1000.0, "heading": 0.0})
+        s["zone"]["id"] = "ZoneID.ZONE2"
+        s["wormholes"] = [
+            {"x": 1600.0, "y": 1000.0,
+             "zone_target": "ZoneID.MAIN"},  # return wormhole
+        ]
+        rx, ry = wormhole_repulsion(s["player"], s)
+        # Wormhole is WEST of bot -> repulsion pushes EAST.
+        assert rx > 0.0
+        assert abs(ry) < 0.01
+
+    def test_nebula_forward_target_not_repulsed(self):
+        """ZONE2 corner wormholes (post-Nebula-boss) target
+        NEBULA_WARP_* -- those are FORWARD progression, not
+        return.  No repulsion."""
+        from bot_autopilot_navigation import wormhole_repulsion
+        s = _state(
+            player={"x": 200.0, "y": 200.0, "heading": 0.0})
+        s["zone"]["id"] = "ZoneID.ZONE2"
+        s["wormholes"] = [
+            {"x": 220.0, "y": 220.0,
+             "zone_target": "ZoneID.NEBULA_WARP_METEOR"},
+        ]
+        rx, ry = wormhole_repulsion(s["player"], s)
+        assert rx == 0.0 and ry == 0.0
+
+    def test_out_of_range_no_repulsion(self):
+        """Bot far from the wormhole -> no force."""
+        from bot_autopilot_navigation import wormhole_repulsion
+        s = _state(
+            player={"x": 5000.0, "y": 5000.0, "heading": 0.0})
+        s["zone"]["id"] = "ZoneID.ZONE2"
+        s["wormholes"] = [
+            {"x": 100.0, "y": 100.0,
+             "zone_target": "ZoneID.MAIN"},
+        ]
+        rx, ry = wormhole_repulsion(s["player"], s)
+        assert rx == 0.0 and ry == 0.0
+
+    def test_warp_zone_with_no_wormholes(self):
+        """Warp zones don't carry wormholes (exit via edge);
+        state.wormholes is empty -> no force."""
+        from bot_autopilot_navigation import wormhole_repulsion
+        s = _state(
+            player={"x": 1600.0, "y": 3000.0, "heading": 0.0})
+        s["zone"]["id"] = "ZoneID.WARP_GAS"
+        s["wormholes"] = []
+        rx, ry = wormhole_repulsion(s["player"], s)
+        assert rx == 0.0 and ry == 0.0
+
+
 class TestBossKiteAtRange:
     """``_act_engage_boss`` holds the bot at ``BOSS_KITE_RANGE_PX``
     from the boss (just outside cannon range 700)."""

@@ -168,6 +168,20 @@ GAS_REPULSION_GAIN:     float = 1.0
 # tick.  Mirrors ``REPULSION_TARGET_SUPPRESS_PX`` for buildings.
 GAS_REPULSION_TARGET_SUPPRESS_PX: float = 150.0
 
+# Return-wormhole repulsion (2026-05-15).  Wormholes in non-MAIN
+# zones that target ``ZoneID.MAIN`` are RETURN wormholes -- using
+# one of them undoes the post-boss progression (sends the bot
+# back to MAIN where it has no further goals this arc).  Treat
+# them as soft obstacles in the potential field so any
+# navigation through the nebula / star-maze / future zones
+# automatically steers around them.  The MAIN-zone "outbound"
+# wormholes (target=WARP_*) are NOT affected -- this only fires
+# on wormholes whose zone_target string contains "MAIN", and the
+# bot is only in such a zone when forward progress is the goal.
+WORMHOLE_REPULSION_RANGE_PX:  float = 250.0
+WORMHOLE_REPULSION_RADIUS_PX: float = 100.0  # the game's collision trigger
+WORMHOLE_REPULSION_GAIN:      float = 1.0
+
 # Distance the bot walks per tick when seeking a clear spot or
 # heading along the escape vector.  Re-exported here because
 # ``do_escape_edge`` uses it as the escape target offset.
@@ -432,6 +446,66 @@ def gas_repulsion(p: dict, state: dict,
     return (rx, ry)
 
 
+def wormhole_repulsion(p: dict, state: dict,
+                       target: tuple[float, float] | None = None
+                       ) -> tuple[float, float]:
+    """Per-wormhole repulsion vector for RETURN wormholes only.
+
+    A wormhole is a "return wormhole" if its ``zone_target`` field
+    points back to MAIN AND the bot is currently NOT in MAIN.
+    This covers the Nebula (ZONE2) central wormhole + any other
+    backward-pointing wormholes the player progression might
+    introduce later.  MAIN-zone outbound wormholes (target =
+    WARP_*) are never repulsed -- the bot uses them for the
+    post-boss warp, and steered_heading is called by every
+    navigation handler including ``_act_warp_to_wormhole``.
+
+    Same linear-ramp pattern as the other repulsion fields:
+    magnitude is 1.0 at the wormhole's collision radius
+    (``WORMHOLE_REPULSION_RADIUS_PX``, matching the game's
+    100 px auto-warp trigger), 0 at ``radius + range``.
+
+    ``target``: if the goto target itself sits inside a
+    wormhole's danger zone (e.g. an unusual gather/mine path
+    that crosses it), the field still fires -- the spec is "AVOID
+    the return wormhole", full stop, so no target suppression.
+    """
+    zone_id = str((state.get("zone") or {}).get("id", ""))
+    in_main_zone = ("MAIN" in zone_id) and ("WARP" not in zone_id)
+    if in_main_zone:
+        # In MAIN the only wormholes are outbound (target=WARP_*).
+        # The bot may WANT to use one of them, so no repulsion.
+        return (0.0, 0.0)
+    whs = state.get("wormholes") or []
+    if not whs:
+        return (0.0, 0.0)
+    px = float(p.get("x", 0.0))
+    py = float(p.get("y", 0.0))
+    rx = 0.0
+    ry = 0.0
+    for wh in whs:
+        zt = str(wh.get("zone_target", ""))
+        # Only repulse RETURN wormholes (zone_target points to MAIN).
+        if "MAIN" not in zt:
+            continue
+        wx = float(wh.get("x", 0.0))
+        wy = float(wh.get("y", 0.0))
+        dx_w = px - wx
+        dy_w = py - wy
+        d = math.hypot(dx_w, dy_w)
+        outer = WORMHOLE_REPULSION_RADIUS_PX + WORMHOLE_REPULSION_RANGE_PX
+        if d >= outer:
+            continue
+        if d < 0.5:
+            rx += 1.0
+            continue
+        depth = max(0.0, outer - d)
+        strength = depth / WORMHOLE_REPULSION_RANGE_PX
+        rx += (dx_w / d) * strength
+        ry += (dy_w / d) * strength
+    return (rx, ry)
+
+
 # ── Cluster avoidance: aggregate the station as a single obstacle ──────
 
 def clamp_to_world(tx: float, ty: float, zone: dict,
@@ -622,6 +696,9 @@ def steered_heading(state: dict, p: dict, dx: float, dy: float,
     gx, gy = gas_repulsion(p, state, target=target)
     rx += gx * GAS_REPULSION_GAIN
     ry += gy * GAS_REPULSION_GAIN
+    wx_w, wy_w = wormhole_repulsion(p, state, target=target)
+    rx += wx_w * WORMHOLE_REPULSION_GAIN
+    ry += wy_w * WORMHOLE_REPULSION_GAIN
     if rx == 0.0 and ry == 0.0:
         return angle_to(dx, dy)
     norm = max(1.0, dist)
