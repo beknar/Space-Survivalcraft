@@ -321,6 +321,66 @@ def _quick_use_slots_state(gv) -> list[dict]:
     return out
 
 
+def _wormholes_state(gv) -> list[dict]:
+    """Snapshot of the MAIN-zone wormholes (4 corner spawns).
+
+    Each entry carries ``x``, ``y``, and ``zone_target`` (the
+    stringified ZoneID the wormhole warps to).  Empty list when
+    the bot is in a non-MAIN zone (wormholes are MAIN-only).
+
+    The bot uses this to navigate to the nearest wormhole after a
+    post-boss recovery is complete -- the FSM
+    ``S_WARP_TO_WORMHOLE`` state reads it directly.
+    """
+    try:
+        whs = getattr(gv, "_wormholes", None) or []
+    except Exception:
+        return []
+    out: list[dict] = []
+    for wh in whs:
+        try:
+            zt = getattr(wh, "zone_target", None)
+            out.append({
+                "x": float(wh.center_x),
+                "y": float(wh.center_y),
+                "zone_target": "" if zt is None else str(zt),
+            })
+        except Exception:
+            continue
+    return out
+
+
+def _gas_areas_state(gv) -> list[dict]:
+    """Snapshot of toxic gas clouds in the active zone, if any.
+
+    Sourced from the active zone's ``_clouds`` SpriteList when it
+    exists (the gas warp zone + its Nebula / Star-Maze variants
+    expose this).  Other zones return an empty list.  Each entry
+    has ``x``, ``y``, and ``radius`` -- the bot's navigation layer
+    treats gas areas as a soft potential-field obstacle.
+    """
+    try:
+        z = getattr(gv, "_zone", None)
+        if z is None:
+            return []
+        clouds = getattr(z, "_clouds", None)
+        if clouds is None:
+            return []
+    except Exception:
+        return []
+    out: list[dict] = []
+    for c in clouds:
+        try:
+            out.append({
+                "x": float(c.center_x),
+                "y": float(c.center_y),
+                "radius": float(getattr(c, "radius", 80.0)),
+            })
+        except Exception:
+            continue
+    return out
+
+
 def _menu_state(gv) -> dict:
     """Best-effort: which modal (if any) is open, so the
     autopilot doesn't fight the player by spamming WASD while a
@@ -390,6 +450,8 @@ def get_state(gv) -> dict:
         "buildings": _list_summary(_safe(lambda: gv.building_list)),
         "iron_pickups": _pickup_list(_safe(lambda: gv.iron_pickup_list)),
         "blueprint_pickups": _pickup_list(_safe(lambda: gv.blueprint_pickup_list)),
+        "wormholes": _safe(lambda: _wormholes_state(gv)) or [],
+        "gas_areas": _safe(lambda: _gas_areas_state(gv)) or [],
         "intent": dict(_intent),
         "assist": assist_state,
     }

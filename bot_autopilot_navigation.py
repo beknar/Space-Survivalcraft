@@ -149,6 +149,25 @@ BUILDING_REPULSION_TYPE_MULTIPLIER: dict = {
 # transit paths still curve around the cluster as a whole.
 REPULSION_TARGET_SUPPRESS_PX: float = 100.0
 
+# Gas cloud repulsion (2026-05-15).  Toxic gas clouds in the gas
+# warp zone do 15 damage every 0.5 s on contact and slow the ship;
+# treat them as a soft obstacle in the potential field so any
+# navigation through the zone (gather / mine / hunt etc.) steers
+# around them.  Linear ramp: at cloud edge (distance = radius),
+# repulsion magnitude is 1.0; at distance = radius + range, it's
+# 0.  Per spec ("avoid the gassy areas as much as possible") the
+# gain is intentionally aggressive -- gas damage compounds fast.
+# Wider range than buildings so the deflection starts earlier and
+# the bot routes around the cloud rather than hugging its edge.
+GAS_REPULSION_RANGE_PX: float = 200.0
+GAS_REPULSION_GAIN:     float = 1.0
+# Suppress repulsion for clouds within this radius of the goto
+# target.  Without this gate a target that happens to sit inside
+# a moving gas cloud (e.g. a pickup spawned on top of a drifting
+# cloud) would be unreachable -- the bot would deflect away every
+# tick.  Mirrors ``REPULSION_TARGET_SUPPRESS_PX`` for buildings.
+GAS_REPULSION_TARGET_SUPPRESS_PX: float = 150.0
+
 # Distance the bot walks per tick when seeking a clear spot or
 # heading along the escape vector.  Re-exported here because
 # ``do_escape_edge`` uses it as the escape target offset.
@@ -355,6 +374,64 @@ def building_repulsion(p: dict, state: dict,
     return (rx, ry)
 
 
+def gas_repulsion(p: dict, state: dict,
+                  target: tuple[float, float] | None = None
+                  ) -> tuple[float, float]:
+    """Per-gas-cloud repulsion vector summed across every cloud in
+    ``state["gas_areas"]``.  Only the gas warp zone (and its
+    Nebula / Star-Maze variants) populates that list; in any other
+    zone this returns (0, 0) so the navigation layer is unchanged.
+
+    Each cloud contributes a unit vector from the cloud centre to
+    the bot, scaled by ``1 - (dist_from_edge / range)``.  Linear
+    ramp matches the boundary / building convention so contributions
+    sum cleanly when a corridor is bordered by multiple clouds.
+
+    ``target``: if provided, suppress repulsion for clouds within
+    ``GAS_REPULSION_TARGET_SUPPRESS_PX`` of the target so a pickup
+    that lands inside a drifting cloud is still reachable.
+    """
+    clouds = state.get("gas_areas") or []
+    if not clouds:
+        return (0.0, 0.0)
+    px = float(p.get("x", 0.0))
+    py = float(p.get("y", 0.0))
+    suppress_sq = (GAS_REPULSION_TARGET_SUPPRESS_PX
+                   * GAS_REPULSION_TARGET_SUPPRESS_PX)
+    rx = 0.0
+    ry = 0.0
+    for c in clouds:
+        cx = float(c.get("x", 0.0))
+        cy = float(c.get("y", 0.0))
+        radius = float(c.get("radius", 80.0))
+        if target is not None:
+            tdx = cx - target[0]
+            tdy = cy - target[1]
+            if tdx * tdx + tdy * tdy < suppress_sq:
+                continue
+        dx_c = px - cx
+        dy_c = py - cy
+        d = math.hypot(dx_c, dy_c)
+        outer = radius + GAS_REPULSION_RANGE_PX
+        if d >= outer:
+            continue
+        if d < 0.5:
+            # Bot sitting on top of cloud centre -- pick an arbitrary
+            # axis so the unit vector is defined.  Magnitude saturates
+            # at 1.0 (linear ramp evaluated at d=0).
+            rx += 1.0
+            continue
+        # Distance "into the field" from the outer edge:
+        # at d=outer, strength=0; at d=radius (cloud edge), strength=1;
+        # further in than the cloud edge, strength stays >=1 and
+        # additional clouds keep stacking (intentionally aggressive).
+        depth = max(0.0, outer - d)
+        strength = depth / GAS_REPULSION_RANGE_PX
+        rx += (dx_c / d) * strength
+        ry += (dy_c / d) * strength
+    return (rx, ry)
+
+
 # ── Cluster avoidance: aggregate the station as a single obstacle ──────
 
 def clamp_to_world(tx: float, ty: float, zone: dict,
@@ -542,6 +619,9 @@ def steered_heading(state: dict, p: dict, dx: float, dy: float,
     bx, by = building_repulsion(p, state, target=target)
     rx += bx * BUILDING_REPULSION_GAIN
     ry += by * BUILDING_REPULSION_GAIN
+    gx, gy = gas_repulsion(p, state, target=target)
+    rx += gx * GAS_REPULSION_GAIN
+    ry += gy * GAS_REPULSION_GAIN
     if rx == 0.0 and ry == 0.0:
         return angle_to(dx, dy)
     norm = max(1.0, dist)

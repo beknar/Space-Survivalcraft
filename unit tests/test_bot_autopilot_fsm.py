@@ -7286,6 +7286,298 @@ class TestRecoverLootBossProximityGate:
         assert ap._fsm["state"] == ap.S_RECOVER_LOOT
 
 
+class TestPostBossWarpToWormholeTrigger:
+    """2026-05-15: after the main-zone boss dies and the bot has
+    recovered every dropped module + has consumables equipped,
+    the FSM should route the bot to the nearest wormhole for a
+    one-shot warp into one of the four warp zones.  Trigger
+    gates:
+      * ``boss_was_killed`` latch True
+      * ``warp_after_boss_done`` latch False (one-shot)
+      * Current zone is MAIN (wormholes only spawn there)
+      * No death recovery pending
+      * Module install queue is empty
+      * Quick-use slots contain >=1 repair_pack + >=1 shield_recharge
+    """
+
+    @staticmethod
+    def _ready_state(have_wormhole=True, **player_overrides):
+        """Build a state that satisfies every warp trigger gate
+        except the boss-was-killed latch (callers set that)."""
+        player = {"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                  "shields": 150, "max_shields": 150}
+        player.update(player_overrides)
+        s = _state(
+            player=player,
+            buildings=[{"x": 4000.0, "y": 4000.0,
+                        "building_type": "Home Station"}],
+        )
+        # The default _state helper uses key "zone_id" but the
+        # real API exposes the enum as "id" -- set both so the
+        # choose-state check (which reads "id") fires.
+        s["zone"]["id"] = "ZoneID.MAIN"
+        s["quick_use_slots"] = [
+            {"item_type": "repair_pack", "count": 5},
+            {"item_type": "shield_recharge", "count": 5},
+        ]
+        if have_wormhole:
+            s["wormholes"] = [
+                {"x": 200.0, "y": 200.0,
+                 "zone_target": "ZoneID.WARP_METEOR"},
+                {"x": 6200.0, "y": 200.0,
+                 "zone_target": "ZoneID.WARP_LIGHTNING"},
+            ]
+        return s
+
+    def test_all_gates_satisfied_routes_to_warp(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        monkeypatch.setattr(
+            ap, "_act_warp_to_wormhole", lambda s, p: None)
+        ap._state.boss_was_killed = True
+        ap._state.warp_after_boss_done = False
+        ap._state.queue.modules_to_install = []
+        s = self._ready_state()
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_WARP_TO_WORMHOLE
+
+    def test_no_boss_kill_no_warp(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """Without the boss_was_killed latch the warp branch must
+        not fire, even when every other gate is satisfied."""
+        ap._state.boss_was_killed = False
+        ap._state.warp_after_boss_done = False
+        ap._state.queue.modules_to_install = []
+        s = self._ready_state()
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] != ap.S_WARP_TO_WORMHOLE
+
+    def test_warp_done_latch_blocks_reentry(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """One-shot: after the latch is set, the bot doesn't try
+        to warp again even though every other gate matches."""
+        ap._state.boss_was_killed = True
+        ap._state.warp_after_boss_done = True
+        ap._state.queue.modules_to_install = []
+        s = self._ready_state()
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] != ap.S_WARP_TO_WORMHOLE
+
+    def test_modules_left_to_install_blocks_warp(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        ap._state.boss_was_killed = True
+        ap._state.warp_after_boss_done = False
+        ap._state.queue.modules_to_install = ["broadside"]
+        s = self._ready_state()
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] != ap.S_WARP_TO_WORMHOLE
+
+    def test_no_consumables_equipped_blocks_warp(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        ap._state.boss_was_killed = True
+        ap._state.warp_after_boss_done = False
+        ap._state.queue.modules_to_install = []
+        s = self._ready_state()
+        s["quick_use_slots"] = []  # nothing equipped
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] != ap.S_WARP_TO_WORMHOLE
+
+    def test_only_repair_pack_blocks_warp(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """Both repair_pack AND shield_recharge required -- one
+        alone isn't enough."""
+        ap._state.boss_was_killed = True
+        ap._state.warp_after_boss_done = False
+        ap._state.queue.modules_to_install = []
+        s = self._ready_state()
+        s["quick_use_slots"] = [
+            {"item_type": "repair_pack", "count": 5},
+        ]
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] != ap.S_WARP_TO_WORMHOLE
+
+    def test_death_recovery_pending_blocks_warp(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """If the bot has loot pickup pending, finish that first
+        (recover_loot wins via section 1.4)."""
+        ap._state.boss_was_killed = True
+        ap._state.warp_after_boss_done = False
+        ap._state.queue.modules_to_install = []
+        ap._state.death_recovery_pending = True
+        ap._state.death_recovery_pos = (3200.0, 3200.0)
+        ap._state.death_recovery_started_at = _clock[0]
+        s = self._ready_state()
+        s["iron_pickups"] = [
+            {"x": 3200.0, "y": 3200.0, "amount": 10,
+             "item_type": "iron"}]
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] != ap.S_WARP_TO_WORMHOLE
+
+    def test_warp_zone_latches_done_flag(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """When the bot's zone_id flips out of MAIN with the
+        boss-was-killed latch still set, ``warp_after_boss_done``
+        must latch so subsequent ticks don't keep trying."""
+        ap._state.boss_was_killed = True
+        ap._state.warp_after_boss_done = False
+        ap._state.queue.modules_to_install = []
+        s = self._ready_state()
+        s["zone"]["id"] = "ZoneID.WARP_GAS"  # bot just warped in
+        ap._do_auto(s, s["player"])
+        assert ap._state.warp_after_boss_done is True
+        assert ap._fsm["state"] != ap.S_WARP_TO_WORMHOLE
+
+
+class TestWarpToWormholeAction:
+    """``_act_warp_to_wormhole`` picks the closest wormhole and
+    routes there.  If none are visible (already in a warp zone, or
+    the API doesn't expose them), latch ``warp_after_boss_done`` so
+    the FSM falls through to the regular cascade."""
+
+    def test_picks_nearest_wormhole(self, monkeypatch):
+        captured: dict = {}
+        monkeypatch.setattr(
+            ap, "_do_goto",
+            lambda state, p, tx, ty, stop_radius=50.0,
+            brake_on_arrival=True: captured.update(tx=tx, ty=ty))
+        s = _state(
+            player={"x": 1000.0, "y": 1000.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+        )
+        s["wormholes"] = [
+            {"x": 200.0, "y": 200.0,           # near (~1131 px)
+             "zone_target": "ZoneID.WARP_METEOR"},
+            {"x": 6200.0, "y": 200.0,          # far  (~5273 px)
+             "zone_target": "ZoneID.WARP_LIGHTNING"},
+            {"x": 6200.0, "y": 6200.0,         # far
+             "zone_target": "ZoneID.WARP_ENEMY"},
+        ]
+        ap._act_warp_to_wormhole(s, s["player"])
+        assert captured["tx"] == 200.0
+        assert captured["ty"] == 200.0
+
+    def test_no_wormholes_latches_done(self, monkeypatch):
+        """Empty wormhole list latches the done flag so the FSM
+        falls through next tick."""
+        monkeypatch.setattr(
+            ap, "_do_goto",
+            lambda *a, **kw: None)
+        ap._state.warp_after_boss_done = False
+        s = _state(
+            player={"x": 1000.0, "y": 1000.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+        )
+        s["wormholes"] = []
+        ap._act_warp_to_wormhole(s, s["player"])
+        assert ap._state.warp_after_boss_done is True
+
+
+class TestBossKilledLatchInEngageEndEdge:
+    """``boss_was_killed`` flips True on ``boss_engage_end`` with
+    outcome=boss_killed, sticky for the session."""
+
+    def test_outcome_boss_killed_latches(
+            self, _clock, _fresh_bot_state):
+        ap._state.boss_was_killed = False
+        # Stage S_ENGAGE_BOSS as the previous tick's state.
+        ap._fsm["state"] = ap.S_ENGAGE_BOSS
+        ap._fsm["entered_at"] = _clock[0]
+        ap._state.boss_engage_started_at = _clock[0]
+        # Bot has just transitioned out of engage_boss with the
+        # boss gone -- _maybe_log_boss_engage_edges will infer
+        # outcome=boss_killed.
+        s = _state(
+            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+        )
+        s["boss"] = None  # boss dead -> "boss is None"
+        _clock[0] += 1.0
+        ap._maybe_log_boss_engage_edges(
+            s, s["player"], _clock[0],
+            ap.S_ENGAGE_BOSS, ap.S_GATHER)
+        assert ap._state.boss_was_killed is True
+
+    def test_outcome_disengaged_does_not_latch(
+            self, _clock, _fresh_bot_state):
+        ap._state.boss_was_killed = False
+        ap._fsm["state"] = ap.S_ENGAGE_BOSS
+        ap._fsm["entered_at"] = _clock[0]
+        ap._state.boss_engage_started_at = _clock[0]
+        s = _state(
+            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+        )
+        # Boss still alive -- outcome=disengaged (REGEN preempted).
+        s["boss"] = _boss(hp=1500)
+        _clock[0] += 1.0
+        ap._maybe_log_boss_engage_edges(
+            s, s["player"], _clock[0],
+            ap.S_ENGAGE_BOSS, ap.S_REGEN)
+        assert ap._state.boss_was_killed is False
+
+
+class TestGasRepulsion:
+    """Gas-cloud repulsion (added 2026-05-15) deflects the bot
+    away from toxic clouds in the gas warp zone.  Pure-function
+    test on ``gas_repulsion`` -- the same linear-ramp pattern as
+    boundary / building repulsion."""
+
+    def test_no_gas_returns_zero(self):
+        from bot_autopilot_navigation import gas_repulsion
+        s = _state()
+        s["gas_areas"] = []
+        rx, ry = gas_repulsion(s["player"], s)
+        assert rx == 0.0 and ry == 0.0
+
+    def test_cloud_in_range_repulses_along_outward_axis(self):
+        from bot_autopilot_navigation import gas_repulsion
+        s = _state(
+            player={"x": 1000.0, "y": 1000.0, "heading": 0.0})
+        # Cloud to the east -- repulsion should push west (-x).
+        s["gas_areas"] = [{"x": 1100.0, "y": 1000.0, "radius": 80.0}]
+        rx, ry = gas_repulsion(s["player"], s)
+        assert rx < 0.0, "should push away from cloud (west)"
+        assert abs(ry) < 0.01, "no y component needed"
+
+    def test_outside_range_returns_zero(self):
+        from bot_autopilot_navigation import gas_repulsion, GAS_REPULSION_RANGE_PX
+        s = _state(
+            player={"x": 0.0, "y": 0.0, "heading": 0.0})
+        # Cloud far enough that bot is OUTSIDE (radius + range).
+        far_x = 80.0 + GAS_REPULSION_RANGE_PX + 100.0
+        s["gas_areas"] = [{"x": far_x, "y": 0.0, "radius": 80.0}]
+        rx, ry = gas_repulsion(s["player"], s)
+        assert rx == 0.0 and ry == 0.0
+
+    def test_target_inside_cloud_is_suppressed(self):
+        """If the goto target sits inside a cloud (e.g. drifting
+        pickup), suppress that cloud's repulsion so the bot can
+        actually reach the target."""
+        from bot_autopilot_navigation import gas_repulsion
+        s = _state(
+            player={"x": 1000.0, "y": 1000.0, "heading": 0.0})
+        s["gas_areas"] = [{"x": 1100.0, "y": 1000.0, "radius": 80.0}]
+        # Target right at the cloud centre.
+        rx, ry = gas_repulsion(
+            s["player"], s, target=(1100.0, 1000.0))
+        assert rx == 0.0 and ry == 0.0
+
+    def test_multiple_clouds_stack(self):
+        """Two clouds either side of the bot should produce a
+        net cancellation (left+right cancel) but ANY two clouds
+        in the same hemisphere should sum, not interfere."""
+        from bot_autopilot_navigation import gas_repulsion
+        s = _state(
+            player={"x": 1000.0, "y": 1000.0, "heading": 0.0})
+        # Two clouds north-east, both within range.
+        s["gas_areas"] = [
+            {"x": 1100.0, "y": 1000.0, "radius": 80.0},
+            {"x": 1000.0, "y": 1100.0, "radius": 80.0},
+        ]
+        rx, ry = gas_repulsion(s["player"], s)
+        # Net: push southwest (away from NE cluster).
+        assert rx < 0.0 and ry < 0.0
+
+
 class TestBossKiteAtRange:
     """``_act_engage_boss`` holds the bot at ``BOSS_KITE_RANGE_PX``
     from the boss (just outside cannon range 700)."""

@@ -553,13 +553,21 @@ S_BUILD_QWI         = "build_qwi"
 # priority) but BEFORE the boss-prep pipeline (re-install is
 # usually a prerequisite to re-engage).
 S_RECOVER_LOOT      = "recover_loot"
+# S_WARP_TO_WORMHOLE (2026-05-15): after the bot kills the
+# main-zone boss AND completes recovery + module installs +
+# consumable equipping, route to the nearest wormhole and warp
+# into one of the four warp zones.  Per spec, the bot doesn't
+# pre-pick a destination -- whichever wormhole is closest wins.
+# The gas warp zone gets gas-area repulsion in the navigation
+# layer so the bot can avoid the toxic clouds once it lands.
+S_WARP_TO_WORMHOLE  = "warp_to_wormhole"
 
 ALL_STATES = (
     S_ENGAGE, S_GATHER, S_REGEN, S_MINE, S_SEARCH,
     S_BUILD, S_BUILD_SEEK, S_DEPOSIT, S_CRAFT, S_INSTALL,
     S_HUNT, S_IDLE_AT_BASE, S_ENGAGE_BOSS,
     S_EQUIP_CONSUMABLES, S_PRE_BOSS_MINE, S_FORTIFY, S_BUILD_QWI,
-    S_RECOVER_LOOT,
+    S_RECOVER_LOOT, S_WARP_TO_WORMHOLE,
 )
 
 # Maximum range at which the bot will commit to chasing an alien
@@ -1229,6 +1237,17 @@ class BotState:
     # it leaves ``BOSS_TURRET_ASSIST_EXIT_PX`` (hysteresis so a
     # boss hovering at the threshold doesn't flap the bot).
     boss_turret_assist_active: bool = False
+    # Post-boss warp-out latches (2026-05-15).  After the bot has
+    # killed the main-zone boss AND recovered every dropped module
+    # AND has consumables in the quick-use bar, the FSM routes the
+    # bot to the nearest wormhole to warp into one of the warp
+    # zones.  ``boss_was_killed`` latches True on
+    # ``boss_engage_end outcome=boss_killed`` and stays sticky.
+    # ``warp_after_boss_done`` latches True once the zone transition
+    # to a WARP_* zone is observed (zone_id no longer contains
+    # ``MAIN``) so the trigger is one-shot per session.
+    boss_was_killed: bool = False
+    warp_after_boss_done: bool = False
 
     def reset(self) -> None:
         """Restore every field to its default.  Mutates dict fields
@@ -1283,6 +1302,8 @@ class BotState:
         self.boss_engage_start_boss_hp = 0
         self.boss_lure_active = False
         self.boss_turret_assist_active = False
+        self.boss_was_killed = False
+        self.warp_after_boss_done = False
 
 
 _state = BotState()
@@ -1523,7 +1544,7 @@ from bot_autopilot_actions_station import (
 )
 from bot_autopilot_actions_combat import (
     _act_engage, _act_engage_boss, _act_regen, _maybe_use_consumables,
-    _act_gather, _act_idle_at_base,
+    _act_gather, _act_idle_at_base, _act_warp_to_wormhole,
 )
 
 
@@ -1679,6 +1700,14 @@ def _maybe_log_boss_engage_edges(state: dict, p: dict, now: float,
             outcome = "player_died"
         else:
             outcome = "disengaged"
+        # Latch ``boss_was_killed`` for the post-boss warp-out
+        # behaviour: once the main-zone boss has died this session,
+        # the FSM will route the bot to the nearest wormhole as
+        # soon as recovery + install + consumable equip have all
+        # finished.  Sticky for the session -- only cleared by
+        # ``warp_after_boss_done`` after the warp transit lands.
+        if outcome == "boss_killed":
+            _state.boss_was_killed = True
         dwell = now - _state.boss_engage_started_at
         _telemetry_log(
             "boss_engage_end",
@@ -2065,7 +2094,7 @@ def _do_auto(state: dict, p: dict) -> None:
         idle_react = cur == S_IDLE_AT_BASE
         if desired in (S_ENGAGE, S_REGEN, S_ENGAGE_BOSS,
                        S_EQUIP_CONSUMABLES, S_FORTIFY,
-                       S_BUILD_QWI) or \
+                       S_BUILD_QWI, S_WARP_TO_WORMHOLE) or \
                 idle_react or \
                 dwell >= MIN_DWELL_S:
             _fsm["state"] = desired
@@ -2137,6 +2166,8 @@ def _do_auto(state: dict, p: dict) -> None:
         _act_build_qwi(state, p)
     elif cur == S_RECOVER_LOOT:
         _act_recover_loot(state, p)
+    elif cur == S_WARP_TO_WORMHOLE:
+        _act_warp_to_wormhole(state, p)
     else:  # S_SEARCH
         _do_spiral_search(state, p)
 

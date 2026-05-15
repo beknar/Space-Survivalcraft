@@ -441,6 +441,56 @@ def _act_regen(state: dict, p: dict) -> None:
     _ap._do_goto(state, p, tx, ty, stop_radius=120.0)
 
 
+def _act_warp_to_wormhole(state: dict, p: dict) -> None:
+    """WARP_TO_WORMHOLE: navigate to the nearest visible wormhole
+    so the game's collision check (player within 100 px of a
+    wormhole centre auto-warps) fires.  Per spec, the bot doesn't
+    pre-pick a destination -- whichever wormhole is closest wins.
+
+    Weapons cold during transit -- no use spending shots on
+    asteroids/aliens en route, this is a one-shot navigation
+    task.  Gas-area repulsion (added 2026-05-15) doesn't apply
+    in the MAIN zone where wormholes live (no gas there), but
+    the steered_heading layer already integrates it for any
+    transit done inside the gas warp zone afterward.
+
+    If no wormholes are visible (already in a warp zone, or the
+    state list is empty), latch ``warp_after_boss_done`` so the
+    FSM falls through to the regular cascade instead of looping.
+    """
+    whs = state.get("wormholes") or []
+    if not whs:
+        # Already in a warp zone, or the wormhole list isn't
+        # exposed by /state (older API).  Either way the transit
+        # task is effectively done; latch so the FSM moves on.
+        _ap._state.warp_after_boss_done = True
+        _ap._telemetry_log(
+            "warp_after_boss_no_wormholes_visible",
+            **_ap._telemetry_snapshot_fields(state, p))
+        return
+    px = float(p.get("x", 0.0))
+    py = float(p.get("y", 0.0))
+    nearest = None
+    nearest_d = float("inf")
+    for wh in whs:
+        wx = float(wh.get("x", 0.0))
+        wy = float(wh.get("y", 0.0))
+        d = math.hypot(wx - px, wy - py)
+        if d < nearest_d:
+            nearest_d = d
+            nearest = wh
+    if nearest is None:
+        _ap._state.warp_after_boss_done = True
+        return
+    tx = float(nearest.get("x", 0.0))
+    ty = float(nearest.get("y", 0.0))
+    _ap.KeyState.hold("space", False)
+    # Stop radius 50 px sits well inside the 100 px collision
+    # window -- once we're within 50 the game will trigger the
+    # transition on the next physics tick.
+    _ap._do_goto(state, p, tx, ty, stop_radius=50.0)
+
+
 def _maybe_use_consumables(state: dict, p: dict) -> None:
     """Per-tick auto-heal hook: fire repair pack / shield recharge
     based on HP / shield thresholds.  Runs every ``_do_auto`` tick
