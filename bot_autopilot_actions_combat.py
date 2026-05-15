@@ -175,7 +175,16 @@ def _compute_kite_target(p: dict, boss: dict, hs: dict | None,
     kite_y = by + math.sin(theta_lead) * desired_range
 
     # Station-tether snap: if the orbit drifted out of the
-    # umbrella, pull the kite to the boss->station ray.
+    # umbrella, pull the kite onto the boss->station ray.  If
+    # the ray-snap is STILL out of tether (boss spawned far from
+    # HS), park at the umbrella edge facing the boss instead of
+    # chasing it into open space.  2026-05-14 eighteenth-pass
+    # log: boss spawned ~3000 px from HS, bot followed default
+    # kite tangent into point-blank range, took 120 shields of
+    # damage in 0.9 s, died with boss at 2000/2000 HP (zero
+    # damage dealt).  Parking at the umbrella edge keeps the bot
+    # within turret + missile-array DPS share and inside laser
+    # range when the boss approaches.
     if hs is not None:
         hx = float(hs.get("x", 0.0))
         hy = float(hs.get("y", 0.0))
@@ -187,6 +196,21 @@ def _compute_kite_target(p: dict, boss: dict, hs: dict | None,
             if shdist > 1.0:
                 kite_x = bx + (shx / shdist) * desired_range
                 kite_y = by + (shy / shdist) * desired_range
+            # Recheck after ray-snap.  If still out of tether,
+            # boss is too far for any desired-range orbit point
+            # to fit -- park at the umbrella edge instead.
+            kite_to_hs2 = math.hypot(kite_x - hx, kite_y - hy)
+            if kite_to_hs2 > _ap.BOSS_KITE_STATION_TETHER_PX:
+                bxh = bx - hx
+                byh = by - hy
+                bhdist = math.hypot(bxh, byh)
+                if bhdist > 1.0:
+                    kite_x = (hx + (bxh / bhdist)
+                              * _ap.BOSS_KITE_STATION_TETHER_PX)
+                    kite_y = (hy + (byh / bhdist)
+                              * _ap.BOSS_KITE_STATION_TETHER_PX)
+                else:
+                    kite_x, kite_y = hx, hy
     return kite_x, kite_y
 
 
@@ -369,6 +393,52 @@ def _act_engage_boss(state: dict, p: dict) -> None:
     # Hold fire whenever we're within Basic Laser effective range
     # (the in-process combat assist will refine aim at 60 FPS).
     _ap.KeyState.hold("space", bdist < _ap.BOSS_FIRE_RANGE_PX)
+
+
+def _act_regen(state: dict, p: dict) -> None:
+    """REGEN: by default idle (no thrust, no fire -- shields
+    recover passively at the home-station umbrella).  Special
+    case: when a boss is alive AND there is NO home station
+    (HS destroyed mid-fight), idling at the bot's current
+    position is fatal -- the boss will close on the parked bot
+    and kill it before shields recover.  In that case actively
+    flee away from the boss toward the world edge.
+
+    Captured pathology (2026-05-14 eighteenth-pass log): bot
+    parked at world center after HS destroyed, boss approached,
+    12 deaths in 60 s including 7 in recover_loot at the
+    death pile and 5 in engage at 0-2 shields.  Active flee in
+    REGEN keeps the bot out of boss range while shields climb.
+    """
+    boss = state.get("boss")
+    if boss is None:
+        _ap._do_idle()
+        return
+    hs = _ap._find_home_station(state)
+    if hs is not None:
+        # HS exists -- standard REGEN parks the bot via its FSM-
+        # level routing (deposit / idle_at_base etc.); the action
+        # handler itself just idles in place.
+        _ap._do_idle()
+        return
+    # No HS AND boss alive: actively flee.
+    px = float(p.get("x", 0.0))
+    py = float(p.get("y", 0.0))
+    bx = float(boss.get("x", 0.0))
+    by = float(boss.get("y", 0.0))
+    dx = px - bx
+    dy = py - by
+    d = math.hypot(dx, dy)
+    if d < 1.0:
+        # Bot on top of boss (degenerate); pick an arbitrary axis.
+        dx, dy, d = 1.0, 0.0, 1.0
+    ux, uy = dx / d, dy / d
+    tx = bx + ux * _ap.BOSS_FLEE_TARGET_PX
+    ty = by + uy * _ap.BOSS_FLEE_TARGET_PX
+    zone = state.get("zone") or {}
+    tx, ty, _ = _nav.clamp_to_world(tx, ty, zone)
+    _ap.KeyState.hold("space", False)
+    _ap._do_goto(state, p, tx, ty, stop_radius=120.0)
 
 
 def _maybe_use_consumables(state: dict, p: dict) -> None:
