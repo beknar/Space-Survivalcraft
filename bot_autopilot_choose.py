@@ -323,8 +323,23 @@ def choose_next_state(state: dict, p: dict, cur: str) -> str:
     #      cannon range — boss DPS dwarfs anything a small alien
     #      brings, and combat assist still aims/fires at small
     #      aliens that walk into laser range during the kite.
+    #
+    #      No-home-station suppression (2026-05-13 seventeenth pass):
+    #      when the home station has been destroyed (boss took it
+    #      out mid-fight) AND the boss is still alive, suppress
+    #      engage_boss entirely.  The bot has no umbrella to
+    #      retreat to, no shield-regen at base, no consumable
+    #      resupply -- engaging is just stepping into the boss's
+    #      cannon range to die.  The seventeenth-pass log captured
+    #      this exact death loop: HS destroyed after death 2, then
+    #      6 deaths in 7 seconds at world center (3200, 3200) --
+    #      the no-HS respawn point -- while the bot kept engaging
+    #      a boss it had no realistic chance of damaging.  With
+    #      ENGAGE_BOSS suppressed the cascade falls through to
+    #      ENGAGE/GATHER/MINE -- bot stays productive (or evasive)
+    #      while turrets + missile array finish the boss.
     boss = state.get("boss")
-    if boss is not None:
+    if boss is not None and hs_pri145 is not None:
         return _ap.S_ENGAGE_BOSS
 
     # 2. ENGAGE — alien within band.  Preempts the rest.
