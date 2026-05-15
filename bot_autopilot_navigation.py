@@ -273,6 +273,25 @@ def boundary_repulsion(p: dict, zone: dict,
         suppress_south = ty < rng
         suppress_north = (world_h - ty) < rng
 
+    # Warp-zone north-edge suppression (2026-05-15).  In every warp
+    # zone (WARP_*, NEBULA_WARP_*, MAZE_WARP_*) the TOP edge is the
+    # exit to the next zone -- crossing it (py > world_h -
+    # EXIT_THRESHOLD = 50) triggers the auto-transition.  The
+    # boundary field at 400 px range would otherwise fight the
+    # bot's S_WARP_TRAVERSE for the entire last 400 px of the
+    # journey, leaving the bot pinned ~350 px short of the exit
+    # threshold.  Captured pathology (2026-05-15 35 s log): bot
+    # reached y=6003 in the gas warp zone (target_y=6150,
+    # world_h=6400), latched warp_traverse_done at the arrival
+    # margin, then SEARCH spiralled near the top edge without ever
+    # crossing the 50 px exit band.  Side walls KEEP repulsion (the
+    # warp-zone side walls drain shields on contact) and the BOTTOM
+    # wall KEEPS repulsion (crossing it returns the bot to source).
+    zone_id_str = str(zone.get("id", ""))
+    in_warp_zone = "WARP" in zone_id_str
+    if in_warp_zone:
+        suppress_north = True
+
     rx = 0.0
     ry = 0.0
     if not suppress_west and px < rng:

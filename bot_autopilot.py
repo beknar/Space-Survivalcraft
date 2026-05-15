@@ -407,14 +407,25 @@ BOSS_FLEE_TARGET_PX:          float = 2000.0
 RECOVER_LOOT_BOSS_DANGER_PX:  float = 1000.0
 
 # Warp-zone traversal targets (2026-05-15).  After the post-boss
-# warp, drive the bot to the far side of the map (entry_side is
-# "bottom" in the game's transition_zone call so the goal is the
-# top y edge).  ``MARGIN`` keeps the target well inside the world
-# rect so boundary repulsion doesn't fight the navigation, and
-# ``ARRIVAL`` gives a generous arrival window so a bot wobbling
-# around the target doesn't miss the latch.
-WARP_TRAVERSE_MARGIN_PX:      float = 250.0
-WARP_TRAVERSE_ARRIVAL_PX:     float = 150.0
+# warp, drive the bot to the top of the warp zone so the game's
+# edge-collision auto-transition fires.  The exit is triggered
+# when ``player.center_y > world_height - EXIT_THRESHOLD`` where
+# ``EXIT_THRESHOLD = 50`` (zones/zone_warp_base.py).  The target
+# sits 10 px from the top edge so ``_do_goto`` keeps driving the
+# bot north all the way into the exit band; the arrival latch
+# fires once the bot is INSIDE that band (within EXIT_THRESHOLD
+# of the top edge) so the bot doesn't latch done before crossing
+# the zone-transition line.
+#
+# 2026-05-15 follow-up: the original constants (margin=250,
+# arrival=150) latched warp_traverse_done at y >= 6000 in a
+# 6400-tall warp zone -- 350 px short of the actual exit at
+# y > 6350.  Bot then spiralled in SEARCH near the top without
+# crossing the trigger.  Companion fix in navigation.py disables
+# the north-edge boundary repulsion in warp zones so the bot
+# can actually reach the top edge.
+WARP_TRAVERSE_MARGIN_PX:      float = 10.0
+WARP_TRAVERSE_ARRIVAL_PX:     float = 50.0
 
 # Boss TURRET-ASSIST mode (2026-05-12, eighth telemetry pass):
 # Replaces the "kite at 750 px from the boss" default with an
