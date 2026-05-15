@@ -394,6 +394,110 @@ class TestRegenEscapeValveHysteresis:
             "timer; bot must stay in REGEN")
 
 
+# ── REGEN escape-valve fast-drop shortcut (2026-05-14 eighteenth pass) ──
+
+
+class TestRegenEscapeValveFastDrop:
+    """2026-05-14 eighteenth telemetry pass: the 1.5 s hysteresis
+    above is correct for single-tick flicker, but leaves a window
+    where the bot dies if a boss grinds shields faster than the
+    regen rate.  Captured pathology: bot recovered to 60 shields,
+    then boss did 59 points of damage in 5 s.  Brief gain ticks
+    kept resetting the no-progress timer, so the escape valve
+    didn't fire until shields=1.  Bot died in recover_loot 300 ms
+    later.
+
+    Fix: if shields drop more than ``REGEN_FAST_DROP_PX`` from the
+    high water mark while threatened, fire the escape valve
+    immediately (bypass the 1.5 s timer).
+    """
+
+    def test_constant_pinned(self):
+        """Must be positive (otherwise every tick triggers) and
+        well under typical max_shields (otherwise unreachable on
+        low-shield ships)."""
+        assert 0.0 < ap.REGEN_FAST_DROP_PX < 50.0
+
+    def test_fast_drop_shortcuts_hysteresis_window(self, _clock):
+        """Shields crashing fast (boss DPS > regen rate) must fire
+        the escape valve immediately, bypassing the 1.5 s timer."""
+        # Enter REGEN with no threat.
+        s = _state(
+            player={"x": 0, "y": 0, "heading": 0,
+                    "shields": 50, "max_shields": 150},
+            aliens=[{"x": 5000, "y": 0, "hp": 50}],
+        )
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_REGEN
+        # Shields recover briefly — high water mark advances.
+        _clock[0] += 0.2
+        s["player"]["shields"] = 70
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_REGEN
+        # Threat closes; shields crash fast.  Well under
+        # REGEN_NO_PROGRESS_TIMEOUT_S has elapsed since the last
+        # gain tick, but shields dropped > REGEN_FAST_DROP_PX from
+        # the high water mark.
+        _clock[0] += 0.3  # well under 1.5 s
+        s["aliens"] = [{"x": 500, "y": 0, "hp": 50}]
+        s["player"]["shields"] = int(70 - ap.REGEN_FAST_DROP_PX - 5)
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_ENGAGE, (
+            "shields dropping > REGEN_FAST_DROP_PX from the high "
+            "water mark while threatened must fire the escape "
+            "valve immediately (bypass the 1.5 s timer)")
+
+    def test_fast_drop_without_threat_keeps_regen(self, _clock):
+        """Without a close threat there's no benefit to exiting
+        REGEN early — staying parked at the station keeps regen
+        ticking even if some non-threat (gas, attrition) drops
+        shields.  Fast-drop shortcut must remain gated by
+        ``threatened``."""
+        s = _state(
+            player={"x": 0, "y": 0, "heading": 0,
+                    "shields": 50, "max_shields": 150},
+            aliens=[{"x": 5000, "y": 0, "hp": 50}],
+        )
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_REGEN
+        _clock[0] += 0.2
+        s["player"]["shields"] = 70  # high water mark
+        ap._do_auto(s, s["player"])
+        # Shields crash but threat stays out of ENGAGE_ENTER_PX.
+        _clock[0] += 0.3
+        s["player"]["shields"] = int(70 - ap.REGEN_FAST_DROP_PX - 5)
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_REGEN, (
+            "fast-drop without close threat must NOT fire the "
+            "escape valve")
+
+    def test_small_drop_under_threshold_keeps_hysteresis(
+            self, _clock):
+        """A drop smaller than REGEN_FAST_DROP_PX must NOT
+        shortcut hysteresis — that would re-introduce the
+        single-tick flicker the 1.5 s timer was designed to
+        prevent."""
+        s = _state(
+            player={"x": 0, "y": 0, "heading": 0,
+                    "shields": 50, "max_shields": 150},
+            aliens=[{"x": 5000, "y": 0, "hp": 50}],
+        )
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_REGEN
+        _clock[0] += 0.2
+        s["player"]["shields"] = 70  # high water mark
+        ap._do_auto(s, s["player"])
+        # Threat closes; shields drop a bit but under the
+        # fast-drop threshold.
+        _clock[0] += 0.3  # under 1.5 s
+        s["aliens"] = [{"x": 500, "y": 0, "hp": 50}]
+        s["player"]["shields"] = int(70 - ap.REGEN_FAST_DROP_PX + 5)
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_REGEN, (
+            "drop under REGEN_FAST_DROP_PX must not shortcut "
+            "hysteresis -- 1.5 s timer still rules")
+
+
 # ── REGEN entry-side mirror (2026-05-04 anti-thrash) ─────────────────
 
 class TestRegenEntryWhileThreatenedSuppressed:

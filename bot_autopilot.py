@@ -276,6 +276,19 @@ REGEN_EXIT_PCT_BOSS_ALIVE:  float = 0.85
 # exited REGEN into recover_loot mid-attack and died 3 more times.
 # Require N seconds of sustained no-progress before the valve fires.
 REGEN_NO_PROGRESS_TIMEOUT_S: float = 1.5
+# REGEN escape-valve fast-drop shortcut (2026-05-14 eighteenth pass).
+# The 1.5 s hysteresis above prevents single-tick flicker, but it
+# leaves a window where the bot dies if the boss grinds shields
+# faster than the regen rate.  Captured pathology: bot recovered
+# 53 → 60 shields, then boss did 59 points of damage in 5 s while
+# the 1.5 s no-progress timer kept rolling forward (each tiny gain
+# tick reset it).  Bot reached 1 shield before exiting REGEN, died
+# in recover_loot 300 ms later.  Fix: if shields have dropped by
+# more than ``REGEN_FAST_DROP_PX`` from the high water mark while
+# threatened, fire the escape valve immediately (bypass the
+# 1.5 s timer).  A 20-point drop within the 1.5 s window means
+# damage rate exceeds regen rate by ~13 pts/s — REGEN is losing.
+REGEN_FAST_DROP_PX: float = 20.0
 MELEE_ENTER_PX:  float = 100.0
 MELEE_EXIT_PX:   float = 130.0
 PICKUP_STOP_RADIUS: float = 60.0

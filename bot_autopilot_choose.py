@@ -223,8 +223,15 @@ def choose_next_state(state: dict, p: dict, cur: str) -> str:
                 # First tick after REGEN entry -- initialize timer.
                 _ap._state.last_regen_progress_at = now
             no_progress_s = (now - _ap._state.last_regen_progress_at)
-            shields_stalled = (no_progress_s
-                               >= _ap.REGEN_NO_PROGRESS_TIMEOUT_S)
+            # Fast-drop shortcut (2026-05-14 eighteenth pass): if
+            # shields have dropped more than REGEN_FAST_DROP_PX
+            # from the high water mark, damage rate exceeds regen
+            # rate and the 1.5 s timer would let the bot die before
+            # firing.  Bypass the timer in that case.
+            shields_dropped_px = (_ap._state.last_regen_shields - sh)
+            shields_stalled = (
+                no_progress_s >= _ap.REGEN_NO_PROGRESS_TIMEOUT_S
+                or shields_dropped_px >= _ap.REGEN_FAST_DROP_PX)
             threatened = (threat is not None
                           and td < _ap.ENGAGE_ENTER_PX)
             if threatened and shields_stalled:
