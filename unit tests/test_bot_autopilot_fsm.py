@@ -268,10 +268,14 @@ class TestRegenEscapeValve:
         Telemetry showed 86 shields drained over 28 s of REGEN with
         no aliens nearby, then player_death."""
         monkeypatch.setattr(ap, "_act_engage_boss", lambda s, p: None)
-        # Enter REGEN cleanly (no boss, no alien).
+        # Enter REGEN cleanly (no boss, no alien).  Home Station
+        # present so the post-escape engage_boss path isn't blocked
+        # by the seventeenth-pass no-HS suppression.
         s = _state(
             player={"x": 0, "y": 0, "heading": 0,
                     "shields": 50, "max_shields": 150},
+            buildings=[{"x": 5000.0, "y": 5000.0,
+                        "building_type": "Home Station"}],
         )
         ap._do_auto(s, s["player"])
         assert ap._fsm["state"] == ap.S_REGEN
@@ -6804,6 +6808,10 @@ class TestBossEngagementStateRouting:
         s = _state(
             player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
                     "shields": 150, "max_shields": 150},
+            # Home Station present -- engage_boss only fires when HS
+            # exists (seventeenth-pass no-HS suppression).
+            buildings=[{"x": 4000.0, "y": 4000.0,
+                        "building_type": "Home Station"}],
         )
         s["boss"] = _boss()
         ap._do_auto(s, s["player"])
@@ -6817,6 +6825,8 @@ class TestBossEngagementStateRouting:
             player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
                     "shields": 150, "max_shields": 150},
             aliens=[{"x": 3300.0, "y": 3200.0, "hp": 50}],
+            buildings=[{"x": 4000.0, "y": 4000.0,
+                        "building_type": "Home Station"}],
         )
         s["boss"] = _boss()
         ap._do_auto(s, s["player"])
@@ -6845,6 +6855,8 @@ class TestBossEngagementStateRouting:
             player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
                     "shields": 150, "max_shields": 150},
             asteroids=[{"x": 3300.0, "y": 3200.0, "hp": 100}],
+            buildings=[{"x": 4000.0, "y": 4000.0,
+                        "building_type": "Home Station"}],
         )
         ap._do_auto(s, s["player"])
         assert ap._fsm["state"] == ap.S_MINE
@@ -6854,6 +6866,70 @@ class TestBossEngagementStateRouting:
         s["boss"] = _boss()
         ap._do_auto(s, s["player"])
         assert ap._fsm["state"] == ap.S_ENGAGE_BOSS
+
+
+class TestBossEngageSuppressedWhenNoHomeStation:
+    """2026-05-13 seventeenth telemetry pass: after the boss
+    destroyed the home station mid-fight, the bot kept routing
+    to ``S_ENGAGE_BOSS`` and respawning at world center (3200,
+    3200) -- the no-HS default respawn -- where the boss sat
+    on the spawn point and killed it 6 times in 7 seconds.
+
+    Fix: when ``has_home_station == False`` AND a boss is alive,
+    suppress the engage_boss priority and let the cascade
+    continue to ENGAGE / GATHER / MINE.  Bot stays productive
+    while turrets + missile array finish the boss (the 15 other
+    buildings in the cluster typically survive HS destruction).
+    """
+
+    def test_boss_alive_without_hs_does_not_route_to_engage_boss(
+            self, _clock, monkeypatch):
+        """Direct pin of the suppression: boss alive, no HS in
+        buildings list => engage_boss is NOT the chosen state."""
+        monkeypatch.setattr(ap, "_act_engage_boss", lambda s, p: None)
+        s = _state(
+            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            # No Home Station in the buildings list.
+        )
+        s["boss"] = _boss()
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] != ap.S_ENGAGE_BOSS, (
+            "engage_boss must be suppressed when no home station "
+            "exists -- bot has no umbrella, can't survive a "
+            "direct boss engagement")
+
+    def test_boss_alive_with_hs_still_routes_to_engage_boss(
+            self, _clock, monkeypatch):
+        """Sanity: the suppression only triggers when HS is
+        ABSENT.  With HS present, engage_boss fires as before."""
+        monkeypatch.setattr(ap, "_act_engage_boss", lambda s, p: None)
+        s = _state(
+            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            buildings=[{"x": 4000.0, "y": 4000.0,
+                        "building_type": "Home Station"}],
+        )
+        s["boss"] = _boss()
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_ENGAGE_BOSS
+
+    def test_no_hs_no_boss_cascade_unchanged(
+            self, _clock, monkeypatch):
+        """No HS, no boss -- regular cascade runs (e.g., to
+        MINE if asteroid in range).  The suppression is gated
+        on ``boss is not None``, not just ``hs is None``."""
+        s = _state(
+            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            asteroids=[{"x": 3300.0, "y": 3200.0, "hp": 100}],
+        )
+        # No boss, no HS.
+        ap._do_auto(s, s["player"])
+        # Either MINE (asteroid in range) or some other normal
+        # state -- as long as it's not engage_boss (boss doesn't
+        # exist) or a non-action state.
+        assert ap._fsm["state"] in (ap.S_MINE,)
 
 
 class TestBossKiteAtRange:
