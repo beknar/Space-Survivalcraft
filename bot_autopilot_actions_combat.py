@@ -493,20 +493,25 @@ def _act_warp_to_wormhole(state: dict, p: dict) -> None:
 
 def _act_warp_traverse(state: dict, p: dict) -> None:
     """WARP_TRAVERSE: drive from the bot's entry position (bottom
-    of the warp zone after a post-boss warp) to the far side of
-    the map (top y edge).  Gas / building / boundary repulsion in
-    ``steered_heading`` handles obstacle avoidance automatically.
+    of the warp zone after a post-boss warp) to the top edge of
+    the map.  The game auto-transitions to the next zone when the
+    player crosses ``world_height - EXIT_THRESHOLD (50)``, so the
+    bot's target sits ``WARP_TRAVERSE_MARGIN_PX`` (10) from the
+    top edge -- inside the exit band -- and the per-tick latch
+    fires when the bot is within ``WARP_TRAVERSE_ARRIVAL_PX`` of
+    the target so the zone-change happens within braking distance.
 
-    Defensive states (REGEN, ENGAGE on close threats) preempt via
-    the priority cascade, so this handler only owns the long-haul
-    navigation.  Cold weapons here -- combat assist still fires
-    reflexively when an alien wanders into laser range during the
-    transit; no need for the autopilot to spam fire.
+    North-edge boundary repulsion is suppressed in warp zones
+    (see bot_autopilot_navigation.boundary_repulsion) so the
+    field doesn't fight the final approach.  Gas / building /
+    wormhole repulsion still apply, so the long-haul navigation
+    steers around obstacles automatically.
 
-    Latches ``warp_traverse_done`` once the bot has reached within
-    ``WARP_TRAVERSE_ARRIVAL_PX`` of the target y so the FSM falls
-    through to the regular cascade (gather / mine / search etc.)
-    once the traversal is complete.
+    Defensive states (REGEN, ENGAGE on close threats) preempt
+    via the priority cascade, so this handler only owns the
+    long-haul drive.  Cold weapons here -- combat assist still
+    fires reflexively when an alien wanders into laser range
+    during the transit.
     """
     zone = state.get("zone") or {}
     world_w = float(zone.get("world_w", 3200) or 3200)
@@ -522,10 +527,16 @@ def _act_warp_traverse(state: dict, p: dict) -> None:
                 arrived_y=round(py_now, 1),
                 target_y=round(target_y, 1),
                 **_ap._telemetry_snapshot_fields(state, p))
-        _ap._do_idle()
+        # Don't brake -- inertia from the drive carries the bot
+        # across the EXIT_THRESHOLD (50 px from edge) and the game
+        # auto-transitions zones.  Keep holding the same goto so
+        # the bot doesn't drift sideways into the lethal side
+        # walls while it waits for the transition.
+        _ap.KeyState.hold("space", False)
+        _ap._do_goto(state, p, target_x, target_y, stop_radius=30.0)
         return
     _ap.KeyState.hold("space", False)
-    _ap._do_goto(state, p, target_x, target_y, stop_radius=120.0)
+    _ap._do_goto(state, p, target_x, target_y, stop_radius=30.0)
 
 
 def _maybe_use_consumables(state: dict, p: dict) -> None:

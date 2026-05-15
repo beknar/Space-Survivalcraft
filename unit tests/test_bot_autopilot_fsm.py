@@ -7648,25 +7648,36 @@ class TestWarpTraverseAction:
 
     def test_action_latches_done_at_far_side(
             self, _fresh_bot_state, monkeypatch):
+        """At/past the arrival band the latch fires AND the bot
+        keeps driving toward the same target -- inertia carries
+        it across the game's EXIT_THRESHOLD (50 px from edge) so
+        the zone auto-transition fires.  Braking here would
+        leave the bot 10-50 px short of the exit, stuck."""
         captured: dict = {}
         monkeypatch.setattr(
             ap, "_do_goto",
-            lambda *a, **kw: captured.update(called=True))
+            lambda state, p, tx, ty, stop_radius=30.0,
+            brake_on_arrival=True: captured.update(
+                tx=tx, ty=ty, called=True))
         monkeypatch.setattr(
             ap, "_do_idle", lambda: captured.update(idled=True))
         ap._state.warp_traverse_done = False
-        # Place bot well past the arrival threshold.
+        # Place bot inside the arrival band.
         target_y = 6400.0 - ap.WARP_TRAVERSE_MARGIN_PX
         s = _state(
-            player={"x": 1600.0, "y": target_y + 50.0,
+            player={"x": 1600.0,
+                    "y": target_y - ap.WARP_TRAVERSE_ARRIVAL_PX
+                         + 10.0,
                     "heading": 0.0,
                     "shields": 150, "max_shields": 150},
             world_w=3200, world_h=6400,
         )
         ap._act_warp_traverse(s, s["player"])
         assert ap._state.warp_traverse_done is True
-        assert "idled" in captured
-        assert "called" not in captured
+        # Keep driving so inertia carries the bot across the
+        # exit threshold instead of braking 10-50 px short.
+        assert "called" in captured
+        assert "idled" not in captured
 
 
 class TestBossKilledLatchInEngageEndEdge:
@@ -7774,6 +7785,86 @@ class TestGasRepulsion:
         rx, ry = gas_repulsion(s["player"], s)
         # Net: push southwest (away from NE cluster).
         assert rx < 0.0 and ry < 0.0
+
+
+class TestBoundaryRepulsionWarpZoneNorthSuppress:
+    """2026-05-15: in warp zones (WARP_*, NEBULA_WARP_*, etc.)
+    the TOP edge is the EXIT to the next zone.  The game's
+    auto-transition fires when ``py > world_h - EXIT_THRESHOLD``
+    (50 px from top).  Boundary repulsion at 400 px range would
+    fight the bot's S_WARP_TRAVERSE for the entire last 400 px,
+    leaving the bot pinned ~350 px short of the exit.
+
+    Fix: suppress the north-edge contribution entirely when the
+    zone id contains ``WARP``.  Bottom + side walls KEEP their
+    repulsion (bottom returns to source; sides drain shields).
+    """
+
+    def test_warp_zone_north_edge_no_repulsion(self):
+        from bot_autopilot_navigation import boundary_repulsion
+        # Bot 100 px below the top edge of a 3200x6400 warp zone.
+        p = {"x": 1600.0, "y": 6300.0, "heading": 0.0}
+        zone = {"world_w": 3200, "world_h": 6400,
+                "id": "ZoneID.WARP_GAS"}
+        rx, ry = boundary_repulsion(p, zone)
+        # North-edge repulsion suppressed -> ry must be 0.
+        assert ry == 0.0
+        # Side walls aren't in range here -- rx is also 0.
+        assert rx == 0.0
+
+    def test_warp_zone_side_edges_still_repulse(self):
+        from bot_autopilot_navigation import boundary_repulsion
+        # Bot 100 px from the WEST edge of the warp zone.
+        p = {"x": 100.0, "y": 3200.0, "heading": 0.0}
+        zone = {"world_w": 3200, "world_h": 6400,
+                "id": "ZoneID.WARP_GAS"}
+        rx, ry = boundary_repulsion(p, zone)
+        # West-edge push east -> rx > 0.
+        assert rx > 0.0
+
+    def test_warp_zone_bottom_edge_still_repulses(self):
+        """Crossing the bottom edge returns the bot to source --
+        we must KEEP the south repulsion so the bot doesn't drift
+        into that trap on entry."""
+        from bot_autopilot_navigation import boundary_repulsion
+        p = {"x": 1600.0, "y": 100.0, "heading": 0.0}
+        zone = {"world_w": 3200, "world_h": 6400,
+                "id": "ZoneID.WARP_GAS"}
+        rx, ry = boundary_repulsion(p, zone)
+        # South-edge push north -> ry > 0.
+        assert ry > 0.0
+
+    def test_main_zone_north_edge_still_repulses(self):
+        """Regression: MAIN zone north edge still repulses
+        normally -- the suppression is warp-zone-only."""
+        from bot_autopilot_navigation import boundary_repulsion
+        p = {"x": 3200.0, "y": 6300.0, "heading": 0.0}
+        zone = {"world_w": 6400, "world_h": 6400,
+                "id": "ZoneID.MAIN"}
+        rx, ry = boundary_repulsion(p, zone)
+        # North-edge push south -> ry < 0.
+        assert ry < 0.0
+
+    def test_zone2_north_edge_still_repulses(self):
+        """ZONE2 (Nebula) is not a warp zone -- north edge
+        repulses normally there too."""
+        from bot_autopilot_navigation import boundary_repulsion
+        p = {"x": 3200.0, "y": 6300.0, "heading": 0.0}
+        zone = {"world_w": 6400, "world_h": 6400,
+                "id": "ZoneID.ZONE2"}
+        rx, ry = boundary_repulsion(p, zone)
+        assert ry < 0.0
+
+    def test_nebula_warp_zone_north_also_suppressed(self):
+        """The suppression matches any zone id containing
+        ``WARP`` -- covers NEBULA_WARP_* and MAZE_WARP_*
+        variants which inherit from WarpZoneBase."""
+        from bot_autopilot_navigation import boundary_repulsion
+        p = {"x": 1600.0, "y": 6300.0, "heading": 0.0}
+        zone = {"world_w": 3200, "world_h": 6400,
+                "id": "ZoneID.NEBULA_WARP_LIGHTNING"}
+        rx, ry = boundary_repulsion(p, zone)
+        assert ry == 0.0
 
 
 class TestWormholeRepulsion:
