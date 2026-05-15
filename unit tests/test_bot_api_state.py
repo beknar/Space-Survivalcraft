@@ -420,3 +420,96 @@ class TestQuickUseSlotsState:
     def test_missing_hud_returns_empty(self):
         gv = SimpleNamespace()
         assert bot_api._quick_use_slots_state(gv) == []
+
+
+class TestWormholesState:
+    """``_wormholes_state`` exposes the MAIN-zone wormhole spawns
+    so the bot can navigate to the nearest one after a post-boss
+    recovery completes."""
+
+    def test_empty_list_when_no_wormholes(self):
+        gv = _gv()
+        gv._wormholes = []
+        assert bot_api._wormholes_state(gv) == []
+
+    def test_missing_attr_returns_empty(self):
+        """Non-MAIN zones don't expose ``_wormholes`` at all -- the
+        getattr fallback keeps the extractor safe."""
+        gv = _gv()
+        # No _wormholes attribute set.
+        assert bot_api._wormholes_state(gv) == []
+
+    def test_wormholes_serialized_with_target(self):
+        gv = _gv()
+        gv._wormholes = [
+            SimpleNamespace(center_x=200.0, center_y=200.0,
+                            zone_target="ZoneID.WARP_METEOR"),
+            SimpleNamespace(center_x=6200.0, center_y=200.0,
+                            zone_target="ZoneID.WARP_LIGHTNING"),
+        ]
+        out = bot_api._wormholes_state(gv)
+        assert out == [
+            {"x": 200.0, "y": 200.0,
+             "zone_target": "ZoneID.WARP_METEOR"},
+            {"x": 6200.0, "y": 200.0,
+             "zone_target": "ZoneID.WARP_LIGHTNING"},
+        ]
+
+    def test_missing_zone_target_becomes_empty_string(self):
+        gv = _gv()
+        gv._wormholes = [
+            SimpleNamespace(center_x=200.0, center_y=200.0,
+                            zone_target=None),
+        ]
+        out = bot_api._wormholes_state(gv)
+        assert out == [
+            {"x": 200.0, "y": 200.0, "zone_target": ""}]
+
+
+class TestGasAreasState:
+    """``_gas_areas_state`` exposes toxic gas clouds in the gas
+    warp zone (and its Nebula / Star-Maze variants) so the bot's
+    navigation layer can route around them."""
+
+    def test_no_zone_returns_empty(self):
+        gv = SimpleNamespace(_zone=None)
+        assert bot_api._gas_areas_state(gv) == []
+
+    def test_zone_without_clouds_returns_empty(self):
+        """Most zones don't carry a ``_clouds`` attribute -- the
+        getattr fallback handles that cleanly."""
+        gv = _gv()  # zone is a SimpleNamespace without _clouds
+        assert bot_api._gas_areas_state(gv) == []
+
+    def test_clouds_serialized_with_radius(self):
+        gv = _gv()
+        gv._zone = SimpleNamespace(
+            zone_id="ZoneID.WARP_GAS",
+            world_width=3200, world_height=6400,
+            _clouds=[
+                SimpleNamespace(center_x=500.0, center_y=500.0,
+                                radius=80.0),
+                SimpleNamespace(center_x=1500.0, center_y=3000.0,
+                                radius=750.0),
+            ],
+        )
+        out = bot_api._gas_areas_state(gv)
+        assert out == [
+            {"x": 500.0, "y": 500.0, "radius": 80.0},
+            {"x": 1500.0, "y": 3000.0, "radius": 750.0},
+        ]
+
+
+class TestGetStateIncludesWormholesAndGasAreas:
+    """``get_state`` glues every extractor together; the keys for
+    the new fields must be present so the bot can read them."""
+
+    def test_get_state_includes_wormholes_and_gas_areas(self):
+        gv = _gv()
+        gv._wormholes = []
+        gv._hud = SimpleNamespace(_qu_slots=[], _qu_counts=[])
+        gv._module_slots = []
+        gv._station_inv = None
+        s = bot_api.get_state(gv)
+        assert "wormholes" in s
+        assert "gas_areas" in s

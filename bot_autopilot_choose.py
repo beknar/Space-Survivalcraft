@@ -376,6 +376,57 @@ def choose_next_state(state: dict, p: dict, cur: str) -> str:
     if boss is not None and hs_pri145 is not None:
         return _ap.S_ENGAGE_BOSS
 
+    # 1.6 WARP_TO_WORMHOLE (2026-05-15).  After the bot kills the
+    #     main-zone boss and finishes recovering / installing /
+    #     equipping, route to the nearest wormhole and warp into
+    #     one of the warp zones.  One-shot per session; latches
+    #     into ``warp_after_boss_done`` once the zone transition
+    #     to a WARP_* zone is observed.
+    #
+    #     Gates (in order):
+    #       * ``boss_was_killed`` latch is True (set on
+    #         ``boss_engage_end outcome=boss_killed``)
+    #       * ``warp_after_boss_done`` latch is False (one-shot)
+    #       * Current zone contains ``MAIN`` -- wormholes only
+    #         spawn in the MAIN zone.  Bonus: this also lets us
+    #         detect the post-warp zone change (zone_id no longer
+    #         contains ``MAIN``) and latch ``warp_after_boss_done``.
+    #       * No death recovery pending -- bot must finish loot
+    #         pickup before warping out.
+    #       * Module install queue empty -- every recovered or
+    #         pre-crafted module is on the ship.
+    #       * Quick-use slots have at least one repair_pack AND
+    #         one shield_recharge -- consumables are equipped.
+    zone_id = str((state.get("zone") or {}).get("id", ""))
+    in_main_zone = ("MAIN" in zone_id) and ("WARP" not in zone_id)
+    # Latch warp_done when we've transitioned out of MAIN after
+    # boss kill (post-warp landing).
+    if (_ap._state.boss_was_killed
+            and not _ap._state.warp_after_boss_done
+            and not in_main_zone
+            and zone_id):
+        _ap._state.warp_after_boss_done = True
+        _ap._telemetry_log(
+            "warp_after_boss_complete",
+            zone_id=zone_id,
+            **_ap._telemetry_snapshot_fields(state, p))
+    if (_ap._state.boss_was_killed
+            and not _ap._state.warp_after_boss_done
+            and in_main_zone
+            and not _ap._state.death_recovery_pending
+            and not _ap._state.queue.modules_to_install):
+        slots = state.get("quick_use_slots") or []
+        have_repair = any(
+            (s.get("item_type") == "repair_pack"
+             and int(s.get("count", 0)) > 0)
+            for s in slots)
+        have_shield = any(
+            (s.get("item_type") == "shield_recharge"
+             and int(s.get("count", 0)) > 0)
+            for s in slots)
+        if have_repair and have_shield:
+            return _ap.S_WARP_TO_WORMHOLE
+
     # 2. ENGAGE — alien within band.  Preempts the rest.
     # ``threat, td`` already loaded above for the REGEN escape
     # valve so we don't re-walk the alien list here.
