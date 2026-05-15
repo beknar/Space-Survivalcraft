@@ -398,18 +398,49 @@ def _act_engage_boss(state: dict, p: dict) -> None:
 def _act_regen(state: dict, p: dict) -> None:
     """REGEN: by default idle (no thrust, no fire -- shields
     recover passively at the home-station umbrella).  Special
-    case: when a boss is alive AND there is NO home station
-    (HS destroyed mid-fight), idling at the bot's current
-    position is fatal -- the boss will close on the parked bot
-    and kill it before shields recover.  In that case actively
-    flee away from the boss toward the world edge.
+    cases override the idle:
 
-    Captured pathology (2026-05-14 eighteenth-pass log): bot
-    parked at world center after HS destroyed, boss approached,
-    12 deaths in 60 s including 7 in recover_loot at the
-    death pile and 5 in engage at 0-2 shields.  Active flee in
-    REGEN keeps the bot out of boss range while shields climb.
+      * **Inside a gas cloud** -- gas does damage every 0.5 s
+        and slows the ship.  Sitting still inside one means
+        shields can't recover faster than gas drains them.
+        Drive out toward open space before idling.  Captured
+        2026-05-15: bot parked at (2986, 5750) in the Nebula
+        for 30+ s with shields stuck at 1-2/120; gas damage
+        exactly matched regen.
+      * **No HS + boss alive** -- boss will close on the parked
+        bot and kill it.  Actively flee away from the boss.
+        Captured 2026-05-14: 12 deaths in 60 s after HS
+        destruction; active flee kept the bot out of range.
     """
+    # Gas-cloud escape first -- damage from gas compounds faster
+    # than from a kiting boss, and applies even when no boss is
+    # alive (the Nebula has clouds but the Double Star is dead by
+    # the time the bot lands there).  Drive on a ray from the
+    # cloud centre through the bot, out past the cloud edge plus
+    # a safety margin.  ``gas_repulsion`` in steered_heading will
+    # further deflect around any clouds en route.
+    px = float(p.get("x", 0.0))
+    py = float(p.get("y", 0.0))
+    inside_cloud = _gas_cloud_at(state, px, py)
+    if inside_cloud is not None:
+        cx, cy, radius = inside_cloud
+        dx = px - cx
+        dy = py - cy
+        d = math.hypot(dx, dy)
+        if d < 1.0:
+            dx, dy, d = 1.0, 0.0, 1.0
+        ux, uy = dx / d, dy / d
+        # Target past the cloud edge by REGEN_GAS_ESCAPE_MARGIN_PX
+        # so the bot ends up clear of the field, not hugging it.
+        target_dist = radius + _ap.REGEN_GAS_ESCAPE_MARGIN_PX
+        tx = cx + ux * target_dist
+        ty = cy + uy * target_dist
+        zone = state.get("zone") or {}
+        tx, ty, _ = _nav.clamp_to_world(tx, ty, zone)
+        _ap.KeyState.hold("space", False)
+        _ap._do_goto(state, p, tx, ty, stop_radius=80.0)
+        return
+
     boss = state.get("boss")
     if boss is None:
         _ap._do_idle()
@@ -422,8 +453,6 @@ def _act_regen(state: dict, p: dict) -> None:
         _ap._do_idle()
         return
     # No HS AND boss alive: actively flee.
-    px = float(p.get("x", 0.0))
-    py = float(p.get("y", 0.0))
     bx = float(boss.get("x", 0.0))
     by = float(boss.get("y", 0.0))
     dx = px - bx
@@ -439,6 +468,23 @@ def _act_regen(state: dict, p: dict) -> None:
     tx, ty, _ = _nav.clamp_to_world(tx, ty, zone)
     _ap.KeyState.hold("space", False)
     _ap._do_goto(state, p, tx, ty, stop_radius=120.0)
+
+
+def _gas_cloud_at(state: dict, px: float, py: float):
+    """Return ``(cx, cy, radius)`` of the first gas cloud whose
+    interior contains ``(px, py)``, or ``None`` if the bot is
+    in clear space.  Helper for ``_act_regen``'s gas-escape
+    branch.  Lists are short (typically <50 entries) so the
+    linear scan is cheap; mirrors the per-cloud loop in
+    ``gas_repulsion`` for consistency.
+    """
+    for c in (state.get("gas_areas") or []):
+        cx = float(c.get("x", 0.0))
+        cy = float(c.get("y", 0.0))
+        radius = float(c.get("radius", 80.0))
+        if math.hypot(px - cx, py - cy) < radius:
+            return (cx, cy, radius)
+    return None
 
 
 def _act_warp_to_wormhole(state: dict, p: dict) -> None:

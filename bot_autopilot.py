@@ -398,6 +398,14 @@ BOSS_LURE_EXIT_SHIELDS_PCT:   float = 1.00    # only exit at full shields (kept 
 # away from the boss (clamped to the world).  Shields recover en
 # route to the edge instead of standing still inside the kill zone.
 BOSS_FLEE_TARGET_PX:          float = 2000.0
+# Gas-cloud escape margin in REGEN (2026-05-15).  When ``_act_regen``
+# detects that the bot is sitting inside a gas cloud, it drives
+# along the cloud-centre -> bot ray to a point this far past the
+# cloud edge so the bot ends up clear of the damage field, not
+# hugging it.  Captured pathology: bot parked at (2986, 5750) in
+# the Nebula for 30+ s with shields stuck at 1-2/120; gas damage
+# matched the regen rate, so passive recovery never completed.
+REGEN_GAS_ESCAPE_MARGIN_PX:   float = 200.0
 # Boss-camping-death-pos danger radius for recover_loot suppression.
 # If the boss is within this distance of ``death_recovery_pos``,
 # entering S_RECOVER_LOOT walks the bot into the boss's range and
