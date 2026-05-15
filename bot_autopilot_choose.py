@@ -294,7 +294,34 @@ def choose_next_state(state: dict, p: dict, cur: str) -> str:
     #      mid-trip.
     _ap._maybe_clear_death_recovery(state, p, now)
     if _ap._state.death_recovery_pending:
-        return _ap.S_RECOVER_LOOT
+        # Suppress recover_loot when re-entering the death pile
+        # would walk the bot into the boss's aggro range with no
+        # umbrella to retreat to.  2026-05-14 eighteenth-pass log
+        # captured the pathology: 7 deaths in 17 s at the same
+        # death pile while the boss hovered there.  Two gates:
+        #   * boss alive AND boss within
+        #     ``RECOVER_LOOT_BOSS_DANGER_PX`` of the death pos
+        #     -- bot would respawn-cycle into the boss's range.
+        #   * boss alive AND no home station -- nowhere to
+        #     install recovered modules at, so recovery is
+        #     pointless until HS rebuilds (or boss dies).
+        # In both cases pending stays True (recovery resumes
+        # when the danger clears) and the hard
+        # ``DEATH_RECOVERY_TIMEOUT_S`` still applies, so the
+        # FSM doesn't deadlock if the boss never leaves.
+        boss = state.get("boss")
+        recovery_blocked = False
+        if boss is not None:
+            drx, dry = _ap._state.death_recovery_pos
+            bdx = float(boss.get("x", 0.0)) - drx
+            bdy = float(boss.get("y", 0.0)) - dry
+            boss_at_death_pos = (
+                math.hypot(bdx, bdy)
+                < _ap.RECOVER_LOOT_BOSS_DANGER_PX)
+            no_hs = _ap._find_home_station(state) is None
+            recovery_blocked = boss_at_death_pos or no_hs
+        if not recovery_blocked:
+            return _ap.S_RECOVER_LOOT
 
     # 1.45 POST-RECOVERY DEPOSIT/INSTALL — after S_RECOVER_LOOT vacuums
     #      up dropped modules, they sit in SHIP cargo as ``mod_<key>``
@@ -352,12 +379,30 @@ def choose_next_state(state: dict, p: dict, cur: str) -> str:
     # 2. ENGAGE — alien within band.  Preempts the rest.
     # ``threat, td`` already loaded above for the REGEN escape
     # valve so we don't re-walk the alien list here.
-    if cur == _ap.S_ENGAGE:
-        if threat is not None and td < _ap.ENGAGE_EXIT_PX:
-            return _ap.S_ENGAGE
-    else:
-        if threat is not None and td < _ap.ENGAGE_ENTER_PX:
-            return _ap.S_ENGAGE
+    #
+    # No-home-station suppression on boss-as-threat (2026-05-14
+    # eighteenth pass): when the boss is the chosen threat AND
+    # there is no home station, charging into ENGAGE range = death.
+    # The seventeenth-pass HS-loss fix already blocked
+    # ``engage_boss``, but the regular ENGAGE path still picked
+    # the boss up via the threat injection above (REGEN escape
+    # valve check) and routed to S_ENGAGE.  Captured in this
+    # log as 5 back-to-back ENGAGE deaths at sh=0-2 in 12 s.
+    # Cascade falls through to GATHER / MINE / SEARCH which
+    # navigate by resource, not boss aggro.
+    boss_is_threat = (
+        threat is not None
+        and state.get("boss") is not None
+        and threat is state.get("boss"))
+    suppress_engage_no_hs = (
+        boss_is_threat and hs_pri145 is None)
+    if not suppress_engage_no_hs:
+        if cur == _ap.S_ENGAGE:
+            if threat is not None and td < _ap.ENGAGE_EXIT_PX:
+                return _ap.S_ENGAGE
+        else:
+            if threat is not None and td < _ap.ENGAGE_ENTER_PX:
+                return _ap.S_ENGAGE
 
     # 3. GATHER — loot pickup within reach.
     pickup, pd = _ap._nearest_pickup(state, px, py)

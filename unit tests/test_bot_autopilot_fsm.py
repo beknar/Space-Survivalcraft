@@ -18,6 +18,8 @@ deterministic.
 """
 from __future__ import annotations
 
+import math
+
 import pytest
 
 import bot_autopilot as ap
@@ -6793,6 +6795,13 @@ class TestDeathRecovery:
         s = _state(
             player={"x": 2050.0, "y": 3050.0, "heading": 0.0,
                     "shields": 150, "max_shields": 150},
+            # HS present + boss far from death_pos -- the
+            # 2026-05-14 recover_loot gate only suppresses when
+            # (boss near death_pos) OR (no HS).  Neither here, so
+            # the original "recover preempts engage_boss" intent
+            # still holds.
+            buildings=[{"x": 4000.0, "y": 4000.0,
+                        "building_type": "Home Station"}],
         )
         # Both a boss AND a pending loot recovery on the floor.
         s["boss"] = _boss()
@@ -7034,6 +7043,247 @@ class TestBossEngageSuppressedWhenNoHomeStation:
         # state -- as long as it's not engage_boss (boss doesn't
         # exist) or a non-action state.
         assert ap._fsm["state"] in (ap.S_MINE,)
+
+
+class TestEngageSuppressedOnBossWhenNoHomeStation:
+    """2026-05-14 eighteenth telemetry pass: PR #117 suppressed
+    ``S_ENGAGE_BOSS`` when no HS exists, but the regular
+    ``S_ENGAGE`` priority still picked the boss up via the threat
+    injection (the REGEN escape-valve injects the boss into the
+    threat slot when within ENGAGE_ENTER_PX so REGEN can bail).
+    Result: 5 back-to-back ENGAGE deaths at sh=0-2 in 12 s.
+
+    Fix: when threat-is-boss AND no HS, suppress S_ENGAGE too --
+    the cascade falls through to GATHER / MINE / SEARCH which
+    navigate by resource, not boss aggro.
+    """
+
+    def test_boss_as_threat_with_no_hs_does_not_route_to_engage(
+            self, _clock, monkeypatch):
+        """No HS + boss in ENGAGE_ENTER_PX => not S_ENGAGE."""
+        # Place the bot at 500 px from the boss -- well inside
+        # ENGAGE_ENTER_PX (800).  No HS in the buildings list.
+        s = _state(
+            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+        )
+        s["boss"] = _boss(x=3700.0, y=3200.0)
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] != ap.S_ENGAGE, (
+            "bot must not engage the boss directly when no "
+            "home station exists -- no umbrella, certain death")
+        assert ap._fsm["state"] != ap.S_ENGAGE_BOSS, (
+            "the seventeenth-pass no-HS engage_boss suppression "
+            "still applies")
+
+    def test_boss_as_threat_with_hs_still_routes_to_engage_boss(
+            self, _clock, monkeypatch):
+        """Sanity: with HS present, threat-is-boss in band
+        => S_ENGAGE_BOSS (higher priority than S_ENGAGE)."""
+        monkeypatch.setattr(ap, "_act_engage_boss", lambda s, p: None)
+        s = _state(
+            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            buildings=[{"x": 4000.0, "y": 4000.0,
+                        "building_type": "Home Station"}],
+        )
+        s["boss"] = _boss(x=3700.0, y=3200.0)
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_ENGAGE_BOSS
+
+    def test_small_alien_threat_with_no_hs_still_engages(
+            self, _clock, monkeypatch):
+        """The no-HS suppression is gated on threat-is-BOSS.
+        A regular alien threat without HS still routes to
+        ENGAGE -- otherwise the bot would never fight small
+        aliens until it had a base."""
+        s = _state(
+            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            aliens=[{"x": 3500.0, "y": 3200.0, "hp": 50}],
+        )
+        # Boss exists but is far away -- not the chosen threat.
+        s["boss"] = _boss(x=10000.0, y=10000.0)
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_ENGAGE
+
+
+class TestRegenFleesBossWhenNoHomeStation:
+    """2026-05-14 eighteenth telemetry pass.  REGEN's default
+    action is ``_do_idle`` -- the bot parks in place while
+    shields recover.  When the home station has been destroyed
+    AND a boss is alive, idling = death: boss closes on the
+    parked bot before shields climb back.  Captured pathology:
+    12 deaths in 60 s after HS destruction.
+
+    Fix: in ``_act_regen``, when no HS exists AND a boss is
+    alive, actively flee away from the boss toward the world
+    edge.  Idle behavior preserved in every other case.
+    """
+
+    def test_no_hs_with_boss_flees_away_from_boss(
+            self, monkeypatch):
+        captured: dict = {}
+        monkeypatch.setattr(
+            ap, "_do_goto",
+            lambda state, p, tx, ty, stop_radius=120.0,
+            brake_on_arrival=True: captured.update(tx=tx, ty=ty))
+        monkeypatch.setattr(ap, "_do_idle", lambda: captured.update(idled=True))
+        # Bot east of boss, no HS, boss alive.  Expect flee
+        # target FURTHER east than the bot's current position
+        # (away from boss).
+        s = _state(
+            player={"x": 3300.0, "y": 3000.0, "heading": 0.0,
+                    "shields": 30, "max_shields": 150},
+        )
+        s["boss"] = _boss(x=3000.0, y=3000.0)
+        ap._act_regen(s, s["player"])
+        assert "idled" not in captured, (
+            "no-HS REGEN with boss alive must actively flee, "
+            "not idle")
+        assert captured.get("tx", 0.0) > 3300.0, (
+            "flee target must be east of bot (away from boss "
+            "at x=3000)")
+
+    def test_hs_present_idles_normally(self, monkeypatch):
+        captured: dict = {}
+        monkeypatch.setattr(
+            ap, "_do_goto",
+            lambda *a, **kw: captured.update(fled=True))
+        monkeypatch.setattr(ap, "_do_idle", lambda: captured.update(idled=True))
+        s = _state(
+            player={"x": 3300.0, "y": 3000.0, "heading": 0.0,
+                    "shields": 30, "max_shields": 150},
+            buildings=[{"x": 4000.0, "y": 4000.0,
+                        "building_type": "Home Station"}],
+        )
+        s["boss"] = _boss(x=3000.0, y=3000.0)
+        ap._act_regen(s, s["player"])
+        assert "idled" in captured and "fled" not in captured, (
+            "with HS present, REGEN still idles (the FSM-level "
+            "routing parks the bot at HS)")
+
+    def test_no_boss_idles_normally(self, monkeypatch):
+        captured: dict = {}
+        monkeypatch.setattr(
+            ap, "_do_goto",
+            lambda *a, **kw: captured.update(fled=True))
+        monkeypatch.setattr(ap, "_do_idle", lambda: captured.update(idled=True))
+        s = _state(
+            player={"x": 3300.0, "y": 3000.0, "heading": 0.0,
+                    "shields": 30, "max_shields": 150},
+        )
+        # No boss key at all -- standard small-alien encounter
+        # that drove the bot into REGEN.
+        ap._act_regen(s, s["player"])
+        assert "idled" in captured and "fled" not in captured
+
+
+class TestRecoverLootBossProximityGate:
+    """2026-05-14 eighteenth telemetry pass.  S_RECOVER_LOOT
+    routed the bot back to the death pile while the boss
+    hovered there.  Captured pathology: 7 deaths in 17 s at
+    (3170-3225, 3180-3210) -- bot died, dropped loot, FSM re-
+    entered recover_loot toward the new pile, died again.
+
+    Fix: suppress S_RECOVER_LOOT when entering would walk the
+    bot into the boss's aggro range.  Two gates:
+      * boss within RECOVER_LOOT_BOSS_DANGER_PX of death_pos
+      * no HS AND boss alive (nowhere to install recovered
+        modules at, so recovery is pointless until HS rebuilds)
+    The pending latch stays True so recovery resumes when
+    the danger clears; the hard DEATH_RECOVERY_TIMEOUT_S
+    backstop still applies.
+    """
+
+    def test_boss_at_death_pos_suppresses_recover_loot(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        monkeypatch.setattr(ap, "_act_recover_loot", lambda s, p: None)
+        monkeypatch.setattr(ap, "_act_engage_boss", lambda s, p: None)
+        ap._state.death_recovery_pending = True
+        ap._state.death_recovery_pos = (3200.0, 3200.0)
+        ap._state.death_recovery_started_at = _clock[0]
+        s = _state(
+            player={"x": 3500.0, "y": 3500.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            # HS far away so the no-HS gate doesn't also fire.
+            buildings=[{"x": 100.0, "y": 100.0,
+                        "building_type": "Home Station"}],
+        )
+        # Boss right at the death pos -- well inside
+        # RECOVER_LOOT_BOSS_DANGER_PX.
+        s["boss"] = _boss(x=3200.0, y=3200.0)
+        s["iron_pickups"] = [
+            {"x": 3200.0, "y": 3200.0, "amount": 10,
+             "item_type": "iron"}]
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] != ap.S_RECOVER_LOOT, (
+            "must not route into recover_loot while boss is "
+            "camping the death pile")
+        # The pending latch stays True so recovery resumes when
+        # the boss leaves.
+        assert ap._state.death_recovery_pending is True
+
+    def test_no_hs_with_boss_alive_suppresses_recover_loot(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        monkeypatch.setattr(ap, "_act_recover_loot", lambda s, p: None)
+        ap._state.death_recovery_pending = True
+        ap._state.death_recovery_pos = (3200.0, 3200.0)
+        ap._state.death_recovery_started_at = _clock[0]
+        s = _state(
+            player={"x": 3500.0, "y": 3500.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            # No HS in buildings list.
+        )
+        # Boss far from death_pos -- only the no-HS gate fires.
+        s["boss"] = _boss(x=10000.0, y=10000.0)
+        s["iron_pickups"] = [
+            {"x": 3200.0, "y": 3200.0, "amount": 10,
+             "item_type": "iron"}]
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] != ap.S_RECOVER_LOOT
+        assert ap._state.death_recovery_pending is True
+
+    def test_boss_far_with_hs_does_not_suppress(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """Sanity: when neither gate fires (HS exists AND boss
+        far from death_pos), recover_loot routes normally."""
+        monkeypatch.setattr(ap, "_act_recover_loot", lambda s, p: None)
+        monkeypatch.setattr(ap, "_act_engage_boss", lambda s, p: None)
+        ap._state.death_recovery_pending = True
+        ap._state.death_recovery_pos = (3200.0, 3200.0)
+        ap._state.death_recovery_started_at = _clock[0]
+        s = _state(
+            player={"x": 3500.0, "y": 3500.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            buildings=[{"x": 4000.0, "y": 4000.0,
+                        "building_type": "Home Station"}],
+        )
+        s["boss"] = _boss(x=10000.0, y=10000.0)
+        s["iron_pickups"] = [
+            {"x": 3200.0, "y": 3200.0, "amount": 10,
+             "item_type": "iron"}]
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_RECOVER_LOOT
+
+    def test_no_boss_does_not_suppress(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """Without a boss, both gates are inactive -- recovery
+        routes normally even without an HS (gate is gated on
+        boss-alive)."""
+        monkeypatch.setattr(ap, "_act_recover_loot", lambda s, p: None)
+        ap._state.death_recovery_pending = True
+        ap._state.death_recovery_pos = (3200.0, 3200.0)
+        ap._state.death_recovery_started_at = _clock[0]
+        s = _state(
+            player={"x": 3500.0, "y": 3500.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+        )
+        s["iron_pickups"] = [
+            {"x": 3200.0, "y": 3200.0, "amount": 10,
+             "item_type": "iron"}]
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_RECOVER_LOOT
 
 
 class TestBossKiteAtRange:
@@ -7691,6 +7941,89 @@ class TestBossKiteStationAnchor:
         # Pulled west — kite x must be less than the boss x, not
         # east on the bot side.
         assert captured["tx"] < 4000.0
+
+
+class TestBossKiteStationAnchorBossFar:
+    """2026-05-14 eighteenth telemetry pass.  The previous
+    station-tether snap only pulled the kite onto the
+    boss->station ray; when the boss spawned far enough from
+    HS that NO point at ``BOSS_KITE_RANGE_PX`` from the boss
+    fell within tether, the snap still left the bot chasing
+    the boss into open space.  Captured pathology: boss
+    spawned ~3000 px from HS, bot followed kite tangent into
+    point-blank range, took 120 shields in 0.9 s, died with
+    boss still at 2000/2000 HP (zero damage dealt).
+
+    Fix: when ray-snap is still outside tether, park at the
+    umbrella edge (HS + tether * unit(HS->boss)) instead.
+    Bot stays inside turret + missile DPS range and inside
+    laser range once the boss approaches.
+    """
+
+    def test_far_boss_parks_at_umbrella_edge(self, monkeypatch):
+        captured: dict = {}
+        monkeypatch.setattr(
+            ap, "_do_goto",
+            lambda state, p, tx, ty, stop_radius=80.0,
+            brake_on_arrival=True: captured.update(tx=tx, ty=ty))
+        monkeypatch.setattr(ap, "_ensure_weapon", lambda *a, **kw: None)
+        # HS at (2000, 2000); boss at (5000, 2000) -- 3000 px
+        # east of HS.  Tether = 600 px, kite range = 750 px.
+        # Even snapping to the boss->HS ray gives a kite
+        # 3000 - 750 = 2250 px from HS, well outside tether.
+        # New behavior: park at HS + 600 * unit(HS->boss) =
+        # (2600, 2000).
+        s = _state(
+            player={"x": 2200.0, "y": 2000.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            buildings=[{"x": 2000.0, "y": 2000.0,
+                        "building_type": "Home Station"}],
+        )
+        s["boss"] = _boss(x=5000.0, y=2000.0)
+        ap._act_engage_boss(s, s["player"])
+        # Target must be at the umbrella edge facing the boss,
+        # not 2250 px out chasing the boss.
+        d_from_hs = math.hypot(
+            captured["tx"] - 2000.0, captured["ty"] - 2000.0)
+        assert abs(d_from_hs - ap.BOSS_KITE_STATION_TETHER_PX) < 5.0, (
+            f"bot should park at umbrella edge (tether="
+            f"{ap.BOSS_KITE_STATION_TETHER_PX}) when boss is "
+            f"too far for any kite point to be in tether; "
+            f"got d={d_from_hs:.1f}")
+        # Direction sanity: target should be east of HS
+        # (toward the boss), not the opposite side.
+        assert captured["tx"] > 2000.0
+
+    def test_existing_pull_toward_station_test_still_passes(
+            self, monkeypatch):
+        """Sanity: the original
+        ``TestBossKiteStationAnchor.test_kite_target_pulls_toward
+        _station_when_default_too_far`` asserts ``tx < 4000``
+        for a boss at (4000, 4000) with HS at (2000, 4000).
+        Under the new umbrella-edge rule, the kite target is
+        at HS + tether * unit(HS->boss) = (2600, 4000) -- still
+        west of boss, so the original assertion holds."""
+        captured: dict = {}
+        monkeypatch.setattr(
+            ap, "_do_goto",
+            lambda state, p, tx, ty, stop_radius=80.0,
+            brake_on_arrival=True: captured.update(tx=tx, ty=ty))
+        monkeypatch.setattr(ap, "_ensure_weapon", lambda *a, **kw: None)
+        s = _state(
+            player={"x": 4500.0, "y": 4000.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            buildings=[{"x": 2000.0, "y": 4000.0,
+                        "building_type": "Home Station"}],
+        )
+        s["boss"] = _boss(x=4000.0, y=4000.0)
+        ap._act_engage_boss(s, s["player"])
+        # Pulled WEST -- new behavior parks at umbrella edge
+        # (HS + 600 east), which is x = 2600, well west of boss.
+        assert captured["tx"] < 4000.0
+        # Concretely: target sits ~600 px from HS.
+        d_from_hs = math.hypot(
+            captured["tx"] - 2000.0, captured["ty"] - 4000.0)
+        assert abs(d_from_hs - ap.BOSS_KITE_STATION_TETHER_PX) < 5.0
 
 
 class TestBossPhase2ChargeDodge:

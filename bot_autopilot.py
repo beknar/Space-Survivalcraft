@@ -389,6 +389,23 @@ BOSS_LURE_SHIELDS_PCT:        float = 0.50
 BOSS_LURE_TURRET_RADIUS_PX:   float = 350.0
 BOSS_LURE_EXIT_SHIELDS_PCT:   float = 1.00    # only exit at full shields (kept for compat)
 
+# HS-loss flee target (2026-05-14 eighteenth-pass).  When the home
+# station is destroyed mid-fight (boss took it out) AND a boss is
+# still alive, REGEN's default ``_do_idle`` parks the bot in
+# the boss's aggro range -- in the captured log the bot took 12
+# deaths in 60 s after HS destruction.  When no HS exists, the
+# REGEN action handler instead drives the bot ``BOSS_FLEE_TARGET_PX``
+# away from the boss (clamped to the world).  Shields recover en
+# route to the edge instead of standing still inside the kill zone.
+BOSS_FLEE_TARGET_PX:          float = 2000.0
+# Boss-camping-death-pos danger radius for recover_loot suppression.
+# If the boss is within this distance of ``death_recovery_pos``,
+# entering S_RECOVER_LOOT walks the bot into the boss's range and
+# kills the respawn before any loot can vacuum.  Captured pathology:
+# 7 deaths in 17 s at (3170-3225, 3180-3210) -- the bot kept routing
+# back into the same death pile while the boss hovered there.
+RECOVER_LOOT_BOSS_DANGER_PX:  float = 1000.0
+
 # Boss TURRET-ASSIST mode (2026-05-12, eighth telemetry pass):
 # Replaces the "kite at 750 px from the boss" default with an
 # "orbit the station's far perimeter and let turrets work" default
@@ -1505,7 +1522,7 @@ from bot_autopilot_actions_station import (
     _act_recover_loot,
 )
 from bot_autopilot_actions_combat import (
-    _act_engage, _act_engage_boss, _maybe_use_consumables,
+    _act_engage, _act_engage_boss, _act_regen, _maybe_use_consumables,
     _act_gather, _act_idle_at_base,
 )
 
@@ -2087,7 +2104,7 @@ def _do_auto(state: dict, p: dict) -> None:
     elif cur == S_GATHER:
         _act_gather(state, p)
     elif cur == S_REGEN:
-        _do_idle()
+        _act_regen(state, p)
     elif cur == S_MINE:
         _do_mine_nearest(state, p)
     elif cur == S_BUILD:
