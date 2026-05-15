@@ -7179,6 +7179,129 @@ class TestRegenFleesBossWhenNoHomeStation:
         assert "idled" in captured and "fled" not in captured
 
 
+class TestRegenGasCloudEscape:
+    """2026-05-15: in the Nebula (ZONE2), the bot would park
+    inside a gas cloud while in REGEN and sit there indefinitely
+    -- gas does 15 dmg/0.5 s and slows the ship, so shields never
+    recover past the damage rate.  Captured pathology: bot at
+    (2986, 5750) in the Nebula for 30+ s with shields stuck at
+    1-2/120, no aliens in range so the REGEN escape valve
+    didn't fire either (gas isn't an alien threat).
+
+    Fix: ``_act_regen`` now checks ``state.gas_areas`` first.  If
+    the bot is inside any cloud, drive along the cloud-centre ->
+    bot ray to a point past the cloud edge so the bot ends up
+    clear of the damage field, not idling inside it.  Priority
+    is ABOVE the boss-flee branch (gas damage compounds faster
+    than a kiting boss).
+    """
+
+    def test_inside_gas_cloud_drives_outward(self, monkeypatch):
+        captured: dict = {}
+        monkeypatch.setattr(
+            ap, "_do_goto",
+            lambda state, p, tx, ty, stop_radius=80.0,
+            brake_on_arrival=True: captured.update(
+                tx=tx, ty=ty, called=True))
+        monkeypatch.setattr(
+            ap, "_do_idle", lambda: captured.update(idled=True))
+        s = _state(
+            player={"x": 1100.0, "y": 1000.0, "heading": 0.0,
+                    "shields": 30, "max_shields": 150},
+        )
+        # Cloud to the WEST of the bot; bot is 100 px inside the
+        # cloud's 200 px radius.
+        s["gas_areas"] = [
+            {"x": 1000.0, "y": 1000.0, "radius": 200.0},
+        ]
+        ap._act_regen(s, s["player"])
+        # Drives EAST (away from cloud centre at x=1000) -- target
+        # x must exceed the bot's current x.
+        assert "called" in captured
+        assert "idled" not in captured
+        assert captured["tx"] > 1100.0
+        # Target should sit past the cloud edge (radius + margin).
+        from math import hypot
+        d_from_centre = hypot(
+            captured["tx"] - 1000.0, captured["ty"] - 1000.0)
+        expected = 200.0 + ap.REGEN_GAS_ESCAPE_MARGIN_PX
+        assert abs(d_from_centre - expected) < 5.0
+
+    def test_outside_all_clouds_idles_normally(self, monkeypatch):
+        captured: dict = {}
+        monkeypatch.setattr(
+            ap, "_do_goto",
+            lambda *a, **kw: captured.update(fled=True))
+        monkeypatch.setattr(
+            ap, "_do_idle", lambda: captured.update(idled=True))
+        s = _state(
+            player={"x": 5000.0, "y": 5000.0, "heading": 0.0,
+                    "shields": 30, "max_shields": 150},
+        )
+        # Cloud exists but bot is far from it.
+        s["gas_areas"] = [
+            {"x": 100.0, "y": 100.0, "radius": 200.0},
+        ]
+        ap._act_regen(s, s["player"])
+        assert "idled" in captured
+        assert "fled" not in captured
+
+    def test_no_gas_areas_idles_normally(self, monkeypatch):
+        """Regression: when state has no ``gas_areas`` key (older
+        API or non-gas zone), default idle behaviour is preserved."""
+        captured: dict = {}
+        monkeypatch.setattr(
+            ap, "_do_goto",
+            lambda *a, **kw: captured.update(fled=True))
+        monkeypatch.setattr(
+            ap, "_do_idle", lambda: captured.update(idled=True))
+        s = _state(
+            player={"x": 3300.0, "y": 3000.0, "heading": 0.0,
+                    "shields": 30, "max_shields": 150},
+        )
+        # Don't set gas_areas key at all.
+        ap._act_regen(s, s["player"])
+        assert "idled" in captured
+
+    def test_gas_escape_takes_priority_over_boss_flee(
+            self, monkeypatch):
+        """When both conditions hold (in a gas cloud AND boss
+        alive without HS), the gas escape wins -- gas damage
+        compounds faster than a kiting boss."""
+        captured: dict = {}
+        monkeypatch.setattr(
+            ap, "_do_goto",
+            lambda state, p, tx, ty, stop_radius=80.0,
+            brake_on_arrival=True: captured.update(
+                tx=tx, ty=ty, called=True))
+        monkeypatch.setattr(
+            ap, "_do_idle", lambda: captured.update(idled=True))
+        s = _state(
+            player={"x": 1100.0, "y": 1000.0, "heading": 0.0,
+                    "shields": 30, "max_shields": 150},
+        )
+        # Cloud west; bot inside.  Boss far east so flee-from-boss
+        # would also target eastward direction -- isolate gas
+        # escape by having the boss FURTHER east than the bot.
+        # If the gas branch fires, target sits at cloud-edge +
+        # margin from cloud centre (~400 east of (1000,1000)).
+        # If boss-flee fires, target is BOSS_FLEE_TARGET_PX (2000)
+        # east of boss at (5000,1000) -> (7000,1000).
+        s["gas_areas"] = [
+            {"x": 1000.0, "y": 1000.0, "radius": 200.0},
+        ]
+        s["boss"] = _boss(x=5000.0, y=1000.0)
+        ap._act_regen(s, s["player"])
+        assert "called" in captured
+        # Target distance from cloud centre matches gas-escape,
+        # not boss-flee.
+        from math import hypot
+        d_from_cloud = hypot(
+            captured["tx"] - 1000.0, captured["ty"] - 1000.0)
+        expected = 200.0 + ap.REGEN_GAS_ESCAPE_MARGIN_PX
+        assert abs(d_from_cloud - expected) < 5.0
+
+
 class TestRecoverLootBossProximityGate:
     """2026-05-14 eighteenth telemetry pass.  S_RECOVER_LOOT
     routed the bot back to the death pile while the boss
