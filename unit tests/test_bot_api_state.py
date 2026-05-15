@@ -513,3 +513,44 @@ class TestGetStateIncludesWormholesAndGasAreas:
         s = bot_api.get_state(gv)
         assert "wormholes" in s
         assert "gas_areas" in s
+
+
+class TestBossDefeatedFlag:
+    """``state.boss_defeated`` is the game's persisted "main boss
+    has died in this save" flag.  Survives save/load so the bot
+    can trigger its post-boss warp behaviour on a loaded game
+    where ``boss_engage_end outcome=boss_killed`` never fired
+    this session."""
+
+    def test_true_when_gv_flag_set(self):
+        gv = _gv()
+        gv._wormholes = []
+        gv._hud = SimpleNamespace(_qu_slots=[], _qu_counts=[])
+        gv._module_slots = []
+        gv._station_inv = None
+        gv._boss_defeated = True
+        s = bot_api.get_state(gv)
+        assert s["boss_defeated"] is True
+
+    def test_false_when_gv_flag_unset(self):
+        gv = _gv()
+        gv._wormholes = []
+        gv._hud = SimpleNamespace(_qu_slots=[], _qu_counts=[])
+        gv._module_slots = []
+        gv._station_inv = None
+        gv._boss_defeated = False
+        s = bot_api.get_state(gv)
+        assert s["boss_defeated"] is False
+
+    def test_missing_attribute_defaults_to_false(self):
+        """Older game build without the persisted flag must not
+        break the API -- getattr default keeps the extractor
+        safe."""
+        gv = _gv()
+        gv._wormholes = []
+        gv._hud = SimpleNamespace(_qu_slots=[], _qu_counts=[])
+        gv._module_slots = []
+        gv._station_inv = None
+        # _boss_defeated not set at all on the SimpleNamespace.
+        s = bot_api.get_state(gv)
+        assert s["boss_defeated"] is False

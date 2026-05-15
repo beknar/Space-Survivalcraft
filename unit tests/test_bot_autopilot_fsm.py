@@ -7471,6 +7471,204 @@ class TestWarpToWormholeAction:
         assert ap._state.warp_after_boss_done is True
 
 
+class TestWarpTriggerOnBossDefeatedFromSave:
+    """2026-05-15: warp-to-wormhole trigger must also fire on
+    save-loaded games where the in-session ``boss_was_killed``
+    latch never set (because ``boss_engage_end`` never fired
+    this session).  ``state.boss_defeated`` is the game's
+    persisted "main boss killed in this save" flag exposed via
+    bot_api -- the choose-state cascade ORs the two signals so
+    either path triggers the warp.
+
+    Captured pathology: 488 s session loaded from a save with the
+    boss already dead; bot finished craft + install + equip but
+    never routed to a wormhole because boss_was_killed=False.
+    """
+
+    @staticmethod
+    def _ready_state(**player_overrides):
+        player = {"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                  "shields": 150, "max_shields": 150}
+        player.update(player_overrides)
+        s = _state(
+            player=player,
+            buildings=[{"x": 4000.0, "y": 4000.0,
+                        "building_type": "Home Station"}],
+        )
+        s["zone"]["id"] = "ZoneID.MAIN"
+        s["quick_use_slots"] = [
+            {"item_type": "repair_pack", "count": 5},
+            {"item_type": "shield_recharge", "count": 5},
+        ]
+        s["wormholes"] = [
+            {"x": 200.0, "y": 200.0,
+             "zone_target": "ZoneID.WARP_METEOR"},
+        ]
+        return s
+
+    def test_boss_defeated_from_save_triggers_warp(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """The bot loaded a save where the boss was killed last
+        session.  ``state.boss_defeated`` is True from the game's
+        persisted flag; ``_state.boss_was_killed`` is the default
+        False (no kill this session).  Warp must still fire."""
+        monkeypatch.setattr(
+            ap, "_act_warp_to_wormhole", lambda s, p: None)
+        ap._state.boss_was_killed = False
+        ap._state.warp_after_boss_done = False
+        ap._state.queue.modules_to_install = []
+        s = self._ready_state()
+        s["boss_defeated"] = True
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_WARP_TO_WORMHOLE
+
+    def test_neither_latch_nor_flag_does_not_trigger(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """Sanity: neither signal set => no warp.  Mirrors the
+        existing TestPostBossWarpToWormholeTrigger test but pins
+        the ``boss_defeated`` default to False."""
+        ap._state.boss_was_killed = False
+        ap._state.warp_after_boss_done = False
+        ap._state.queue.modules_to_install = []
+        s = self._ready_state()
+        s["boss_defeated"] = False  # explicit False
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] != ap.S_WARP_TO_WORMHOLE
+
+    def test_missing_boss_defeated_key_does_not_break(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """Backward compat: an older API that doesn't expose
+        ``boss_defeated`` must not crash the cascade.  Trigger
+        falls back to the local latch only."""
+        ap._state.boss_was_killed = True  # local latch set
+        ap._state.warp_after_boss_done = False
+        ap._state.queue.modules_to_install = []
+        monkeypatch.setattr(
+            ap, "_act_warp_to_wormhole", lambda s, p: None)
+        s = self._ready_state()
+        # Don't set "boss_defeated" at all -- state.get returns None.
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_WARP_TO_WORMHOLE
+
+
+class TestWarpTraverseTrigger:
+    """2026-05-15: once the bot has warped into a warp zone
+    after the post-boss arc, route to S_WARP_TRAVERSE so the
+    bot drives to the far side of the map (entry_side is
+    "bottom" so the goal is the top y edge).
+    """
+
+    def test_in_warp_zone_after_warp_routes_to_traverse(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        monkeypatch.setattr(
+            ap, "_act_warp_traverse", lambda s, p: None)
+        ap._state.boss_was_killed = True
+        ap._state.warp_after_boss_done = True
+        ap._state.warp_traverse_done = False
+        s = _state(
+            player={"x": 1600.0, "y": 500.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            world_w=3200, world_h=6400,
+        )
+        s["zone"]["id"] = "ZoneID.WARP_GAS"
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_WARP_TRAVERSE
+
+    def test_traverse_done_latch_blocks_reentry(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """One-shot: after ``warp_traverse_done`` latches, the
+        bot doesn't re-route to traverse on subsequent warp-zone
+        visits."""
+        ap._state.boss_was_killed = True
+        ap._state.warp_after_boss_done = True
+        ap._state.warp_traverse_done = True
+        s = _state(
+            player={"x": 1600.0, "y": 500.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            world_w=3200, world_h=6400,
+        )
+        s["zone"]["id"] = "ZoneID.WARP_GAS"
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] != ap.S_WARP_TRAVERSE
+
+    def test_traverse_not_in_main_zone(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """In the MAIN zone the traverse branch must NOT fire
+        (zone_id doesn't contain WARP)."""
+        ap._state.boss_was_killed = True
+        ap._state.warp_after_boss_done = True
+        ap._state.warp_traverse_done = False
+        s = _state(
+            player={"x": 1600.0, "y": 500.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+        )
+        s["zone"]["id"] = "ZoneID.MAIN"
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] != ap.S_WARP_TRAVERSE
+
+    def test_close_threat_preempts_traverse(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """Priority: ENGAGE > WARP_TRAVERSE.  A close threat
+        must pull the bot off the traversal so it doesn't drive
+        past hostiles taking free hits."""
+        ap._state.boss_was_killed = True
+        ap._state.warp_after_boss_done = True
+        ap._state.warp_traverse_done = False
+        s = _state(
+            player={"x": 1600.0, "y": 500.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            aliens=[{"x": 1800.0, "y": 500.0, "hp": 50}],
+            world_w=3200, world_h=6400,
+        )
+        s["zone"]["id"] = "ZoneID.WARP_GAS"
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_ENGAGE
+
+
+class TestWarpTraverseAction:
+    """``_act_warp_traverse`` drives toward (world_w/2, world_h -
+    margin) and latches ``warp_traverse_done`` once the bot has
+    reached the far-side margin."""
+
+    def test_action_drives_toward_far_side(self, monkeypatch):
+        captured: dict = {}
+        monkeypatch.setattr(
+            ap, "_do_goto",
+            lambda state, p, tx, ty, stop_radius=120.0,
+            brake_on_arrival=True: captured.update(tx=tx, ty=ty))
+        s = _state(
+            player={"x": 800.0, "y": 200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            world_w=3200, world_h=6400,
+        )
+        ap._act_warp_traverse(s, s["player"])
+        # Target is centre-x, top-edge-minus-margin.
+        assert captured["tx"] == 1600.0
+        assert captured["ty"] == 6400.0 - ap.WARP_TRAVERSE_MARGIN_PX
+
+    def test_action_latches_done_at_far_side(
+            self, _fresh_bot_state, monkeypatch):
+        captured: dict = {}
+        monkeypatch.setattr(
+            ap, "_do_goto",
+            lambda *a, **kw: captured.update(called=True))
+        monkeypatch.setattr(
+            ap, "_do_idle", lambda: captured.update(idled=True))
+        ap._state.warp_traverse_done = False
+        # Place bot well past the arrival threshold.
+        target_y = 6400.0 - ap.WARP_TRAVERSE_MARGIN_PX
+        s = _state(
+            player={"x": 1600.0, "y": target_y + 50.0,
+                    "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            world_w=3200, world_h=6400,
+        )
+        ap._act_warp_traverse(s, s["player"])
+        assert ap._state.warp_traverse_done is True
+        assert "idled" in captured
+        assert "called" not in captured
+
+
 class TestBossKilledLatchInEngageEndEdge:
     """``boss_was_killed`` flips True on ``boss_engage_end`` with
     outcome=boss_killed, sticky for the session."""

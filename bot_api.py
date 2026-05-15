@@ -452,6 +452,16 @@ def get_state(gv) -> dict:
         "blueprint_pickups": _pickup_list(_safe(lambda: gv.blueprint_pickup_list)),
         "wormholes": _safe(lambda: _wormholes_state(gv)) or [],
         "gas_areas": _safe(lambda: _gas_areas_state(gv)) or [],
+        # ``boss_defeated`` is the GAME's persisted "main boss has
+        # died in this save" flag (set in collisions_boss.py, saved
+        # via game_save.py).  Survives save/load so the bot can
+        # trigger its post-boss warp behaviour even on a loaded
+        # game where ``boss_engage_end outcome=boss_killed`` never
+        # fired this session.  Default False if the attribute is
+        # missing (older game build).
+        "boss_defeated": _safe(
+            lambda: bool(getattr(gv, "_boss_defeated", False)),
+            False),
         "intent": dict(_intent),
         "assist": assist_state,
     }
