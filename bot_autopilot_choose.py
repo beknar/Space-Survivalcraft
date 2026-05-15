@@ -399,9 +399,22 @@ def choose_next_state(state: dict, p: dict, cur: str) -> str:
     #         one shield_recharge -- consumables are equipped.
     zone_id = str((state.get("zone") or {}).get("id", ""))
     in_main_zone = ("MAIN" in zone_id) and ("WARP" not in zone_id)
+    # Boss-killed signal: OR the in-session ``boss_was_killed``
+    # latch with the game's persisted ``boss_defeated`` flag.
+    # The persisted flag (exposed 2026-05-15) lets the warp behavior
+    # fire on save-loaded games too -- without it the bot would
+    # only warp after a fresh kill THIS session, which broke for
+    # any session that started from a save where the boss had
+    # already died.  Captured in the 2026-05-15 log: bot finished
+    # craft + install + equip pipeline (modules_to_install=0,
+    # consumable_phase_started=True) but never routed to a
+    # wormhole because boss_engage_end never fired this session.
+    boss_killed_signal = (
+        _ap._state.boss_was_killed
+        or bool(state.get("boss_defeated", False)))
     # Latch warp_done when we've transitioned out of MAIN after
     # boss kill (post-warp landing).
-    if (_ap._state.boss_was_killed
+    if (boss_killed_signal
             and not _ap._state.warp_after_boss_done
             and not in_main_zone
             and zone_id):
@@ -410,7 +423,7 @@ def choose_next_state(state: dict, p: dict, cur: str) -> str:
             "warp_after_boss_complete",
             zone_id=zone_id,
             **_ap._telemetry_snapshot_fields(state, p))
-    if (_ap._state.boss_was_killed
+    if (boss_killed_signal
             and not _ap._state.warp_after_boss_done
             and in_main_zone
             and not _ap._state.death_recovery_pending
@@ -454,6 +467,26 @@ def choose_next_state(state: dict, p: dict, cur: str) -> str:
         else:
             if threat is not None and td < _ap.ENGAGE_ENTER_PX:
                 return _ap.S_ENGAGE
+
+    # 2.5 WARP_TRAVERSE (2026-05-15).  Once the bot has landed in
+    #     a warp zone after the post-boss warp, drive to the far
+    #     side of the map (the game enters at ``entry_side="bottom"``
+    #     so the goal is the top y edge).  ``warp_traverse_done``
+    #     latches True once the bot reaches the far-side margin so
+    #     this branch is a one-shot per post-boss arc.
+    #
+    #     Priority is BELOW ENGAGE (close threats preempt -- bot
+    #     fights its way past aliens rather than driving through
+    #     them taking free hits) but ABOVE GATHER / MINE / HUNT
+    #     (traversal beats opportunistic resource collection -- the
+    #     spec is "get past the obstacles", not "stop and farm").
+    #     Gas / building / boundary repulsion in steered_heading
+    #     handles obstacle avoidance during the drive.
+    if (boss_killed_signal
+            and _ap._state.warp_after_boss_done
+            and not _ap._state.warp_traverse_done
+            and ("WARP" in zone_id)):
+        return _ap.S_WARP_TRAVERSE
 
     # 3. GATHER — loot pickup within reach.
     pickup, pd = _ap._nearest_pickup(state, px, py)

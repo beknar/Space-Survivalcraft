@@ -491,6 +491,43 @@ def _act_warp_to_wormhole(state: dict, p: dict) -> None:
     _ap._do_goto(state, p, tx, ty, stop_radius=50.0)
 
 
+def _act_warp_traverse(state: dict, p: dict) -> None:
+    """WARP_TRAVERSE: drive from the bot's entry position (bottom
+    of the warp zone after a post-boss warp) to the far side of
+    the map (top y edge).  Gas / building / boundary repulsion in
+    ``steered_heading`` handles obstacle avoidance automatically.
+
+    Defensive states (REGEN, ENGAGE on close threats) preempt via
+    the priority cascade, so this handler only owns the long-haul
+    navigation.  Cold weapons here -- combat assist still fires
+    reflexively when an alien wanders into laser range during the
+    transit; no need for the autopilot to spam fire.
+
+    Latches ``warp_traverse_done`` once the bot has reached within
+    ``WARP_TRAVERSE_ARRIVAL_PX`` of the target y so the FSM falls
+    through to the regular cascade (gather / mine / search etc.)
+    once the traversal is complete.
+    """
+    zone = state.get("zone") or {}
+    world_w = float(zone.get("world_w", 3200) or 3200)
+    world_h = float(zone.get("world_h", 6400) or 6400)
+    py_now = float(p.get("y", 0.0))
+    target_y = world_h - _ap.WARP_TRAVERSE_MARGIN_PX
+    target_x = world_w / 2.0
+    if py_now >= target_y - _ap.WARP_TRAVERSE_ARRIVAL_PX:
+        if not _ap._state.warp_traverse_done:
+            _ap._state.warp_traverse_done = True
+            _ap._telemetry_log(
+                "warp_traverse_complete",
+                arrived_y=round(py_now, 1),
+                target_y=round(target_y, 1),
+                **_ap._telemetry_snapshot_fields(state, p))
+        _ap._do_idle()
+        return
+    _ap.KeyState.hold("space", False)
+    _ap._do_goto(state, p, target_x, target_y, stop_radius=120.0)
+
+
 def _maybe_use_consumables(state: dict, p: dict) -> None:
     """Per-tick auto-heal hook: fire repair pack / shield recharge
     based on HP / shield thresholds.  Runs every ``_do_auto`` tick

@@ -406,6 +406,16 @@ BOSS_FLEE_TARGET_PX:          float = 2000.0
 # back into the same death pile while the boss hovered there.
 RECOVER_LOOT_BOSS_DANGER_PX:  float = 1000.0
 
+# Warp-zone traversal targets (2026-05-15).  After the post-boss
+# warp, drive the bot to the far side of the map (entry_side is
+# "bottom" in the game's transition_zone call so the goal is the
+# top y edge).  ``MARGIN`` keeps the target well inside the world
+# rect so boundary repulsion doesn't fight the navigation, and
+# ``ARRIVAL`` gives a generous arrival window so a bot wobbling
+# around the target doesn't miss the latch.
+WARP_TRAVERSE_MARGIN_PX:      float = 250.0
+WARP_TRAVERSE_ARRIVAL_PX:     float = 150.0
+
 # Boss TURRET-ASSIST mode (2026-05-12, eighth telemetry pass):
 # Replaces the "kite at 750 px from the boss" default with an
 # "orbit the station's far perimeter and let turrets work" default
@@ -561,13 +571,23 @@ S_RECOVER_LOOT      = "recover_loot"
 # The gas warp zone gets gas-area repulsion in the navigation
 # layer so the bot can avoid the toxic clouds once it lands.
 S_WARP_TO_WORMHOLE  = "warp_to_wormhole"
+# S_WARP_TRAVERSE (2026-05-15): once the bot has warped into a
+# warp zone, drive to the far side of the map (entry_side is
+# "bottom" so the goal is the top y edge).  Gas / building /
+# boundary repulsion in steered_heading deflects around obstacles
+# on the way.  Defensive states (REGEN, ENGAGE on close threats)
+# still preempt -- this is a high-level navigation goal, not a
+# bulldozer.  Latches ``warp_traverse_done`` when the bot reaches
+# the far-side margin so the FSM falls through to the regular
+# cascade afterward.
+S_WARP_TRAVERSE     = "warp_traverse"
 
 ALL_STATES = (
     S_ENGAGE, S_GATHER, S_REGEN, S_MINE, S_SEARCH,
     S_BUILD, S_BUILD_SEEK, S_DEPOSIT, S_CRAFT, S_INSTALL,
     S_HUNT, S_IDLE_AT_BASE, S_ENGAGE_BOSS,
     S_EQUIP_CONSUMABLES, S_PRE_BOSS_MINE, S_FORTIFY, S_BUILD_QWI,
-    S_RECOVER_LOOT, S_WARP_TO_WORMHOLE,
+    S_RECOVER_LOOT, S_WARP_TO_WORMHOLE, S_WARP_TRAVERSE,
 )
 
 # Maximum range at which the bot will commit to chasing an alien
@@ -1248,6 +1268,11 @@ class BotState:
     # ``MAIN``) so the trigger is one-shot per session.
     boss_was_killed: bool = False
     warp_after_boss_done: bool = False
+    # ``warp_traverse_done`` (2026-05-15): latches True once the
+    # bot has crossed to the far side of the warp zone after the
+    # post-boss warp.  Blocks re-routing to S_WARP_TRAVERSE on
+    # subsequent warp-zone visits.
+    warp_traverse_done: bool = False
 
     def reset(self) -> None:
         """Restore every field to its default.  Mutates dict fields
@@ -1304,6 +1329,7 @@ class BotState:
         self.boss_turret_assist_active = False
         self.boss_was_killed = False
         self.warp_after_boss_done = False
+        self.warp_traverse_done = False
 
 
 _state = BotState()
@@ -1545,6 +1571,7 @@ from bot_autopilot_actions_station import (
 from bot_autopilot_actions_combat import (
     _act_engage, _act_engage_boss, _act_regen, _maybe_use_consumables,
     _act_gather, _act_idle_at_base, _act_warp_to_wormhole,
+    _act_warp_traverse,
 )
 
 
@@ -2094,7 +2121,8 @@ def _do_auto(state: dict, p: dict) -> None:
         idle_react = cur == S_IDLE_AT_BASE
         if desired in (S_ENGAGE, S_REGEN, S_ENGAGE_BOSS,
                        S_EQUIP_CONSUMABLES, S_FORTIFY,
-                       S_BUILD_QWI, S_WARP_TO_WORMHOLE) or \
+                       S_BUILD_QWI, S_WARP_TO_WORMHOLE,
+                       S_WARP_TRAVERSE) or \
                 idle_react or \
                 dwell >= MIN_DWELL_S:
             _fsm["state"] = desired
@@ -2168,6 +2196,8 @@ def _do_auto(state: dict, p: dict) -> None:
         _act_recover_loot(state, p)
     elif cur == S_WARP_TO_WORMHOLE:
         _act_warp_to_wormhole(state, p)
+    elif cur == S_WARP_TRAVERSE:
+        _act_warp_traverse(state, p)
     else:  # S_SEARCH
         _do_spiral_search(state, p)
 
