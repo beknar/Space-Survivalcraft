@@ -554,3 +554,65 @@ class TestBossDefeatedFlag:
         # _boss_defeated not set at all on the SimpleNamespace.
         s = bot_api.get_state(gv)
         assert s["boss_defeated"] is False
+
+
+class TestZoneAwareAsteroidsNebula:
+    """2026-05-15: in the Nebula (ZONE2) and Star Maze zones, the
+    minimap source returns only ``_iron_asteroids +
+    _copper_asteroids``.  The bot needs to also see
+    ``_double_iron`` (HP=300 iron variant) and ``_wanderers``
+    (magnetic, mobile) so it can mine the whole zone.  The
+    bot-specific helper now stitches all four lists when the
+    active zone exposes them.
+
+    User report: "upon reaching the nebula zone, the bot does not
+    know how to mine the new types of asteroids."
+    """
+
+    def test_main_zone_falls_back_to_asteroid_list(self):
+        """MAIN zone uses ``gv.asteroid_list`` via the minimap
+        helper (no per-list stitching needed)."""
+        gv = _gv()
+        gv.asteroid_list = ["a1", "a2"]
+        # Zone has no _iron/_copper attributes => falls to minimap.
+        gv._zone = SimpleNamespace(
+            zone_id="ZoneID.MAIN", world_width=6400, world_height=6400)
+        out = bot_api._zone_aware_asteroids(gv)
+        # The minimap helper for MAIN returns gv.asteroid_list.
+        assert list(out) == ["a1", "a2"]
+
+    def test_nebula_zone_includes_all_four_lists(self):
+        """ZONE2 with iron + double_iron + copper + wanderers all
+        present -- bot sees every minable rock."""
+        gv = _gv()
+        gv._zone = SimpleNamespace(
+            zone_id="ZoneID.ZONE2",
+            world_width=6400, world_height=6400,
+            _iron_asteroids=["i1", "i2"],
+            _double_iron=["d1"],
+            _copper_asteroids=["c1", "c2", "c3"],
+            _wanderers=["w1"],
+        )
+        out = list(bot_api._zone_aware_asteroids(gv))
+        assert out == ["i1", "i2", "d1", "c1", "c2", "c3", "w1"]
+
+    def test_partial_nebula_zone_includes_present_lists(self):
+        """If some lists exist and others don't (e.g. a hand-rolled
+        zone variant), the helper includes what's present."""
+        gv = _gv()
+        gv._zone = SimpleNamespace(
+            zone_id="ZoneID.ZONE2",
+            world_width=6400, world_height=6400,
+            _iron_asteroids=["i1"],
+            _copper_asteroids=["c1"],
+            # No _double_iron, no _wanderers
+        )
+        out = list(bot_api._zone_aware_asteroids(gv))
+        assert out == ["i1", "c1"]
+
+    def test_missing_zone_falls_back(self):
+        """No ``_zone`` attribute -> fallback to gv.asteroid_list."""
+        gv = SimpleNamespace(asteroid_list=["a1"])
+        # No _zone attr.
+        out = bot_api._zone_aware_asteroids(gv)
+        assert list(out) == ["a1"]

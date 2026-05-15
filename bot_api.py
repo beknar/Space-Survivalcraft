@@ -411,9 +411,47 @@ def _zone_aware_aliens(gv):
 
 
 def _zone_aware_asteroids(gv):
-    """Zone-aware asteroid source (mirrors _minimap_obstacles) —
-    same fix as _zone_aware_aliens but for the asteroid list."""
+    """Zone-aware asteroid source for the bot.
+
+    For the MAIN zone and the warp zones the minimap source is
+    accurate (only ``IronAsteroid`` exists in MAIN; warp zones
+    expose a single chained list).  For the Nebula (ZONE2) and
+    Star Maze zones, however, the minimap chain is
+    ``_iron_asteroids + _copper_asteroids`` and OMITS the
+    ``_double_iron`` (HP=300 iron variant) and ``_wanderers``
+    (magnetic, mobile) sprite lists.  Those are nebula-only
+    minable rocks and the bot needs to see them to mine the
+    zone -- without this enhancement (2026-05-15) the bot
+    would only see ~half of the visible asteroids and the
+    nearest-asteroid picker would walk past wanderers and
+    double-iron rocks every tick.
+
+    Falls back to ``gv.asteroid_list`` if zone introspection
+    fails -- safe for older saves / unexpected zone classes.
+    """
     try:
+        z = getattr(gv, "_zone", None)
+        if z is None:
+            return getattr(gv, "asteroid_list", [])
+        # Nebula / Star Maze: stitch all four asteroid lists.
+        # Mirrors the zone's own internal iteration (see
+        # zones/zone2.py and zones/star_maze.py update loops).
+        has_iron = hasattr(z, "_iron_asteroids")
+        has_double = hasattr(z, "_double_iron")
+        has_copper = hasattr(z, "_copper_asteroids")
+        has_wand = hasattr(z, "_wanderers")
+        if has_iron and (has_double or has_copper or has_wand):
+            import itertools
+            lists = [z._iron_asteroids]
+            if has_double:
+                lists.append(z._double_iron)
+            if has_copper:
+                lists.append(z._copper_asteroids)
+            if has_wand:
+                lists.append(z._wanderers)
+            return list(itertools.chain(*lists))
+        # Fallback to the minimap helper for other zones (MAIN,
+        # warp zones).
         from draw_logic import _minimap_obstacles
         return _minimap_obstacles(gv)
     except Exception:
