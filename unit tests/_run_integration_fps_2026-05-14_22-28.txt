@@ -1,0 +1,3342 @@
+============================= test session starts =============================
+platform win32 -- Python 3.12.10, pytest-9.0.3, pluggy-1.6.0 -- E:\code\Space-Survivalcraft\.venv\Scripts\python.exe
+cachedir: .pytest_cache
+rootdir: C:\Users\bekna\Documents\code\Space-Survivalcraft
+configfile: pytest.ini
+collecting ... collected 438 items
+
+unit tests/integration/test_basic_ship_flow.py::TestBasicShipPlacementEndToEnd::test_place_basic_ship_appends_l1_parked Gamepad connected: XInput0
+PASSED
+unit tests/integration/test_basic_ship_flow.py::TestBasicShipPlacementEndToEnd::test_place_basic_ship_deducts_half_cost Gamepad connected: XInput0
+PASSED
+unit tests/integration/test_basic_ship_flow.py::TestBasicShipPlacementEndToEnd::test_place_basic_ship_does_not_touch_player Gamepad connected: XInput0
+PASSED
+unit tests/integration/test_basic_ship_flow.py::TestBasicShipPlacementEndToEnd::test_basic_ship_locks_after_placement Gamepad connected: XInput0
+PASSED
+unit tests/integration/test_basic_ship_flow.py::TestBasicShipPlacementEndToEnd::test_destroy_then_rebuild_basic_ship Gamepad connected: XInput0
+PASSED
+unit tests/integration/test_basic_ship_flow.py::TestBasicShipPlacementModeEntry::test_entry_blocked_when_l1_ship_exists Gamepad connected: XInput0
+PASSED
+unit tests/integration/test_basic_ship_flow.py::TestBasicShipPlacementModeEntry::test_entry_blocked_when_iron_short Gamepad connected: XInput0
+PASSED
+unit tests/integration/test_basic_ship_flow.py::TestBasicShipPlacementModeEntry::test_entry_succeeds_when_all_gates_open Gamepad connected: XInput0
+PASSED
+unit tests/integration/test_bot_api_integration.py::TestHealth::test_health_responds [bot_api] listening on http://127.0.0.1:18765/  (GET /state, POST /intent)
+PASSED
+unit tests/integration/test_bot_api_integration.py::TestState::test_state_returns_full_payload PASSED
+unit tests/integration/test_bot_api_integration.py::TestState::test_state_reflects_player_position PASSED
+unit tests/integration/test_bot_api_integration.py::TestIntent::test_get_intent_default PASSED
+unit tests/integration/test_bot_api_integration.py::TestIntent::test_post_intent_round_trip PASSED
+unit tests/integration/test_bot_api_integration.py::TestIntent::test_state_carries_current_intent PASSED
+unit tests/integration/test_bot_api_integration.py::TestIntent::test_post_intent_rejects_missing_type PASSED
+unit tests/integration/test_bot_api_integration.py::TestAssistToggle::test_post_assist_round_trip PASSED
+unit tests/integration/test_bot_api_integration.py::TestUnknownPath::test_get_unknown_path_404 PASSED
+unit tests/integration/test_bot_autopilot_modules_integration.py::TestPickupBlacklistEndToEnd::test_stuck_in_gather_blacklists_pickup_then_skips_it [autopilot] PICKUP-BLACKLIST (unreachable): iron at (3320, 3200)
+PASSED
+unit tests/integration/test_bot_autopilot_modules_integration.py::TestAsteroidBlacklistEndToEnd::test_stuck_in_mine_blacklists_asteroid [autopilot] ASTEROID-BLACKLIST: {'x': 3300.0, 'y': 3200.0, 'hp': 1} (stuck while mining, ttl 60s)
+PASSED
+unit tests/integration/test_bot_autopilot_modules_integration.py::TestTelemetrySnapshotIntegration::test_snapshot_writes_at_5s_cadence PASSED
+unit tests/integration/test_bot_autopilot_modules_integration.py::TestPotentialFieldDeflection::test_steered_heading_deflects_when_near_edge PASSED
+unit tests/integration/test_drone_pathfinding.py::TestDroneMultiRoomNavigation::test_drone_advances_through_at_least_one_doorway Gamepad connected: XInput0
+PASSED
+unit tests/integration/test_drone_pathfinding.py::TestDroneMultiRoomNavigation::test_drone_eventually_close_to_player_in_far_room Gamepad connected: XInput0
+PASSED
+unit tests/integration/test_drone_pathfinding.py::TestDroneAutonomousReturnHome::test_drone_enters_return_home_above_break_off Gamepad connected: XInput0
+PASSED
+unit tests/integration/test_drone_pathfinding.py::TestDroneAutonomousReturnHome::test_drone_returns_to_player_from_far_distance Gamepad connected: XInput0
+PASSED
+unit tests/integration/test_drone_pathfinding.py::TestDroneAutonomousReturnHome::test_return_home_exits_under_600_with_hysteresis Gamepad connected: XInput0
+PASSED
+unit tests/integration/test_drone_pathfinding.py::TestDroneEntersMaze::test_drone_outside_player_inside_drone_enters_maze Gamepad connected: XInput0
+PASSED
+unit tests/integration/test_drone_pathfinding.py::TestDroneExitsMaze::test_drone_in_entrance_room_with_target_outside_exits Gamepad connected: XInput0
+PASSED
+unit tests/integration/test_drone_pathfinding.py::TestFleetMenuOrdersThroughDispatch::test_return_order_forces_return_home_even_with_target Gamepad connected: XInput0
+PASSED
+unit tests/integration/test_drone_pathfinding.py::TestFleetMenuOrdersThroughDispatch::test_attack_order_engages_outside_break_off_dist Gamepad connected: XInput0
+PASSED
+unit tests/integration/test_drone_pathfinding.py::TestFleetMenuOrdersThroughDispatch::test_follow_only_reaction_blocks_attack_engagement Gamepad connected: XInput0
+PASSED
+unit tests/integration/test_drone_pathfinding.py::TestFleetMenuOrdersThroughDispatch::test_direct_return_clears_only_on_close_and_los Gamepad connected: XInput0
+PASSED
+unit tests/integration/test_drone_pathfinding.py::TestPlayerLasersPassThroughAIShip::test_ai_pilot_ship_takes_no_damage_from_player_laser Gamepad connected: XInput0
+PASSED
+unit tests/integration/test_drone_pathfinding.py::TestDroneSaveLoadIntegration::test_active_drone_round_trips_through_save_dict Gamepad connected: XInput0
+PASSED
+unit tests/integration/test_drone_pathfinding.py::TestDroneSlotFallbackInLiveZone::test_drone_picks_back_slot_when_left_and_right_blocked Gamepad connected: XInput0
+PASSED
+unit tests/integration/test_drone_pathfinding.py::TestDoorwayArrivalLive::test_drone_does_not_park_on_doorway_midpoint Gamepad connected: XInput0
+PASSED
+unit tests/integration/test_drone_wall_containment.py::TestDroneTunnelThrough::test_vertical_wall_left_to_right Gamepad connected: XInput0
+PASSED
+unit tests/integration/test_drone_wall_containment.py::TestDroneTunnelThrough::test_vertical_wall_right_to_left Gamepad connected: XInput0
+PASSED
+unit tests/integration/test_drone_wall_containment.py::TestDroneTunnelThrough::test_horizontal_wall_bottom_to_top Gamepad connected: XInput0
+PASSED
+unit tests/integration/test_drone_wall_containment.py::TestDroneSlowOverlap::test_drone_pushed_out_when_spawned_inside_wall Gamepad connected: XInput0
+PASSED
+unit tests/integration/test_drone_wall_containment.py::TestDroneSlowOverlap::test_drone_never_ends_frame_inside_any_wall Gamepad connected: XInput0
+PASSED
+unit tests/integration/test_drone_wall_containment.py::TestMiningDroneAlsoBlocked::test_mining_drone_does_not_tunnel Gamepad connected: XInput0
+PASSED
+unit tests/integration/test_menu_scroll.py::TestBuildMenuScroll::test_scrollbar_appears_when_content_exceeds_panel PASSED
+unit tests/integration/test_menu_scroll.py::TestBuildMenuScroll::test_no_scrollbar_when_content_fits PASSED
+unit tests/integration/test_menu_scroll.py::TestBuildMenuScroll::test_mouse_wheel_scrolls_down PASSED
+unit tests/integration/test_menu_scroll.py::TestBuildMenuScroll::test_mouse_wheel_scrolls_up PASSED
+unit tests/integration/test_menu_scroll.py::TestBuildMenuScroll::test_scroll_clamps_at_zero PASSED
+unit tests/integration/test_menu_scroll.py::TestBuildMenuScroll::test_scroll_clamps_at_max PASSED
+unit tests/integration/test_menu_scroll.py::TestBuildMenuScroll::test_thumb_drag_sets_scroll_position PASSED
+unit tests/integration/test_menu_scroll.py::TestBuildMenuScroll::test_track_click_above_thumb_scrolls_up_by_page PASSED
+unit tests/integration/test_menu_scroll.py::TestBuildMenuScroll::test_track_click_below_thumb_scrolls_down_by_page PASSED
+unit tests/integration/test_menu_scroll.py::TestBuildMenuScroll::test_row_y_changes_with_scroll PASSED
+unit tests/integration/test_menu_scroll.py::TestCraftMenuScroll::test_scrollbar_appears_when_many_recipes PASSED
+unit tests/integration/test_menu_scroll.py::TestCraftMenuScroll::test_no_scrollbar_when_few_recipes PASSED
+unit tests/integration/test_menu_scroll.py::TestCraftMenuScroll::test_mouse_wheel_scrolls PASSED
+unit tests/integration/test_menu_scroll.py::TestCraftMenuScroll::test_wheel_noop_when_closed PASSED
+unit tests/integration/test_menu_scroll.py::TestCraftMenuScroll::test_wheel_noop_when_no_scroll_needed PASSED
+unit tests/integration/test_menu_scroll.py::TestCraftMenuScroll::test_scroll_clamps_at_max PASSED
+unit tests/integration/test_menu_scroll.py::TestCraftMenuScroll::test_thumb_drag_sets_scroll PASSED
+unit tests/integration/test_performance_ai_pilot.py::TestAIPilotZone1::test_ai_pilot_zone1_above_threshold Gamepad connected: XInput0
+  [perf] 261.0 FPS (60 frames in 0.230s)
+PASSED
+unit tests/integration/test_performance_ai_pilot.py::TestAIPilotZone2::test_ai_pilot_zone2_above_threshold Gamepad connected: XInput0
+  [perf] 260.9 FPS (60 frames in 0.230s)
+PASSED
+unit tests/integration/test_performance_ai_pilot.py::TestAIPilotZone1WithVideos::test_ai_pilot_zone1_with_videos_above_threshold Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] Playing: Ellie.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] First frame OK (160x160)
+[VideoPlayer] First frame OK (200x200)
+  [perf] 239.8 FPS (60 frames in 0.250s)
+PASSED
+unit tests/integration/test_performance_ai_pilot.py::TestAIPilotZone2WithVideos::test_ai_pilot_zone2_with_videos_above_threshold Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] Playing: Ellie.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] First frame OK (160x160)
+[VideoPlayer] First frame OK (200x200)
+  [perf] 95.4 FPS (60 frames in 0.629s)
+  [perf] 224.5 FPS (60 frames in 0.267s)
+  [perf] 94.3 FPS (60 frames in 0.636s)
+PASSED
+unit tests/integration/test_performance_boss_phases.py::TestBossPhase2Combat::test_phase2_with_charge_active_above_threshold Gamepad connected: XInput0
+  [perf] 280.5 FPS (60 frames in 0.214s)
+  [perf-boss-p2] charge windup+dash: 280.5 FPS
+PASSED
+unit tests/integration/test_performance_boss_phases.py::TestBossPhase2Combat::test_phase2_steady_state_above_threshold Gamepad connected: XInput0
+  [perf] 301.7 FPS (60 frames in 0.199s)
+  [perf-boss-p2] steady state: 301.7 FPS
+PASSED
+unit tests/integration/test_performance_boss_phases.py::TestBossPhase3Combat::test_phase3_enraged_above_threshold Gamepad connected: XInput0
+  [perf] 296.9 FPS (60 frames in 0.202s)
+  [perf-boss-p3] enraged combat: 296.9 FPS
+PASSED
+unit tests/integration/test_performance_boss_phases.py::TestBossPhase3Combat::test_phase3_with_charge_active_above_threshold Gamepad connected: XInput0
+  [perf] 297.8 FPS (60 frames in 0.201s)
+  [perf-boss-p3-charge] worst-case: 297.8 FPS
+PASSED
+unit tests/integration/test_performance_bot.py::TestCombatAssistTickPerf::test_tick_under_1ms[10] PASSED
+unit tests/integration/test_performance_bot.py::TestCombatAssistTickPerf::test_tick_under_1ms[30] PASSED
+unit tests/integration/test_performance_bot.py::TestCombatAssistTickPerf::test_tick_under_1ms[100] PASSED
+unit tests/integration/test_performance_bot.py::TestGetStatePerf::test_get_state_under_5ms PASSED
+unit tests/integration/test_performance_bot.py::TestBotApiHTTPLatency::test_state_round_trip_under_50ms [bot_api] listening on http://127.0.0.1:18766/  (GET /state, POST /intent)
+PASSED
+unit tests/integration/test_performance_bot.py::TestAutoCascadePerf::test_auto_cascade_under_2ms PASSED
+unit tests/integration/test_performance_bot_modules.py::TestBoundaryRepulsionPerf::test_centre_call_under_2us PASSED
+unit tests/integration/test_performance_bot_modules.py::TestBoundaryRepulsionPerf::test_at_edge_call_under_5us PASSED
+unit tests/integration/test_performance_bot_modules.py::TestBuildingRepulsionPerf::test_dense_buildings_under_50us PASSED
+unit tests/integration/test_performance_bot_modules.py::TestBuildingRepulsionPerf::test_no_buildings_fast_path_under_2us PASSED
+unit tests/integration/test_performance_bot_modules.py::TestSteeredHeadingPerf::test_steered_heading_under_50us PASSED
+unit tests/integration/test_performance_bot_modules.py::TestDetectStuckPerf::test_full_window_history_under_5us PASSED
+unit tests/integration/test_performance_bot_modules.py::TestBlacklistPerf::test_pickup_scan_with_50_entries_under_10us PASSED
+unit tests/integration/test_performance_bot_modules.py::TestBlacklistPerf::test_nearest_pickup_combined_under_50us PASSED
+unit tests/integration/test_performance_bot_modules.py::TestAutoCascadeAfterRefactor::test_do_auto_under_2ms PASSED
+unit tests/integration/test_performance_combat.py::TestHeavyCombat::test_heavy_combat_above_threshold Gamepad connected: XInput0
+  [perf] 239.5 FPS (60 frames in 0.251s)
+PASSED
+unit tests/integration/test_performance_combat.py::TestEscapeMenuOpen::test_escape_menu_open_above_threshold Gamepad connected: XInput0
+  [perf] 263.1 FPS (60 frames in 0.228s)
+PASSED
+unit tests/integration/test_performance_drone.py::TestDroneFollowSameRoom::test_combat_drone_following_in_maze_room Gamepad connected: XInput0
+  [perf] 200.0 FPS (60 frames in 0.300s)
+PASSED
+unit tests/integration/test_performance_drone.py::TestDroneFollowSameRoom::test_mining_drone_following_in_maze_room Gamepad connected: XInput0
+  [perf] 201.9 FPS (60 frames in 0.297s)
+PASSED
+unit tests/integration/test_performance_drone.py::TestDroneAttackInMaze::test_combat_drone_engaging_spawner Gamepad connected: XInput0
+  [perf] 198.6 FPS (60 frames in 0.302s)
+PASSED
+unit tests/integration/test_performance_drone.py::TestDroneReturnHomeMultiRoom::test_combat_drone_return_home_through_maze Gamepad connected: XInput0
+  [perf] 186.6 FPS (60 frames in 0.321s)
+PASSED
+unit tests/integration/test_performance_drone.py::TestDroneAtEntranceGap::test_combat_drone_at_entrance_with_player_outside Gamepad connected: XInput0
+  [perf] 188.9 FPS (60 frames in 0.318s)
+PASSED
+unit tests/integration/test_performance_drone.py::TestDroneMapDrawCost::test_drone_with_full_screen_map_open Gamepad connected: XInput0
+  [perf] 99.7 FPS (60 frames in 0.602s)
+PASSED
+unit tests/integration/test_performance_explosions.py::TestAsteroidExplosionBurstZone1::test_20_asteroid_explosions_zone1_above_threshold Gamepad connected: XInput0
+  [perf] 292.3 FPS (60 frames in 0.205s)
+PASSED
+unit tests/integration/test_performance_explosions.py::TestAsteroidExplosionBurstZone2::test_20_asteroid_explosions_zone2_above_threshold Gamepad connected: XInput0
+  [perf] 284.5 FPS (60 frames in 0.211s)
+PASSED
+unit tests/integration/test_performance_explosions.py::TestAsteroidExplosionBurstZone2WithVideos::test_20_asteroid_explosions_zone2_with_videos_above_threshold Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] Playing: Ellie.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] First frame OK (160x160)
+[VideoPlayer] First frame OK (200x200)
+  [perf] 223.5 FPS (60 frames in 0.269s)
+PASSED
+unit tests/integration/test_performance_explosions.py::TestAsteroidExplosionSustainedMining::test_sustained_mining_spawns_asteroid_explosions_above_threshold Gamepad connected: XInput0
+  [perf] sustained-mining: 269.4 FPS (60 frames in 0.223s)
+PASSED
+unit tests/integration/test_performance_inventory.py::TestInventoriesOpen::test_both_inventories_open_above_threshold Gamepad connected: XInput0
+  [perf] 85.4 FPS (60 frames in 0.702s)
+PASSED
+unit tests/integration/test_performance_menu_scroll.py::TestBuildMenuScrollPerf::test_build_menu_open_with_scroll_above_threshold Gamepad connected: XInput0
+  [perf] 240.3 FPS (60 frames in 0.250s)
+  [perf-menu-scroll] build menu mid-scroll: 240.3 FPS
+PASSED
+unit tests/integration/test_performance_menu_scroll.py::TestBuildMenuScrollPerf::test_build_menu_during_active_drag_above_threshold Gamepad connected: XInput0
+  [perf] 238.7 FPS (60 frames in 0.251s)
+  [perf-menu-scroll] build menu drag: 238.7 FPS
+PASSED
+unit tests/integration/test_performance_menu_scroll.py::TestCraftMenuScrollPerf::test_craft_menu_open_with_scroll_above_threshold Gamepad connected: XInput0
+  [perf] 284.2 FPS (60 frames in 0.211s)
+  [perf-menu-scroll] craft menu mid-scroll: 284.2 FPS
+PASSED
+unit tests/integration/test_performance_menu_scroll.py::TestCraftMenuScrollPerf::test_craft_menu_drag_above_threshold Gamepad connected: XInput0
+  [perf] 150.3 FPS (60 frames in 0.399s)
+  [perf-menu-scroll] craft menu drag: 150.3 FPS
+PASSED
+unit tests/integration/test_performance_menu_scroll.py::TestContinuousWheelScrollPerf::test_continuous_wheel_build_menu_above_threshold Gamepad connected: XInput0
+  [perf-menu-scroll] build menu wheel-spam: 228.8 FPS
+PASSED
+unit tests/integration/test_performance_missile_array.py::TestMissileArrayPerf::test_missile_arrays_above_threshold Gamepad connected: XInput0
+  [perf] 146.1 FPS (60 frames in 0.411s)
+PASSED
+unit tests/integration/test_performance_missile_array.py::TestMissileArrayPerfWithVideos::test_missile_arrays_above_threshold_with_videos Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] Playing: Ellie.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] First frame OK (160x160)
+[VideoPlayer] First frame OK (200x200)
+  [perf] 127.8 FPS (60 frames in 0.470s)
+PASSED
+unit tests/integration/test_performance_nebula_boss.py::TestNebulaBossCombatFps::test_nebula_boss_combat_above_threshold Gamepad connected: XInput0
+  [perf] 120.4 FPS (60 frames in 0.498s)
+  [perf-nebula-boss] combat: 120.4 FPS
+PASSED
+unit tests/integration/test_performance_nebula_boss.py::TestNebulaBossManyGasCloudsFps::test_20_gas_clouds_above_threshold Gamepad connected: XInput0
+  [perf] 202.7 FPS (60 frames in 0.296s)
+  [perf-nebula-boss] 20 gas clouds: 202.7 FPS
+PASSED
+unit tests/integration/test_performance_nebula_boss.py::TestNebulaBossConeActiveFps::test_cone_active_above_threshold Gamepad connected: XInput0
+  [perf] 233.3 FPS (60 frames in 0.257s)
+  [perf-nebula-boss] cone active: 233.3 FPS
+PASSED
+unit tests/integration/test_performance_null_field.py::TestNullFieldDrawZone1::test_null_field_zone1_above_threshold Gamepad connected: XInput0
+  [perf] 290.0 FPS (60 frames in 0.207s)
+PASSED
+unit tests/integration/test_performance_null_field.py::TestNullFieldDrawZone2::test_null_field_zone2_above_threshold Gamepad connected: XInput0
+  [perf] 262.4 FPS (60 frames in 0.229s)
+PASSED
+unit tests/integration/test_performance_null_field.py::TestNullFieldDrawZone2WithVideos::test_null_field_zone2_with_videos_above_threshold Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] Playing: Ellie.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] First frame OK (160x160)
+[VideoPlayer] First frame OK (200x200)
+  [perf] 127.5 FPS (60 frames in 0.471s)
+PASSED
+unit tests/integration/test_performance_null_field.py::TestNullFieldClookOverhead::test_cloaked_zone2_above_threshold Gamepad connected: XInput0
+  [perf] 250.9 FPS (60 frames in 0.239s)
+PASSED
+unit tests/integration/test_performance_parked_ships.py::TestParkedShipsZone2::test_parked_ships_zone2_above_threshold Gamepad connected: XInput0
+  [perf] 173.0 FPS (60 frames in 0.347s)
+PASSED
+unit tests/integration/test_performance_session_boss.py::TestNebulaBossForceWallFps::test_single_wall_between_boss_and_player Gamepad connected: XInput0
+  [perf] 250.9 FPS (60 frames in 0.239s)
+  [perf-session-boss] nebula + 1 wall: 250.9 FPS
+PASSED
+unit tests/integration/test_performance_session_boss.py::TestNebulaBossForceWallFps::test_six_walls_worst_case Gamepad connected: XInput0
+  [perf] 240.1 FPS (60 frames in 0.250s)
+  [perf-session-boss] nebula + 6 walls: 240.1 FPS
+PASSED
+unit tests/integration/test_performance_session_boss.py::TestNebulaBossAsteroidCrushFps::test_dense_asteroid_field_in_path Gamepad connected: XInput0
+  [perf] 154.6 FPS (60 frames in 0.388s)
+  [perf-session-boss] nebula + 30 nearby asteroids: 154.6 FPS
+PASSED
+unit tests/integration/test_performance_session_boss.py::TestBossHealthBarsFps::test_double_and_nebula_boss_bars Gamepad connected: XInput0
+  [perf] 228.3 FPS (60 frames in 0.263s)
+  [perf-session-boss] both bosses + bars: 228.3 FPS
+PASSED
+unit tests/integration/test_performance_session_boss.py::TestStationDefendersVsNebulaFps::test_many_turrets_targeting_nebula Gamepad connected: XInput0
+  [perf] 243.8 FPS (60 frames in 0.246s)
+  [perf-session-boss] 6 turrets vs nebula: 243.8 FPS
+PASSED
+unit tests/integration/test_performance_slipspace.py::TestSlipspaceMinimapDrawFps::test_zone2_with_slipspace_markers_above_threshold Gamepad connected: XInput0
+  [perf] 276.8 FPS (60 frames in 0.217s)
+  [perf] zone2 with slipspace markers: 276.8 FPS
+PASSED
+unit tests/integration/test_performance_station_combo.py::TestStationWithAIAndBothVideos::test_ai_pilot_plus_both_videos_at_station_above_threshold Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] Playing: Ellie.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] First frame OK (160x160)
+[VideoPlayer] First frame OK (200x200)
+  [perf] 137.5 FPS (60 frames in 0.437s)
+  [perf-combo] AI + station + 2 videos: 137.5 FPS
+PASSED
+unit tests/integration/test_performance_station_combo.py::TestStationWithAIBothVideosAndTMenu::test_t_menu_with_combo_above_threshold Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] Playing: Ellie.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] First frame OK (160x160)
+[VideoPlayer] First frame OK (200x200)
+  [perf] 227.3 FPS (60 frames in 0.264s)
+  [perf-combo] T menu + combo: 227.3 FPS
+PASSED
+unit tests/integration/test_performance_station_combo.py::TestStationWithAIBothVideosAndBMenu::test_b_menu_with_combo_above_threshold Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] Playing: Ellie.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] First frame OK (160x160)
+[VideoPlayer] First frame OK (200x200)
+  [perf] 91.9 FPS (60 frames in 0.653s)
+  [perf-combo] B menu + combo: 91.9 FPS
+PASSED
+unit tests/integration/test_performance_station_combo.py::TestStationWithAIBothVideosAndVideoPropsMenu::test_video_props_menu_with_combo_above_threshold Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] Playing: Ellie.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] First frame OK (160x160)
+[VideoPlayer] First frame OK (200x200)
+  [perf] 110.9 FPS (60 frames in 0.541s)
+  [perf-combo] video-props + combo: 110.9 FPS
+PASSED
+unit tests/integration/test_performance_station_combo.py::TestQWIMenuOpenFps::test_qwi_menu_open_above_threshold Gamepad connected: XInput0
+  [perf] 153.6 FPS (60 frames in 0.391s)
+  [perf-qwi] QWI menu open: 153.6 FPS
+PASSED
+unit tests/integration/test_performance_station_combo.py::TestNebulaBossWithStationComboAndTMenu::test_nebula_boss_station_videos_t_menu_above_threshold Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] Playing: Ellie.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] First frame OK (160x160)
+[VideoPlayer] First frame OK (200x200)
+  [perf] 133.3 FPS (60 frames in 0.450s)
+  [perf-combo] Nebula + station combo + T menu: 133.3 FPS
+PASSED
+unit tests/integration/test_performance_station_info.py::TestStationInfoZone1::test_station_info_zone1_above_threshold Gamepad connected: XInput0
+  [perf] 241.3 FPS (60 frames in 0.249s)
+PASSED
+unit tests/integration/test_performance_station_info.py::TestStationInfoZone2::test_station_info_zone2_above_threshold Gamepad connected: XInput0
+  [perf] 233.7 FPS (60 frames in 0.257s)
+PASSED
+unit tests/integration/test_performance_station_info.py::TestStationInfoMusicZone1::test_station_info_music_zone1_above_threshold Gamepad connected: XInput0
+  [perf] 219.7 FPS (60 frames in 0.273s)
+PASSED
+unit tests/integration/test_performance_station_info.py::TestStationInfoMusicZone2::test_station_info_music_zone2_above_threshold Gamepad connected: XInput0
+  [perf] 209.9 FPS (60 frames in 0.286s)
+PASSED
+unit tests/integration/test_performance_station_info.py::TestFullScenarioZone1::test_full_scenario_zone1_above_threshold Gamepad connected: XInput0
+  [perf] 192.7 FPS (60 frames in 0.311s)
+PASSED
+unit tests/integration/test_performance_station_info.py::TestFullScenarioZone2::test_full_scenario_zone2_above_threshold Gamepad connected: XInput0
+  [perf] 155.2 FPS (60 frames in 0.387s)
+PASSED
+unit tests/integration/test_performance_station_info.py::TestStationInfoOpenInZone2Fps::test_t_menu_open_zone2_above_threshold Gamepad connected: XInput0
+  [perf] zone2 + T menu open: 255.9 FPS
+PASSED
+unit tests/integration/test_performance_station_shield.py::TestStationShieldZone1::test_station_shield_active_above_threshold Gamepad connected: XInput0
+  [perf] 138.7 FPS (60 frames in 0.433s)
+PASSED
+unit tests/integration/test_performance_station_shield.py::TestStationShieldZone2::test_station_shield_zone2_above_threshold Gamepad connected: XInput0
+  [perf] 253.2 FPS (60 frames in 0.237s)
+PASSED
+unit tests/integration/test_performance_station_shield.py::TestStationShieldZone2WithVideos::test_station_shield_zone2_with_videos_above_threshold Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] Playing: Ellie.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] First frame OK (160x160)
+[VideoPlayer] First frame OK (200x200)
+  [perf] 231.6 FPS (60 frames in 0.259s)
+PASSED
+unit tests/integration/test_performance_station_shield.py::TestAIPilotShieldedFleetZone2::test_ai_pilot_fleet_with_yellow_shields_above_threshold Gamepad connected: XInput0
+  [perf] 225.4 FPS (60 frames in 0.266s)
+PASSED
+unit tests/integration/test_performance_trade.py::TestTradeSellPanelZone1::test_trade_sell_panel_open_above_threshold Gamepad connected: XInput0
+  [perf] 83.5 FPS (60 frames in 0.718s)
+PASSED
+unit tests/integration/test_performance_trade.py::TestTradeBuyPanelZone1::test_trade_buy_panel_open_above_threshold Gamepad connected: XInput0
+  [perf] 278.3 FPS (60 frames in 0.216s)
+PASSED
+unit tests/integration/test_performance_trade.py::TestTradeSellPanelZone2::test_trade_sell_panel_zone2_above_threshold Gamepad connected: XInput0
+  [perf] 226.6 FPS (60 frames in 0.265s)
+PASSED
+unit tests/integration/test_performance_trade.py::TestTradeSellPanelZone1WithVideos::test_trade_sell_panel_zone1_with_videos_above_threshold Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] Playing: Ellie.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+  [perf] 262.3 FPS (60 frames in 0.229s)
+PASSED
+unit tests/integration/test_performance_trade.py::TestTradeBuyPanelZone1WithVideos::test_trade_buy_panel_zone1_with_videos_above_threshold Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] Playing: Ellie.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+  [perf] 283.9 FPS (60 frames in 0.211s)
+PASSED
+unit tests/integration/test_performance_trade.py::TestTradeBuyPanelZone2WithVideos::test_trade_buy_panel_zone2_with_videos_above_threshold Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] Playing: Ellie.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+  [perf] 154.0 FPS (60 frames in 0.390s)
+PASSED
+unit tests/integration/test_performance_trade.py::TestTradePanelSwitchingWithVideos::test_trade_panel_mode_switch_zone1_above_threshold Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] Playing: Ellie.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+  [perf] trade switch: 145.3 FPS (60 frames in 0.413s)
+PASSED
+unit tests/integration/test_performance_trade.py::TestTradePanelSwitchingWithVideos::test_trade_panel_mode_switch_zone2_above_threshold Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] Playing: Ellie.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+  [perf] trade switch z2: 136.2 FPS (60 frames in 0.440s)
+PASSED
+unit tests/integration/test_performance_trade.py::TestTradeSellPanelZone2WithVideos::test_trade_sell_panel_zone2_with_videos_above_threshold Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] Playing: Ellie.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+  [perf] 233.0 FPS (60 frames in 0.258s)
+PASSED
+unit tests/integration/test_performance_video_char.py::TestVideoZone1::test_char_video_with_zone1_above_threshold Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] First frame OK (160x160)
+  [perf] 246.0 FPS (60 frames in 0.244s)
+PASSED
+unit tests/integration/test_performance_video_char.py::TestVideoZone2::test_char_video_with_zone2_above_threshold Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] First frame OK (160x160)
+  [perf] 235.4 FPS (60 frames in 0.255s)
+PASSED
+unit tests/integration/test_performance_video_char.py::TestVideoInventories::test_char_video_with_inventories_above_threshold Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] First frame OK (160x160)
+  [perf] 143.1 FPS (60 frames in 0.419s)
+PASSED
+unit tests/integration/test_performance_video_dual.py::TestDualVideoZone1::test_both_videos_with_zone1_above_threshold Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] Playing: Ellie.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] First frame OK (160x160)
+[VideoPlayer] First frame OK (200x200)
+  [perf] 261.8 FPS (60 frames in 0.229s)
+PASSED
+unit tests/integration/test_performance_video_dual.py::TestDualVideoZone2::test_both_videos_with_zone2_above_threshold Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] Playing: Ellie.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] First frame OK (160x160)
+[VideoPlayer] First frame OK (200x200)
+  [perf] 234.1 FPS (60 frames in 0.256s)
+PASSED
+unit tests/integration/test_performance_video_dual.py::TestDualVideoInventories::test_both_videos_with_inventories_above_threshold Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] Playing: Ellie.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] First frame OK (160x160)
+[VideoPlayer] First frame OK (200x200)
+  [perf] 152.3 FPS (60 frames in 0.394s)
+PASSED
+unit tests/integration/test_performance_video_music.py::TestRealMusicVideoZone1::test_real_music_char_video_zone1_above_threshold Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] Playing: phonk-kawaii1.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 640x360
+[VideoPlayer] First frame OK (160x160)
+[VideoPlayer] First frame OK (200x200)
+  [perf] 268.5 FPS (60 frames in 0.223s)
+PASSED
+unit tests/integration/test_performance_video_music.py::TestRealMusicVideoZone2::test_real_music_char_video_zone2_above_threshold Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] Playing: phonk-kawaii1.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 640x360
+[VideoPlayer] First frame OK (160x160)
+[VideoPlayer] First frame OK (200x200)
+  [perf] 224.8 FPS (60 frames in 0.267s)
+PASSED
+unit tests/integration/test_performance_video_music.py::TestRealMusicVideoInventories::test_real_music_char_video_inventories_above_threshold Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] Playing: phonk-kawaii1.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 640x360
+[VideoPlayer] First frame OK (160x160)
+[VideoPlayer] First frame OK (200x200)
+  [perf] 145.1 FPS (60 frames in 0.413s)
+PASSED
+unit tests/integration/test_performance_video_music.py::TestVideoPlayerStopChurnFps::test_many_pending_cleanups_do_not_degrade_fps Gamepad connected: XInput0
+  [perf] 263.7 FPS (60 frames in 0.228s)
+  [perf] zone2 + 30 pending video cleanups: 263.7 FPS
+PASSED
+unit tests/integration/test_performance_warp_zones.py::TestWarpEnemyZone::test_warp_enemy_zone_above_threshold Gamepad connected: XInput0
+  [perf] 464.1 FPS (60 frames in 0.129s)
+PASSED
+unit tests/integration/test_performance_warp_zones.py::TestWarpMeteorFull::test_warp_meteor_full_above_threshold Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] Playing: Ellie.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] First frame OK (160x160)
+[VideoPlayer] First frame OK (200x200)
+  [perf] 311.3 FPS (60 frames in 0.193s)
+PASSED
+unit tests/integration/test_performance_warp_zones.py::TestWarpLightningFull::test_warp_lightning_full_above_threshold Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] Playing: Ellie.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] First frame OK (160x160)
+[VideoPlayer] First frame OK (200x200)
+  [perf] 280.7 FPS (60 frames in 0.214s)
+PASSED
+unit tests/integration/test_performance_warp_zones.py::TestWarpGasFull::test_warp_gas_full_above_threshold Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] Playing: Ellie.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] First frame OK (160x160)
+[VideoPlayer] First frame OK (200x200)
+  [perf] 334.2 FPS (60 frames in 0.180s)
+PASSED
+unit tests/integration/test_performance_warp_zones.py::TestWarpEnemyFull::test_warp_enemy_full_above_threshold Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] Playing: Ellie.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] First frame OK (160x160)
+[VideoPlayer] First frame OK (200x200)
+  [perf] 344.5 FPS (60 frames in 0.174s)
+PASSED
+unit tests/integration/test_performance_zones_baseline.py::TestZone2FullPopulation::test_zone2_with_all_entities_above_threshold Gamepad connected: XInput0
+  [perf] 269.7 FPS (60 frames in 0.222s)
+PASSED
+unit tests/integration/test_performance_zones_baseline.py::TestZone2WithStation::test_zone2_with_9_buildings_above_threshold Gamepad connected: XInput0
+  [perf] 262.2 FPS (60 frames in 0.229s)
+PASSED
+unit tests/integration/test_performance_zones_baseline.py::TestZone1WithBoss::test_zone1_boss_fight_above_threshold Gamepad connected: XInput0
+  [perf] 246.9 FPS (60 frames in 0.243s)
+PASSED
+unit tests/integration/test_performance_zones_baseline.py::TestMinimapHeavyDraw::test_zone2_minimap_rendering_above_threshold Gamepad connected: XInput0
+  [perf] 201.7 FPS (60 frames in 0.297s)
+PASSED
+unit tests/integration/test_performance_zones_baseline.py::TestAlienAsteroidZone2::test_alien_asteroid_collision_zone2_above_threshold Gamepad connected: XInput0
+  [perf] 257.1 FPS (60 frames in 0.233s)
+PASSED
+unit tests/integration/test_qwi_and_nebula_boss.py::TestQWITextureLoad::test_building_textures_include_qwi Gamepad connected: XInput0
+PASSED
+unit tests/integration/test_qwi_and_nebula_boss.py::TestQWITextureLoad::test_nebula_boss_texture_loads Gamepad connected: XInput0
+PASSED
+unit tests/integration/test_qwi_and_nebula_boss.py::TestBuildingQWISpawnsDoubleStarBoss::test_place_qwi_auto_spawns_double_star_boss Gamepad connected: XInput0
+PASSED
+unit tests/integration/test_qwi_and_nebula_boss.py::TestQWIMenuSpawnsNebulaBoss::test_click_button_spawns_nebula_boss Gamepad connected: XInput0
+PASSED
+unit tests/integration/test_qwi_and_nebula_boss.py::TestQWIMenuSpawnsNebulaBoss::test_double_summon_rejected Gamepad connected: XInput0
+PASSED
+unit tests/integration/test_qwi_and_nebula_boss.py::TestQWIMenuSpawnsNebulaBoss::test_qwi_menu_flow_end_to_end Gamepad connected: XInput0
+PASSED
+unit tests/integration/test_qwi_and_nebula_boss.py::TestNebulaBossGasAttacks::test_gas_cloud_fires_on_cooldown Gamepad connected: XInput0
+PASSED
+unit tests/integration/test_qwi_and_nebula_boss.py::TestNebulaBossGasAttacks::test_gas_cloud_damages_player_and_slows Gamepad connected: XInput0
+PASSED
+unit tests/integration/test_qwi_and_nebula_boss.py::TestNebulaBossGasAttacks::test_cone_damages_player_while_inside Gamepad connected: XInput0
+PASSED
+unit tests/integration/test_qwi_and_nebula_boss.py::TestGasCloudGeometry::test_velocity_from_heading_0_is_straight_up PASSED
+unit tests/integration/test_qwi_and_nebula_boss.py::TestGasCloudGeometry::test_cloud_expires_after_500px PASSED
+unit tests/integration/test_qwi_and_nebula_boss.py::TestGasCloudGeometry::test_cloud_does_not_expire_before_500px PASSED
+unit tests/integration/test_qwi_and_nebula_boss.py::TestGasCloudGeometry::test_contains_point PASSED
+unit tests/integration/test_qwi_and_nebula_boss.py::TestConeGeometry::test_cone_active_east_hits_forward_point PASSED
+unit tests/integration/test_qwi_and_nebula_boss.py::TestConeGeometry::test_cone_rejects_backward PASSED
+unit tests/integration/test_qwi_and_nebula_boss.py::TestConeGeometry::test_cone_rejects_beyond_range PASSED
+unit tests/integration/test_qwi_and_nebula_boss.py::TestConeGeometry::test_cone_rejects_outside_half_width PASSED
+unit tests/integration/test_qwi_and_nebula_boss.py::TestConeGeometry::test_inactive_cone_always_rejects PASSED
+unit tests/integration/test_qwi_and_nebula_boss.py::TestConeGeometry::test_tick_nebula_does_not_reference_self_radius PASSED
+unit tests/integration/test_qwi_and_nebula_boss.py::TestQWIMenuAPI::test_click_button_returns_spawn_action PASSED
+unit tests/integration/test_qwi_and_nebula_boss.py::TestQWIMenuAPI::test_click_outside_panel_closes PASSED
+unit tests/integration/test_qwi_and_nebula_boss.py::TestQWIMenuAPI::test_click_inside_panel_off_button_returns_none PASSED
+unit tests/integration/test_qwi_and_nebula_boss.py::TestQWIMenuAPI::test_closed_menu_ignores_clicks PASSED
+unit tests/integration/test_qwi_and_nebula_boss.py::TestSlowEffectHalvesMovement::test_slow_timer_halves_effective_dt Gamepad connected: XInput0
+PASSED
+unit tests/integration/test_qwi_and_nebula_boss.py::TestQWIWorldClickOpensMenu::test_world_click_on_qwi_opens_menu Gamepad connected: XInput0
+PASSED
+unit tests/integration/test_qwi_and_nebula_boss.py::TestQWIWorldClickOpensMenu::test_world_click_on_qwi_out_of_range_does_not_open_menu Gamepad connected: XInput0
+PASSED
+unit tests/integration/test_refugee_spawn_resilience.py::TestRefugeeSpawnResilientToStaleState::test_spawns_even_with_stale_refugee_spawned_flag Gamepad connected: XInput0
+PASSED
+unit tests/integration/test_refugee_spawn_resilience.py::TestRefugeeSpawnResilientToStaleState::test_spawns_even_with_stale_refugee_npc_object Gamepad connected: XInput0
+PASSED
+unit tests/integration/test_refugee_spawn_resilience.py::TestRefugeeSpawnResilientToStaleState::test_no_spawn_without_shield_generator_even_with_extra_ticks Gamepad connected: XInput0
+PASSED
+unit tests/integration/test_refugee_spawn_resilience.py::TestRefugeeSpawnResilientToStaleState::test_spawn_is_idempotent_across_repeated_runs Gamepad connected: XInput0
+PASSED
+unit tests/integration/test_render_perf.py::TestTextDrawPerf::test_100_text_draws   [render-perf] 588.2 FPS (60 frames in 0.102s)
+  -> 100 Text.draw: 588.2 FPS (ABOVE 40 FPS)
+PASSED
+unit tests/integration/test_render_perf.py::TestTextDrawPerf::test_25_text_draws   [render-perf] 2213.4 FPS (60 frames in 0.027s)
+PASSED
+unit tests/integration/test_render_perf.py::TestSpriteListDrawPerf::test_200_sprites   [render-perf] 9301.7 FPS (60 frames in 0.006s)
+PASSED
+unit tests/integration/test_render_perf.py::TestSpriteListDrawPerf::test_500_sprites   [render-perf] 6660.6 FPS (60 frames in 0.009s)
+PASSED
+unit tests/integration/test_render_perf.py::TestDrawPointsPerf::test_200_points   [render-perf] 10295.5 FPS (60 frames in 0.006s)
+PASSED
+unit tests/integration/test_render_perf.py::TestDrawPointsPerf::test_1000_points   [render-perf] 5008.1 FPS (60 frames in 0.012s)
+PASSED
+unit tests/integration/test_render_perf.py::TestDrawLinesPerf::test_22_line_segments   [render-perf] 9573.7 FPS (60 frames in 0.006s)
+PASSED
+unit tests/integration/test_render_perf.py::TestDrawRectFilledPerf::test_100_individual_rects   [render-perf] 590.3 FPS (60 frames in 0.102s)
+  -> 100 unbatched rects: 590.3 FPS
+PASSED
+unit tests/integration/test_render_perf.py::TestDrawRectFilledPerf::test_100_rects_via_spritelist   [render-perf] 9723.5 FPS (60 frames in 0.006s)
+PASSED
+unit tests/integration/test_render_perf.py::TestFogTexturePerf::test_fog_texture_build   [render-perf] fog texture: 0.4 ms/build
+PASSED
+unit tests/integration/test_render_perf_boss.py::TestBossSpriteSoloDrawPerf::test_single_boss_sprite_above_threshold   [render-perf-boss] 10116.8 FPS (60 frames in 0.006s)
+PASSED
+unit tests/integration/test_render_perf_boss.py::TestBossWithProjectilesDrawPerf::test_boss_plus_30_projectiles   [render-perf-boss] 2801.4 FPS (60 frames in 0.021s)
+PASSED
+unit tests/integration/test_render_perf_boss.py::TestBossTextureMixedAtlasPerf::test_boss_with_50_other_sprites   [render-perf-boss] 5383.4 FPS (60 frames in 0.011s)
+PASSED
+unit tests/integration/test_resolution_perf.py::TestResolutionZone1::test_zone1_at_resolution[1280x800] Gamepad connected: XInput0
+  [perf] 320.7 FPS (60 frames in 0.187s)
+  [res-perf] 800x600: 320.7 FPS
+PASSED
+unit tests/integration/test_resolution_perf.py::TestResolutionZone1::test_zone1_at_resolution[1366x768] Gamepad connected: XInput0
+  [perf] 333.7 FPS (60 frames in 0.180s)
+  [res-perf] 800x600: 333.7 FPS
+PASSED
+unit tests/integration/test_resolution_perf.py::TestResolutionZone1::test_zone1_at_resolution[1600x900] Gamepad connected: XInput0
+  [perf] 73.0 FPS (60 frames in 0.822s)
+  [res-perf] 800x600: 73.0 FPS
+PASSED
+unit tests/integration/test_resolution_perf.py::TestResolutionZone1::test_zone1_at_resolution[1920x1080] Gamepad connected: XInput0
+  [perf] 330.7 FPS (60 frames in 0.181s)
+  [res-perf] 800x600: 330.7 FPS
+PASSED
+unit tests/integration/test_resolution_perf.py::TestResolutionZone1::test_zone1_at_resolution[2560x1440] Gamepad connected: XInput0
+  [perf] 323.2 FPS (60 frames in 0.186s)
+  [res-perf] 800x600: 323.2 FPS
+PASSED
+unit tests/integration/test_resolution_perf.py::TestResolutionZone1::test_zone1_at_resolution[3840x2160] Gamepad connected: XInput0
+  [perf] 321.5 FPS (60 frames in 0.187s)
+  [res-perf] 800x600: 321.5 FPS
+PASSED
+unit tests/integration/test_resolution_perf.py::TestResolutionZone2::test_zone2_at_resolution[1280x800] Gamepad connected: XInput0
+  [perf] 167.9 FPS (60 frames in 0.357s)
+  [res-perf] 800x600 Zone 2: 167.9 FPS
+PASSED
+unit tests/integration/test_resolution_perf.py::TestResolutionZone2::test_zone2_at_resolution[1366x768] Gamepad connected: XInput0
+  [perf] 285.9 FPS (60 frames in 0.210s)
+  [res-perf] 800x600 Zone 2: 285.9 FPS
+PASSED
+unit tests/integration/test_resolution_perf.py::TestResolutionZone2::test_zone2_at_resolution[1600x900] Gamepad connected: XInput0
+  [perf] 295.9 FPS (60 frames in 0.203s)
+  [res-perf] 800x600 Zone 2: 295.9 FPS
+PASSED
+unit tests/integration/test_resolution_perf.py::TestResolutionZone2::test_zone2_at_resolution[1920x1080] Gamepad connected: XInput0
+  [perf] 299.5 FPS (60 frames in 0.200s)
+  [res-perf] 800x600 Zone 2: 299.5 FPS
+PASSED
+unit tests/integration/test_resolution_perf.py::TestResolutionZone2::test_zone2_at_resolution[2560x1440] Gamepad connected: XInput0
+  [perf] 284.5 FPS (60 frames in 0.211s)
+  [res-perf] 800x600 Zone 2: 284.5 FPS
+PASSED
+unit tests/integration/test_resolution_perf.py::TestResolutionZone2::test_zone2_at_resolution[3840x2160] Gamepad connected: XInput0
+  [perf] 264.1 FPS (60 frames in 0.227s)
+  [res-perf] 800x600 Zone 2: 264.1 FPS
+PASSED
+unit tests/integration/test_resolution_perf_boss.py::TestResolutionBossCombat::test_boss_combat_at_resolution[1280x800] Gamepad connected: XInput0
+  [perf] 264.5 FPS (60 frames in 0.227s)
+  [res-perf-boss] 800x600 boss combat: 264.5 FPS
+PASSED
+unit tests/integration/test_resolution_perf_boss.py::TestResolutionBossCombat::test_boss_combat_at_resolution[1366x768] Gamepad connected: XInput0
+  [perf] 170.2 FPS (60 frames in 0.353s)
+  [res-perf-boss] 800x600 boss combat: 170.2 FPS
+PASSED
+unit tests/integration/test_resolution_perf_boss.py::TestResolutionBossCombat::test_boss_combat_at_resolution[1600x900] Gamepad connected: XInput0
+  [perf] 265.1 FPS (60 frames in 0.226s)
+  [res-perf-boss] 800x600 boss combat: 265.1 FPS
+PASSED
+unit tests/integration/test_resolution_perf_boss.py::TestResolutionBossCombat::test_boss_combat_at_resolution[1920x1080] Gamepad connected: XInput0
+  [perf] 270.1 FPS (60 frames in 0.222s)
+  [res-perf-boss] 800x600 boss combat: 270.1 FPS
+PASSED
+unit tests/integration/test_resolution_perf_boss.py::TestResolutionBossCombat::test_boss_combat_at_resolution[2560x1440] Gamepad connected: XInput0
+  [perf] 276.6 FPS (60 frames in 0.217s)
+  [res-perf-boss] 800x600 boss combat: 276.6 FPS
+PASSED
+unit tests/integration/test_resolution_perf_boss.py::TestResolutionBossCombat::test_boss_combat_at_resolution[3840x2160] Gamepad connected: XInput0
+  [perf] 155.9 FPS (60 frames in 0.385s)
+  [res-perf-boss] 800x600 boss combat: 155.9 FPS
+PASSED
+unit tests/integration/test_resolution_perf_boss.py::TestResolutionBossPhase3::test_boss_phase3_combat_at_resolution[1280x800] Gamepad connected: XInput0
+  [perf] 272.4 FPS (60 frames in 0.220s)
+  [res-perf-boss-p3] 800x600 phase 3: 272.4 FPS
+PASSED
+unit tests/integration/test_resolution_perf_boss.py::TestResolutionBossPhase3::test_boss_phase3_combat_at_resolution[1366x768] Gamepad connected: XInput0
+  [perf] 277.1 FPS (60 frames in 0.217s)
+  [res-perf-boss-p3] 800x600 phase 3: 277.1 FPS
+PASSED
+unit tests/integration/test_resolution_perf_boss.py::TestResolutionBossPhase3::test_boss_phase3_combat_at_resolution[1600x900] Gamepad connected: XInput0
+  [perf] 292.6 FPS (60 frames in 0.205s)
+  [res-perf-boss-p3] 800x600 phase 3: 292.6 FPS
+PASSED
+unit tests/integration/test_resolution_perf_boss.py::TestResolutionBossPhase3::test_boss_phase3_combat_at_resolution[1920x1080] Gamepad connected: XInput0
+  [perf] 159.5 FPS (60 frames in 0.376s)
+  [res-perf-boss-p3] 800x600 phase 3: 159.5 FPS
+PASSED
+unit tests/integration/test_resolution_perf_boss.py::TestResolutionBossPhase3::test_boss_phase3_combat_at_resolution[2560x1440] Gamepad connected: XInput0
+  [perf] 282.1 FPS (60 frames in 0.213s)
+  [res-perf-boss-p3] 800x600 phase 3: 282.1 FPS
+PASSED
+unit tests/integration/test_resolution_perf_boss.py::TestResolutionBossPhase3::test_boss_phase3_combat_at_resolution[3840x2160] Gamepad connected: XInput0
+  [perf] 285.2 FPS (60 frames in 0.210s)
+  [res-perf-boss-p3] 800x600 phase 3: 285.2 FPS
+PASSED
+unit tests/integration/test_session_boss_features.py::TestTurretTargetsNebulaBoss::test_turret_cached_target_is_nebula_boss_when_nearby Gamepad connected: XInput0
+PASSED
+unit tests/integration/test_session_boss_features.py::TestTurretTargetsNebulaBoss::test_turret_projectile_damages_nebula_boss Gamepad connected: XInput0
+PASSED
+unit tests/integration/test_session_boss_features.py::TestMissileArrayTargetsNebulaBoss::test_missile_array_locks_onto_nebula_boss Gamepad connected: XInput0
+PASSED
+unit tests/integration/test_session_boss_features.py::TestAIPilotTargetsNebulaBoss::test_ai_ship_fires_turret_projectiles_at_nebula_boss Gamepad connected: XInput0
+PASSED
+unit tests/integration/test_session_boss_features.py::TestMissileDamagesBoth::test_missile_vs_nebula_boss_direct Gamepad connected: XInput0
+PASSED
+unit tests/integration/test_session_boss_features.py::TestNebulaBossDeathRewards::test_yields_iron_copper_no_xp Gamepad connected: XInput0
+PASSED
+unit tests/integration/test_session_boss_features.py::TestNebulaBossDeathRewards::test_drops_spawn_at_distinct_positions Gamepad connected: XInput0
+PASSED
+unit tests/integration/test_session_boss_features.py::TestNebulaBossVsForceWall::test_boss_cannot_cross_wall Gamepad connected: XInput0
+PASSED
+unit tests/integration/test_session_boss_features.py::TestNebulaBossVsForceWall::test_gas_cloud_absorbed_by_wall Gamepad connected: XInput0
+PASSED
+unit tests/integration/test_session_boss_features.py::TestNebulaBossVsForceWall::test_boss_navigates_around_wall_and_closes_on_player Gamepad connected: XInput0
+PASSED
+unit tests/integration/test_session_boss_features.py::TestNebulaBossCrushesAsteroids::test_boss_path_destroys_iron_and_copper Gamepad connected: XInput0
+PASSED
+unit tests/integration/test_session_boss_features.py::TestNebulaBossCrushesAsteroids::test_boss_takes_no_damage_from_crushing Gamepad connected: XInput0
+PASSED
+unit tests/integration/test_session_boss_features.py::TestBossDrawAdditions::test_frame_with_nebula_boss_draws_clean Gamepad connected: XInput0
+PASSED
+unit tests/integration/test_session_boss_features.py::TestBossDrawAdditions::test_minimap_supports_extra_boss_positions Gamepad connected: XInput0
+PASSED
+unit tests/integration/test_session_boss_features.py::TestNebulaSpriteLoader::test_explicit_row_returns_cached_texture Gamepad connected: XInput0
+PASSED
+unit tests/integration/test_session_boss_features.py::TestNebulaSpriteLoader::test_different_rows_give_different_textures Gamepad connected: XInput0
+PASSED
+unit tests/integration/test_session_boss_features.py::TestNebulaSpriteLoader::test_clamp_out_of_range Gamepad connected: XInput0
+PASSED
+unit tests/integration/test_session_boss_features.py::TestBossRadiusProperty::test_radius_matches_half_width Gamepad connected: XInput0
+PASSED
+unit tests/integration/test_session_boss_features.py::TestBossRadiusProperty::test_nebula_boss_radius_is_approximately_half_sprite Gamepad connected: XInput0
+PASSED
+unit tests/integration/test_soak.py::TestSoakZone1::test_zone1_5min_soak Gamepad connected: XInput0
+  [perf] 325.6 FPS (60 frames in 0.184s)
+
+  [Zone 1] START: 325.6 FPS, 1008 MB RSS
+  [perf] 291.1 FPS (60 frames in 0.206s)
+  [Zone 1] 0.5m: 291.1 FPS, 943 MB RSS (+-64.6 MB)
+  [perf] 288.6 FPS (60 frames in 0.208s)
+  [Zone 1] 1.0m: 288.6 FPS, 945 MB RSS (+-62.6 MB)
+  [perf] 280.1 FPS (60 frames in 0.214s)
+  [Zone 1] 1.5m: 280.1 FPS, 947 MB RSS (+-60.7 MB)
+  [perf] 276.6 FPS (60 frames in 0.217s)
+  [Zone 1] 2.0m: 276.6 FPS, 949 MB RSS (+-58.9 MB)
+  [perf] 272.7 FPS (60 frames in 0.220s)
+  [Zone 1] 2.5m: 272.7 FPS, 951 MB RSS (+-56.7 MB)
+  [perf] 279.9 FPS (60 frames in 0.214s)
+  [Zone 1] 3.0m: 279.9 FPS, 953 MB RSS (+-54.7 MB)
+  [perf] 278.6 FPS (60 frames in 0.215s)
+  [Zone 1] 3.5m: 278.6 FPS, 955 MB RSS (+-52.5 MB)
+  [perf] 267.8 FPS (60 frames in 0.224s)
+  [Zone 1] 4.0m: 267.8 FPS, 957 MB RSS (+-50.6 MB)
+  [perf] 283.5 FPS (60 frames in 0.212s)
+  [Zone 1] 4.5m: 283.5 FPS, 959 MB RSS (+-48.6 MB)
+  [perf] 281.0 FPS (60 frames in 0.213s)
+  [Zone 1] END: 281.0 FPS, 865 MB RSS (frames=77880)
+PASSED
+unit tests/integration/test_soak.py::TestSoakZone2::test_zone2_5min_soak Gamepad connected: XInput0
+  [perf] 230.1 FPS (60 frames in 0.261s)
+
+  [Zone 2] START: 230.1 FPS, 977 MB RSS
+  [perf] 257.3 FPS (60 frames in 0.233s)
+  [Zone 2] 0.5m: 257.3 FPS, 976 MB RSS (+-1.2 MB)
+  [perf] 244.5 FPS (60 frames in 0.245s)
+  [Zone 2] 1.0m: 244.5 FPS, 978 MB RSS (+0.7 MB)
+  [perf] 249.1 FPS (60 frames in 0.241s)
+  [Zone 2] 1.5m: 249.1 FPS, 983 MB RSS (+6.3 MB)
+  [perf] 252.3 FPS (60 frames in 0.238s)
+  [Zone 2] 2.0m: 252.3 FPS, 985 MB RSS (+8.4 MB)
+  [perf] 244.3 FPS (60 frames in 0.246s)
+  [Zone 2] 2.5m: 244.3 FPS, 987 MB RSS (+10.1 MB)
+  [perf] 254.6 FPS (60 frames in 0.236s)
+  [Zone 2] 3.0m: 254.6 FPS, 989 MB RSS (+11.8 MB)
+  [perf] 249.9 FPS (60 frames in 0.240s)
+  [Zone 2] 3.5m: 249.9 FPS, 990 MB RSS (+13.5 MB)
+  [perf] 253.1 FPS (60 frames in 0.237s)
+  [Zone 2] 4.0m: 253.1 FPS, 992 MB RSS (+15.2 MB)
+  [perf] 250.2 FPS (60 frames in 0.240s)
+  [Zone 2] 4.5m: 250.2 FPS, 994 MB RSS (+17.0 MB)
+  [perf] 247.6 FPS (60 frames in 0.242s)
+  [Zone 2] END: 247.6 FPS, 996 MB RSS (frames=68280)
+PASSED
+unit tests/integration/test_soak.py::TestSoakVideoPlayer::test_video_player_5min_soak Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] First frame OK (160x160)
+  [perf] 233.5 FPS (60 frames in 0.257s)
+
+  [Video player] START: 233.5 FPS, 1041 MB RSS
+  [perf] 254.4 FPS (60 frames in 0.236s)
+  [Video player] 0.5m: 254.4 FPS, 1036 MB RSS (+-5.3 MB)
+  [perf] 244.4 FPS (60 frames in 0.246s)
+  [Video player] 1.0m: 244.4 FPS, 1038 MB RSS (+-3.6 MB)
+  [perf] 251.8 FPS (60 frames in 0.238s)
+  [Video player] 1.5m: 251.8 FPS, 1039 MB RSS (+-2.0 MB)
+  [perf] 242.9 FPS (60 frames in 0.247s)
+  [Video player] 2.0m: 242.9 FPS, 1043 MB RSS (+1.9 MB)
+  [perf] 252.0 FPS (60 frames in 0.238s)
+  [Video player] 2.5m: 252.0 FPS, 1045 MB RSS (+3.6 MB)
+  [perf] 247.4 FPS (60 frames in 0.242s)
+  [Video player] 3.0m: 247.4 FPS, 1047 MB RSS (+5.4 MB)
+  [perf] 257.1 FPS (60 frames in 0.233s)
+  [Video player] 3.5m: 257.1 FPS, 1048 MB RSS (+6.9 MB)
+  [perf] 267.2 FPS (60 frames in 0.225s)
+  [Video player] 4.0m: 267.2 FPS, 1050 MB RSS (+8.4 MB)
+  [perf] 253.8 FPS (60 frames in 0.236s)
+  [Video player] 4.5m: 253.8 FPS, 1052 MB RSS (+10.6 MB)
+  [perf] 248.4 FPS (60 frames in 0.242s)
+  [Video player] END: 248.4 FPS, 1053 MB RSS (frames=66960)
+PASSED
+unit tests/integration/test_soak.py::TestSoakInventoryChurn::test_inventory_churn_5min_soak Gamepad connected: XInput0
+  [perf] 228.9 FPS (60 frames in 0.262s)
+
+  [Inventory churn] START: 228.9 FPS, 1055 MB RSS
+  [perf] 273.6 FPS (60 frames in 0.219s)
+  [Inventory churn] 0.5m: 273.6 FPS, 1094 MB RSS (+39.0 MB), badge_cache=201
+  [perf] 267.9 FPS (60 frames in 0.224s)
+  [Inventory churn] 1.0m: 267.9 FPS, 1123 MB RSS (+67.7 MB), badge_cache=201
+  [perf] 271.0 FPS (60 frames in 0.221s)
+  [Inventory churn] 1.5m: 271.0 FPS, 1160 MB RSS (+104.6 MB), badge_cache=201
+  [perf] 272.7 FPS (60 frames in 0.220s)
+  [Inventory churn] 2.0m: 272.7 FPS, 1193 MB RSS (+137.5 MB), badge_cache=201
+  [perf] 272.8 FPS (60 frames in 0.220s)
+  [Inventory churn] 2.5m: 272.8 FPS, 1232 MB RSS (+176.1 MB), badge_cache=201
+  [perf] 262.9 FPS (60 frames in 0.228s)
+  [Inventory churn] 3.0m: 262.9 FPS, 1268 MB RSS (+212.6 MB), badge_cache=201
+  [perf] 265.9 FPS (60 frames in 0.226s)
+  [Inventory churn] 3.5m: 265.9 FPS, 1303 MB RSS (+247.7 MB), badge_cache=201
+  [perf] 274.4 FPS (60 frames in 0.219s)
+  [Inventory churn] 4.0m: 274.4 FPS, 1342 MB RSS (+286.8 MB), badge_cache=201
+  [perf] 277.2 FPS (60 frames in 0.216s)
+  [Inventory churn] 4.5m: 277.2 FPS, 1378 MB RSS (+322.6 MB), badge_cache=201
+  [perf] 267.8 FPS (60 frames in 0.224s)
+  [Inventory churn] END: 267.8 FPS, 1391 MB RSS
+  [Inventory churn] Summary: min FPS=228.9, mem growth=+335.1 MB, badge_cache_size=201, churn_cycles=1301
+PASSED
+unit tests/integration/test_soak.py::TestSoakFogTexture::test_fog_texture_rebuild_5min_soak Gamepad connected: XInput0
+  [perf] 310.0 FPS (60 frames in 0.194s)
+
+  [Fog texture] START: 310.0 FPS, 1401 MB RSS, fog_revealed=208
+  [perf] 261.3 FPS (60 frames in 0.230s)
+  [Fog texture] 0.5m: 261.3 FPS, 1422 MB RSS (+21.0 MB), fog_revealed=12397
+  [perf] 248.7 FPS (60 frames in 0.241s)
+  [Fog texture] 1.0m: 248.7 FPS, 1425 MB RSS (+23.0 MB), fog_revealed=12892
+  [perf] 249.9 FPS (60 frames in 0.240s)
+  [Fog texture] 1.5m: 249.9 FPS, 1427 MB RSS (+25.6 MB), fog_revealed=12892
+  [perf] 247.4 FPS (60 frames in 0.243s)
+  [Fog texture] 2.0m: 247.4 FPS, 1430 MB RSS (+28.3 MB), fog_revealed=12892
+  [perf] 254.3 FPS (60 frames in 0.236s)
+  [Fog texture] 2.5m: 254.3 FPS, 1432 MB RSS (+30.9 MB), fog_revealed=12892
+  [perf] 257.6 FPS (60 frames in 0.233s)
+  [Fog texture] 3.0m: 257.6 FPS, 1435 MB RSS (+33.6 MB), fog_revealed=12892
+  [perf] 260.3 FPS (60 frames in 0.231s)
+  [Fog texture] 3.5m: 260.3 FPS, 1438 MB RSS (+36.4 MB), fog_revealed=12892
+  [perf] 266.6 FPS (60 frames in 0.225s)
+  [Fog texture] 4.0m: 266.6 FPS, 1441 MB RSS (+39.1 MB), fog_revealed=12892
+  [perf] 239.3 FPS (60 frames in 0.251s)
+  [Fog texture] 4.5m: 239.3 FPS, 1443 MB RSS (+41.8 MB), fog_revealed=12892
+  [perf] 258.2 FPS (60 frames in 0.232s)
+  [Fog texture] END: 258.2 FPS, 1446 MB RSS, fog_revealed=12892
+  [Fog texture] Summary: min FPS=239.3, mem growth=+44.7 MB
+PASSED
+unit tests/integration/test_soak.py::TestSoakCombined::test_combined_5min_soak Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] First frame OK (160x160)
+  [perf] 194.4 FPS (60 frames in 0.309s)
+
+  [Combined (video=on)] START: 194.4 FPS, 1484 MB RSS
+  [perf] 202.0 FPS (60 frames in 0.297s)
+  [Combined (video=on)] 0.5m: 202.0 FPS, 1470 MB RSS (+-14.2 MB)
+  [perf] 198.6 FPS (60 frames in 0.302s)
+  [Combined (video=on)] 1.0m: 198.6 FPS, 1471 MB RSS (+-12.6 MB)
+  [perf] 193.4 FPS (60 frames in 0.310s)
+  [Combined (video=on)] 1.5m: 193.4 FPS, 1473 MB RSS (+-10.7 MB)
+  [perf] 201.7 FPS (60 frames in 0.297s)
+  [Combined (video=on)] 2.0m: 201.7 FPS, 1477 MB RSS (+-6.6 MB)
+  [perf] 183.4 FPS (60 frames in 0.327s)
+  [Combined (video=on)] 2.5m: 183.4 FPS, 1479 MB RSS (+-4.6 MB)
+  [perf] 215.1 FPS (60 frames in 0.279s)
+  [Combined (video=on)] 3.0m: 215.1 FPS, 1481 MB RSS (+-2.8 MB)
+  [perf] 209.8 FPS (60 frames in 0.286s)
+  [Combined (video=on)] 3.5m: 209.8 FPS, 1483 MB RSS (+-0.9 MB)
+  [perf] 212.1 FPS (60 frames in 0.283s)
+  [Combined (video=on)] 4.0m: 212.1 FPS, 1485 MB RSS (+1.3 MB)
+  [perf] 215.8 FPS (60 frames in 0.278s)
+  [Combined (video=on)] 4.5m: 215.8 FPS, 1487 MB RSS (+3.0 MB)
+  [perf] 213.5 FPS (60 frames in 0.281s)
+  [Combined (video=on)] END: 213.5 FPS, 1489 MB RSS (frames=52680)
+PASSED
+unit tests/integration/test_soak.py::TestSoakStationInfoZone1::test_station_info_zone1_5min_soak Gamepad connected: XInput0
+  [perf] 220.9 FPS (60 frames in 0.272s)
+
+  [Station Info Zone 1] START: 220.9 FPS, 1497 MB RSS
+  [perf] 232.3 FPS (60 frames in 0.258s)
+  [Station Info Zone 1] 0.5m: 232.3 FPS, 1495 MB RSS (+-2.6 MB)
+  [perf] 217.9 FPS (60 frames in 0.275s)
+  [Station Info Zone 1] 1.0m: 217.9 FPS, 1496 MB RSS (+-1.1 MB)
+  [perf] 226.2 FPS (60 frames in 0.265s)
+  [Station Info Zone 1] 1.5m: 226.2 FPS, 1498 MB RSS (+0.6 MB)
+  [perf] 231.6 FPS (60 frames in 0.259s)
+  [Station Info Zone 1] 2.0m: 231.6 FPS, 1500 MB RSS (+2.8 MB)
+  [perf] 227.1 FPS (60 frames in 0.264s)
+  [Station Info Zone 1] 2.5m: 227.1 FPS, 1502 MB RSS (+4.7 MB)
+  [perf] 234.5 FPS (60 frames in 0.256s)
+  [Station Info Zone 1] 3.0m: 234.5 FPS, 1504 MB RSS (+6.9 MB)
+  [perf] 223.5 FPS (60 frames in 0.268s)
+  [Station Info Zone 1] 3.5m: 223.5 FPS, 1506 MB RSS (+8.6 MB)
+  [perf] 224.0 FPS (60 frames in 0.268s)
+  [Station Info Zone 1] 4.0m: 224.0 FPS, 1508 MB RSS (+10.8 MB)
+  [perf] 229.0 FPS (60 frames in 0.262s)
+  [Station Info Zone 1] 4.5m: 229.0 FPS, 1510 MB RSS (+12.7 MB)
+  [perf] 233.2 FPS (60 frames in 0.257s)
+  [Station Info Zone 1] END: 233.2 FPS, 1497 MB RSS (frames=57060)
+PASSED
+unit tests/integration/test_soak.py::TestSoakStationInfoZone2::test_station_info_zone2_5min_soak Gamepad connected: XInput0
+  [perf] 183.5 FPS (60 frames in 0.327s)
+
+  [Station Info Zone 2] START: 183.5 FPS, 1523 MB RSS
+  [perf] 211.9 FPS (60 frames in 0.283s)
+  [Station Info Zone 2] 0.5m: 211.9 FPS, 1516 MB RSS (+-6.4 MB)
+  [perf] 193.6 FPS (60 frames in 0.310s)
+  [Station Info Zone 2] 1.0m: 193.6 FPS, 1519 MB RSS (+-3.9 MB)
+  [perf] 202.8 FPS (60 frames in 0.296s)
+  [Station Info Zone 2] 1.5m: 202.8 FPS, 1520 MB RSS (+-2.6 MB)
+  [perf] 188.0 FPS (60 frames in 0.319s)
+  [Station Info Zone 2] 2.0m: 188.0 FPS, 1521 MB RSS (+-1.4 MB)
+  [perf] 201.7 FPS (60 frames in 0.297s)
+  [Station Info Zone 2] 2.5m: 201.7 FPS, 1523 MB RSS (+-0.1 MB)
+  [perf] 177.2 FPS (60 frames in 0.339s)
+  [Station Info Zone 2] 3.0m: 177.2 FPS, 1524 MB RSS (+1.1 MB)
+  [perf] 195.0 FPS (60 frames in 0.308s)
+  [Station Info Zone 2] 3.5m: 195.0 FPS, 1526 MB RSS (+3.4 MB)
+  [perf] 203.6 FPS (60 frames in 0.295s)
+  [Station Info Zone 2] 4.0m: 203.6 FPS, 1529 MB RSS (+6.0 MB)
+  [perf] 201.9 FPS (60 frames in 0.297s)
+  [Station Info Zone 2] 4.5m: 201.9 FPS, 1531 MB RSS (+8.5 MB)
+  [perf] 208.3 FPS (60 frames in 0.288s)
+  [Station Info Zone 2] END: 208.3 FPS, 1534 MB RSS (frames=50880)
+PASSED
+unit tests/integration/test_soak.py::TestSoakStationInfoMusicZone1::test_station_info_music_zone1_5min_soak Gamepad connected: XInput0
+  [perf] 196.7 FPS (60 frames in 0.305s)
+
+  [Station Info + music + L2 Zone 1 (music=on)] START: 196.7 FPS, 1548 MB RSS
+  [perf] 210.8 FPS (60 frames in 0.285s)
+  [Station Info + music + L2 Zone 1 (music=on)] 0.5m: 210.8 FPS, 1550 MB RSS (+1.5 MB)
+  [perf] 208.5 FPS (60 frames in 0.288s)
+  [Station Info + music + L2 Zone 1 (music=on)] 1.0m: 208.5 FPS, 1552 MB RSS (+3.0 MB)
+  [perf] 217.4 FPS (60 frames in 0.276s)
+  [Station Info + music + L2 Zone 1 (music=on)] 1.5m: 217.4 FPS, 1553 MB RSS (+4.2 MB)
+  [perf] 189.4 FPS (60 frames in 0.317s)
+  [Station Info + music + L2 Zone 1 (music=on)] 2.0m: 189.4 FPS, 1554 MB RSS (+5.5 MB)
+  [perf] 207.0 FPS (60 frames in 0.290s)
+  [Station Info + music + L2 Zone 1 (music=on)] 2.5m: 207.0 FPS, 1556 MB RSS (+7.5 MB)
+  [perf] 197.8 FPS (60 frames in 0.303s)
+  [Station Info + music + L2 Zone 1 (music=on)] 3.0m: 197.8 FPS, 1559 MB RSS (+10.7 MB)
+  [perf] 214.5 FPS (60 frames in 0.280s)
+  [Station Info + music + L2 Zone 1 (music=on)] 3.5m: 214.5 FPS, 1562 MB RSS (+13.7 MB)
+  [perf] 211.6 FPS (60 frames in 0.284s)
+  [Station Info + music + L2 Zone 1 (music=on)] 4.0m: 211.6 FPS, 1565 MB RSS (+16.8 MB)
+  [perf] 207.6 FPS (60 frames in 0.289s)
+  [Station Info + music + L2 Zone 1 (music=on)] 4.5m: 207.6 FPS, 1569 MB RSS (+20.2 MB)
+  [perf] 210.5 FPS (60 frames in 0.285s)
+  [Station Info + music + L2 Zone 1 (music=on)] END: 210.5 FPS, 1572 MB RSS (frames=51960)
+PASSED
+unit tests/integration/test_soak.py::TestSoakStationInfoMusicZone2::test_station_info_music_zone2_5min_soak Gamepad connected: XInput0
+  [perf] 158.6 FPS (60 frames in 0.378s)
+
+  [Station Info + music + L2 Zone 2 (music=on)] START: 158.6 FPS, 1590 MB RSS
+  [perf] 199.2 FPS (60 frames in 0.301s)
+  [Station Info + music + L2 Zone 2 (music=on)] 0.5m: 199.2 FPS, 1584 MB RSS (+-6.6 MB)
+  [perf] 190.3 FPS (60 frames in 0.315s)
+  [Station Info + music + L2 Zone 2 (music=on)] 1.0m: 190.3 FPS, 1585 MB RSS (+-5.6 MB)
+  [perf] 193.2 FPS (60 frames in 0.311s)
+  [Station Info + music + L2 Zone 2 (music=on)] 1.5m: 193.2 FPS, 1586 MB RSS (+-4.4 MB)
+  [perf] 184.3 FPS (60 frames in 0.325s)
+  [Station Info + music + L2 Zone 2 (music=on)] 2.0m: 184.3 FPS, 1587 MB RSS (+-3.4 MB)
+  [perf] 190.6 FPS (60 frames in 0.315s)
+  [Station Info + music + L2 Zone 2 (music=on)] 2.5m: 190.6 FPS, 1588 MB RSS (+-2.2 MB)
+  [perf] 186.1 FPS (60 frames in 0.322s)
+  [Station Info + music + L2 Zone 2 (music=on)] 3.0m: 186.1 FPS, 1591 MB RSS (+0.4 MB)
+  [perf] 192.0 FPS (60 frames in 0.312s)
+  [Station Info + music + L2 Zone 2 (music=on)] 3.5m: 192.0 FPS, 1594 MB RSS (+3.3 MB)
+  [perf] 191.4 FPS (60 frames in 0.313s)
+  [Station Info + music + L2 Zone 2 (music=on)] 4.0m: 191.4 FPS, 1597 MB RSS (+6.3 MB)
+  [perf] 198.5 FPS (60 frames in 0.302s)
+  [Station Info + music + L2 Zone 2 (music=on)] 4.5m: 198.5 FPS, 1591 MB RSS (+0.5 MB)
+  [perf] 198.8 FPS (60 frames in 0.302s)
+  [Station Info + music + L2 Zone 2 (music=on)] END: 198.8 FPS, 1594 MB RSS (frames=46800)
+PASSED
+unit tests/integration/test_soak.py::TestSoakFullScenarioZone1::test_full_scenario_zone1_5min_soak Gamepad connected: XInput0
+  [perf] 172.3 FPS (60 frames in 0.348s)
+
+  [Full scenario Zone 1 (music=on)] START: 172.3 FPS, 1617 MB RSS
+  [perf] 169.6 FPS (60 frames in 0.354s)
+  [Full scenario Zone 1 (music=on)] 0.5m: 169.6 FPS, 1620 MB RSS (+3.1 MB)
+  [perf] 195.5 FPS (60 frames in 0.307s)
+  [Full scenario Zone 1 (music=on)] 1.0m: 195.5 FPS, 1622 MB RSS (+5.1 MB)
+  [perf] 186.6 FPS (60 frames in 0.321s)
+  [Full scenario Zone 1 (music=on)] 1.5m: 186.6 FPS, 1624 MB RSS (+7.0 MB)
+  [perf] 204.1 FPS (60 frames in 0.294s)
+  [Full scenario Zone 1 (music=on)] 2.0m: 204.1 FPS, 1626 MB RSS (+9.3 MB)
+  [perf] 212.0 FPS (60 frames in 0.283s)
+  [Full scenario Zone 1 (music=on)] 2.5m: 212.0 FPS, 1629 MB RSS (+12.5 MB)
+  [perf] 198.1 FPS (60 frames in 0.303s)
+  [Full scenario Zone 1 (music=on)] 3.0m: 198.1 FPS, 1633 MB RSS (+15.8 MB)
+  [perf] 204.1 FPS (60 frames in 0.294s)
+  [Full scenario Zone 1 (music=on)] 3.5m: 204.1 FPS, 1636 MB RSS (+19.3 MB)
+  [perf] 202.8 FPS (60 frames in 0.296s)
+  [Full scenario Zone 1 (music=on)] 4.0m: 202.8 FPS, 1639 MB RSS (+21.8 MB)
+  [perf] 202.4 FPS (60 frames in 0.296s)
+  [Full scenario Zone 1 (music=on)] 4.5m: 202.4 FPS, 1642 MB RSS (+24.9 MB)
+  [perf] 195.0 FPS (60 frames in 0.308s)
+  [Full scenario Zone 1 (music=on)] END: 195.0 FPS, 1644 MB RSS (frames=47580)
+PASSED
+unit tests/integration/test_soak.py::TestSoakFullScenarioZone2::test_full_scenario_zone2_5min_soak Gamepad connected: XInput0
+  [perf] 137.7 FPS (60 frames in 0.436s)
+
+  [Full scenario Zone 2 (music=on)] START: 137.7 FPS, 1663 MB RSS
+  [perf] 185.9 FPS (60 frames in 0.323s)
+  [Full scenario Zone 2 (music=on)] 0.5m: 185.9 FPS, 1656 MB RSS (+-6.4 MB)
+  [perf] 187.7 FPS (60 frames in 0.320s)
+  [Full scenario Zone 2 (music=on)] 1.0m: 187.7 FPS, 1657 MB RSS (+-5.7 MB)
+  [perf] 197.2 FPS (60 frames in 0.304s)
+  [Full scenario Zone 2 (music=on)] 1.5m: 197.2 FPS, 1658 MB RSS (+-4.4 MB)
+  [perf] 177.1 FPS (60 frames in 0.339s)
+  [Full scenario Zone 2 (music=on)] 2.0m: 177.1 FPS, 1660 MB RSS (+-3.2 MB)
+  [perf] 184.4 FPS (60 frames in 0.325s)
+  [Full scenario Zone 2 (music=on)] 2.5m: 184.4 FPS, 1661 MB RSS (+-2.0 MB)
+  [perf] 184.7 FPS (60 frames in 0.325s)
+  [Full scenario Zone 2 (music=on)] 3.0m: 184.7 FPS, 1663 MB RSS (+0.1 MB)
+  [perf] 187.0 FPS (60 frames in 0.321s)
+  [Full scenario Zone 2 (music=on)] 3.5m: 187.0 FPS, 1666 MB RSS (+3.0 MB)
+  [perf] 182.9 FPS (60 frames in 0.328s)
+  [Full scenario Zone 2 (music=on)] 4.0m: 182.9 FPS, 1669 MB RSS (+5.7 MB)
+  [perf] 185.3 FPS (60 frames in 0.324s)
+  [Full scenario Zone 2 (music=on)] 4.5m: 185.3 FPS, 1671 MB RSS (+8.3 MB)
+  [perf] 184.3 FPS (60 frames in 0.325s)
+  [Full scenario Zone 2 (music=on)] END: 184.3 FPS, 1674 MB RSS (frames=44940)
+PASSED
+unit tests/integration/test_soak.py::TestSoakWarpMeteor::test_warp_meteor_2min_soak Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] Playing: Ellie.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] First frame OK (160x160)
+[VideoPlayer] First frame OK (200x200)
+  [perf] 352.6 FPS (60 frames in 0.170s)
+
+  [Warp Meteor soak] START: 352.6 FPS, 1714 MB RSS
+  [perf] 299.3 FPS (60 frames in 0.200s)
+  [Warp Meteor soak] 0.5m: 299.3 FPS, 1921 MB RSS (+207.2 MB)
+  [perf] 277.3 FPS (60 frames in 0.216s)
+  [Warp Meteor soak] 1.0m: 277.3 FPS, 2204 MB RSS (+490.4 MB)
+  [perf] 315.0 FPS (60 frames in 0.190s)
+  [Warp Meteor soak] 1.5m: 315.0 FPS, 2487 MB RSS (+772.8 MB)
+  [perf] 293.9 FPS (60 frames in 0.204s)
+  [Warp Meteor soak] END: 293.9 FPS, 2772 MB RSS
+  [Warp Meteor soak] Summary: min FPS=277.3, mem growth=+1058.5 MB
+PASSED
+unit tests/integration/test_soak.py::TestSoakWarpLightning::test_warp_lightning_2min_soak Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] Playing: Ellie.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] First frame OK (160x160)
+[VideoPlayer] First frame OK (200x200)
+  [perf] 237.3 FPS (60 frames in 0.253s)
+
+  [Warp Lightning soak] START: 237.3 FPS, 2828 MB RSS
+  [perf] 213.7 FPS (60 frames in 0.281s)
+  [Warp Lightning soak] 0.5m: 213.7 FPS, 3148 MB RSS (+319.4 MB)
+  [perf] 177.3 FPS (60 frames in 0.338s)
+  [Warp Lightning soak] 1.0m: 177.3 FPS, 3511 MB RSS (+682.6 MB)
+  [perf] 192.4 FPS (60 frames in 0.312s)
+  [Warp Lightning soak] 1.5m: 192.4 FPS, 3877 MB RSS (+1049.3 MB)
+  [perf] 136.4 FPS (60 frames in 0.440s)
+  [Warp Lightning soak] END: 136.4 FPS, 4227 MB RSS
+  [Warp Lightning soak] Summary: min FPS=136.4, mem growth=+1398.7 MB
+PASSED
+unit tests/integration/test_soak.py::TestSoakWarpGas::test_warp_gas_2min_soak Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] Playing: Ellie.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] First frame OK (160x160)
+[VideoPlayer] First frame OK (200x200)
+  [perf] 253.8 FPS (60 frames in 0.236s)
+
+  [Warp Gas soak] START: 253.8 FPS, 4277 MB RSS
+  [perf] 227.9 FPS (60 frames in 0.263s)
+  [Warp Gas soak] 0.5m: 227.9 FPS, 4450 MB RSS (+173.3 MB)
+  [perf] 239.2 FPS (60 frames in 0.251s)
+  [Warp Gas soak] 1.0m: 239.2 FPS, 4676 MB RSS (+399.4 MB)
+  [perf] 233.6 FPS (60 frames in 0.257s)
+  [Warp Gas soak] 1.5m: 233.6 FPS, 4897 MB RSS (+620.4 MB)
+  [perf] 238.7 FPS (60 frames in 0.251s)
+  [Warp Gas soak] 2.0m: 238.7 FPS, 5120 MB RSS (+843.1 MB)
+  [perf] 242.0 FPS (60 frames in 0.248s)
+  [Warp Gas soak] END: 242.0 FPS, 5126 MB RSS
+  [Warp Gas soak] Summary: min FPS=227.9, mem growth=+848.6 MB
+PASSED
+unit tests/integration/test_soak.py::TestSoakWarpEnemy::test_warp_enemy_2min_soak Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] Playing: Ellie.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] First frame OK (160x160)
+[VideoPlayer] First frame OK (200x200)
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] Playing: Ellie.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+  [perf] 340.4 FPS (60 frames in 0.176s)
+
+  [Warp Enemy soak (48 aliens)] START: 340.4 FPS, 5209 MB RSS
+  [perf] 175.8 FPS (60 frames in 0.341s)
+  [Warp Enemy soak (48 aliens)] 0.5m: 175.8 FPS, 5182 MB RSS (+-27.2 MB)
+  [perf] 169.8 FPS (60 frames in 0.353s)
+  [Warp Enemy soak (48 aliens)] 1.0m: 169.8 FPS, 5183 MB RSS (+-25.8 MB)
+  [perf] 174.4 FPS (60 frames in 0.344s)
+  [Warp Enemy soak (48 aliens)] 1.5m: 174.4 FPS, 5184 MB RSS (+-25.2 MB)
+  [perf] 164.2 FPS (60 frames in 0.365s)
+  [Warp Enemy soak (48 aliens)] END: 164.2 FPS, 5189 MB RSS
+  [Warp Enemy soak (48 aliens)] Summary: min FPS=164.2, mem growth=-20.0 MB
+PASSED
+unit tests/integration/test_soak.py::TestSoakMissileArrayDeathBlossom::test_missile_array_and_death_blossom_120s_soak Gamepad connected: XInput0
+  [perf] 113.1 FPS (60 frames in 0.530s)
+
+  [MissileArray+DB 120s] START: 113.1 FPS, 5198 MB RSS
+  [perf] 161.9 FPS (60 frames in 0.371s)
+  [MissileArray+DB 120s] 0.5m: 161.9 FPS, 5205 MB RSS (+7.4 MB)
+  [perf] 167.6 FPS (60 frames in 0.358s)
+  [MissileArray+DB 120s] 1.0m: 167.6 FPS, 5207 MB RSS (+8.8 MB)
+  [perf] 168.3 FPS (60 frames in 0.357s)
+  [MissileArray+DB 120s] 1.5m: 168.3 FPS, 5207 MB RSS (+9.6 MB)
+  [perf] 168.5 FPS (60 frames in 0.356s)
+  [MissileArray+DB 120s] END: 168.5 FPS, 5209 MB RSS (++11.1 MB)
+PASSED
+unit tests/integration/test_soak.py::TestSoakMissileArrayDeathBlossomWithVideos::test_missile_array_and_death_blossom_with_videos_120s_soak Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] Playing: Ellie.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] First frame OK (160x160)
+[VideoPlayer] First frame OK (200x200)
+  [perf] 117.0 FPS (60 frames in 0.513s)
+
+  [MissileArray+DB+Videos 120s] START: 117.0 FPS, 5242 MB RSS
+  [perf] 133.8 FPS (60 frames in 0.448s)
+  [MissileArray+DB+Videos 120s] 0.5m: 133.8 FPS, 5236 MB RSS (+-6.4 MB)
+  [perf] 142.3 FPS (60 frames in 0.422s)
+  [MissileArray+DB+Videos 120s] 1.0m: 142.3 FPS, 5237 MB RSS (+-5.3 MB)
+  [perf] 139.0 FPS (60 frames in 0.432s)
+  [MissileArray+DB+Videos 120s] 1.5m: 139.0 FPS, 5238 MB RSS (+-4.4 MB)
+  [perf] 144.4 FPS (60 frames in 0.415s)
+  [MissileArray+DB+Videos 120s] END: 144.4 FPS, 5242 MB RSS (+-0.3 MB)
+PASSED
+unit tests/integration/test_soak.py::TestSoakAIPilot::test_ai_pilot_5min_soak Gamepad connected: XInput0
+  [perf] 201.1 FPS (60 frames in 0.298s)
+
+  [AI Pilot Zone 1] START: 201.1 FPS, 5251 MB RSS
+  [perf] 195.3 FPS (60 frames in 0.307s)
+  [AI Pilot Zone 1] 0.5m: 195.3 FPS, 5258 MB RSS (+7.2 MB)
+  [perf] 200.5 FPS (60 frames in 0.299s)
+  [AI Pilot Zone 1] 1.0m: 200.5 FPS, 5259 MB RSS (+8.2 MB)
+  [perf] 193.9 FPS (60 frames in 0.310s)
+  [AI Pilot Zone 1] 1.5m: 193.9 FPS, 5260 MB RSS (+9.2 MB)
+  [perf] 196.8 FPS (60 frames in 0.305s)
+  [AI Pilot Zone 1] 2.0m: 196.8 FPS, 5261 MB RSS (+10.1 MB)
+  [perf] 199.6 FPS (60 frames in 0.301s)
+  [AI Pilot Zone 1] 2.5m: 199.6 FPS, 5262 MB RSS (+11.1 MB)
+  [perf] 196.0 FPS (60 frames in 0.306s)
+  [AI Pilot Zone 1] 3.0m: 196.0 FPS, 5264 MB RSS (+13.0 MB)
+  [perf] 199.2 FPS (60 frames in 0.301s)
+  [AI Pilot Zone 1] 3.5m: 199.2 FPS, 5266 MB RSS (+15.2 MB)
+  [perf] 201.2 FPS (60 frames in 0.298s)
+  [AI Pilot Zone 1] 4.0m: 201.2 FPS, 5269 MB RSS (+17.5 MB)
+  [perf] 206.7 FPS (60 frames in 0.290s)
+  [AI Pilot Zone 1] 4.5m: 206.7 FPS, 5271 MB RSS (+20.2 MB)
+  [perf] 210.3 FPS (60 frames in 0.285s)
+  [AI Pilot Zone 1] END: 210.3 FPS, 5274 MB RSS (frames=45600)
+PASSED
+unit tests/integration/test_soak_ai_pilot.py::TestSoakAIPilotPatrolCycle::test_ai_pilot_full_mode_cycle_5min_soak Gamepad connected: XInput0
+  [perf] 222.8 FPS (60 frames in 0.269s)
+
+  [AI Pilot patrol cycle] START: 222.8 FPS, 1709 MB RSS
+  [perf] 321.5 FPS (60 frames in 0.187s)
+  [AI Pilot patrol cycle] 0.5m: 321.5 FPS, 1649 MB RSS (+-59.9 MB)
+  [perf] 324.6 FPS (60 frames in 0.185s)
+  [AI Pilot patrol cycle] 1.0m: 324.6 FPS, 1653 MB RSS (+-55.9 MB)
+  [perf] 350.1 FPS (60 frames in 0.171s)
+  [AI Pilot patrol cycle] 1.5m: 350.1 FPS, 1653 MB RSS (+-55.9 MB)
+  [perf] 326.9 FPS (60 frames in 0.184s)
+  [AI Pilot patrol cycle] 2.0m: 326.9 FPS, 1617 MB RSS (+-91.3 MB)
+  [perf] 353.2 FPS (60 frames in 0.170s)
+  [AI Pilot patrol cycle] 2.5m: 353.2 FPS, 1618 MB RSS (+-90.4 MB)
+  [perf] 328.5 FPS (60 frames in 0.183s)
+  [AI Pilot patrol cycle] 3.0m: 328.5 FPS, 1620 MB RSS (+-88.9 MB)
+  [perf] 350.8 FPS (60 frames in 0.171s)
+  [AI Pilot patrol cycle] 3.5m: 350.8 FPS, 1620 MB RSS (+-88.9 MB)
+  [perf] 346.6 FPS (60 frames in 0.173s)
+  [AI Pilot patrol cycle] 4.0m: 346.6 FPS, 1620 MB RSS (+-88.9 MB)
+  [perf] 343.1 FPS (60 frames in 0.175s)
+  [AI Pilot patrol cycle] 4.5m: 343.1 FPS, 1620 MB RSS (+-88.8 MB)
+  [perf] 346.0 FPS (60 frames in 0.173s)
+  [AI Pilot patrol cycle] END: 346.0 FPS, 1620 MB RSS (frames=97200)
+PASSED
+unit tests/integration/test_soak_ai_pilot.py::TestSoakAIPilotIdleOrbit::test_ai_pilot_idle_orbit_5min_soak Gamepad connected: XInput0
+  [perf] 277.0 FPS (60 frames in 0.217s)
+
+  [AI Pilot idle orbit] START: 277.0 FPS, 1647 MB RSS
+  [perf] 275.9 FPS (60 frames in 0.217s)
+  [AI Pilot idle orbit] 0.5m: 275.9 FPS, 1639 MB RSS (+-8.1 MB)
+  [perf] 278.6 FPS (60 frames in 0.215s)
+  [AI Pilot idle orbit] 1.0m: 278.6 FPS, 1639 MB RSS (+-8.1 MB)
+  [perf] 281.7 FPS (60 frames in 0.213s)
+  [AI Pilot idle orbit] 1.5m: 281.7 FPS, 1639 MB RSS (+-8.1 MB)
+  [perf] 281.9 FPS (60 frames in 0.213s)
+  [AI Pilot idle orbit] 2.0m: 281.9 FPS, 1639 MB RSS (+-8.1 MB)
+  [perf] 283.0 FPS (60 frames in 0.212s)
+  [AI Pilot idle orbit] 2.5m: 283.0 FPS, 1639 MB RSS (+-8.1 MB)
+  [perf] 282.1 FPS (60 frames in 0.213s)
+  [AI Pilot idle orbit] 3.0m: 282.1 FPS, 1639 MB RSS (+-8.1 MB)
+  [perf] 276.9 FPS (60 frames in 0.217s)
+  [AI Pilot idle orbit] 3.5m: 276.9 FPS, 1639 MB RSS (+-8.1 MB)
+  [perf] 281.9 FPS (60 frames in 0.213s)
+  [AI Pilot idle orbit] 4.0m: 281.9 FPS, 1639 MB RSS (+-8.1 MB)
+  [perf] 280.1 FPS (60 frames in 0.214s)
+  [AI Pilot idle orbit] 4.5m: 280.1 FPS, 1639 MB RSS (+-8.1 MB)
+  [perf] 282.8 FPS (60 frames in 0.212s)
+  [AI Pilot idle orbit] END: 282.8 FPS, 1639 MB RSS (frames=79980)
+PASSED
+unit tests/integration/test_soak_asteroid_explosion.py::TestSoakAsteroidExplosionZone1::test_asteroid_explosion_zone1_5min_soak Gamepad connected: XInput0
+  [perf] 321.7 FPS (60 frames in 0.187s)
+
+  [Asteroid explosion Zone 1] START: 321.7 FPS, 1722 MB RSS
+  [perf] 282.0 FPS (60 frames in 0.213s)
+  [Asteroid explosion Zone 1] 0.5m: 282.0 FPS, 1645 MB RSS (+-76.6 MB)
+  [perf] 273.1 FPS (60 frames in 0.220s)
+  [Asteroid explosion Zone 1] 1.0m: 273.1 FPS, 1652 MB RSS (+-70.0 MB)
+  [perf] 252.0 FPS (60 frames in 0.238s)
+  [Asteroid explosion Zone 1] 1.5m: 252.0 FPS, 1653 MB RSS (+-69.3 MB)
+  [perf] 247.9 FPS (60 frames in 0.242s)
+  [Asteroid explosion Zone 1] 2.0m: 247.9 FPS, 1653 MB RSS (+-68.7 MB)
+  [perf] 266.5 FPS (60 frames in 0.225s)
+  [Asteroid explosion Zone 1] 2.5m: 266.5 FPS, 1655 MB RSS (+-67.4 MB)
+  [perf] 266.4 FPS (60 frames in 0.225s)
+  [Asteroid explosion Zone 1] 3.0m: 266.4 FPS, 1655 MB RSS (+-67.0 MB)
+  [perf] 280.2 FPS (60 frames in 0.214s)
+  [Asteroid explosion Zone 1] 3.5m: 280.2 FPS, 1656 MB RSS (+-66.4 MB)
+  [perf] 277.5 FPS (60 frames in 0.216s)
+  [Asteroid explosion Zone 1] 4.0m: 277.5 FPS, 1657 MB RSS (+-65.5 MB)
+  [perf] 247.2 FPS (60 frames in 0.243s)
+  [Asteroid explosion Zone 1] 4.5m: 247.2 FPS, 1658 MB RSS (+-63.8 MB)
+  [perf] 263.3 FPS (60 frames in 0.228s)
+  [Asteroid explosion Zone 1] END: 263.3 FPS, 1660 MB RSS (frames=74760)
+PASSED
+unit tests/integration/test_soak_asteroid_explosion.py::TestSoakAsteroidExplosionZone2::test_asteroid_explosion_zone2_5min_soak Gamepad connected: XInput0
+  [perf] 252.7 FPS (60 frames in 0.237s)
+
+  [Asteroid explosion Zone 2] START: 252.7 FPS, 1678 MB RSS
+  [perf] 262.1 FPS (60 frames in 0.229s)
+  [Asteroid explosion Zone 2] 0.5m: 262.1 FPS, 1671 MB RSS (+-7.8 MB)
+  [perf] 241.9 FPS (60 frames in 0.248s)
+  [Asteroid explosion Zone 2] 1.0m: 241.9 FPS, 1671 MB RSS (+-7.3 MB)
+  [perf] 243.9 FPS (60 frames in 0.246s)
+  [Asteroid explosion Zone 2] 1.5m: 243.9 FPS, 1646 MB RSS (+-32.4 MB)
+  [perf] 240.1 FPS (60 frames in 0.250s)
+  [Asteroid explosion Zone 2] 2.0m: 240.1 FPS, 1647 MB RSS (+-31.7 MB)
+  [perf] 265.3 FPS (60 frames in 0.226s)
+  [Asteroid explosion Zone 2] 2.5m: 265.3 FPS, 1647 MB RSS (+-31.5 MB)
+  [perf] 254.5 FPS (60 frames in 0.236s)
+  [Asteroid explosion Zone 2] 3.0m: 254.5 FPS, 1647 MB RSS (+-31.3 MB)
+  [perf] 251.1 FPS (60 frames in 0.239s)
+  [Asteroid explosion Zone 2] 3.5m: 251.1 FPS, 1648 MB RSS (+-30.6 MB)
+  [perf] 248.7 FPS (60 frames in 0.241s)
+  [Asteroid explosion Zone 2] 4.0m: 248.7 FPS, 1648 MB RSS (+-30.2 MB)
+  [perf] 270.3 FPS (60 frames in 0.222s)
+  [Asteroid explosion Zone 2] 4.5m: 270.3 FPS, 1649 MB RSS (+-29.3 MB)
+  [perf] 246.1 FPS (60 frames in 0.244s)
+  [Asteroid explosion Zone 2] END: 246.1 FPS, 1650 MB RSS (frames=70980)
+PASSED
+unit tests/integration/test_soak_asteroid_explosion.py::TestSoakAsteroidExplosionBurst::test_asteroid_explosion_heavy_burst_5min_soak Gamepad connected: XInput0
+  [perf] 286.8 FPS (60 frames in 0.209s)
+
+  [Asteroid explosion burst Zone 2] START: 286.8 FPS, 1672 MB RSS
+  [perf] 295.1 FPS (60 frames in 0.203s)
+  [Asteroid explosion burst Zone 2] 0.5m: 295.1 FPS, 1670 MB RSS (+-2.6 MB)
+  [perf] 298.0 FPS (60 frames in 0.201s)
+  [Asteroid explosion burst Zone 2] 1.0m: 298.0 FPS, 1674 MB RSS (+1.4 MB)
+  [perf] 300.9 FPS (60 frames in 0.199s)
+  [Asteroid explosion burst Zone 2] 1.5m: 300.9 FPS, 1674 MB RSS (+1.4 MB)
+  [perf] 295.8 FPS (60 frames in 0.203s)
+  [Asteroid explosion burst Zone 2] 2.0m: 295.8 FPS, 1673 MB RSS (+1.4 MB)
+  [perf] 294.2 FPS (60 frames in 0.204s)
+  [Asteroid explosion burst Zone 2] 2.5m: 294.2 FPS, 1673 MB RSS (+1.4 MB)
+  [perf] 288.8 FPS (60 frames in 0.208s)
+  [Asteroid explosion burst Zone 2] 3.0m: 288.8 FPS, 1673 MB RSS (+1.4 MB)
+  [perf] 299.2 FPS (60 frames in 0.201s)
+  [Asteroid explosion burst Zone 2] 3.5m: 299.2 FPS, 1674 MB RSS (+1.4 MB)
+  [perf] 295.7 FPS (60 frames in 0.203s)
+  [Asteroid explosion burst Zone 2] 4.0m: 295.7 FPS, 1674 MB RSS (+1.4 MB)
+  [perf] 297.5 FPS (60 frames in 0.202s)
+  [Asteroid explosion burst Zone 2] 4.5m: 297.5 FPS, 1674 MB RSS (+1.4 MB)
+  [perf] 298.0 FPS (60 frames in 0.201s)
+  [Asteroid explosion burst Zone 2] END: 298.0 FPS, 1674 MB RSS (frames=83220)
+PASSED
+unit tests/integration/test_soak_basic_ship_and_menus.py::TestSoakBuildMenuScroll::test_build_menu_scrolling_5min_soak Gamepad connected: XInput0
+  [perf] 243.0 FPS (60 frames in 0.247s)
+
+  [Build menu wheel-scroll] START: 243.0 FPS, 1683 MB RSS
+  [perf] 210.6 FPS (60 frames in 0.285s)
+  [Build menu wheel-scroll] 0.5m: 210.6 FPS, 1603 MB RSS (+-79.7 MB)
+  [perf] 204.7 FPS (60 frames in 0.293s)
+  [Build menu wheel-scroll] 1.0m: 204.7 FPS, 1604 MB RSS (+-78.8 MB)
+  [perf] 218.3 FPS (60 frames in 0.275s)
+  [Build menu wheel-scroll] 1.5m: 218.3 FPS, 1609 MB RSS (+-74.4 MB)
+  [perf] 201.0 FPS (60 frames in 0.299s)
+  [Build menu wheel-scroll] 2.0m: 201.0 FPS, 1609 MB RSS (+-73.8 MB)
+  [perf] 214.8 FPS (60 frames in 0.279s)
+  [Build menu wheel-scroll] 2.5m: 214.8 FPS, 1609 MB RSS (+-73.5 MB)
+  [perf] 183.7 FPS (60 frames in 0.327s)
+  [Build menu wheel-scroll] 3.0m: 183.7 FPS, 1610 MB RSS (+-72.6 MB)
+  [perf] 189.5 FPS (60 frames in 0.317s)
+  [Build menu wheel-scroll] 3.5m: 189.5 FPS, 1611 MB RSS (+-71.8 MB)
+  [perf] 181.7 FPS (60 frames in 0.330s)
+  [Build menu wheel-scroll] 4.0m: 181.7 FPS, 1612 MB RSS (+-71.1 MB)
+  [perf] 161.3 FPS (60 frames in 0.372s)
+  [Build menu wheel-scroll] 4.5m: 161.3 FPS, 1614 MB RSS (+-69.2 MB)
+  [perf] 173.4 FPS (60 frames in 0.346s)
+  [Build menu wheel-scroll] END: 173.4 FPS, 1616 MB RSS (frames=53220)
+PASSED
+unit tests/integration/test_soak_basic_ship_and_menus.py::TestSoakCraftMenuScroll::test_craft_menu_scrolling_5min_soak Gamepad connected: XInput0
+  [perf] 243.6 FPS (60 frames in 0.246s)
+
+  [Craft menu wheel-scroll] START: 243.6 FPS, 1626 MB RSS
+  [perf] 293.7 FPS (60 frames in 0.204s)
+  [Craft menu wheel-scroll] 0.5m: 293.7 FPS, 1622 MB RSS (+-4.0 MB)
+  [perf] 290.0 FPS (60 frames in 0.207s)
+  [Craft menu wheel-scroll] 1.0m: 290.0 FPS, 1601 MB RSS (+-25.5 MB)
+  [perf] 291.3 FPS (60 frames in 0.206s)
+  [Craft menu wheel-scroll] 1.5m: 291.3 FPS, 1601 MB RSS (+-25.5 MB)
+  [perf] 290.8 FPS (60 frames in 0.206s)
+  [Craft menu wheel-scroll] 2.0m: 290.8 FPS, 1601 MB RSS (+-25.6 MB)
+  [perf] 295.1 FPS (60 frames in 0.203s)
+  [Craft menu wheel-scroll] 2.5m: 295.1 FPS, 1601 MB RSS (+-25.5 MB)
+  [perf] 289.8 FPS (60 frames in 0.207s)
+  [Craft menu wheel-scroll] 3.0m: 289.8 FPS, 1601 MB RSS (+-25.5 MB)
+  [perf] 298.4 FPS (60 frames in 0.201s)
+  [Craft menu wheel-scroll] 3.5m: 298.4 FPS, 1601 MB RSS (+-25.5 MB)
+  [perf] 291.8 FPS (60 frames in 0.206s)
+  [Craft menu wheel-scroll] 4.0m: 291.8 FPS, 1601 MB RSS (+-25.5 MB)
+  [perf] 294.0 FPS (60 frames in 0.204s)
+  [Craft menu wheel-scroll] 4.5m: 294.0 FPS, 1601 MB RSS (+-25.5 MB)
+  [perf] 289.8 FPS (60 frames in 0.207s)
+  [Craft menu wheel-scroll] END: 289.8 FPS, 1601 MB RSS (frames=80400)
+PASSED
+unit tests/integration/test_soak_basic_ship_and_menus.py::TestSoakBasicShipRebuild::test_basic_ship_rebuild_5min_soak Gamepad connected: XInput0
+  [perf] 309.8 FPS (60 frames in 0.194s)
+
+  [Basic Ship rebuild loop] START: 309.8 FPS, 1612 MB RSS
+  [perf] 272.9 FPS (60 frames in 0.220s)
+  [Basic Ship rebuild loop] 0.5m: 272.9 FPS, 1608 MB RSS (+-3.9 MB)
+  [perf] 250.3 FPS (60 frames in 0.240s)
+  [Basic Ship rebuild loop] 1.0m: 250.3 FPS, 1616 MB RSS (+4.1 MB)
+  [perf] 313.2 FPS (60 frames in 0.192s)
+  [Basic Ship rebuild loop] 1.5m: 313.2 FPS, 1625 MB RSS (+12.8 MB)
+  [perf] 271.6 FPS (60 frames in 0.221s)
+  [Basic Ship rebuild loop] 2.0m: 271.6 FPS, 1638 MB RSS (+26.2 MB)
+  [perf] 243.9 FPS (60 frames in 0.246s)
+  [Basic Ship rebuild loop] 2.5m: 243.9 FPS, 1648 MB RSS (+35.8 MB)
+  [perf] 492.1 FPS (60 frames in 0.122s)
+  [Basic Ship rebuild loop] 3.0m: 492.1 FPS, 1652 MB RSS (+40.3 MB)
+  [perf] 242.6 FPS (60 frames in 0.247s)
+  [Basic Ship rebuild loop] 3.5m: 242.6 FPS, 1657 MB RSS (+45.3 MB)
+  [perf] 267.7 FPS (60 frames in 0.224s)
+  [Basic Ship rebuild loop] 4.0m: 267.7 FPS, 1666 MB RSS (+53.4 MB)
+  [perf] 195.7 FPS (60 frames in 0.307s)
+  [Basic Ship rebuild loop] 4.5m: 195.7 FPS, 1672 MB RSS (+59.9 MB)
+  [perf] 253.5 FPS (60 frames in 0.237s)
+  [Basic Ship rebuild loop] END: 253.5 FPS, 1682 MB RSS (frames=77640)
+PASSED
+unit tests/integration/test_soak_boss.py::TestSoakBossPhase1::test_boss_phase1_5min_soak Gamepad connected: XInput0
+  [perf] 252.6 FPS (60 frames in 0.238s)
+
+  [Boss phase 1] START: 252.6 FPS, 1662 MB RSS
+  [perf] 169.2 FPS (60 frames in 0.355s)
+  [Boss phase 1] 0.5m: 169.2 FPS, 1644 MB RSS (+-18.0 MB)
+  [perf] 184.3 FPS (60 frames in 0.326s)
+  [Boss phase 1] 1.0m: 184.3 FPS, 1646 MB RSS (+-16.0 MB)
+  [perf] 183.8 FPS (60 frames in 0.326s)
+  [Boss phase 1] 1.5m: 183.8 FPS, 1650 MB RSS (+-12.6 MB)
+  [perf] 164.9 FPS (60 frames in 0.364s)
+  [Boss phase 1] 2.0m: 164.9 FPS, 1653 MB RSS (+-9.6 MB)
+  [perf] 180.2 FPS (60 frames in 0.333s)
+  [Boss phase 1] 2.5m: 180.2 FPS, 1656 MB RSS (+-6.4 MB)
+  [perf] 180.8 FPS (60 frames in 0.332s)
+  [Boss phase 1] 3.0m: 180.8 FPS, 1660 MB RSS (+-2.7 MB)
+  [perf] 146.3 FPS (60 frames in 0.410s)
+  [Boss phase 1] 3.5m: 146.3 FPS, 1663 MB RSS (+1.1 MB)
+  [perf] 155.7 FPS (60 frames in 0.385s)
+  [Boss phase 1] 4.0m: 155.7 FPS, 1668 MB RSS (+5.1 MB)
+  [perf] 181.2 FPS (60 frames in 0.331s)
+  [Boss phase 1] 4.5m: 181.2 FPS, 1672 MB RSS (+9.9 MB)
+  [perf] 171.8 FPS (60 frames in 0.349s)
+  [Boss phase 1] END: 171.8 FPS, 1677 MB RSS (frames=47160)
+PASSED
+unit tests/integration/test_soak_boss.py::TestSoakBossPhase2::test_boss_phase2_5min_soak Gamepad connected: XInput0
+  [perf] 232.9 FPS (60 frames in 0.258s)
+
+  [Boss phase 2 (charge cycles)] START: 232.9 FPS, 1688 MB RSS
+  [perf] 117.5 FPS (60 frames in 0.511s)
+  [Boss phase 2 (charge cycles)] 0.5m: 117.5 FPS, 1690 MB RSS (+2.9 MB)
+  [perf] 121.9 FPS (60 frames in 0.492s)
+  [Boss phase 2 (charge cycles)] 1.0m: 121.9 FPS, 1659 MB RSS (+-29.0 MB)
+  [perf] 102.3 FPS (60 frames in 0.586s)
+  [Boss phase 2 (charge cycles)] 1.5m: 102.3 FPS, 1661 MB RSS (+-26.9 MB)
+  [perf] 96.8 FPS (60 frames in 0.620s)
+  [Boss phase 2 (charge cycles)] 2.0m: 96.8 FPS, 1665 MB RSS (+-22.8 MB)
+  [perf] 100.5 FPS (60 frames in 0.597s)
+  [Boss phase 2 (charge cycles)] 2.5m: 100.5 FPS, 1670 MB RSS (+-17.7 MB)
+  [perf] 112.1 FPS (60 frames in 0.535s)
+  [Boss phase 2 (charge cycles)] 3.0m: 112.1 FPS, 1675 MB RSS (+-12.7 MB)
+  [perf] 119.4 FPS (60 frames in 0.502s)
+  [Boss phase 2 (charge cycles)] 3.5m: 119.4 FPS, 1679 MB RSS (+-8.7 MB)
+  [perf] 106.0 FPS (60 frames in 0.566s)
+  [Boss phase 2 (charge cycles)] 4.0m: 106.0 FPS, 1683 MB RSS (+-5.0 MB)
+  [perf] 105.5 FPS (60 frames in 0.569s)
+  [Boss phase 2 (charge cycles)] 4.5m: 105.5 FPS, 1687 MB RSS (+-0.0 MB)
+  [perf] 119.0 FPS (60 frames in 0.504s)
+  [Boss phase 2 (charge cycles)] END: 119.0 FPS, 1692 MB RSS (frames=33180)
+PASSED
+unit tests/integration/test_soak_boss.py::TestSoakBossPhase3::test_boss_phase3_5min_soak Gamepad connected: XInput0
+  [perf] 206.9 FPS (60 frames in 0.290s)
+
+  [Boss phase 3 (enraged)] START: 206.9 FPS, 1723 MB RSS
+  [perf] 179.0 FPS (60 frames in 0.335s)
+  [Boss phase 3 (enraged)] 0.5m: 179.0 FPS, 1721 MB RSS (+-1.8 MB)
+  [perf] 140.9 FPS (60 frames in 0.426s)
+  [Boss phase 3 (enraged)] 1.0m: 140.9 FPS, 1723 MB RSS (+0.2 MB)
+  [perf] 168.4 FPS (60 frames in 0.356s)
+  [Boss phase 3 (enraged)] 1.5m: 168.4 FPS, 1725 MB RSS (+2.2 MB)
+  [perf] 140.7 FPS (60 frames in 0.427s)
+  [Boss phase 3 (enraged)] 2.0m: 140.7 FPS, 1728 MB RSS (+5.3 MB)
+  [perf] 133.5 FPS (60 frames in 0.449s)
+  [Boss phase 3 (enraged)] 2.5m: 133.5 FPS, 1732 MB RSS (+8.5 MB)
+  [perf] 135.0 FPS (60 frames in 0.444s)
+  [Boss phase 3 (enraged)] 3.0m: 135.0 FPS, 1738 MB RSS (+14.9 MB)
+  [perf] 165.9 FPS (60 frames in 0.362s)
+  [Boss phase 3 (enraged)] 3.5m: 165.9 FPS, 1743 MB RSS (+20.1 MB)
+  [perf] 156.3 FPS (60 frames in 0.384s)
+  [Boss phase 3 (enraged)] 4.0m: 156.3 FPS, 1747 MB RSS (+24.2 MB)
+  [perf] 181.0 FPS (60 frames in 0.331s)
+  [Boss phase 3 (enraged)] 4.5m: 181.0 FPS, 1750 MB RSS (+27.4 MB)
+  [perf] 159.6 FPS (60 frames in 0.376s)
+  [Boss phase 3 (enraged)] END: 159.6 FPS, 1754 MB RSS (frames=43140)
+PASSED
+unit tests/integration/test_soak_boss.py::TestSoakBossPhaseRotation::test_boss_phase_rotation_5min_soak Gamepad connected: XInput0
+  [perf] 245.5 FPS (60 frames in 0.244s)
+
+  [Boss phase rotation] START: 245.5 FPS, 1764 MB RSS
+  [perf] 183.7 FPS (60 frames in 0.327s)
+  [Boss phase rotation] 0.5m: 183.7 FPS, 1770 MB RSS (+6.1 MB)
+  [perf] 147.3 FPS (60 frames in 0.407s)
+  [Boss phase rotation] 1.0m: 147.3 FPS, 1767 MB RSS (+2.7 MB)
+  [perf] 206.8 FPS (60 frames in 0.290s)
+  [Boss phase rotation] 1.5m: 206.8 FPS, 1771 MB RSS (+6.5 MB)
+  [perf] 139.4 FPS (60 frames in 0.430s)
+  [Boss phase rotation] 2.0m: 139.4 FPS, 1772 MB RSS (+7.5 MB)
+  [perf] 197.3 FPS (60 frames in 0.304s)
+  [Boss phase rotation] 2.5m: 197.3 FPS, 1773 MB RSS (+9.0 MB)
+  [perf] 149.4 FPS (60 frames in 0.402s)
+  [Boss phase rotation] 3.0m: 149.4 FPS, 1776 MB RSS (+12.0 MB)
+  [perf] 188.7 FPS (60 frames in 0.318s)
+  [Boss phase rotation] 3.5m: 188.7 FPS, 1780 MB RSS (+15.4 MB)
+  [perf] 186.6 FPS (60 frames in 0.322s)
+  [Boss phase rotation] 4.0m: 186.6 FPS, 1784 MB RSS (+19.8 MB)
+  [perf] 184.9 FPS (60 frames in 0.325s)
+  [Boss phase rotation] 4.5m: 184.9 FPS, 1790 MB RSS (+25.2 MB)
+  [perf] 153.5 FPS (60 frames in 0.391s)
+  [Boss phase rotation] END: 153.5 FPS, 1793 MB RSS (frames=49140)
+PASSED
+unit tests/integration/test_soak_boss.py::TestSoakBossInvulnerablePlayerAttacked::test_boss_attacks_invulnerable_player_5min_soak Gamepad connected: XInput0
+  [perf] 257.3 FPS (60 frames in 0.233s)
+
+  [Boss vs invulnerable player] START: 257.3 FPS, 1808 MB RSS
+  [perf] 149.6 FPS (60 frames in 0.401s)
+  [Boss vs invulnerable player] 0.5m: 149.6 FPS, 1805 MB RSS (+-2.4 MB)
+  [perf] 158.4 FPS (60 frames in 0.379s)
+  [Boss vs invulnerable player] 1.0m: 158.4 FPS, 1807 MB RSS (+-0.8 MB)
+  [perf] 171.8 FPS (60 frames in 0.349s)
+  [Boss vs invulnerable player] 1.5m: 171.8 FPS, 1809 MB RSS (+1.1 MB)
+  [perf] 162.9 FPS (60 frames in 0.368s)
+  [Boss vs invulnerable player] 2.0m: 162.9 FPS, 1814 MB RSS (+6.3 MB)
+  [perf] 160.6 FPS (60 frames in 0.374s)
+  [Boss vs invulnerable player] 2.5m: 160.6 FPS, 1820 MB RSS (+12.5 MB)
+  [perf] 170.9 FPS (60 frames in 0.351s)
+  [Boss vs invulnerable player] 3.0m: 170.9 FPS, 1825 MB RSS (+17.3 MB)
+  [perf] 165.5 FPS (60 frames in 0.363s)
+  [Boss vs invulnerable player] 3.5m: 165.5 FPS, 1828 MB RSS (+20.6 MB)
+  [perf] 145.6 FPS (60 frames in 0.412s)
+  [Boss vs invulnerable player] 4.0m: 145.6 FPS, 1831 MB RSS (+23.3 MB)
+  [perf] 143.2 FPS (60 frames in 0.419s)
+  [Boss vs invulnerable player] 4.5m: 143.2 FPS, 1834 MB RSS (+26.1 MB)
+  [perf] 174.4 FPS (60 frames in 0.344s)
+  [Boss vs invulnerable player] END: 174.4 FPS, 1835 MB RSS (frames=45000)
+PASSED
+unit tests/integration/test_soak_bot_modules.py::TestStuckDetectHistoryBounded::test_history_stays_bounded_over_30k_ticks PASSED
+unit tests/integration/test_soak_bot_modules.py::TestBlacklistTTLEviction::test_pickup_blacklist_stays_bounded_over_long_run PASSED
+unit tests/integration/test_soak_bot_modules.py::TestBlacklistTTLEviction::test_asteroid_blacklist_stays_bounded PASSED
+unit tests/integration/test_soak_bot_modules.py::TestAutopilotSoakNoMemoryGrowth::test_30k_ticks_no_rss_growth [autopilot] ASTEROID-BLACKLIST: {'x': 100.0, 'y': 100.0, 'hp': 50} (stuck while mining, ttl 60s)
+[autopilot] STUCK at edge — escape burst along repulsion vector + re-anchoring spiral
+[autopilot] ASTEROID-BLACKLIST: {'x': 100.0, 'y': 100.0, 'hp': 50} (stuck while mining, ttl 60s)
+[autopilot] STUCK at edge — escape burst along repulsion vector + re-anchoring spiral
+[autopilot] ASTEROID-BLACKLIST: {'x': 100.0, 'y': 100.0, 'hp': 50} (stuck while mining, ttl 60s)
+[autopilot] STUCK at edge — escape burst along repulsion vector + re-anchoring spiral
+[autopilot] ASTEROID-BLACKLIST: {'x': 100.0, 'y': 100.0, 'hp': 50} (stuck while mining, ttl 60s)
+[autopilot] STUCK at edge — escape burst along repulsion vector + re-anchoring spiral
+[autopilot] ASTEROID-BLACKLIST: {'x': 100.0, 'y': 100.0, 'hp': 50} (stuck while mining, ttl 60s)
+[autopilot] STUCK at edge — escape burst along repulsion vector + re-anchoring spiral
+[autopilot] ASTEROID-BLACKLIST: {'x': 100.0, 'y': 100.0, 'hp': 50} (stuck while mining, ttl 60s)
+[autopilot] STUCK at edge — escape burst along repulsion vector + re-anchoring spiral
+[autopilot] ASTEROID-BLACKLIST: {'x': 100.0, 'y': 100.0, 'hp': 50} (stuck while mining, ttl 60s)
+[autopilot] STUCK at edge — escape burst along repulsion vector + re-anchoring spiral
+[autopilot] ASTEROID-BLACKLIST: {'x': 100.0, 'y': 100.0, 'hp': 50} (stuck while mining, ttl 60s)
+[autopilot] STUCK at edge — escape burst along repulsion vector + re-anchoring spiral
+[autopilot] ASTEROID-BLACKLIST: {'x': 100.0, 'y': 100.0, 'hp': 50} (stuck while mining, ttl 60s)
+[autopilot] STUCK at edge — escape burst along repulsion vector + re-anchoring spiral
+[autopilot] ASTEROID-BLACKLIST: {'x': 100.0, 'y': 100.0, 'hp': 50} (stuck while mining, ttl 60s)
+[autopilot] STUCK at edge — escape burst along repulsion vector + re-anchoring spiral
+[autopilot] ASTEROID-BLACKLIST: {'x': 100.0, 'y': 100.0, 'hp': 50} (stuck while mining, ttl 60s)
+[autopilot] STUCK at edge — escape burst along repulsion vector + re-anchoring spiral
+[autopilot] ASTEROID-BLACKLIST: {'x': 100.0, 'y': 100.0, 'hp': 50} (stuck while mining, ttl 60s)
+[autopilot] STUCK at edge — escape burst along repulsion vector + re-anchoring spiral
+[autopilot] ASTEROID-BLACKLIST: {'x': 100.0, 'y': 100.0, 'hp': 50} (stuck while mining, ttl 60s)
+[autopilot] STUCK at edge — escape burst along repulsion vector + re-anchoring spiral
+[autopilot] ASTEROID-BLACKLIST: {'x': 100.0, 'y': 100.0, 'hp': 50} (stuck while mining, ttl 60s)
+[autopilot] STUCK at edge — escape burst along repulsion vector + re-anchoring spiral
+[autopilot] ASTEROID-BLACKLIST: {'x': 100.0, 'y': 100.0, 'hp': 50} (stuck while mining, ttl 60s)
+[autopilot] STUCK at edge — escape burst along repulsion vector + re-anchoring spiral
+[autopilot] ASTEROID-BLACKLIST: {'x': 100.0, 'y': 100.0, 'hp': 50} (stuck while mining, ttl 60s)
+[autopilot] STUCK at edge — escape burst along repulsion vector + re-anchoring spiral
+[autopilot] ASTEROID-BLACKLIST: {'x': 100.0, 'y': 100.0, 'hp': 50} (stuck while mining, ttl 60s)
+[autopilot] STUCK at edge — escape burst along repulsion vector + re-anchoring spiral
+[autopilot] ASTEROID-BLACKLIST: {'x': 100.0, 'y': 100.0, 'hp': 50} (stuck while mining, ttl 60s)
+[autopilot] STUCK at edge — escape burst along repulsion vector + re-anchoring spiral
+[autopilot] ASTEROID-BLACKLIST: {'x': 100.0, 'y': 100.0, 'hp': 50} (stuck while mining, ttl 60s)
+[autopilot] STUCK at edge — escape burst along repulsion vector + re-anchoring spiral
+[autopilot] ASTEROID-BLACKLIST: {'x': 100.0, 'y': 100.0, 'hp': 50} (stuck while mining, ttl 60s)
+[autopilot] STUCK at edge — escape burst along repulsion vector + re-anchoring spiral
+[autopilot] ASTEROID-BLACKLIST: {'x': 100.0, 'y': 100.0, 'hp': 50} (stuck while mining, ttl 60s)
+[autopilot] STUCK at edge — escape burst along repulsion vector + re-anchoring spiral
+[autopilot] ASTEROID-BLACKLIST: {'x': 100.0, 'y': 100.0, 'hp': 50} (stuck while mining, ttl 60s)
+[autopilot] STUCK at edge — escape burst along repulsion vector + re-anchoring spiral
+[autopilot] ASTEROID-BLACKLIST: {'x': 100.0, 'y': 100.0, 'hp': 50} (stuck while mining, ttl 60s)
+[autopilot] STUCK at edge — escape burst along repulsion vector + re-anchoring spiral
+[autopilot] ASTEROID-BLACKLIST: {'x': 100.0, 'y': 100.0, 'hp': 50} (stuck while mining, ttl 60s)
+[autopilot] STUCK at edge — escape burst along repulsion vector + re-anchoring spiral
+[autopilot] ASTEROID-BLACKLIST: {'x': 100.0, 'y': 100.0, 'hp': 50} (stuck while mining, ttl 60s)
+[autopilot] STUCK at edge — escape burst along repulsion vector + re-anchoring spiral
+[autopilot] ASTEROID-BLACKLIST: {'x': 100.0, 'y': 100.0, 'hp': 50} (stuck while mining, ttl 60s)
+[autopilot] STUCK at edge — escape burst along repulsion vector + re-anchoring spiral
+[autopilot] ASTEROID-BLACKLIST: {'x': 100.0, 'y': 100.0, 'hp': 50} (stuck while mining, ttl 60s)
+[autopilot] STUCK at edge — escape burst along repulsion vector + re-anchoring spiral
+[autopilot] ASTEROID-BLACKLIST: {'x': 100.0, 'y': 100.0, 'hp': 50} (stuck while mining, ttl 60s)
+[autopilot] STUCK at edge — escape burst along repulsion vector + re-anchoring spiral
+[autopilot] ASTEROID-BLACKLIST: {'x': 100.0, 'y': 100.0, 'hp': 50} (stuck while mining, ttl 60s)
+[autopilot] STUCK at edge — escape burst along repulsion vector + re-anchoring spiral
+[autopilot] ASTEROID-BLACKLIST: {'x': 100.0, 'y': 100.0, 'hp': 50} (stuck while mining, ttl 60s)
+[autopilot] STUCK at edge — escape burst along repulsion vector + re-anchoring spiral
+[autopilot] ASTEROID-BLACKLIST: {'x': 100.0, 'y': 100.0, 'hp': 50} (stuck while mining, ttl 60s)
+[autopilot] STUCK at edge — escape burst along repulsion vector + re-anchoring spiral
+[autopilot] ASTEROID-BLACKLIST: {'x': 100.0, 'y': 100.0, 'hp': 50} (stuck while mining, ttl 60s)
+[autopilot] STUCK at edge — escape burst along repulsion vector + re-anchoring spiral
+[autopilot] ASTEROID-BLACKLIST: {'x': 100.0, 'y': 100.0, 'hp': 50} (stuck while mining, ttl 60s)
+[autopilot] STUCK at edge — escape burst along repulsion vector + re-anchoring spiral
+[autopilot] ASTEROID-BLACKLIST: {'x': 100.0, 'y': 100.0, 'hp': 50} (stuck while mining, ttl 60s)
+[autopilot] STUCK at edge — escape burst along repulsion vector + re-anchoring spiral
+[autopilot] ASTEROID-BLACKLIST: {'x': 100.0, 'y': 100.0, 'hp': 50} (stuck while mining, ttl 60s)
+[autopilot] STUCK at edge — escape burst along repulsion vector + re-anchoring spiral
+[autopilot] ASTEROID-BLACKLIST: {'x': 100.0, 'y': 100.0, 'hp': 50} (stuck while mining, ttl 60s)
+[autopilot] STUCK at edge — escape burst along repulsion vector + re-anchoring spiral
+[autopilot] ASTEROID-BLACKLIST: {'x': 100.0, 'y': 100.0, 'hp': 50} (stuck while mining, ttl 60s)
+[autopilot] STUCK at edge — escape burst along repulsion vector + re-anchoring spiral
+[autopilot] ASTEROID-BLACKLIST: {'x': 100.0, 'y': 100.0, 'hp': 50} (stuck while mining, ttl 60s)
+[autopilot] STUCK at edge — escape burst along repulsion vector + re-anchoring spiral
+[autopilot] ASTEROID-BLACKLIST: {'x': 100.0, 'y': 100.0, 'hp': 50} (stuck while mining, ttl 60s)
+[autopilot] STUCK at edge — escape burst along repulsion vector + re-anchoring spiral
+[autopilot] ASTEROID-BLACKLIST: {'x': 100.0, 'y': 100.0, 'hp': 50} (stuck while mining, ttl 60s)
+[autopilot] STUCK at edge — escape burst along repulsion vector + re-anchoring spiral
+[autopilot] ASTEROID-BLACKLIST: {'x': 100.0, 'y': 100.0, 'hp': 50} (stuck while mining, ttl 60s)
+[autopilot] STUCK at edge — escape burst along repulsion vector + re-anchoring spiral
+[autopilot] ASTEROID-BLACKLIST: {'x': 100.0, 'y': 100.0, 'hp': 50} (stuck while mining, ttl 60s)
+[autopilot] STUCK at edge — escape burst along repulsion vector + re-anchoring spiral
+[autopilot] ASTEROID-BLACKLIST: {'x': 100.0, 'y': 100.0, 'hp': 50} (stuck while mining, ttl 60s)
+[autopilot] STUCK at edge — escape burst along repulsion vector + re-anchoring spiral
+[autopilot] ASTEROID-BLACKLIST: {'x': 100.0, 'y': 100.0, 'hp': 50} (stuck while mining, ttl 60s)
+[autopilot] STUCK at edge — escape burst along repulsion vector + re-anchoring spiral
+[autopilot] ASTEROID-BLACKLIST: {'x': 100.0, 'y': 100.0, 'hp': 50} (stuck while mining, ttl 60s)
+[autopilot] STUCK at edge — escape burst along repulsion vector + re-anchoring spiral
+[autopilot] ASTEROID-BLACKLIST: {'x': 100.0, 'y': 100.0, 'hp': 50} (stuck while mining, ttl 60s)
+[autopilot] STUCK at edge — escape burst along repulsion vector + re-anchoring spiral
+[autopilot] ASTEROID-BLACKLIST: {'x': 100.0, 'y': 100.0, 'hp': 50} (stuck while mining, ttl 60s)
+[autopilot] STUCK at edge — escape burst along repulsion vector + re-anchoring spiral
+PASSED
+unit tests/integration/test_soak_bot_modules.py::TestNoSlowdownOver50kCalls::test_steered_heading_no_drift PASSED
+unit tests/integration/test_soak_dialogue.py::TestSoakDebraDialogue::test_debra_dialogue_tree_5min_soak Gamepad connected: XInput0
+  [perf] 220.7 FPS (60 frames in 0.272s)
+
+  [Dialogue (Debra spine)] START: 220.7 FPS, 1920 MB RSS
+  [perf] 224.6 FPS (60 frames in 0.267s)
+  [Dialogue (Debra spine)] 0.5m: 224.6 FPS, 1929 MB RSS (+9.0 MB)
+  [perf] 224.1 FPS (60 frames in 0.268s)
+  [Dialogue (Debra spine)] 1.0m: 224.1 FPS, 1930 MB RSS (+9.6 MB)
+  [perf] 198.9 FPS (60 frames in 0.302s)
+  [Dialogue (Debra spine)] 1.5m: 198.9 FPS, 1932 MB RSS (+11.2 MB)
+  [perf] 235.2 FPS (60 frames in 0.255s)
+  [Dialogue (Debra spine)] 2.0m: 235.2 FPS, 1933 MB RSS (+12.9 MB)
+  [perf] 213.6 FPS (60 frames in 0.281s)
+  [Dialogue (Debra spine)] 2.5m: 213.6 FPS, 1935 MB RSS (+14.6 MB)
+  [perf] 176.2 FPS (60 frames in 0.340s)
+  [Dialogue (Debra spine)] 3.0m: 176.2 FPS, 1936 MB RSS (+15.4 MB)
+  [perf] 204.6 FPS (60 frames in 0.293s)
+  [Dialogue (Debra spine)] 3.5m: 204.6 FPS, 1937 MB RSS (+16.7 MB)
+  [perf] 287.7 FPS (60 frames in 0.209s)
+  [Dialogue (Debra spine)] 4.0m: 287.7 FPS, 1939 MB RSS (+18.6 MB)
+  [perf] 321.7 FPS (60 frames in 0.186s)
+  [Dialogue (Debra spine)] 4.5m: 321.7 FPS, 1939 MB RSS (+18.6 MB)
+  [perf] 319.1 FPS (60 frames in 0.188s)
+  [Dialogue (Debra spine)] END: 319.1 FPS, 1939 MB RSS (frames=45660)
+PASSED
+unit tests/integration/test_soak_dialogue.py::TestSoakDebraTreeExhaustive::test_debra_tree_every_branch_5min_soak Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+  [perf] 252.2 FPS (60 frames in 0.238s)
+
+  [Dialogue (Debra exhaustive)] START: 252.2 FPS, 1993 MB RSS
+[VideoPlayer] First frame OK (160x160)
+  [perf] 235.2 FPS (60 frames in 0.255s)
+  [Dialogue (Debra exhaustive)] 0.5m: 235.2 FPS, 1982 MB RSS (+-11.2 MB)
+  [perf] 206.4 FPS (60 frames in 0.291s)
+  [Dialogue (Debra exhaustive)] 1.0m: 206.4 FPS, 1982 MB RSS (+-11.2 MB)
+  [perf] 233.5 FPS (60 frames in 0.257s)
+  [Dialogue (Debra exhaustive)] 1.5m: 233.5 FPS, 1984 MB RSS (+-9.0 MB)
+  [perf] 233.2 FPS (60 frames in 0.257s)
+  [Dialogue (Debra exhaustive)] 2.0m: 233.2 FPS, 1984 MB RSS (+-8.5 MB)
+  [perf] 236.1 FPS (60 frames in 0.254s)
+  [Dialogue (Debra exhaustive)] 2.5m: 236.1 FPS, 1985 MB RSS (+-8.2 MB)
+  [perf] 220.4 FPS (60 frames in 0.272s)
+  [Dialogue (Debra exhaustive)] 3.0m: 220.4 FPS, 1985 MB RSS (+-7.6 MB)
+  [perf] 211.0 FPS (60 frames in 0.284s)
+  [Dialogue (Debra exhaustive)] 3.5m: 211.0 FPS, 1985 MB RSS (+-7.6 MB)
+  [perf] 212.3 FPS (60 frames in 0.283s)
+  [Dialogue (Debra exhaustive)] 4.0m: 212.3 FPS, 1985 MB RSS (+-7.6 MB)
+  [perf] 235.9 FPS (60 frames in 0.254s)
+  [Dialogue (Debra exhaustive)] 4.5m: 235.9 FPS, 1985 MB RSS (+-7.6 MB)
+  [perf] 210.7 FPS (60 frames in 0.285s)
+  [Dialogue (Debra exhaustive)] END: 210.7 FPS, 1959 MB RSS (frames=45060)
+PASSED
+unit tests/integration/test_soak_dialogue.py::TestSoakEllieDialogue::test_ellie_dialogue_tree_5min_soak Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+  [perf] 230.0 FPS (60 frames in 0.261s)
+
+  [Dialogue (Ellie spine)] START: 230.0 FPS, 2003 MB RSS
+[VideoPlayer] First frame OK (160x160)
+  [perf] 214.9 FPS (60 frames in 0.279s)
+  [Dialogue (Ellie spine)] 0.5m: 214.9 FPS, 1988 MB RSS (+-15.4 MB)
+  [perf] 202.3 FPS (60 frames in 0.297s)
+  [Dialogue (Ellie spine)] 1.0m: 202.3 FPS, 1988 MB RSS (+-15.3 MB)
+  [perf] 222.0 FPS (60 frames in 0.270s)
+  [Dialogue (Ellie spine)] 1.5m: 222.0 FPS, 1991 MB RSS (+-12.4 MB)
+  [perf] 205.5 FPS (60 frames in 0.292s)
+  [Dialogue (Ellie spine)] 2.0m: 205.5 FPS, 1991 MB RSS (+-11.7 MB)
+  [perf] 182.3 FPS (60 frames in 0.329s)
+  [Dialogue (Ellie spine)] 2.5m: 182.3 FPS, 1992 MB RSS (+-11.4 MB)
+  [perf] 197.6 FPS (60 frames in 0.304s)
+  [Dialogue (Ellie spine)] 3.0m: 197.6 FPS, 1997 MB RSS (+-6.4 MB)
+  [perf] 206.4 FPS (60 frames in 0.291s)
+  [Dialogue (Ellie spine)] 3.5m: 206.4 FPS, 1998 MB RSS (+-5.4 MB)
+  [perf] 200.6 FPS (60 frames in 0.299s)
+  [Dialogue (Ellie spine)] 4.0m: 200.6 FPS, 1999 MB RSS (+-4.3 MB)
+  [perf] 179.6 FPS (60 frames in 0.334s)
+  [Dialogue (Ellie spine)] 4.5m: 179.6 FPS, 2000 MB RSS (+-2.6 MB)
+  [perf] 204.0 FPS (60 frames in 0.294s)
+  [Dialogue (Ellie spine)] END: 204.0 FPS, 2002 MB RSS (frames=39900)
+PASSED
+unit tests/integration/test_soak_dialogue.py::TestSoakEllieTreeExhaustive::test_ellie_tree_every_branch_5min_soak Gamepad connected: XInput0
+[VideoPlayer] Playing: Ellie.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+  [perf] 251.1 FPS (60 frames in 0.239s)
+
+  [Dialogue (Ellie exhaustive)] START: 251.1 FPS, 2036 MB RSS
+[VideoPlayer] First frame OK (160x160)
+  [perf] 275.9 FPS (60 frames in 0.217s)
+  [Dialogue (Ellie exhaustive)] 0.5m: 275.9 FPS, 2020 MB RSS (+-15.9 MB)
+  [perf] 278.3 FPS (60 frames in 0.216s)
+  [Dialogue (Ellie exhaustive)] 1.0m: 278.3 FPS, 2020 MB RSS (+-15.9 MB)
+  [perf] 252.5 FPS (60 frames in 0.238s)
+  [Dialogue (Ellie exhaustive)] 1.5m: 252.5 FPS, 2021 MB RSS (+-14.8 MB)
+  [perf] 282.4 FPS (60 frames in 0.212s)
+  [Dialogue (Ellie exhaustive)] 2.0m: 282.4 FPS, 2021 MB RSS (+-14.8 MB)
+  [perf] 264.7 FPS (60 frames in 0.227s)
+  [Dialogue (Ellie exhaustive)] 2.5m: 264.7 FPS, 2021 MB RSS (+-14.8 MB)
+  [perf] 230.5 FPS (60 frames in 0.260s)
+  [Dialogue (Ellie exhaustive)] 3.0m: 230.5 FPS, 2021 MB RSS (+-14.9 MB)
+  [perf] 271.3 FPS (60 frames in 0.221s)
+  [Dialogue (Ellie exhaustive)] 3.5m: 271.3 FPS, 2021 MB RSS (+-14.9 MB)
+  [perf] 263.7 FPS (60 frames in 0.228s)
+  [Dialogue (Ellie exhaustive)] 4.0m: 263.7 FPS, 2021 MB RSS (+-14.9 MB)
+  [perf] 256.4 FPS (60 frames in 0.234s)
+  [Dialogue (Ellie exhaustive)] 4.5m: 256.4 FPS, 2021 MB RSS (+-14.8 MB)
+  [perf] 255.1 FPS (60 frames in 0.235s)
+  [Dialogue (Ellie exhaustive)] END: 255.1 FPS, 2021 MB RSS (frames=49680)
+PASSED
+unit tests/integration/test_soak_dialogue.py::TestSoakTaraDialogue::test_tara_dialogue_tree_5min_soak Gamepad connected: XInput0
+[VideoPlayer] Playing: Ellie.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+  [perf] 260.9 FPS (60 frames in 0.230s)
+
+  [Dialogue (Tara spine)] START: 260.9 FPS, 2051 MB RSS
+[VideoPlayer] First frame OK (160x160)
+  [perf] 271.5 FPS (60 frames in 0.221s)
+  [Dialogue (Tara spine)] 0.5m: 271.5 FPS, 2040 MB RSS (+-11.1 MB)
+  [perf] 254.4 FPS (60 frames in 0.236s)
+  [Dialogue (Tara spine)] 1.0m: 254.4 FPS, 2041 MB RSS (+-10.5 MB)
+  [perf] 245.1 FPS (60 frames in 0.245s)
+  [Dialogue (Tara spine)] 1.5m: 245.1 FPS, 2041 MB RSS (+-10.2 MB)
+  [perf] 273.2 FPS (60 frames in 0.220s)
+  [Dialogue (Tara spine)] 2.0m: 273.2 FPS, 2041 MB RSS (+-10.0 MB)
+  [perf] 245.1 FPS (60 frames in 0.245s)
+  [Dialogue (Tara spine)] 2.5m: 245.1 FPS, 2041 MB RSS (+-10.0 MB)
+  [perf] 263.0 FPS (60 frames in 0.228s)
+  [Dialogue (Tara spine)] 3.0m: 263.0 FPS, 2041 MB RSS (+-9.7 MB)
+  [perf] 236.9 FPS (60 frames in 0.253s)
+  [Dialogue (Tara spine)] 3.5m: 236.9 FPS, 2042 MB RSS (+-9.6 MB)
+  [perf] 272.0 FPS (60 frames in 0.221s)
+  [Dialogue (Tara spine)] 4.0m: 272.0 FPS, 2042 MB RSS (+-9.5 MB)
+  [perf] 249.5 FPS (60 frames in 0.240s)
+  [Dialogue (Tara spine)] 4.5m: 249.5 FPS, 2027 MB RSS (+-24.2 MB)
+  [perf] 268.7 FPS (60 frames in 0.223s)
+  [Dialogue (Tara spine)] END: 268.7 FPS, 2035 MB RSS (frames=46260)
+PASSED
+unit tests/integration/test_soak_dialogue.py::TestSoakTaraTreeExhaustive::test_tara_tree_every_branch_5min_soak Gamepad connected: XInput0
+[VideoPlayer] Playing: Tara.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+  [perf] 266.9 FPS (60 frames in 0.225s)
+
+  [Dialogue (Tara exhaustive)] START: 266.9 FPS, 2078 MB RSS
+[VideoPlayer] First frame OK (160x160)
+  [perf] 272.3 FPS (60 frames in 0.220s)
+  [Dialogue (Tara exhaustive)] 0.5m: 272.3 FPS, 2061 MB RSS (+-17.7 MB)
+  [perf] 273.3 FPS (60 frames in 0.220s)
+  [Dialogue (Tara exhaustive)] 1.0m: 273.3 FPS, 2061 MB RSS (+-17.7 MB)
+  [perf] 280.3 FPS (60 frames in 0.214s)
+  [Dialogue (Tara exhaustive)] 1.5m: 280.3 FPS, 2062 MB RSS (+-16.1 MB)
+  [perf] 278.5 FPS (60 frames in 0.215s)
+  [Dialogue (Tara exhaustive)] 2.0m: 278.5 FPS, 2062 MB RSS (+-16.1 MB)
+  [perf] 269.4 FPS (60 frames in 0.223s)
+  [Dialogue (Tara exhaustive)] 2.5m: 269.4 FPS, 2062 MB RSS (+-16.1 MB)
+  [perf] 278.3 FPS (60 frames in 0.216s)
+  [Dialogue (Tara exhaustive)] 3.0m: 278.3 FPS, 2062 MB RSS (+-16.1 MB)
+  [perf] 268.4 FPS (60 frames in 0.224s)
+  [Dialogue (Tara exhaustive)] 3.5m: 268.4 FPS, 2062 MB RSS (+-16.1 MB)
+  [perf] 285.2 FPS (60 frames in 0.210s)
+  [Dialogue (Tara exhaustive)] 4.0m: 285.2 FPS, 2062 MB RSS (+-16.1 MB)
+  [perf] 270.9 FPS (60 frames in 0.221s)
+  [Dialogue (Tara exhaustive)] 4.5m: 270.9 FPS, 2062 MB RSS (+-16.1 MB)
+  [perf] 268.6 FPS (60 frames in 0.223s)
+  [Dialogue (Tara exhaustive)] END: 268.6 FPS, 2062 MB RSS (frames=49080)
+PASSED
+unit tests/integration/test_soak_dialogue.py::TestSoakDialogueCharacterRotation::test_dialogue_rotates_all_three_characters_5min_soak Gamepad connected: XInput0
+[VideoPlayer] Playing: Tara.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+  [perf] 265.3 FPS (60 frames in 0.226s)
+
+  [Dialogue (rotation)] START: 265.3 FPS, 2093 MB RSS
+[VideoPlayer] First frame OK (160x160)
+  [perf] 263.4 FPS (60 frames in 0.228s)
+  [Dialogue (rotation)] 0.5m: 263.4 FPS, 2082 MB RSS (+-11.3 MB)
+  [perf] 282.0 FPS (60 frames in 0.213s)
+  [Dialogue (rotation)] 1.0m: 282.0 FPS, 2082 MB RSS (+-11.3 MB)
+  [perf] 266.8 FPS (60 frames in 0.225s)
+  [Dialogue (rotation)] 1.5m: 266.8 FPS, 2083 MB RSS (+-9.7 MB)
+  [perf] 280.9 FPS (60 frames in 0.214s)
+  [Dialogue (rotation)] 2.0m: 280.9 FPS, 2083 MB RSS (+-9.8 MB)
+  [perf] 277.8 FPS (60 frames in 0.216s)
+  [Dialogue (rotation)] 2.5m: 277.8 FPS, 2083 MB RSS (+-9.8 MB)
+  [perf] 281.0 FPS (60 frames in 0.214s)
+  [Dialogue (rotation)] 3.0m: 281.0 FPS, 2083 MB RSS (+-9.8 MB)
+  [perf] 267.7 FPS (60 frames in 0.224s)
+  [Dialogue (rotation)] 3.5m: 267.7 FPS, 2083 MB RSS (+-9.8 MB)
+  [perf] 286.6 FPS (60 frames in 0.209s)
+  [Dialogue (rotation)] 4.0m: 286.6 FPS, 2083 MB RSS (+-9.8 MB)
+  [perf] 281.7 FPS (60 frames in 0.213s)
+  [Dialogue (rotation)] 4.5m: 281.7 FPS, 2083 MB RSS (+-9.8 MB)
+  [perf] 285.9 FPS (60 frames in 0.210s)
+  [Dialogue (rotation)] END: 285.9 FPS, 2083 MB RSS (frames=51360)
+PASSED
+unit tests/integration/test_soak_drone.py::TestSoakDroneIdleFollow::test_drone_idle_follow_5min_soak Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] First frame OK (160x160)
+  [perf] 153.3 FPS (60 frames in 0.391s)
+
+  [Drone idle FOLLOW] START: 153.3 FPS, 2065 MB RSS
+  [perf] 192.3 FPS (60 frames in 0.312s)
+  [Drone idle FOLLOW] 0.5m: 192.3 FPS, 2023 MB RSS (+-42.0 MB)
+  [perf] 186.9 FPS (60 frames in 0.321s)
+  [Drone idle FOLLOW] 1.0m: 186.9 FPS, 2027 MB RSS (+-38.0 MB)
+  [perf] 183.6 FPS (60 frames in 0.327s)
+  [Drone idle FOLLOW] 1.5m: 183.6 FPS, 2029 MB RSS (+-36.0 MB)
+  [perf] 194.2 FPS (60 frames in 0.309s)
+  [Drone idle FOLLOW] 2.0m: 194.2 FPS, 2029 MB RSS (+-36.0 MB)
+  [perf] 187.1 FPS (60 frames in 0.321s)
+  [Drone idle FOLLOW] 2.5m: 187.1 FPS, 2029 MB RSS (+-36.0 MB)
+  [perf] 192.0 FPS (60 frames in 0.313s)
+  [Drone idle FOLLOW] 3.0m: 192.0 FPS, 2029 MB RSS (+-36.0 MB)
+  [perf] 190.3 FPS (60 frames in 0.315s)
+  [Drone idle FOLLOW] 3.5m: 190.3 FPS, 2029 MB RSS (+-36.0 MB)
+  [perf] 182.8 FPS (60 frames in 0.328s)
+  [Drone idle FOLLOW] 4.0m: 182.8 FPS, 2006 MB RSS (+-59.4 MB)
+  [perf] 188.2 FPS (60 frames in 0.319s)
+  [Drone idle FOLLOW] 4.5m: 188.2 FPS, 2008 MB RSS (+-56.4 MB)
+  [perf] 188.0 FPS (60 frames in 0.319s)
+  [Drone idle FOLLOW] END: 188.0 FPS, 2008 MB RSS (frames=53400)
+PASSED
+unit tests/integration/test_soak_drone.py::TestSoakDroneReturnHomePingPong::test_drone_return_home_ping_pong_5min_soak Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] First frame OK (160x160)
+  [perf] 153.6 FPS (60 frames in 0.391s)
+
+  [Drone RETURN_HOME ping-pong] START: 153.6 FPS, 2040 MB RSS
+  [perf] 196.9 FPS (60 frames in 0.305s)
+  [Drone RETURN_HOME ping-pong] 0.5m: 196.9 FPS, 2032 MB RSS (+-7.9 MB)
+  [perf] 197.3 FPS (60 frames in 0.304s)
+  [Drone RETURN_HOME ping-pong] 1.0m: 197.3 FPS, 2032 MB RSS (+-7.9 MB)
+  [perf] 187.0 FPS (60 frames in 0.321s)
+  [Drone RETURN_HOME ping-pong] 1.5m: 187.0 FPS, 2034 MB RSS (+-6.1 MB)
+  [perf] 192.1 FPS (60 frames in 0.312s)
+  [Drone RETURN_HOME ping-pong] 2.0m: 192.1 FPS, 2034 MB RSS (+-6.1 MB)
+  [perf] 191.5 FPS (60 frames in 0.313s)
+  [Drone RETURN_HOME ping-pong] 2.5m: 191.5 FPS, 2034 MB RSS (+-6.1 MB)
+  [perf] 190.6 FPS (60 frames in 0.315s)
+  [Drone RETURN_HOME ping-pong] 3.0m: 190.6 FPS, 2034 MB RSS (+-6.1 MB)
+  [perf] 186.9 FPS (60 frames in 0.321s)
+  [Drone RETURN_HOME ping-pong] 3.5m: 186.9 FPS, 2034 MB RSS (+-6.1 MB)
+  [perf] 184.7 FPS (60 frames in 0.325s)
+  [Drone RETURN_HOME ping-pong] 4.0m: 184.7 FPS, 2034 MB RSS (+-6.1 MB)
+  [perf] 191.0 FPS (60 frames in 0.314s)
+  [Drone RETURN_HOME ping-pong] 4.5m: 191.0 FPS, 2034 MB RSS (+-6.0 MB)
+  [perf] 184.2 FPS (60 frames in 0.326s)
+  [Drone RETURN_HOME ping-pong] END: 184.2 FPS, 2034 MB RSS (frames=53280)
+PASSED
+unit tests/integration/test_soak_drone.py::TestSoakDroneEntryExitPingPong::test_drone_entry_exit_5min_soak Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] First frame OK (160x160)
+  [perf] 168.7 FPS (60 frames in 0.356s)
+
+  [Drone entry/exit ping-pong] START: 168.7 FPS, 2060 MB RSS
+  [perf] 161.0 FPS (60 frames in 0.373s)
+  [Drone entry/exit ping-pong] 0.5m: 161.0 FPS, 2053 MB RSS (+-7.0 MB)
+  [perf] 161.1 FPS (60 frames in 0.372s)
+  [Drone entry/exit ping-pong] 1.0m: 161.1 FPS, 2054 MB RSS (+-6.4 MB)
+  [perf] 165.6 FPS (60 frames in 0.362s)
+  [Drone entry/exit ping-pong] 1.5m: 165.6 FPS, 2056 MB RSS (+-4.8 MB)
+  [perf] 177.2 FPS (60 frames in 0.339s)
+  [Drone entry/exit ping-pong] 2.0m: 177.2 FPS, 2056 MB RSS (+-4.2 MB)
+  [perf] 182.2 FPS (60 frames in 0.329s)
+  [Drone entry/exit ping-pong] 2.5m: 182.2 FPS, 2057 MB RSS (+-3.6 MB)
+  [perf] 151.9 FPS (60 frames in 0.395s)
+  [Drone entry/exit ping-pong] 3.0m: 151.9 FPS, 2057 MB RSS (+-2.9 MB)
+  [perf] 158.4 FPS (60 frames in 0.379s)
+  [Drone entry/exit ping-pong] 3.5m: 158.4 FPS, 2058 MB RSS (+-2.2 MB)
+  [perf] 152.6 FPS (60 frames in 0.393s)
+  [Drone entry/exit ping-pong] 4.0m: 152.6 FPS, 2059 MB RSS (+-1.5 MB)
+  [perf] 174.8 FPS (60 frames in 0.343s)
+  [Drone entry/exit ping-pong] 4.5m: 174.8 FPS, 2060 MB RSS (+-0.8 MB)
+  [perf] 165.0 FPS (60 frames in 0.364s)
+  [Drone entry/exit ping-pong] END: 165.0 FPS, 2061 MB RSS (frames=45720)
+PASSED
+unit tests/integration/test_soak_drone.py::TestSoakDroneAttackChurn::test_drone_attack_churn_5min_soak Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] First frame OK (160x160)
+  [perf] 128.2 FPS (60 frames in 0.468s)
+
+  [Drone ATTACK churn] START: 128.2 FPS, 2092 MB RSS
+  [perf] 123.4 FPS (60 frames in 0.486s)
+  [Drone ATTACK churn] 0.5m: 123.4 FPS, 2083 MB RSS (+-9.2 MB)
+  [perf] 113.7 FPS (60 frames in 0.528s)
+  [Drone ATTACK churn] 1.0m: 113.7 FPS, 2084 MB RSS (+-7.5 MB)
+  [perf] 102.0 FPS (60 frames in 0.588s)
+  [Drone ATTACK churn] 1.5m: 102.0 FPS, 2088 MB RSS (+-4.1 MB)
+  [perf] 102.9 FPS (60 frames in 0.583s)
+  [Drone ATTACK churn] 2.0m: 102.9 FPS, 2089 MB RSS (+-3.3 MB)
+  [perf] 109.4 FPS (60 frames in 0.548s)
+  [Drone ATTACK churn] 2.5m: 109.4 FPS, 2091 MB RSS (+-1.2 MB)
+  [perf] 97.0 FPS (60 frames in 0.618s)
+  [Drone ATTACK churn] 3.0m: 97.0 FPS, 2092 MB RSS (+0.5 MB)
+  [perf] 113.2 FPS (60 frames in 0.530s)
+  [Drone ATTACK churn] 3.5m: 113.2 FPS, 2083 MB RSS (+-8.7 MB)
+  [perf] 96.1 FPS (60 frames in 0.624s)
+  [Drone ATTACK churn] 4.0m: 96.1 FPS, 2087 MB RSS (+-5.0 MB)
+  [perf] 95.2 FPS (60 frames in 0.630s)
+  [Drone ATTACK churn] 4.5m: 95.2 FPS, 2088 MB RSS (+-3.3 MB)
+  [perf] 101.1 FPS (60 frames in 0.594s)
+  [Drone ATTACK churn] END: 101.1 FPS, 2091 MB RSS (frames=30180)
+PASSED
+unit tests/integration/test_soak_drone.py::TestSoakDroneFleetOrderRotation::test_drone_fleet_order_rotation_5min_soak Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] First frame OK (160x160)
+  [perf] 132.4 FPS (60 frames in 0.453s)
+
+  [Drone Fleet order rotation] START: 132.4 FPS, 2127 MB RSS
+  [perf] 173.1 FPS (60 frames in 0.347s)
+  [Drone Fleet order rotation] 0.5m: 173.1 FPS, 2120 MB RSS (+-7.7 MB)
+  [perf] 157.4 FPS (60 frames in 0.381s)
+  [Drone Fleet order rotation] 1.0m: 157.4 FPS, 2124 MB RSS (+-3.4 MB)
+  [perf] 182.2 FPS (60 frames in 0.329s)
+  [Drone Fleet order rotation] 1.5m: 182.2 FPS, 2127 MB RSS (+-0.6 MB)
+  [perf] 167.5 FPS (60 frames in 0.358s)
+  [Drone Fleet order rotation] 2.0m: 167.5 FPS, 2127 MB RSS (+-0.1 MB)
+  [perf] 168.6 FPS (60 frames in 0.356s)
+  [Drone Fleet order rotation] 2.5m: 168.6 FPS, 2127 MB RSS (+0.1 MB)
+  [perf] 178.9 FPS (60 frames in 0.335s)
+  [Drone Fleet order rotation] 3.0m: 178.9 FPS, 2128 MB RSS (+1.0 MB)
+  [perf] 176.2 FPS (60 frames in 0.340s)
+  [Drone Fleet order rotation] 3.5m: 176.2 FPS, 2129 MB RSS (+1.8 MB)
+  [perf] 190.5 FPS (60 frames in 0.315s)
+  [Drone Fleet order rotation] 4.0m: 190.5 FPS, 2130 MB RSS (+2.3 MB)
+  [perf] 186.7 FPS (60 frames in 0.321s)
+  [Drone Fleet order rotation] 4.5m: 186.7 FPS, 2130 MB RSS (+3.0 MB)
+  [perf] 192.3 FPS (60 frames in 0.312s)
+  [Drone Fleet order rotation] END: 192.3 FPS, 2131 MB RSS (frames=47460)
+PASSED
+unit tests/integration/test_soak_nebula_boss.py::TestSoakNebulaBossCombat::test_nebula_boss_5min_soak Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] First frame OK (160x160)
+  [perf] 240.8 FPS (60 frames in 0.249s)
+
+  [Nebula boss combat] START: 240.8 FPS, 2113 MB RSS
+  [perf] 271.4 FPS (60 frames in 0.221s)
+  [Nebula boss combat] 0.5m: 271.4 FPS, 2077 MB RSS (+-36.8 MB)
+  [perf] 279.9 FPS (60 frames in 0.214s)
+  [Nebula boss combat] 1.0m: 279.9 FPS, 2077 MB RSS (+-36.7 MB)
+  [perf] 274.8 FPS (60 frames in 0.218s)
+  [Nebula boss combat] 1.5m: 274.8 FPS, 2078 MB RSS (+-35.7 MB)
+  [perf] 278.6 FPS (60 frames in 0.215s)
+  [Nebula boss combat] 2.0m: 278.6 FPS, 2078 MB RSS (+-35.8 MB)
+  [perf] 271.6 FPS (60 frames in 0.221s)
+  [Nebula boss combat] 2.5m: 271.6 FPS, 2078 MB RSS (+-35.8 MB)
+  [perf] 277.7 FPS (60 frames in 0.216s)
+  [Nebula boss combat] 3.0m: 277.7 FPS, 2078 MB RSS (+-35.8 MB)
+  [perf] 279.7 FPS (60 frames in 0.215s)
+  [Nebula boss combat] 3.5m: 279.7 FPS, 2078 MB RSS (+-35.8 MB)
+  [perf] 278.5 FPS (60 frames in 0.215s)
+  [Nebula boss combat] 4.0m: 278.5 FPS, 2078 MB RSS (+-35.8 MB)
+  [perf] 280.2 FPS (60 frames in 0.214s)
+  [Nebula boss combat] 4.5m: 280.2 FPS, 2078 MB RSS (+-35.8 MB)
+  [perf] 276.1 FPS (60 frames in 0.217s)
+  [Nebula boss combat] END: 276.1 FPS, 2078 MB RSS (frames=77280)
+PASSED
+unit tests/integration/test_soak_null_field.py::TestSoakNullFieldIdle::test_null_field_idle_zone2_5min_soak Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] First frame OK (160x160)
+  [perf] 277.1 FPS (60 frames in 0.216s)
+
+  [Null field idle] START: 277.1 FPS, 2154 MB RSS
+  [perf] 282.1 FPS (60 frames in 0.213s)
+  [Null field idle] 0.5m: 282.1 FPS, 2076 MB RSS (+-78.1 MB)
+  [perf] 276.7 FPS (60 frames in 0.217s)
+  [Null field idle] 1.0m: 276.7 FPS, 2076 MB RSS (+-78.1 MB)
+  [perf] 285.3 FPS (60 frames in 0.210s)
+  [Null field idle] 1.5m: 285.3 FPS, 2077 MB RSS (+-77.1 MB)
+  [perf] 288.3 FPS (60 frames in 0.208s)
+  [Null field idle] 2.0m: 288.3 FPS, 2077 MB RSS (+-77.1 MB)
+  [perf] 292.3 FPS (60 frames in 0.205s)
+  [Null field idle] 2.5m: 292.3 FPS, 2077 MB RSS (+-77.1 MB)
+  [perf] 289.3 FPS (60 frames in 0.207s)
+  [Null field idle] 3.0m: 289.3 FPS, 2054 MB RSS (+-99.8 MB)
+  [perf] 286.1 FPS (60 frames in 0.210s)
+  [Null field idle] 3.5m: 286.1 FPS, 2055 MB RSS (+-98.6 MB)
+  [perf] 285.5 FPS (60 frames in 0.210s)
+  [Null field idle] 4.0m: 285.5 FPS, 2055 MB RSS (+-98.6 MB)
+  [perf] 288.7 FPS (60 frames in 0.208s)
+  [Null field idle] 4.5m: 288.7 FPS, 2055 MB RSS (+-98.6 MB)
+  [perf] 288.1 FPS (60 frames in 0.208s)
+  [Null field idle] END: 288.1 FPS, 2055 MB RSS (frames=80160)
+PASSED
+unit tests/integration/test_soak_null_field.py::TestSoakNullFieldChurn::test_null_field_fire_cycle_zone2_5min_soak Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] First frame OK (160x160)
+  [perf] 240.4 FPS (60 frames in 0.250s)
+
+  [Null field churn] START: 240.4 FPS, 2087 MB RSS
+  [perf] 278.7 FPS (60 frames in 0.215s)
+  [Null field churn] 0.5m: 278.7 FPS, 2075 MB RSS (+-11.7 MB)
+  [perf] 272.9 FPS (60 frames in 0.220s)
+  [Null field churn] 1.0m: 272.9 FPS, 2075 MB RSS (+-11.7 MB)
+  [perf] 273.7 FPS (60 frames in 0.219s)
+  [Null field churn] 1.5m: 273.7 FPS, 2078 MB RSS (+-9.5 MB)
+  [perf] 270.3 FPS (60 frames in 0.222s)
+  [Null field churn] 2.0m: 270.3 FPS, 2078 MB RSS (+-9.2 MB)
+  [perf] 283.9 FPS (60 frames in 0.211s)
+  [Null field churn] 2.5m: 283.9 FPS, 2078 MB RSS (+-9.1 MB)
+  [perf] 273.0 FPS (60 frames in 0.220s)
+  [Null field churn] 3.0m: 273.0 FPS, 2078 MB RSS (+-8.8 MB)
+  [perf] 278.7 FPS (60 frames in 0.215s)
+  [Null field churn] 3.5m: 278.7 FPS, 2079 MB RSS (+-8.6 MB)
+  [perf] 274.9 FPS (60 frames in 0.218s)
+  [Null field churn] 4.0m: 274.9 FPS, 2079 MB RSS (+-8.6 MB)
+  [perf] 230.5 FPS (60 frames in 0.260s)
+  [Null field churn] 4.5m: 230.5 FPS, 2079 MB RSS (+-8.3 MB)
+  [perf] 242.6 FPS (60 frames in 0.247s)
+  [Null field churn] END: 242.6 FPS, 2079 MB RSS (frames=75960)
+PASSED
+unit tests/integration/test_soak_null_field.py::TestSoakCloakVisualToggle::test_cloak_visual_toggle_zone2_5min_soak Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] First frame OK (160x160)
+  [perf] 252.1 FPS (60 frames in 0.238s)
+
+  [Null field cloak visual] START: 252.1 FPS, 2109 MB RSS
+  [perf] 290.4 FPS (60 frames in 0.207s)
+  [Null field cloak visual] 0.5m: 290.4 FPS, 2097 MB RSS (+-12.0 MB)
+  [perf] 294.5 FPS (60 frames in 0.204s)
+  [Null field cloak visual] 1.0m: 294.5 FPS, 2097 MB RSS (+-12.0 MB)
+  [perf] 299.6 FPS (60 frames in 0.200s)
+  [Null field cloak visual] 1.5m: 299.6 FPS, 2099 MB RSS (+-10.4 MB)
+  [perf] 298.7 FPS (60 frames in 0.201s)
+  [Null field cloak visual] 2.0m: 298.7 FPS, 2099 MB RSS (+-10.5 MB)
+  [perf] 296.0 FPS (60 frames in 0.203s)
+  [Null field cloak visual] 2.5m: 296.0 FPS, 2099 MB RSS (+-10.5 MB)
+  [perf] 281.2 FPS (60 frames in 0.213s)
+  [Null field cloak visual] 3.0m: 281.2 FPS, 2106 MB RSS (+-3.5 MB)
+  [perf] 300.2 FPS (60 frames in 0.200s)
+  [Null field cloak visual] 3.5m: 300.2 FPS, 2106 MB RSS (+-3.5 MB)
+  [perf] 284.9 FPS (60 frames in 0.211s)
+  [Null field cloak visual] 4.0m: 284.9 FPS, 2106 MB RSS (+-3.5 MB)
+  [perf] 294.0 FPS (60 frames in 0.204s)
+  [Null field cloak visual] 4.5m: 294.0 FPS, 2106 MB RSS (+-3.5 MB)
+  [perf] 288.2 FPS (60 frames in 0.208s)
+  [Null field cloak visual] END: 288.2 FPS, 2106 MB RSS (frames=80340)
+PASSED
+unit tests/integration/test_soak_null_field.py::TestSoakCloakVisualDisableCycle::test_cloak_visual_disable_cycle_zone2_5min_soak Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] First frame OK (160x160)
+  [perf] 258.5 FPS (60 frames in 0.232s)
+
+  [Null field cloak disable cycle] START: 258.5 FPS, 2141 MB RSS
+  [perf] 225.5 FPS (60 frames in 0.266s)
+  [Null field cloak disable cycle] 0.5m: 225.5 FPS, 2121 MB RSS (+-19.2 MB)
+  [perf] 271.5 FPS (60 frames in 0.221s)
+  [Null field cloak disable cycle] 1.0m: 271.5 FPS, 2122 MB RSS (+-18.8 MB)
+  [perf] 279.3 FPS (60 frames in 0.215s)
+  [Null field cloak disable cycle] 1.5m: 279.3 FPS, 2123 MB RSS (+-17.5 MB)
+  [perf] 267.5 FPS (60 frames in 0.224s)
+  [Null field cloak disable cycle] 2.0m: 267.5 FPS, 2123 MB RSS (+-17.3 MB)
+  [perf] 238.0 FPS (60 frames in 0.252s)
+  [Null field cloak disable cycle] 2.5m: 238.0 FPS, 2114 MB RSS (+-26.3 MB)
+  [perf] 279.3 FPS (60 frames in 0.215s)
+  [Null field cloak disable cycle] 3.0m: 279.3 FPS, 2116 MB RSS (+-24.5 MB)
+  [perf] 281.3 FPS (60 frames in 0.213s)
+  [Null field cloak disable cycle] 3.5m: 281.3 FPS, 2116 MB RSS (+-24.4 MB)
+  [perf] 212.0 FPS (60 frames in 0.283s)
+  [Null field cloak disable cycle] 4.0m: 212.0 FPS, 2117 MB RSS (+-24.0 MB)
+  [perf] 279.6 FPS (60 frames in 0.215s)
+  [Null field cloak disable cycle] 4.5m: 279.6 FPS, 2117 MB RSS (+-24.0 MB)
+  [perf] 281.0 FPS (60 frames in 0.214s)
+  [Null field cloak disable cycle] END: 281.0 FPS, 2117 MB RSS (frames=75660)
+PASSED
+unit tests/integration/test_soak_qwi_and_nebula.py::TestSoakQWIMenuOpen::test_qwi_menu_open_5min_soak Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+  [perf] 260.8 FPS (60 frames in 0.230s)
+
+  [QWI menu open] START: 260.8 FPS, 2119 MB RSS
+  [perf] 270.2 FPS (60 frames in 0.222s)
+  [QWI menu open] 0.5m: 270.2 FPS, 2107 MB RSS (+-12.0 MB)
+  [perf] 271.7 FPS (60 frames in 0.221s)
+  [QWI menu open] 1.0m: 271.7 FPS, 2107 MB RSS (+-12.0 MB)
+  [perf] 273.6 FPS (60 frames in 0.219s)
+  [QWI menu open] 1.5m: 273.6 FPS, 2109 MB RSS (+-10.1 MB)
+  [perf] 265.6 FPS (60 frames in 0.226s)
+  [QWI menu open] 2.0m: 265.6 FPS, 2109 MB RSS (+-10.1 MB)
+  [perf] 271.3 FPS (60 frames in 0.221s)
+  [QWI menu open] 2.5m: 271.3 FPS, 2109 MB RSS (+-10.1 MB)
+  [perf] 273.5 FPS (60 frames in 0.219s)
+  [QWI menu open] 3.0m: 273.5 FPS, 2109 MB RSS (+-10.1 MB)
+  [perf] 268.3 FPS (60 frames in 0.224s)
+  [QWI menu open] 3.5m: 268.3 FPS, 2109 MB RSS (+-10.1 MB)
+  [perf] 263.8 FPS (60 frames in 0.227s)
+  [QWI menu open] 4.0m: 263.8 FPS, 2109 MB RSS (+-10.1 MB)
+  [perf] 278.7 FPS (60 frames in 0.215s)
+  [QWI menu open] 4.5m: 278.7 FPS, 2109 MB RSS (+-10.1 MB)
+  [perf] 273.4 FPS (60 frames in 0.219s)
+  [QWI menu open] END: 273.4 FPS, 2109 MB RSS (frames=75840)
+PASSED
+unit tests/integration/test_soak_qwi_and_nebula.py::TestSoakNebulaBossRebuild::test_nebula_boss_rebuild_5min_soak Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] First frame OK (160x160)
+  [perf] 229.7 FPS (60 frames in 0.261s)
+
+  [Nebula boss rebuild loop] START: 229.7 FPS, 2145 MB RSS
+  [perf] 258.5 FPS (60 frames in 0.232s)
+  [Nebula boss rebuild loop] 0.5m: 258.5 FPS, 2137 MB RSS (+-8.0 MB)
+  [perf] 265.8 FPS (60 frames in 0.226s)
+  [Nebula boss rebuild loop] 1.0m: 265.8 FPS, 2137 MB RSS (+-7.9 MB)
+  [perf] 262.7 FPS (60 frames in 0.228s)
+  [Nebula boss rebuild loop] 1.5m: 262.7 FPS, 2137 MB RSS (+-7.6 MB)
+  [perf] 260.2 FPS (60 frames in 0.231s)
+  [Nebula boss rebuild loop] 2.0m: 260.2 FPS, 2141 MB RSS (+-3.7 MB)
+  [perf] 258.2 FPS (60 frames in 0.232s)
+  [Nebula boss rebuild loop] 2.5m: 258.2 FPS, 2145 MB RSS (+0.3 MB)
+  [perf] 264.4 FPS (60 frames in 0.227s)
+  [Nebula boss rebuild loop] 3.0m: 264.4 FPS, 2145 MB RSS (+0.3 MB)
+  [perf] 262.3 FPS (60 frames in 0.229s)
+  [Nebula boss rebuild loop] 3.5m: 262.3 FPS, 2149 MB RSS (+4.3 MB)
+  [perf] 264.0 FPS (60 frames in 0.227s)
+  [Nebula boss rebuild loop] 4.0m: 264.0 FPS, 2153 MB RSS (+8.3 MB)
+  [perf] 255.2 FPS (60 frames in 0.235s)
+  [Nebula boss rebuild loop] 4.5m: 255.2 FPS, 2153 MB RSS (+8.3 MB)
+  [perf] 255.0 FPS (60 frames in 0.235s)
+  [Nebula boss rebuild loop] END: 255.0 FPS, 2157 MB RSS (frames=72840)
+PASSED
+unit tests/integration/test_soak_refactor.py::TestSoakSharedScaffolding::test_shared_run_soak_drives_5min_minimal_churn Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] First frame OK (160x160)
+  [perf] 296.3 FPS (60 frames in 0.202s)
+
+  [Shared scaffolding] START: 296.3 FPS, 2125 MB RSS
+  [perf] 309.5 FPS (60 frames in 0.194s)
+  [Shared scaffolding] 0.5m: 309.5 FPS, 2039 MB RSS (+-86.0 MB)
+  [perf] 308.5 FPS (60 frames in 0.195s)
+  [Shared scaffolding] 1.0m: 308.5 FPS, 2039 MB RSS (+-86.0 MB)
+  [perf] 315.0 FPS (60 frames in 0.191s)
+  [Shared scaffolding] 1.5m: 315.0 FPS, 2041 MB RSS (+-84.5 MB)
+  [perf] 309.7 FPS (60 frames in 0.194s)
+  [Shared scaffolding] 2.0m: 309.7 FPS, 2017 MB RSS (+-108.2 MB)
+  [perf] 323.5 FPS (60 frames in 0.185s)
+  [Shared scaffolding] 2.5m: 323.5 FPS, 2017 MB RSS (+-108.0 MB)
+  [perf] 311.4 FPS (60 frames in 0.193s)
+  [Shared scaffolding] 3.0m: 311.4 FPS, 2017 MB RSS (+-108.0 MB)
+  [perf] 306.7 FPS (60 frames in 0.196s)
+  [Shared scaffolding] 3.5m: 306.7 FPS, 2018 MB RSS (+-107.4 MB)
+  [perf] 309.2 FPS (60 frames in 0.194s)
+  [Shared scaffolding] 4.0m: 309.2 FPS, 2018 MB RSS (+-107.4 MB)
+  [perf] 311.2 FPS (60 frames in 0.193s)
+  [Shared scaffolding] 4.5m: 311.2 FPS, 2018 MB RSS (+-107.4 MB)
+  [perf] 303.8 FPS (60 frames in 0.198s)
+  [Shared scaffolding] END: 303.8 FPS, 2018 MB RSS (frames=87300)
+PASSED
+unit tests/integration/test_soak_session_boss.py::TestSoakNebulaForceWalls::test_nebula_vs_force_wall_5min_soak Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] First frame OK (160x160)
+  [perf] 229.2 FPS (60 frames in 0.262s)
+
+  [Nebula vs Force Walls] START: 229.2 FPS, 2129 MB RSS
+  [perf] 222.9 FPS (60 frames in 0.269s)
+  [Nebula vs Force Walls] 0.5m: 222.9 FPS, 2112 MB RSS (+-16.8 MB)
+  [perf] 198.1 FPS (60 frames in 0.303s)
+  [Nebula vs Force Walls] 1.0m: 198.1 FPS, 2119 MB RSS (+-9.8 MB)
+  [perf] 179.4 FPS (60 frames in 0.334s)
+  [Nebula vs Force Walls] 1.5m: 179.4 FPS, 2126 MB RSS (+-3.0 MB)
+  [perf] 169.8 FPS (60 frames in 0.353s)
+  [Nebula vs Force Walls] 2.0m: 169.8 FPS, 2126 MB RSS (+-3.0 MB)
+  [perf] 157.8 FPS (60 frames in 0.380s)
+  [Nebula vs Force Walls] 2.5m: 157.8 FPS, 2126 MB RSS (+-3.0 MB)
+  [perf] 153.6 FPS (60 frames in 0.391s)
+  [Nebula vs Force Walls] 3.0m: 153.6 FPS, 2126 MB RSS (+-3.0 MB)
+  [perf] 153.0 FPS (60 frames in 0.392s)
+  [Nebula vs Force Walls] 3.5m: 153.0 FPS, 2126 MB RSS (+-3.0 MB)
+  [perf] 138.2 FPS (60 frames in 0.434s)
+  [Nebula vs Force Walls] 4.0m: 138.2 FPS, 2126 MB RSS (+-3.0 MB)
+  [perf] 134.7 FPS (60 frames in 0.445s)
+  [Nebula vs Force Walls] 4.5m: 134.7 FPS, 2126 MB RSS (+-2.9 MB)
+  [perf] 127.7 FPS (60 frames in 0.470s)
+  [Nebula vs Force Walls] END: 127.7 FPS, 2126 MB RSS (frames=47280)
+PASSED
+unit tests/integration/test_soak_session_boss.py::TestSoakNebulaAsteroidCrush::test_nebula_crush_5min_soak Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] First frame OK (160x160)
+  [perf] 261.0 FPS (60 frames in 0.230s)
+
+  [Nebula crush asteroids] START: 261.0 FPS, 2158 MB RSS
+  [perf] 283.5 FPS (60 frames in 0.212s)
+  [Nebula crush asteroids] 0.5m: 283.5 FPS, 2142 MB RSS (+-16.0 MB)
+  [perf] 276.0 FPS (60 frames in 0.217s)
+  [Nebula crush asteroids] 1.0m: 276.0 FPS, 2142 MB RSS (+-16.0 MB)
+  [perf] 280.0 FPS (60 frames in 0.214s)
+  [Nebula crush asteroids] 1.5m: 280.0 FPS, 2143 MB RSS (+-14.9 MB)
+  [perf] 273.4 FPS (60 frames in 0.219s)
+  [Nebula crush asteroids] 2.0m: 273.4 FPS, 2143 MB RSS (+-14.9 MB)
+  [perf] 271.3 FPS (60 frames in 0.221s)
+  [Nebula crush asteroids] 2.5m: 271.3 FPS, 2143 MB RSS (+-14.9 MB)
+  [perf] 278.5 FPS (60 frames in 0.215s)
+  [Nebula crush asteroids] 3.0m: 278.5 FPS, 2143 MB RSS (+-14.9 MB)
+  [perf] 277.6 FPS (60 frames in 0.216s)
+  [Nebula crush asteroids] 3.5m: 277.6 FPS, 2143 MB RSS (+-14.9 MB)
+  [perf] 271.1 FPS (60 frames in 0.221s)
+  [Nebula crush asteroids] 4.0m: 271.1 FPS, 2143 MB RSS (+-14.9 MB)
+  [perf] 283.5 FPS (60 frames in 0.212s)
+  [Nebula crush asteroids] 4.5m: 283.5 FPS, 2143 MB RSS (+-15.0 MB)
+  [perf] 285.0 FPS (60 frames in 0.211s)
+  [Nebula crush asteroids] END: 285.0 FPS, 2143 MB RSS (frames=77700)
+PASSED
+unit tests/integration/test_soak_session_boss.py::TestSoakNebulaDefenderFire::test_defenders_vs_nebula_5min_soak Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] First frame OK (160x160)
+  [perf] 238.5 FPS (60 frames in 0.252s)
+
+  [Defenders vs Nebula] START: 238.5 FPS, 2175 MB RSS
+  [perf] 256.8 FPS (60 frames in 0.234s)
+  [Defenders vs Nebula] 0.5m: 256.8 FPS, 2164 MB RSS (+-11.0 MB)
+  [perf] 261.5 FPS (60 frames in 0.229s)
+  [Defenders vs Nebula] 1.0m: 261.5 FPS, 2164 MB RSS (+-11.0 MB)
+  [perf] 262.0 FPS (60 frames in 0.229s)
+  [Defenders vs Nebula] 1.5m: 262.0 FPS, 2145 MB RSS (+-30.4 MB)
+  [perf] 261.6 FPS (60 frames in 0.229s)
+  [Defenders vs Nebula] 2.0m: 261.6 FPS, 2145 MB RSS (+-30.4 MB)
+  [perf] 257.6 FPS (60 frames in 0.233s)
+  [Defenders vs Nebula] 2.5m: 257.6 FPS, 2145 MB RSS (+-30.4 MB)
+  [perf] 255.2 FPS (60 frames in 0.235s)
+  [Defenders vs Nebula] 3.0m: 255.2 FPS, 2145 MB RSS (+-30.4 MB)
+  [perf] 253.2 FPS (60 frames in 0.237s)
+  [Defenders vs Nebula] 3.5m: 253.2 FPS, 2145 MB RSS (+-30.4 MB)
+  [perf] 261.9 FPS (60 frames in 0.229s)
+  [Defenders vs Nebula] 4.0m: 261.9 FPS, 2145 MB RSS (+-30.4 MB)
+  [perf] 261.3 FPS (60 frames in 0.230s)
+  [Defenders vs Nebula] 4.5m: 261.3 FPS, 2145 MB RSS (+-30.2 MB)
+  [perf] 262.9 FPS (60 frames in 0.228s)
+  [Defenders vs Nebula] END: 262.9 FPS, 2145 MB RSS (frames=72360)
+PASSED
+unit tests/integration/test_soak_star_maze.py::TestSoakStarMazeEmptyOrbit::test_star_maze_idle_5min_soak Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] First frame OK (160x160)
+  [perf] 205.8 FPS (60 frames in 0.292s)
+
+  [Star Maze idle orbit] START: 205.8 FPS, 2145 MB RSS
+  [perf] 206.0 FPS (60 frames in 0.291s)
+  [Star Maze idle orbit] 0.5m: 206.0 FPS, 2140 MB RSS (+-5.8 MB)
+  [perf] 184.6 FPS (60 frames in 0.325s)
+  [Star Maze idle orbit] 1.0m: 184.6 FPS, 2140 MB RSS (+-5.4 MB)
+  [perf] 202.7 FPS (60 frames in 0.296s)
+  [Star Maze idle orbit] 1.5m: 202.7 FPS, 2142 MB RSS (+-3.7 MB)
+  [perf] 180.3 FPS (60 frames in 0.333s)
+  [Star Maze idle orbit] 2.0m: 180.3 FPS, 2142 MB RSS (+-3.2 MB)
+  [perf] 181.6 FPS (60 frames in 0.330s)
+  [Star Maze idle orbit] 2.5m: 181.6 FPS, 2143 MB RSS (+-2.5 MB)
+  [perf] 203.7 FPS (60 frames in 0.295s)
+  [Star Maze idle orbit] 3.0m: 203.7 FPS, 2143 MB RSS (+-2.0 MB)
+  [perf] 183.9 FPS (60 frames in 0.326s)
+  [Star Maze idle orbit] 3.5m: 183.9 FPS, 2143 MB RSS (+-2.0 MB)
+  [perf] 189.7 FPS (60 frames in 0.316s)
+  [Star Maze idle orbit] 4.0m: 189.7 FPS, 2143 MB RSS (+-2.0 MB)
+  [perf] 198.3 FPS (60 frames in 0.303s)
+  [Star Maze idle orbit] 4.5m: 198.3 FPS, 2144 MB RSS (+-1.8 MB)
+  [perf] 197.9 FPS (60 frames in 0.303s)
+  [Star Maze idle orbit] END: 197.9 FPS, 2144 MB RSS (frames=53280)
+PASSED
+unit tests/integration/test_soak_star_maze.py::TestSoakStarMazeCombatChurn::test_star_maze_spawner_churn_5min_soak Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] First frame OK (160x160)
+  [perf] 156.2 FPS (60 frames in 0.384s)
+
+  [Star Maze spawner churn] START: 156.2 FPS, 2172 MB RSS
+  [perf] 138.1 FPS (60 frames in 0.435s)
+  [Star Maze spawner churn] 0.5m: 138.1 FPS, 2164 MB RSS (+-7.9 MB)
+  [perf] 102.9 FPS (60 frames in 0.583s)
+  [Star Maze spawner churn] 1.0m: 102.9 FPS, 2164 MB RSS (+-7.7 MB)
+  [perf] 97.9 FPS (60 frames in 0.613s)
+  [Star Maze spawner churn] 1.5m: 97.9 FPS, 2166 MB RSS (+-6.2 MB)
+  [perf] 95.6 FPS (60 frames in 0.628s)
+  [Star Maze spawner churn] 2.0m: 95.6 FPS, 2166 MB RSS (+-5.8 MB)
+  [perf] 88.0 FPS (60 frames in 0.682s)
+  [Star Maze spawner churn] 2.5m: 88.0 FPS, 2166 MB RSS (+-5.4 MB)
+  [perf] 95.1 FPS (60 frames in 0.631s)
+  [Star Maze spawner churn] 3.0m: 95.1 FPS, 2167 MB RSS (+-4.6 MB)
+  [perf] 93.2 FPS (60 frames in 0.644s)
+  [Star Maze spawner churn] 3.5m: 93.2 FPS, 2168 MB RSS (+-4.1 MB)
+  [perf] 89.9 FPS (60 frames in 0.667s)
+  [Star Maze spawner churn] 4.0m: 89.9 FPS, 2169 MB RSS (+-2.9 MB)
+  [perf] 90.4 FPS (60 frames in 0.664s)
+  [Star Maze spawner churn] 4.5m: 90.4 FPS, 2171 MB RSS (+-0.5 MB)
+  [perf] 96.0 FPS (60 frames in 0.625s)
+  [Star Maze spawner churn] END: 96.0 FPS, 2175 MB RSS (frames=28080)
+PASSED
+unit tests/integration/test_soak_star_maze.py::TestSoakStarMazeNebulaPressure::test_star_maze_nebula_pressure_5min_soak Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] First frame OK (160x160)
+  [perf] 117.9 FPS (60 frames in 0.509s)
+
+  [Star Maze Nebula pressure] START: 117.9 FPS, 2209 MB RSS
+  [perf] 94.1 FPS (60 frames in 0.638s)
+  [Star Maze Nebula pressure] 0.5m: 94.1 FPS, 2199 MB RSS (+-10.4 MB)
+  [perf] 124.7 FPS (60 frames in 0.481s)
+  [Star Maze Nebula pressure] 1.0m: 124.7 FPS, 2180 MB RSS (+-28.7 MB)
+  [perf] 143.4 FPS (60 frames in 0.418s)
+  [Star Maze Nebula pressure] 1.5m: 143.4 FPS, 2183 MB RSS (+-26.0 MB)
+  [perf] 139.0 FPS (60 frames in 0.432s)
+  [Star Maze Nebula pressure] 2.0m: 139.0 FPS, 2183 MB RSS (+-26.0 MB)
+  [perf] 237.7 FPS (60 frames in 0.252s)
+  [Star Maze Nebula pressure] 2.5m: 237.7 FPS, 2187 MB RSS (+-21.8 MB)
+  [perf] 203.7 FPS (60 frames in 0.295s)
+  [Star Maze Nebula pressure] 3.0m: 203.7 FPS, 2187 MB RSS (+-21.8 MB)
+  [perf] 212.6 FPS (60 frames in 0.282s)
+  [Star Maze Nebula pressure] 3.5m: 212.6 FPS, 2190 MB RSS (+-18.8 MB)
+  [perf] 205.0 FPS (60 frames in 0.293s)
+  [Star Maze Nebula pressure] 4.0m: 205.0 FPS, 2190 MB RSS (+-18.8 MB)
+  [perf] 195.7 FPS (60 frames in 0.307s)
+  [Star Maze Nebula pressure] 4.5m: 195.7 FPS, 2190 MB RSS (+-18.8 MB)
+  [perf] 199.4 FPS (60 frames in 0.301s)
+  [Star Maze Nebula pressure] END: 199.4 FPS, 2190 MB RSS (frames=47880)
+PASSED
+unit tests/integration/test_soak_station_combo.py::TestSoakStationWithAIAndBothVideos::test_ai_pilot_plus_both_videos_at_station_5min_soak Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] Playing: Ellie.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] First frame OK (160x160)
+[VideoPlayer] First frame OK (200x200)
+  [perf] 239.9 FPS (60 frames in 0.250s)
+
+  [AI + station + 2 videos] START: 239.9 FPS, 2155 MB RSS
+  [perf] 260.2 FPS (60 frames in 0.231s)
+  [AI + station + 2 videos] 0.5m: 260.2 FPS, 2129 MB RSS (+-26.1 MB)
+  [perf] 255.6 FPS (60 frames in 0.235s)
+  [AI + station + 2 videos] 1.0m: 255.6 FPS, 2129 MB RSS (+-26.1 MB)
+  [perf] 247.2 FPS (60 frames in 0.243s)
+  [AI + station + 2 videos] 1.5m: 247.2 FPS, 2131 MB RSS (+-24.5 MB)
+  [perf] 242.4 FPS (60 frames in 0.247s)
+  [AI + station + 2 videos] 2.0m: 242.4 FPS, 2131 MB RSS (+-24.6 MB)
+  [perf] 253.2 FPS (60 frames in 0.237s)
+  [AI + station + 2 videos] 2.5m: 253.2 FPS, 2131 MB RSS (+-24.6 MB)
+  [perf] 248.9 FPS (60 frames in 0.241s)
+  [AI + station + 2 videos] 3.0m: 248.9 FPS, 2131 MB RSS (+-24.6 MB)
+  [perf] 244.1 FPS (60 frames in 0.246s)
+  [AI + station + 2 videos] 3.5m: 244.1 FPS, 2131 MB RSS (+-24.6 MB)
+  [perf] 264.3 FPS (60 frames in 0.227s)
+  [AI + station + 2 videos] 4.0m: 264.3 FPS, 2131 MB RSS (+-24.6 MB)
+  [perf] 267.7 FPS (60 frames in 0.224s)
+  [AI + station + 2 videos] 4.5m: 267.7 FPS, 2131 MB RSS (+-24.6 MB)
+  [perf] 249.6 FPS (60 frames in 0.240s)
+  [AI + station + 2 videos] END: 249.6 FPS, 2131 MB RSS (frames=70020)
+PASSED
+unit tests/integration/test_soak_station_combo.py::TestSoakStationWithAIBothVideosAndTMenu::test_t_menu_with_combo_5min_soak Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] Playing: Ellie.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] First frame OK (160x160)
+[VideoPlayer] First frame OK (200x200)
+  [perf] 233.2 FPS (60 frames in 0.257s)
+
+  [T menu + AI + station + 2 videos] START: 233.2 FPS, 2248 MB RSS
+  [perf] 248.4 FPS (60 frames in 0.242s)
+  [T menu + AI + station + 2 videos] 0.5m: 248.4 FPS, 2230 MB RSS (+-17.9 MB)
+  [perf] 253.0 FPS (60 frames in 0.237s)
+  [T menu + AI + station + 2 videos] 1.0m: 253.0 FPS, 2230 MB RSS (+-17.9 MB)
+  [perf] 252.8 FPS (60 frames in 0.237s)
+  [T menu + AI + station + 2 videos] 1.5m: 252.8 FPS, 2231 MB RSS (+-16.9 MB)
+  [perf] 248.7 FPS (60 frames in 0.241s)
+  [T menu + AI + station + 2 videos] 2.0m: 248.7 FPS, 2231 MB RSS (+-17.0 MB)
+  [perf] 247.8 FPS (60 frames in 0.242s)
+  [T menu + AI + station + 2 videos] 2.5m: 247.8 FPS, 2231 MB RSS (+-17.0 MB)
+  [perf] 244.6 FPS (60 frames in 0.245s)
+  [T menu + AI + station + 2 videos] 3.0m: 244.6 FPS, 2231 MB RSS (+-17.0 MB)
+  [perf] 246.0 FPS (60 frames in 0.244s)
+  [T menu + AI + station + 2 videos] 3.5m: 246.0 FPS, 2231 MB RSS (+-17.0 MB)
+  [perf] 239.0 FPS (60 frames in 0.251s)
+  [T menu + AI + station + 2 videos] 4.0m: 239.0 FPS, 2231 MB RSS (+-17.0 MB)
+  [perf] 251.1 FPS (60 frames in 0.239s)
+  [T menu + AI + station + 2 videos] 4.5m: 251.1 FPS, 2231 MB RSS (+-17.0 MB)
+  [perf] 248.9 FPS (60 frames in 0.241s)
+  [T menu + AI + station + 2 videos] END: 248.9 FPS, 2231 MB RSS (frames=69060)
+PASSED
+unit tests/integration/test_soak_station_combo.py::TestSoakStationWithAIBothVideosAndBMenu::test_b_menu_with_combo_5min_soak Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] Playing: Ellie.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] First frame OK (160x160)
+[VideoPlayer] First frame OK (200x200)
+  [perf] 214.8 FPS (60 frames in 0.279s)
+
+  [B menu + AI + station + 2 videos] START: 214.8 FPS, 2236 MB RSS
+  [perf] 222.1 FPS (60 frames in 0.270s)
+  [B menu + AI + station + 2 videos] 0.5m: 222.1 FPS, 2232 MB RSS (+-3.9 MB)
+  [perf] 219.2 FPS (60 frames in 0.274s)
+  [B menu + AI + station + 2 videos] 1.0m: 219.2 FPS, 2232 MB RSS (+-3.9 MB)
+  [perf] 218.5 FPS (60 frames in 0.275s)
+  [B menu + AI + station + 2 videos] 1.5m: 218.5 FPS, 2235 MB RSS (+-1.3 MB)
+  [perf] 223.3 FPS (60 frames in 0.269s)
+  [B menu + AI + station + 2 videos] 2.0m: 223.3 FPS, 2235 MB RSS (+-1.3 MB)
+  [perf] 219.8 FPS (60 frames in 0.273s)
+  [B menu + AI + station + 2 videos] 2.5m: 219.8 FPS, 2235 MB RSS (+-1.3 MB)
+  [perf] 221.8 FPS (60 frames in 0.271s)
+  [B menu + AI + station + 2 videos] 3.0m: 221.8 FPS, 2235 MB RSS (+-1.3 MB)
+  [perf] 224.9 FPS (60 frames in 0.267s)
+  [B menu + AI + station + 2 videos] 3.5m: 224.9 FPS, 2235 MB RSS (+-1.3 MB)
+  [perf] 224.3 FPS (60 frames in 0.268s)
+  [B menu + AI + station + 2 videos] 4.0m: 224.3 FPS, 2235 MB RSS (+-1.3 MB)
+  [perf] 216.2 FPS (60 frames in 0.278s)
+  [B menu + AI + station + 2 videos] 4.5m: 216.2 FPS, 2235 MB RSS (+-0.6 MB)
+  [perf] 219.5 FPS (60 frames in 0.273s)
+  [B menu + AI + station + 2 videos] END: 219.5 FPS, 2235 MB RSS (frames=61680)
+PASSED
+unit tests/integration/test_soak_station_combo.py::TestSoakStationWithAIBothVideosAndVideoPropsMenu::test_video_props_menu_with_combo_5min_soak Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] Playing: Ellie.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] First frame OK (160x160)
+[VideoPlayer] First frame OK (200x200)
+  [perf] 124.2 FPS (60 frames in 0.483s)
+
+  [Video-props menu + AI + station + 2 videos] START: 124.2 FPS, 2279 MB RSS
+  [perf] 153.1 FPS (60 frames in 0.392s)
+  [Video-props menu + AI + station + 2 videos] 0.5m: 153.1 FPS, 2275 MB RSS (+-3.9 MB)
+  [perf] 160.6 FPS (60 frames in 0.374s)
+  [Video-props menu + AI + station + 2 videos] 1.0m: 160.6 FPS, 2275 MB RSS (+-3.9 MB)
+  [perf] 158.9 FPS (60 frames in 0.378s)
+  [Video-props menu + AI + station + 2 videos] 1.5m: 158.9 FPS, 2275 MB RSS (+-3.7 MB)
+  [perf] 151.9 FPS (60 frames in 0.395s)
+  [Video-props menu + AI + station + 2 videos] 2.0m: 151.9 FPS, 2275 MB RSS (+-3.8 MB)
+  [perf] 156.9 FPS (60 frames in 0.382s)
+  [Video-props menu + AI + station + 2 videos] 2.5m: 156.9 FPS, 2275 MB RSS (+-3.8 MB)
+  [perf] 152.6 FPS (60 frames in 0.393s)
+  [Video-props menu + AI + station + 2 videos] 3.0m: 152.6 FPS, 2275 MB RSS (+-3.8 MB)
+  [perf] 156.2 FPS (60 frames in 0.384s)
+  [Video-props menu + AI + station + 2 videos] 3.5m: 156.2 FPS, 2275 MB RSS (+-3.8 MB)
+  [perf] 160.3 FPS (60 frames in 0.374s)
+  [Video-props menu + AI + station + 2 videos] 4.0m: 160.3 FPS, 2275 MB RSS (+-3.8 MB)
+  [perf] 157.7 FPS (60 frames in 0.381s)
+  [Video-props menu + AI + station + 2 videos] 4.5m: 157.7 FPS, 2275 MB RSS (+-3.8 MB)
+  [perf] 156.9 FPS (60 frames in 0.383s)
+  [Video-props menu + AI + station + 2 videos] END: 156.9 FPS, 2275 MB RSS (frames=43320)
+PASSED
+unit tests/integration/test_soak_station_info_minimap.py::TestSoakStationInfoZone2::test_t_menu_open_in_zone2_5min_soak Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] First frame OK (160x160)
+  [perf] 261.9 FPS (60 frames in 0.229s)
+
+  [T menu + Zone 2 minimap] START: 261.9 FPS, 2235 MB RSS
+  [perf] 270.7 FPS (60 frames in 0.222s)
+  [T menu + Zone 2 minimap] 0.5m: 270.7 FPS, 2216 MB RSS (+-19.2 MB)
+  [perf] 272.6 FPS (60 frames in 0.220s)
+  [T menu + Zone 2 minimap] 1.0m: 272.6 FPS, 2216 MB RSS (+-19.2 MB)
+  [perf] 269.0 FPS (60 frames in 0.223s)
+  [T menu + Zone 2 minimap] 1.5m: 269.0 FPS, 2216 MB RSS (+-19.2 MB)
+  [perf] 268.2 FPS (60 frames in 0.224s)
+  [T menu + Zone 2 minimap] 2.0m: 268.2 FPS, 2216 MB RSS (+-19.3 MB)
+  [perf] 263.1 FPS (60 frames in 0.228s)
+  [T menu + Zone 2 minimap] 2.5m: 263.1 FPS, 2216 MB RSS (+-19.3 MB)
+  [perf] 263.0 FPS (60 frames in 0.228s)
+  [T menu + Zone 2 minimap] 3.0m: 263.0 FPS, 2216 MB RSS (+-19.3 MB)
+  [perf] 275.9 FPS (60 frames in 0.217s)
+  [T menu + Zone 2 minimap] 3.5m: 275.9 FPS, 2216 MB RSS (+-19.3 MB)
+  [perf] 266.9 FPS (60 frames in 0.225s)
+  [T menu + Zone 2 minimap] 4.0m: 266.9 FPS, 2216 MB RSS (+-19.3 MB)
+  [perf] 268.9 FPS (60 frames in 0.223s)
+  [T menu + Zone 2 minimap] 4.5m: 268.9 FPS, 2180 MB RSS (+-55.4 MB)
+  [perf] 266.8 FPS (60 frames in 0.225s)
+  [T menu + Zone 2 minimap] END: 266.8 FPS, 2194 MB RSS (frames=66540)
+PASSED
+unit tests/integration/test_soak_station_info_minimap.py::TestSoakStationInfoZone1::test_t_menu_open_in_zone1_5min_soak Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] First frame OK (160x160)
+  [perf] 238.8 FPS (60 frames in 0.251s)
+
+  [T menu + Zone 1 minimap] START: 238.8 FPS, 2220 MB RSS
+  [perf] 237.5 FPS (60 frames in 0.253s)
+  [T menu + Zone 1 minimap] 0.5m: 237.5 FPS, 2210 MB RSS (+-10.3 MB)
+  [perf] 199.4 FPS (60 frames in 0.301s)
+  [T menu + Zone 1 minimap] 1.0m: 199.4 FPS, 2212 MB RSS (+-7.9 MB)
+  [perf] 188.5 FPS (60 frames in 0.318s)
+  [T menu + Zone 1 minimap] 1.5m: 188.5 FPS, 2215 MB RSS (+-4.4 MB)
+  [perf] 180.4 FPS (60 frames in 0.333s)
+  [T menu + Zone 1 minimap] 2.0m: 180.4 FPS, 2218 MB RSS (+-1.6 MB)
+  [perf] 186.0 FPS (60 frames in 0.323s)
+  [T menu + Zone 1 minimap] 2.5m: 186.0 FPS, 2221 MB RSS (+0.7 MB)
+  [perf] 194.8 FPS (60 frames in 0.308s)
+  [T menu + Zone 1 minimap] 3.0m: 194.8 FPS, 2222 MB RSS (+2.3 MB)
+  [perf] 202.1 FPS (60 frames in 0.297s)
+  [T menu + Zone 1 minimap] 3.5m: 202.1 FPS, 2224 MB RSS (+4.1 MB)
+  [perf] 185.6 FPS (60 frames in 0.323s)
+  [T menu + Zone 1 minimap] 4.0m: 185.6 FPS, 2226 MB RSS (+6.4 MB)
+  [perf] 168.5 FPS (60 frames in 0.356s)
+  [T menu + Zone 1 minimap] 4.5m: 168.5 FPS, 2229 MB RSS (+9.2 MB)
+  [perf] 196.0 FPS (60 frames in 0.306s)
+  [T menu + Zone 1 minimap] END: 196.0 FPS, 2231 MB RSS (frames=48660)
+PASSED
+unit tests/integration/test_soak_station_shield.py::TestSoakStationShield::test_station_shield_and_shielded_fleet_5min_soak Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] First frame OK (160x160)
+  [perf] 194.6 FPS (60 frames in 0.308s)
+
+  [Station shield + AI fleet] START: 194.6 FPS, 2256 MB RSS
+  [perf] 251.6 FPS (60 frames in 0.239s)
+  [Station shield + AI fleet] 0.5m: 251.6 FPS, 2251 MB RSS (+-4.1 MB)
+  [perf] 250.4 FPS (60 frames in 0.240s)
+  [Station shield + AI fleet] 1.0m: 250.4 FPS, 2251 MB RSS (+-4.1 MB)
+  [perf] 247.2 FPS (60 frames in 0.243s)
+  [Station shield + AI fleet] 1.5m: 247.2 FPS, 2252 MB RSS (+-3.1 MB)
+  [perf] 244.8 FPS (60 frames in 0.245s)
+  [Station shield + AI fleet] 2.0m: 244.8 FPS, 2256 MB RSS (+0.9 MB)
+  [perf] 247.4 FPS (60 frames in 0.242s)
+  [Station shield + AI fleet] 2.5m: 247.4 FPS, 2256 MB RSS (+0.9 MB)
+  [perf] 245.5 FPS (60 frames in 0.244s)
+  [Station shield + AI fleet] 3.0m: 245.5 FPS, 2256 MB RSS (+0.9 MB)
+  [perf] 234.9 FPS (60 frames in 0.255s)
+  [Station shield + AI fleet] 3.5m: 234.9 FPS, 2256 MB RSS (+0.9 MB)
+  [perf] 243.4 FPS (60 frames in 0.247s)
+  [Station shield + AI fleet] 4.0m: 243.4 FPS, 2256 MB RSS (+0.9 MB)
+  [perf] 235.6 FPS (60 frames in 0.255s)
+  [Station shield + AI fleet] 4.5m: 235.6 FPS, 2256 MB RSS (+0.9 MB)
+  [perf] 246.9 FPS (60 frames in 0.243s)
+  [Station shield + AI fleet] END: 246.9 FPS, 2256 MB RSS (frames=67620)
+PASSED
+unit tests/integration/test_soak_video_player.py::TestSoakVideoPlayerPlayStopCycle::test_play_stop_cycles_5min_soak Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] Playing: phonk-kawaii1.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 640x360
+[VideoPlayer] First frame OK (160x160)
+[VideoPlayer] First frame OK (200x200)
+  [perf] 252.1 FPS (60 frames in 0.238s)
+
+  [VideoPlayer play/stop churn] START: 252.1 FPS, 2265 MB RSS
+[VideoPlayer] Playing: phonk-kawaii1.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 640x360
+[VideoPlayer] First frame OK (200x200)
+[VideoPlayer] Playing: phonk-kawaii1.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 640x360
+[VideoPlayer] First frame OK (200x200)
+[VideoPlayer] Playing: phonk-kawaii1.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 640x360
+[VideoPlayer] First frame OK (200x200)
+[VideoPlayer] Playing: phonk-kawaii1.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 640x360
+[VideoPlayer] First frame OK (200x200)
+[VideoPlayer] Playing: phonk-kawaii1.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 640x360
+[VideoPlayer] First frame OK (200x200)
+[VideoPlayer] Playing: phonk-kawaii1.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 640x360
+[VideoPlayer] First frame OK (200x200)
+[VideoPlayer] Playing: phonk-kawaii1.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 640x360
+[VideoPlayer] First frame OK (200x200)
+[VideoPlayer] Playing: phonk-kawaii1.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 640x360
+[VideoPlayer] First frame OK (200x200)
+[VideoPlayer] Playing: phonk-kawaii1.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 640x360
+[VideoPlayer] First frame OK (200x200)
+  [perf] 242.2 FPS (60 frames in 0.248s)
+  [VideoPlayer play/stop churn] 0.5m: 242.2 FPS, 2321 MB RSS (+56.0 MB)
+[VideoPlayer] Playing: phonk-kawaii1.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 640x360
+[VideoPlayer] First frame OK (200x200)
+[VideoPlayer] Playing: phonk-kawaii1.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 640x360
+[VideoPlayer] First frame OK (200x200)
+[VideoPlayer] Playing: phonk-kawaii1.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 640x360
+[VideoPlayer] First frame OK (200x200)
+[VideoPlayer] Playing: phonk-kawaii1.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 640x360
+[VideoPlayer] First frame OK (200x200)
+[VideoPlayer] Playing: phonk-kawaii1.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 640x360
+[VideoPlayer] First frame OK (200x200)
+[VideoPlayer] Playing: phonk-kawaii1.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 640x360
+[VideoPlayer] First frame OK (200x200)
+[VideoPlayer] Playing: phonk-kawaii1.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 640x360
+[VideoPlayer] First frame OK (200x200)
+[VideoPlayer] Playing: phonk-kawaii1.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 640x360
+[VideoPlayer] First frame OK (200x200)
+  [perf] 252.6 FPS (60 frames in 0.238s)
+  [VideoPlayer play/stop churn] 1.0m: 252.6 FPS, 2390 MB RSS (+125.5 MB)
+[VideoPlayer] Playing: phonk-kawaii1.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 640x360
+[VideoPlayer] First frame OK (200x200)
+[VideoPlayer] Playing: phonk-kawaii1.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 640x360
+[VideoPlayer] First frame OK (200x200)
+[VideoPlayer] Playing: phonk-kawaii1.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 640x360
+[VideoPlayer] First frame OK (200x200)
+[VideoPlayer] Playing: phonk-kawaii1.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 640x360
+[VideoPlayer] First frame OK (200x200)
+[VideoPlayer] Playing: phonk-kawaii1.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 640x360
+[VideoPlayer] First frame OK (200x200)
+[VideoPlayer] Playing: phonk-kawaii1.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 640x360
+[VideoPlayer] First frame OK (200x200)
+[VideoPlayer] Playing: phonk-kawaii1.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 640x360
+[VideoPlayer] First frame OK (200x200)
+[VideoPlayer] Playing: phonk-kawaii1.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 640x360
+[VideoPlayer] First frame OK (200x200)
+  [perf] 250.8 FPS (60 frames in 0.239s)
+  [VideoPlayer play/stop churn] 1.5m: 250.8 FPS, 2463 MB RSS (+197.9 MB)
+[VideoPlayer] Playing: phonk-kawaii1.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 640x360
+[VideoPlayer] First frame OK (200x200)
+[VideoPlayer] Playing: phonk-kawaii1.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 640x360
+[VideoPlayer] First frame OK (200x200)
+[VideoPlayer] Playing: phonk-kawaii1.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 640x360
+[VideoPlayer] First frame OK (200x200)
+[VideoPlayer] Playing: phonk-kawaii1.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 640x360
+[VideoPlayer] First frame OK (200x200)
+[VideoPlayer] Playing: phonk-kawaii1.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 640x360
+[VideoPlayer] First frame OK (200x200)
+[VideoPlayer] Playing: phonk-kawaii1.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 640x360
+[VideoPlayer] First frame OK (200x200)
+[VideoPlayer] Playing: phonk-kawaii1.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 640x360
+[VideoPlayer] First frame OK (200x200)
+  [perf] 261.6 FPS (60 frames in 0.229s)
+  [VideoPlayer play/stop churn] 2.0m: 261.6 FPS, 2525 MB RSS (+259.8 MB)
+[VideoPlayer] Playing: phonk-kawaii1.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 640x360
+[VideoPlayer] First frame OK (200x200)
+[VideoPlayer] Playing: phonk-kawaii1.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 640x360
+[VideoPlayer] First frame OK (200x200)
+[VideoPlayer] Playing: phonk-kawaii1.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 640x360
+[VideoPlayer] First frame OK (200x200)
+[VideoPlayer] Playing: phonk-kawaii1.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 640x360
+[VideoPlayer] First frame OK (200x200)
+[VideoPlayer] Playing: phonk-kawaii1.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 640x360
+[VideoPlayer] First frame OK (200x200)
+[VideoPlayer] Playing: phonk-kawaii1.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 640x360
+[VideoPlayer] First frame OK (200x200)
+[VideoPlayer] Playing: phonk-kawaii1.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 640x360
+[VideoPlayer] First frame OK (200x200)
+[VideoPlayer] Playing: phonk-kawaii1.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 640x360
+[VideoPlayer] First frame OK (200x200)
+  [perf] 288.3 FPS (60 frames in 0.208s)
+  [VideoPlayer play/stop churn] 2.5m: 288.3 FPS, 2594 MB RSS (+329.6 MB)
+[VideoPlayer] Playing: phonk-kawaii1.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 640x360
+[VideoPlayer] First frame OK (200x200)
+[VideoPlayer] Playing: phonk-kawaii1.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 640x360
+[VideoPlayer] First frame OK (200x200)
+[VideoPlayer] Playing: phonk-kawaii1.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 640x360
+[VideoPlayer] First frame OK (200x200)
+[VideoPlayer] Playing: phonk-kawaii1.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 640x360
+[VideoPlayer] First frame OK (200x200)
+[VideoPlayer] Playing: phonk-kawaii1.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 640x360
+[VideoPlayer] First frame OK (200x200)
+[VideoPlayer] Playing: phonk-kawaii1.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 640x360
+[VideoPlayer] First frame OK (200x200)
+[VideoPlayer] Playing: phonk-kawaii1.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 640x360
+[VideoPlayer] First frame OK (200x200)
+[VideoPlayer] Playing: phonk-kawaii1.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 640x360
+[VideoPlayer] First frame OK (200x200)
+[VideoPlayer] Playing: phonk-kawaii1.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 640x360
+[VideoPlayer] First frame OK (200x200)
+  [perf] 253.5 FPS (60 frames in 0.237s)
+  [VideoPlayer play/stop churn] 3.0m: 253.5 FPS, 2675 MB RSS (+410.3 MB)
+[VideoPlayer] Playing: phonk-kawaii1.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 640x360
+[VideoPlayer] First frame OK (200x200)
+[VideoPlayer] Playing: phonk-kawaii1.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 640x360
+[VideoPlayer] First frame OK (200x200)
+[VideoPlayer] Playing: phonk-kawaii1.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 640x360
+[VideoPlayer] First frame OK (200x200)
+[VideoPlayer] Playing: phonk-kawaii1.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 640x360
+[VideoPlayer] First frame OK (200x200)
+[VideoPlayer] Playing: phonk-kawaii1.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 640x360
+[VideoPlayer] First frame OK (200x200)
+[VideoPlayer] Playing: phonk-kawaii1.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 640x360
+[VideoPlayer] First frame OK (200x200)
+[VideoPlayer] Playing: phonk-kawaii1.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 640x360
+[VideoPlayer] First frame OK (200x200)
+  [perf] 257.6 FPS (60 frames in 0.233s)
+  [VideoPlayer play/stop churn] 3.5m: 257.6 FPS, 2738 MB RSS (+473.0 MB)
+[VideoPlayer] Playing: phonk-kawaii1.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 640x360
+[VideoPlayer] First frame OK (200x200)
+[VideoPlayer] Playing: phonk-kawaii1.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 640x360
+[VideoPlayer] First frame OK (200x200)
+[VideoPlayer] Playing: phonk-kawaii1.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 640x360
+[VideoPlayer] First frame OK (200x200)
+[VideoPlayer] Playing: phonk-kawaii1.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 640x360
+[VideoPlayer] First frame OK (200x200)
+[VideoPlayer] Playing: phonk-kawaii1.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 640x360
+[VideoPlayer] First frame OK (200x200)
+[VideoPlayer] Playing: phonk-kawaii1.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 640x360
+[VideoPlayer] First frame OK (200x200)
+[VideoPlayer] Playing: phonk-kawaii1.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 640x360
+[VideoPlayer] First frame OK (200x200)
+[VideoPlayer] Playing: phonk-kawaii1.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 640x360
+[VideoPlayer] First frame OK (200x200)
+  [perf] 270.2 FPS (60 frames in 0.222s)
+  [VideoPlayer play/stop churn] 4.0m: 270.2 FPS, 2742 MB RSS (+477.3 MB)
+[VideoPlayer] Playing: phonk-kawaii1.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 640x360
+[VideoPlayer] First frame OK (200x200)
+[VideoPlayer] Playing: phonk-kawaii1.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 640x360
+[VideoPlayer] First frame OK (200x200)
+[VideoPlayer] Playing: phonk-kawaii1.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 640x360
+[VideoPlayer] First frame OK (200x200)
+[VideoPlayer] Playing: phonk-kawaii1.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 640x360
+[VideoPlayer] First frame OK (200x200)
+[VideoPlayer] Playing: phonk-kawaii1.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 640x360
+[VideoPlayer] First frame OK (200x200)
+[VideoPlayer] Playing: phonk-kawaii1.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 640x360
+[VideoPlayer] First frame OK (200x200)
+[VideoPlayer] Playing: phonk-kawaii1.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 640x360
+[VideoPlayer] First frame OK (200x200)
+[VideoPlayer] Playing: phonk-kawaii1.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 640x360
+[VideoPlayer] First frame OK (200x200)
+  [perf] 265.4 FPS (60 frames in 0.226s)
+  [VideoPlayer play/stop churn] 4.5m: 265.4 FPS, 2822 MB RSS (+557.2 MB)
+[VideoPlayer] Playing: phonk-kawaii1.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 640x360
+[VideoPlayer] First frame OK (200x200)
+[VideoPlayer] Playing: phonk-kawaii1.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 640x360
+[VideoPlayer] First frame OK (200x200)
+[VideoPlayer] Playing: phonk-kawaii1.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 640x360
+[VideoPlayer] First frame OK (200x200)
+[VideoPlayer] Playing: phonk-kawaii1.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 640x360
+[VideoPlayer] First frame OK (200x200)
+[VideoPlayer] Playing: phonk-kawaii1.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 640x360
+[VideoPlayer] First frame OK (200x200)
+[VideoPlayer] Playing: phonk-kawaii1.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 640x360
+[VideoPlayer] First frame OK (200x200)
+  [perf] 283.9 FPS (60 frames in 0.211s)
+  [VideoPlayer play/stop churn] END: 283.9 FPS, 2876 MB RSS (frames=28380)
+PASSED
+unit tests/integration/test_star_maze_real_gv.py::TestStarMazeZoneLive::test_transition_installs_four_mazes_and_wormholes Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_star_maze_real_gv.py::TestStarMazeZoneLive::test_corner_wormholes_unlock_after_nebula_boss_defeat Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_star_maze_real_gv.py::TestStarMazeZoneLive::test_pre_populated_aliens_spread_across_rooms Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_star_maze_real_gv.py::TestStarMazeZoneLive::test_maze_aliens_never_leave_maze_bounds Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_star_maze_real_gv.py::TestStarMazeZoneLive::test_update_tick_survives Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_star_maze_real_gv.py::TestStarMazeZoneLive::test_spawner_produces_alien_after_interval Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_star_maze_real_gv.py::TestStarMazeZoneLive::test_spawner_respects_alive_cap Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_star_maze_real_gv.py::TestStarMazeZoneLive::test_killed_spawner_stays_dead_until_respawn_interval Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_star_maze_real_gv.py::TestStarMazeZoneLive::test_killed_spawner_respawns_after_interval Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_star_maze_real_gv.py::TestStarMazeCombat::test_maze_projectile_damages_player Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_star_maze_real_gv.py::TestStarMazeCombat::test_player_projectile_blocked_by_wall Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_star_maze_real_gv.py::TestStarMazeCombat::test_missile_damages_spawner Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_star_maze_real_gv.py::TestStarMazeContainmentAndDespawn::test_wanderers_pushed_out_of_walls Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_star_maze_real_gv.py::TestStarMazeContainmentAndDespawn::test_alien_projectiles_despawn Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_star_maze_real_gv.py::TestStarMazeMazeStructure::test_every_maze_has_at_least_one_entrance Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_star_maze_real_gv.py::TestStarMazeNebulaPopulation::test_counts_match_zone2_spec Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_star_maze_real_gv.py::TestStarMazeNebulaPopulation::test_no_population_inside_maze_structures Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_star_maze_real_gv.py::TestNebulaBossDeathUnlocksCornerWormholes::test_mark_nebula_boss_defeated_adds_four_wormholes Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_star_maze_real_gv.py::TestNebulaBossDeathUnlocksCornerWormholes::test_re_entering_zone2_keeps_corner_wormholes Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_star_maze_real_gv.py::TestNebulaWarpExitRouting::test_bottom_exit_transitions_to_zone2[ZoneID.NEBULA_WARP_LIGHTNING] Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_star_maze_real_gv.py::TestNebulaWarpExitRouting::test_bottom_exit_transitions_to_zone2[ZoneID.NEBULA_WARP_ENEMY] Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_star_maze_real_gv.py::TestNebulaWarpExitRouting::test_bottom_exit_transitions_to_zone2[ZoneID.NEBULA_WARP_GAS] Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_star_maze_real_gv.py::TestNebulaWarpExitRouting::test_bottom_exit_transitions_to_zone2[ZoneID.NEBULA_WARP_METEOR] Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_star_maze_real_gv.py::TestNebulaWarpExitRouting::test_top_exit_transitions_to_star_maze[ZoneID.NEBULA_WARP_LIGHTNING] Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_star_maze_real_gv.py::TestNebulaWarpExitRouting::test_top_exit_transitions_to_star_maze[ZoneID.NEBULA_WARP_ENEMY] Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_star_maze_real_gv.py::TestNebulaWarpExitRouting::test_top_exit_transitions_to_star_maze[ZoneID.NEBULA_WARP_GAS] Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_star_maze_real_gv.py::TestNebulaWarpExitRouting::test_top_exit_transitions_to_star_maze[ZoneID.NEBULA_WARP_METEOR] Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_star_maze_real_gv.py::TestNebulaWarpExitRouting::test_full_flow_zone2_wormhole_to_warp_to_star_maze Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_star_maze_real_gv.py::TestNebulaWarpRoutingAndDanger::test_entering_nebula_warp_sets_2x_danger_and_split_exits[ZoneID.NEBULA_WARP_LIGHTNING] Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_star_maze_real_gv.py::TestNebulaWarpRoutingAndDanger::test_entering_nebula_warp_sets_2x_danger_and_split_exits[ZoneID.NEBULA_WARP_ENEMY] Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_star_maze_real_gv.py::TestNebulaWarpRoutingAndDanger::test_entering_nebula_warp_sets_2x_danger_and_split_exits[ZoneID.NEBULA_WARP_GAS] Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_star_maze_real_gv.py::TestNebulaWarpRoutingAndDanger::test_entering_nebula_warp_sets_2x_danger_and_split_exits[ZoneID.NEBULA_WARP_METEOR] Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_star_maze_real_gv.py::TestStarMazeSaveLoadRoundTrip::test_star_maze_state_survives_round_trip Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_star_maze_real_gv.py::TestStarMazeSaveLoadRoundTrip::test_zone2_nebula_flag_persists_in_save Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_station_info_and_minimap.py::TestRealStationInfoLayoutInZone2::test_all_stat_rows_render_inside_panel Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_station_info_and_minimap.py::TestRealStationInfoLayoutInZone2::test_null_fields_present_in_zone2_stats Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_station_info_and_minimap.py::TestRealStationInfoLayoutInZone2::test_null_fields_present_in_main_stats Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_station_info_and_minimap.py::TestRealStationInfoLayoutInZone2::test_t_menu_open_and_draw_does_not_raise_in_zone2 Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_station_info_and_minimap.py::TestSlipspaceMinimapInRealZones::test_main_returns_15_slipspace_positions Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_station_info_and_minimap.py::TestSlipspaceMinimapInRealZones::test_zone2_returns_15_slipspace_positions Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_station_info_and_minimap.py::TestSlipspaceMinimapInRealZones::test_warp_zones_return_empty_slipspace_positions[bottom] Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_video_player_no_next_source.py::TestRealVideoPlayerNeverCallsNextSource::test_play_then_stop_does_not_call_next_source [VideoPlayer] Playing: phonk-kawaii1.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 640x360
+PASSED
+unit tests/integration/test_zone2_real_gv.py::TestZone2RealUpdate::test_zone2_transition_then_alien_collision_does_not_crash Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_zone2_real_gv.py::TestZone2RealUpdate::test_zone2_basic_update_tick_with_populated_world Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_zone2_real_gv.py::TestSaveLoadRoundTrip::test_player_state_survives_save_load Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_zone2_real_gv.py::TestSaveLoadRoundTrip::test_station_inventory_survives_save_load Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_zone2_real_gv.py::TestZone2Exit::test_return_to_zone1_restores_asteroid_list Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_zone2_real_gv.py::TestZone2Exit::test_return_to_zone1_spawns_at_centre Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_zone2_real_gv.py::TestWarpZoneRoundTrip::test_warp_zone_setup_and_return Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_zone2_real_gv.py::TestBossSpawn::test_boss_spawns_when_qwi_is_built Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_zone2_real_gv.py::TestBossSpawn::test_check_boss_spawn_is_now_a_noop Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_zone2_real_gv.py::TestBuildingPlacement::test_home_station_places_at_player Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_zone2_real_gv.py::TestBuildingPlacement::test_service_module_snaps_to_home_station Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_zone2_real_gv.py::TestCraftCompletion::test_repair_pack_craft_completes Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_zone2_real_gv.py::TestInventoryTransfer::test_ship_to_station_transfer Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_zone2_real_gv.py::TestInventoryTransfer::test_station_to_ship_transfer Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_zone2_real_gv.py::TestEjectToWorld::test_eject_iron_spawns_pickup Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_zone2_real_gv.py::TestModuleInstall::test_equip_module_applies_stats Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_zone2_real_gv.py::TestModuleInstall::test_equip_duplicate_module_returns_to_inventory Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_zone2_real_gv.py::TestMultiZoneChain::test_main_to_zone2_to_warp_to_main Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_zone2_real_gv.py::TestParkedShipPlacement::test_place_new_ship_creates_parked_and_upgrades Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_zone2_real_gv.py::TestParkedShipPlacement::test_place_new_ship_deducts_resources Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_zone2_real_gv.py::TestShipSwitching::test_switch_to_ship_swaps_player Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_zone2_real_gv.py::TestShipSwitching::test_switch_preserves_modules Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_zone2_real_gv.py::TestParkedShipSaveLoad::test_parked_ships_survive_save_load Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_zone2_real_gv.py::TestParkedShipZoneTransition::test_parked_ships_survive_zone2_round_trip Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_zone2_real_gv.py::TestMissileArrayFires::test_builds_and_fires_at_alien Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_zone2_real_gv.py::TestCraftHomingMissileAdvanced::test_consumable_craft_produces_20_missiles Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_zone2_real_gv.py::TestTradeSellIronCopper::test_iron_and_copper_sell_for_20 Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_zone2_real_gv.py::TestDeathBlossomFlow::test_triggers_clears_missiles_and_activates Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_zone2_real_gv.py::TestMissileArrayFiresWithVideos::test_builds_and_fires_at_alien_with_videos Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] Playing: Ellie.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] First frame OK (160x160)
+[VideoPlayer] First frame OK (200x200)
+PASSED
+unit tests/integration/test_zone2_real_gv.py::TestDeathBlossomFlowWithVideos::test_triggers_with_videos_running Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] Playing: Ellie.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] First frame OK (160x160)
+[VideoPlayer] First frame OK (200x200)
+PASSED
+unit tests/integration/test_zone2_real_gv.py::TestAIPilotZone1Functional::test_ai_pilot_fires_at_alien_in_range Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_zone2_real_gv.py::TestAIPilotZone1Functional::test_ai_pilot_returns_to_patrol_leash Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_zone2_real_gv.py::TestAIPilotZone1Functional::test_ai_pilot_without_module_is_idle Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_zone2_real_gv.py::TestAIPilotZone2Functional::test_ai_pilot_engages_in_zone2 Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_zone2_real_gv.py::TestRefugeeNPCIntegration::test_refugee_spawns_after_shield_generator_in_zone2 Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_zone2_real_gv.py::TestRefugeeNPCIntegration::test_refugee_does_not_spawn_outside_zone2 Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_zone2_real_gv.py::TestRefugeeNPCIntegration::test_refugee_dialogue_opens_on_click_for_debra Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_zone2_real_gv.py::TestRefugeeNPCIntegration::test_refugee_dialogue_opens_on_click_for_ellie Gamepad connected: XInput0
+[VideoPlayer] Playing: Debra.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_zone2_real_gv.py::TestRefugeeNPCIntegration::test_ellie_dialogue_full_walk_sets_kratos_quest Gamepad connected: XInput0
+[VideoPlayer] Playing: Ellie.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_zone2_real_gv.py::TestRefugeeNPCIntegration::test_refugee_dialogue_opens_on_click_for_tara Gamepad connected: XInput0
+[VideoPlayer] Playing: Ellie.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_zone2_real_gv.py::TestRefugeeNPCIntegration::test_tara_dialogue_full_walk_sets_dead_zone_quest Gamepad connected: XInput0
+[VideoPlayer] Playing: Tara.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_zone2_real_gv.py::TestRefugeeNPCIntegration::test_refugee_is_invulnerable Gamepad connected: XInput0
+[VideoPlayer] Playing: Tara.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_zone2_real_gv.py::TestAIPilotPatrolIntegration::test_idle_ship_circles_the_home_station Gamepad connected: XInput0
+[VideoPlayer] Playing: Tara.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_zone2_real_gv.py::TestAIPilotPatrolIntegration::test_ship_returns_to_base_after_firing_sole_target Gamepad connected: XInput0
+[VideoPlayer] Playing: Tara.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_zone2_real_gv.py::TestAIPilotPatrolIntegration::test_ship_resumes_patrol_after_returning_home Gamepad connected: XInput0
+[VideoPlayer] Playing: Tara.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_zone2_real_gv.py::TestStationShieldIntegration::test_station_shield_spawns_on_shield_generator Gamepad connected: XInput0
+[VideoPlayer] Playing: Tara.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_zone2_real_gv.py::TestStationShieldIntegration::test_station_shield_absorbs_alien_laser Gamepad connected: XInput0
+[VideoPlayer] Playing: Tara.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_zone2_real_gv.py::TestStationShieldIntegration::test_station_shield_scales_with_outer_building Gamepad connected: XInput0
+[VideoPlayer] Playing: Tara.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_zone2_real_gv.py::TestAIPilotShieldIntegration::test_installed_ai_pilot_attaches_yellow_shield Gamepad connected: XInput0
+[VideoPlayer] Playing: Tara.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_zone2_real_gv.py::TestRefugeeParkingIntegration::test_refugee_parks_outside_all_buildings Gamepad connected: XInput0
+[VideoPlayer] Playing: Tara.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_zone2_real_gv.py::TestRefactorRegression::test_alien_laser_still_damages_player_via_shared_helper Gamepad connected: XInput0
+[VideoPlayer] Playing: Tara.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_zone2_real_gv.py::TestRefactorRegression::test_shared_alien_avoidance_keeps_patrol_working Gamepad connected: XInput0
+[VideoPlayer] Playing: Tara.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_zone2_real_gv.py::TestNullFieldIntegration::test_zone1_populates_30_null_fields Gamepad connected: XInput0
+[VideoPlayer] Playing: Tara.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_zone2_real_gv.py::TestNullFieldIntegration::test_zone2_populates_30_null_fields Gamepad connected: XInput0
+[VideoPlayer] Playing: Tara.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_zone2_real_gv.py::TestNullFieldIntegration::test_zone2_has_30_gas_areas_not_40 Gamepad connected: XInput0
+[VideoPlayer] Playing: Tara.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_zone2_real_gv.py::TestNullFieldIntegration::test_alien_ignores_player_inside_null_field Gamepad connected: XInput0
+[VideoPlayer] Playing: Tara.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_zone2_real_gv.py::TestNullFieldIntegration::test_alien_targets_player_outside_null_field Gamepad connected: XInput0
+[VideoPlayer] Playing: Tara.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_zone2_real_gv.py::TestNullFieldIntegration::test_firing_from_inside_disables_the_field Gamepad connected: XInput0
+[VideoPlayer] Playing: Tara.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_zone2_real_gv.py::TestNullFieldIntegration::test_disabled_field_decays_back_to_active Gamepad connected: XInput0
+[VideoPlayer] Playing: Tara.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_zone2_real_gv.py::TestNullFieldIntegration::test_player_ship_is_transparent_while_cloaked Gamepad connected: XInput0
+[VideoPlayer] Playing: Tara.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_zone2_real_gv.py::TestNullFieldIntegration::test_cloak_alpha_does_not_leak_to_next_frame Gamepad connected: XInput0
+[VideoPlayer] Playing: Tara.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] First frame OK (160x160)
+PASSED
+unit tests/integration/test_zone2_real_gv.py::TestNullFieldIntegration::test_cloak_restores_prior_tint_like_hit_flash Gamepad connected: XInput0
+[VideoPlayer] Playing: Tara.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_zone2_real_gv.py::TestNullFieldIntegration::test_cloak_drops_immediately_when_field_disables Gamepad connected: XInput0
+[VideoPlayer] Playing: Tara.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+[VideoPlayer] First frame OK (160x160)
+PASSED
+unit tests/integration/test_zone2_real_gv.py::TestNullFieldIntegration::test_cloak_in_zone2_also_ghosts_the_ship Gamepad connected: XInput0
+[VideoPlayer] Playing: Tara.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_zone2_real_gv.py::TestNullFieldIntegration::test_player_ship_is_opaque_after_firing_disables_field Gamepad connected: XInput0
+[VideoPlayer] Playing: Tara.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_zone2_real_gv.py::TestNullFieldIntegration::test_repair_pack_from_inside_disables_the_field Gamepad connected: XInput0
+[VideoPlayer] Playing: Tara.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_zone2_real_gv.py::TestNullFieldIntegration::test_shield_recharge_from_inside_disables_the_field Gamepad connected: XInput0
+[VideoPlayer] Playing: Tara.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_zone2_real_gv.py::TestNullFieldIntegration::test_homing_missile_from_inside_disables_the_field Gamepad connected: XInput0
+[VideoPlayer] Playing: Tara.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_zone2_real_gv.py::TestNullFieldIntegration::test_consumable_with_full_stats_does_not_disable_field Gamepad connected: XInput0
+[VideoPlayer] Playing: Tara.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_zone2_real_gv.py::TestAsteroidExplosionIntegration::test_zone1_asteroid_kill_uses_new_frames Gamepad connected: XInput0
+[VideoPlayer] Playing: Tara.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_zone2_real_gv.py::TestAsteroidExplosionIntegration::test_zone2_iron_asteroid_kill_uses_new_frames Gamepad connected: XInput0
+[VideoPlayer] Playing: Tara.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_zone2_real_gv.py::TestAsteroidExplosionIntegration::test_zone2_copper_asteroid_kill_uses_new_frames Gamepad connected: XInput0
+[VideoPlayer] Playing: Tara.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_zone2_real_gv.py::TestAsteroidExplosionIntegration::test_zone2_wanderer_kill_uses_new_frames Gamepad connected: XInput0
+[VideoPlayer] Playing: Tara.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_zone2_real_gv.py::TestAsteroidExplosionIntegration::test_alien_kill_still_uses_legacy_frames Gamepad connected: XInput0
+[VideoPlayer] Playing: Tara.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_zone2_real_gv.py::TestAsteroidExplosionIntegration::test_building_kill_still_uses_legacy_frames Gamepad connected: XInput0
+[VideoPlayer] Playing: Tara.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_zone2_real_gv.py::TestAsteroidExplosionIntegration::test_asteroid_explosion_has_ten_frames Gamepad connected: XInput0
+[VideoPlayer] Playing: Tara.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+unit tests/integration/test_zone2_real_gv.py::TestAsteroidExplosionIntegration::test_asteroid_explosion_animates_through_all_frames Gamepad connected: XInput0
+[VideoPlayer] Playing: Tara.mp4 (decoder: FFmpeg)
+[VideoPlayer] Video format: 1440x1440
+PASSED
+
+====================== 438 passed in 19578.78s (5:26:18) ======================
