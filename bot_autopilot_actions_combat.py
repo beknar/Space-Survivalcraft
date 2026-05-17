@@ -580,17 +580,41 @@ def _act_warp_traverse(state: dict, p: dict) -> None:
     # half of the tracked max, signalling a fresh arc in a new warp
     # zone.
     now = _ap._get_now()
-    if py_now < _ap._state.warp_traverse_max_y * 0.5:
-        # New arc in a fresh warp zone: reset all detour state so
-        # the new arc starts at centre.
+    zone_id = str((state.get("zone") or {}).get("id", ""))
+    # New-arc detection: either the first-ever entry (arc_started_at
+    # is still 0.0 from a fresh BotState) OR py dropped to less than
+    # half of the tracked max (signature of crossing into a new warp
+    # zone).  Both reset all per-arc trackers and emit arc-start
+    # telemetry so post-hoc analysis can measure time spent per zone
+    # (especially WARP_GAS which has accumulated 5+ min stalls in
+    # recent captures -- 2026-05-17).
+    is_new_arc = (
+        _ap._state.warp_traverse_arc_started_at == 0.0
+        or py_now < _ap._state.warp_traverse_max_y * 0.5)
+    if is_new_arc:
         _ap._state.warp_traverse_max_y = py_now
         _ap._state.warp_traverse_progress_at = now
+        _ap._state.warp_traverse_progress_committed_y = py_now
         _ap._state.warp_traverse_detour_count = 0
         _ap._state.warp_traverse_detour_side = 0
         _ap._state.warp_traverse_detour_commit_y = 0.0
+        _ap._state.warp_traverse_arc_started_at = now
+        _ap._telemetry_log(
+            "warp_traverse_arc_started",
+            zone_id=zone_id,
+            arc_start_y=round(py_now, 1),
+            **_ap._telemetry_snapshot_fields(state, p))
     elif py_now > _ap._state.warp_traverse_max_y:
         _ap._state.warp_traverse_max_y = py_now
-        _ap._state.warp_traverse_progress_at = now
+        # Meaningful-progress gate (2026-05-17 follow-up to PR #134):
+        # only reset the no-progress timer when py has advanced
+        # WARP_TRAVERSE_MEANINGFUL_PROGRESS_PX past the last committed
+        # y.  Without this gate a bot inching forward 3-50 px per
+        # traverse cycle keeps deferring the detour indefinitely.
+        if (py_now >= _ap._state.warp_traverse_progress_committed_y
+                + _ap.WARP_TRAVERSE_MEANINGFUL_PROGRESS_PX):
+            _ap._state.warp_traverse_progress_at = now
+            _ap._state.warp_traverse_progress_committed_y = py_now
         # If a detour was active AND we've cleared the obstacle by
         # WARP_TRAVERSE_DETOUR_CLEAR_PX past the commit anchor,
         # expire the side so the bot resumes centre target for the
@@ -600,23 +624,34 @@ def _act_warp_traverse(state: dict, p: dict) -> None:
                                + _ap.WARP_TRAVERSE_DETOUR_CLEAR_PX)):
             _ap._state.warp_traverse_detour_side = 0
     elif _ap._state.warp_traverse_progress_at == 0.0:
-        # First tick after entry; seed the timer.
+        # First tick after entry; seed the timer + committed-y.
         _ap._state.warp_traverse_progress_at = now
+        _ap._state.warp_traverse_progress_committed_y = py_now
     no_progress_s = now - _ap._state.warp_traverse_progress_at
     if no_progress_s >= _ap.WARP_TRAVERSE_DETOUR_TIMEOUT_S:
         # Detour commit: bump the counter, anchor the y position so
-        # the clear check has a reference, reset the timer so the
-        # NEXT timeout fires another (flipped) detour, and flip the
-        # side.  If side was already non-zero (a previous detour
-        # didn't help), flip to the opposite wall; otherwise start
-        # with left.
+        # the clear check has a reference, reset the timer + the
+        # progress-committed y so the NEXT timeout fires another
+        # (flipped) detour, and flip the side.  If side was already
+        # non-zero (a previous detour didn't help), flip to the
+        # opposite wall; otherwise start with left.
         _ap._state.warp_traverse_detour_count += 1
         _ap._state.warp_traverse_progress_at = now
+        _ap._state.warp_traverse_progress_committed_y = py_now
         _ap._state.warp_traverse_detour_commit_y = py_now
         if _ap._state.warp_traverse_detour_side <= 0:
             _ap._state.warp_traverse_detour_side = 1   # left wall
         else:
             _ap._state.warp_traverse_detour_side = -1  # right wall
+        _ap._telemetry_log(
+            "warp_traverse_detour_committed",
+            zone_id=zone_id,
+            detour_count=_ap._state.warp_traverse_detour_count,
+            detour_side=("left"
+                         if _ap._state.warp_traverse_detour_side > 0
+                         else "right"),
+            commit_y=round(py_now, 1),
+            **_ap._telemetry_snapshot_fields(state, p))
     # Pick the target_x from the persistent side (NOT recomputed
     # from no_progress_s each tick -- that was the PR #133
     # single-tick bug).  Once a side is committed it stays through
@@ -630,10 +665,31 @@ def _act_warp_traverse(state: dict, p: dict) -> None:
     if py_now >= target_y - _ap.WARP_TRAVERSE_ARRIVAL_PX:
         if not _ap._state.warp_traverse_done:
             _ap._state.warp_traverse_done = True
+            arc_duration_s = (
+                now - _ap._state.warp_traverse_arc_started_at
+                if _ap._state.warp_traverse_arc_started_at > 0.0
+                else None)
             _ap._telemetry_log(
                 "warp_traverse_complete",
                 arrived_y=round(py_now, 1),
                 target_y=round(target_y, 1),
+                **_ap._telemetry_snapshot_fields(state, p))
+            # Performance metric event (2026-05-17): emit a separate
+            # arc-completed event alongside warp_traverse_complete so
+            # post-hoc analysis can compute duration + detour count
+            # per zone (especially WARP_GAS where multi-minute stalls
+            # have been captured).  arc_duration_s is None when the
+            # arc was already in progress before this code shipped
+            # (no recorded start).
+            _ap._telemetry_log(
+                "warp_traverse_arc_completed",
+                zone_id=zone_id,
+                arc_duration_s=(round(arc_duration_s, 1)
+                                if arc_duration_s is not None
+                                else None),
+                arrived_y=round(py_now, 1),
+                max_y=round(_ap._state.warp_traverse_max_y, 1),
+                detour_count=_ap._state.warp_traverse_detour_count,
                 **_ap._telemetry_snapshot_fields(state, p))
         # Don't brake -- inertia from the drive carries the bot
         # across the EXIT_THRESHOLD (50 px from edge) and the game
