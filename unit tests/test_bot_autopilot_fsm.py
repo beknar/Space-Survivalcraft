@@ -8667,6 +8667,240 @@ class TestWarpTraverseTelemetry:
         assert arc.get("max_y") >= target_y - ap.WARP_TRAVERSE_ARRIVAL_PX
 
 
+class TestWarpTraverseFsmExitTelemetry:
+    """2026-05-17 follow-up: the action handler's arrival-band
+    arc_completed emit doesn't fire when the game's auto-zone-
+    transition preempts the next ``_act_warp_traverse`` tick.
+    Captured log: bot reached y=6352 (inside arrival band), the
+    FSM transitioned ``warp_traverse -> search`` at the next tick
+    because zone_id flipped from WARP_GAS to ZONE2, no
+    arc_completed event ever fired.
+
+    Fix: lifecycle observer ``_observe_warp_traverse_arc_complete``
+    emits the event whenever the FSM exits S_WARP_TRAVERSE with an
+    arc still in progress (``arc_started_at != 0.0``).  The action
+    handler resets ``arc_started_at`` to 0.0 after its own emit so
+    the observer doesn't double-fire.
+    """
+
+    @staticmethod
+    def _capture_telemetry(monkeypatch):
+        events: list = []
+        original = ap._telemetry_log
+
+        def _intercept(event, **kwargs):
+            events.append((event, kwargs))
+            return original(event, **kwargs)
+
+        monkeypatch.setattr(ap, "_telemetry_log", _intercept)
+        return events
+
+    def test_observer_emits_arc_completed_on_fsm_exit_crossed(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """Bot exited warp_traverse with max_y past the crossed
+        threshold -> outcome=crossed."""
+        events = self._capture_telemetry(monkeypatch)
+        _clock[0] = 1000.0
+        # Simulate an arc in progress at a high max_y.
+        ap._state.warp_traverse_arc_started_at = 1000.0
+        ap._state.warp_traverse_max_y = 6350.0
+        ap._state.warp_traverse_detour_count = 2
+        ap._fsm["state"] = ap.S_GATHER  # FSM has already exited
+        s = _state(
+            player={"x": 4800.0, "y": 4600.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            world_w=9600, world_h=9600,
+        )
+        s["zone"]["id"] = "ZoneID.ZONE2"
+        _clock[0] = 1100.0
+        ap._observe_warp_traverse_arc_complete(
+            s, s["player"], _clock[0])
+        kinds = [ev for ev, _ in events]
+        assert "warp_traverse_arc_completed" in kinds
+        arc = next(kw for ev, kw in events
+                   if ev == "warp_traverse_arc_completed")
+        assert arc.get("outcome") == "crossed"
+        assert arc.get("arc_duration_s") == 100.0
+        assert arc.get("max_y") == 6350.0
+        assert arc.get("detour_count") == 2
+        # arc_started_at consumed so the next entry starts fresh.
+        assert ap._state.warp_traverse_arc_started_at == 0.0
+
+    def test_observer_emits_arc_completed_outcome_interrupted(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """Bot exited warp_traverse with max_y BELOW the crossed
+        threshold (e.g. preempted by REGEN, death, ENGAGE) ->
+        outcome=interrupted."""
+        events = self._capture_telemetry(monkeypatch)
+        ap._state.warp_traverse_arc_started_at = 1000.0
+        ap._state.warp_traverse_max_y = 3000.0  # well below threshold
+        ap._fsm["state"] = ap.S_REGEN
+        s = _state(
+            player={"x": 1600.0, "y": 3000.0, "heading": 0.0,
+                    "shields": 0, "max_shields": 150},
+            world_w=3200, world_h=6400,
+        )
+        s["zone"]["id"] = "ZoneID.WARP_GAS"
+        _clock[0] = 1200.0
+        ap._observe_warp_traverse_arc_complete(
+            s, s["player"], _clock[0])
+        arc = next(kw for ev, kw in events
+                   if ev == "warp_traverse_arc_completed")
+        assert arc.get("outcome") == "interrupted"
+        assert ap._state.warp_traverse_arc_started_at == 0.0
+
+    def test_observer_noop_when_still_in_warp_traverse(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """While the FSM is still in S_WARP_TRAVERSE the observer
+        must not fire -- the action handler owns the arc."""
+        events = self._capture_telemetry(monkeypatch)
+        ap._state.warp_traverse_arc_started_at = 1000.0
+        ap._state.warp_traverse_max_y = 3000.0
+        ap._fsm["state"] = ap.S_WARP_TRAVERSE  # still owning the arc
+        s = _state(
+            player={"x": 1600.0, "y": 3000.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            world_w=3200, world_h=6400,
+        )
+        ap._observe_warp_traverse_arc_complete(
+            s, s["player"], 1100.0)
+        kinds = [ev for ev, _ in events]
+        assert "warp_traverse_arc_completed" not in kinds
+        # arc_started_at NOT consumed.
+        assert ap._state.warp_traverse_arc_started_at == 1000.0
+
+    def test_observer_noop_when_no_arc_in_progress(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """Fresh BotState (arc_started_at == 0.0) means no arc to
+        complete; observer must be a no-op."""
+        events = self._capture_telemetry(monkeypatch)
+        assert ap._state.warp_traverse_arc_started_at == 0.0
+        ap._fsm["state"] = ap.S_MINE
+        s = _state(world_w=6400, world_h=6400)
+        ap._observe_warp_traverse_arc_complete(
+            s, s["player"], 1000.0)
+        kinds = [ev for ev, _ in events]
+        assert "warp_traverse_arc_completed" not in kinds
+
+    def test_observer_does_not_double_fire_after_action_handler(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """If the action handler already fired arc_completed via
+        the arrival-band branch (and reset arc_started_at to 0.0),
+        the observer must not also fire."""
+        events = self._capture_telemetry(monkeypatch)
+        # Action handler fired and reset arc_started_at.
+        ap._state.warp_traverse_arc_started_at = 0.0
+        ap._fsm["state"] = ap.S_GATHER
+        s = _state(world_w=3200, world_h=6400)
+        ap._observe_warp_traverse_arc_complete(
+            s, s["player"], 1100.0)
+        kinds = [ev for ev, _ in events]
+        assert "warp_traverse_arc_completed" not in kinds
+
+
+class TestWarpTraverseSpuriousArcStartedGuard:
+    """2026-05-17 follow-up: the first-ever new-arc detection in
+    ``_act_warp_traverse`` fired ``arc_started`` whenever
+    ``arc_started_at == 0.0``, regardless of position.  When the
+    bot crossed MAIN -> WARP_GAS the state's zone_id flipped to the
+    new zone one tick before the position field updated to the new
+    zone's spawn coords, so a SPURIOUS arc_started fired with the
+    bot's MAIN-zone position (top of MAIN, py=6224.7) followed by
+    a LEGIT one with the real spawn (py=200).
+
+    Fix: gate the first-ever case by ``py_now < world_h * 0.5``
+    so only positions consistent with a real warp-zone entry
+    trigger the new-arc branch.
+    """
+
+    @staticmethod
+    def _capture_telemetry(monkeypatch):
+        events: list = []
+        original = ap._telemetry_log
+
+        def _intercept(event, **kwargs):
+            events.append((event, kwargs))
+            return original(event, **kwargs)
+
+        monkeypatch.setattr(ap, "_telemetry_log", _intercept)
+        return events
+
+    @staticmethod
+    def _capture_goto(monkeypatch):
+        captured: dict = {}
+        monkeypatch.setattr(
+            ap, "_do_goto",
+            lambda state, p, tx, ty, stop_radius=30.0,
+            brake_on_arrival=True: captured.update(tx=tx, ty=ty))
+        return captured
+
+    def test_stale_main_coords_do_not_trigger_arc_started(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """Reproduces the captured race: first call sees zone_id=
+        WARP_GAS but the position field is still in MAIN coords
+        (top half: py=6224.7).  ``arc_started`` MUST NOT fire."""
+        self._capture_goto(monkeypatch)
+        events = self._capture_telemetry(monkeypatch)
+        _clock[0] = 1000.0
+        s = _state(
+            player={"x": 293.5, "y": 6224.7, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            world_w=3200, world_h=6400,
+        )
+        s["zone"]["id"] = "ZoneID.WARP_GAS"
+        ap._act_warp_traverse(s, s["player"])
+        kinds = [ev for ev, _ in events]
+        assert "warp_traverse_arc_started" not in kinds
+        # arc_started_at unchanged.
+        assert ap._state.warp_traverse_arc_started_at == 0.0
+
+    def test_real_spawn_position_does_trigger_arc_started(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """A position consistent with a real warp-zone entry
+        (bottom half) does fire arc_started."""
+        self._capture_goto(monkeypatch)
+        events = self._capture_telemetry(monkeypatch)
+        _clock[0] = 1000.0
+        s = _state(
+            player={"x": 1600.0, "y": 200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            world_w=3200, world_h=6400,
+        )
+        s["zone"]["id"] = "ZoneID.WARP_GAS"
+        ap._act_warp_traverse(s, s["player"])
+        kinds = [ev for ev, _ in events]
+        assert "warp_traverse_arc_started" in kinds
+        arc = next(kw for ev, kw in events
+                   if ev == "warp_traverse_arc_started")
+        assert arc.get("arc_start_y") == 200.0
+
+    def test_only_one_arc_started_when_stale_then_real_state(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """End-to-end: simulate the captured race -- stale call
+        first, real call second.  Only ONE arc_started must fire,
+        for the real spawn coords."""
+        self._capture_goto(monkeypatch)
+        events = self._capture_telemetry(monkeypatch)
+        _clock[0] = 1000.0
+        # Stale call with MAIN coords.
+        s = _state(
+            player={"x": 293.5, "y": 6224.7, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            world_w=3200, world_h=6400,
+        )
+        s["zone"]["id"] = "ZoneID.WARP_GAS"
+        ap._act_warp_traverse(s, s["player"])
+        # Real spawn position on the next tick.
+        _clock[0] += 0.1
+        s["player"]["x"] = 1600.0
+        s["player"]["y"] = 200.0
+        ap._act_warp_traverse(s, s["player"])
+        starts = [kw for ev, kw in events
+                  if ev == "warp_traverse_arc_started"]
+        assert len(starts) == 1
+        assert starts[0].get("arc_start_y") == 200.0
+
+
 class TestWarpBackToMainReArms:
     """2026-05-16: after the post-boss warp out to a warp zone
     succeeded (``warp_after_boss_done`` latched True), the bot can

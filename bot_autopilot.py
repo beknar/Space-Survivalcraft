@@ -463,6 +463,12 @@ WARP_TRAVERSE_DETOUR_CLEAR_PX:  float = 500.0
 # meaningful advance contributes to both the detour timer and the
 # clear-check without one starving the other.
 WARP_TRAVERSE_MEANINGFUL_PROGRESS_PX: float = 200.0
+# Outcome threshold for the FSM-exit observer (2026-05-17): when
+# the bot's max_y reaches this many pixels (~85% of typical
+# 6400-px warp-zone height) the arc is reported as ``crossed``;
+# otherwise ``interrupted`` (the FSM was preempted by ENGAGE,
+# REGEN, death, etc. before reaching the top edge).
+WARP_TRAVERSE_CROSSED_MAX_Y_PX: float = 5440.0
 
 # Boss TURRET-ASSIST mode (2026-05-12, eighth telemetry pass):
 # Replaces the "kite at 750 px from the boss" default with an
@@ -1766,6 +1772,7 @@ from bot_autopilot_lifecycle import (
     _maybe_log_boss_engage_edges,
     _maybe_clear_death_recovery,
     _observe_warp_back_to_main,
+    _observe_warp_traverse_arc_complete,
 )
 
 
@@ -1871,6 +1878,15 @@ def _do_auto(state: dict, p: dict) -> None:
     # up back in MAIN with the latch sticky -- no path out.  See
     # ``_observe_warp_back_to_main`` for the full rationale.
     _observe_warp_back_to_main(state, p, now)
+
+    # Emit warp_traverse_arc_completed when the FSM exits S_WARP_TRAVERSE
+    # without the action-handler arrival-band branch having fired
+    # it (game's auto-zone-transition can preempt the action handler).
+    # Captured 2026-05-17: bot crossed WARP_GAS to y=6352, FSM
+    # transitioned warp_traverse -> search via zone change, no
+    # arc_completed event ever fired.  See
+    # ``_observe_warp_traverse_arc_complete`` for the rationale.
+    _observe_warp_traverse_arc_complete(state, p, now)
 
     # Stuck watchdog: if the ship has been pinned against either
     # the world boundary OR a station building cluster, override

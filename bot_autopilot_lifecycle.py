@@ -262,3 +262,55 @@ def _observe_warp_back_to_main(state: dict, p: dict, now: float) -> None:
         "warp_after_boss_relatch_for_return",
         zone_id=zone_id,
         **_ap._telemetry_snapshot_fields(state, p))
+
+
+def _observe_warp_traverse_arc_complete(state: dict, p: dict,
+                                        now: float) -> None:
+    """Emit ``warp_traverse_arc_completed`` when the FSM exits the
+    warp_traverse state without the action handler having already
+    fired the arrival-band completion.
+
+    Captured pathology (2026-05-17 bot_io): bot successfully
+    crossed WARP_GAS to y=6352 (inside the arrival band), but the
+    game's auto-zone-transition fired BEFORE ``_act_warp_traverse``
+    got another tick to detect the arrival.  The FSM transitioned
+    ``warp_traverse -> search`` because zone_id flipped from
+    WARP_GAS to ZONE2, and neither ``warp_traverse_complete`` nor
+    ``warp_traverse_arc_completed`` ever fired.  Post-hoc analysis
+    of arc duration in the gas zone was impossible.
+
+    Hook: each tick, if an arc is in progress
+    (``arc_started_at != 0.0``) and the FSM is no longer in
+    S_WARP_TRAVERSE, emit ``arc_completed`` with an outcome
+    derived from how close ``max_y`` reached the top edge.
+    The action handler resets ``arc_started_at`` to ``0.0`` after
+    its own arrival-band emit, so this observer doesn't
+    double-fire that path.
+
+    Outcome heuristic:
+      * ``crossed`` -- max_y reached >=85% of typical warp-zone
+        height (5440 px of 6400).  Means the bot exited via the
+        top edge.
+      * ``interrupted`` -- otherwise; FSM was preempted (ENGAGE,
+        REGEN, death, etc.) before the bot reached the top.
+    """
+    if _ap._state.warp_traverse_arc_started_at == 0.0:
+        return
+    if _ap._fsm["state"] == _ap.S_WARP_TRAVERSE:
+        return
+    zone_id = str((state.get("zone") or {}).get("id", ""))
+    arc_duration_s = now - _ap._state.warp_traverse_arc_started_at
+    crossed = (_ap._state.warp_traverse_max_y
+               >= _ap.WARP_TRAVERSE_CROSSED_MAX_Y_PX)
+    _ap._telemetry_log(
+        "warp_traverse_arc_completed",
+        zone_id=zone_id,
+        outcome="crossed" if crossed else "interrupted",
+        arc_duration_s=round(arc_duration_s, 1),
+        max_y=round(_ap._state.warp_traverse_max_y, 1),
+        detour_count=_ap._state.warp_traverse_detour_count,
+        fsm_state=_ap._fsm["state"],
+        **_ap._telemetry_snapshot_fields(state, p))
+    # Consume the arc so the next entry to warp_traverse starts a
+    # fresh arc with a new arc_started event.
+    _ap._state.warp_traverse_arc_started_at = 0.0
