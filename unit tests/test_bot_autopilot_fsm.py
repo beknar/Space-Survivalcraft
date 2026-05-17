@@ -8293,6 +8293,169 @@ class TestWarpTraverseLateralDetour:
         assert captured["tx"] == 1600.0
 
 
+class TestWarpTraverseDetourPersistence:
+    """2026-05-17 follow-up to PR #133: the detour was single-tick
+    (lasted only the one call where ``no_progress_s >= TIMEOUT``).
+    On every subsequent tick ``no_progress_s`` was ~1 s and the
+    ``else`` branch reverted ``target_x`` to centre.  Net result:
+    bot heads toward the wall for one tick, then back toward the
+    central gas cloud for 25 s, repeat.  Captured log: x stayed
+    in 1592-1731 across 30 traverse <-> regen oscillations.
+
+    Fix: detour SIDE persists in BotState across ticks until the
+    bot's y advances WARP_TRAVERSE_DETOUR_CLEAR_PX past the commit
+    anchor (signal that the obstacle has been bypassed).  Each
+    timeout flips to the opposite wall, so a wide blocker that
+    covers one side gets bypassed on the other.
+    """
+
+    @staticmethod
+    def _capture_goto(monkeypatch):
+        captured: dict = {}
+        monkeypatch.setattr(
+            ap, "_do_goto",
+            lambda state, p, tx, ty, stop_radius=30.0,
+            brake_on_arrival=True: captured.update(tx=tx, ty=ty))
+        return captured
+
+    def test_detour_side_persists_across_ticks(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """Once the detour fires, ``target_x`` stays at the wall on
+        every subsequent tick until the obstacle is cleared.  This
+        is the exact bug PR #133 missed -- it only set target_x on
+        the timeout tick, then reverted to centre.
+        """
+        captured = self._capture_goto(monkeypatch)
+        _clock[0] = 1000.0
+        s = _state(
+            player={"x": 1000.0, "y": 2400.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            world_w=3200, world_h=6400,
+        )
+        ap._act_warp_traverse(s, s["player"])  # seed
+        assert captured["tx"] == 1600.0
+        # Trip the detour.
+        _clock[0] += ap.WARP_TRAVERSE_DETOUR_TIMEOUT_S + 0.5
+        ap._act_warp_traverse(s, s["player"])
+        assert captured["tx"] == ap.WARP_TRAVERSE_MARGIN_PX
+        assert ap._state.warp_traverse_detour_side == 1
+        # Advance the clock by a small amount (less than timeout)
+        # and call again.  target_x must STAY at the wall -- this
+        # is the PR #133 regression we're fixing.
+        for _ in range(5):
+            _clock[0] += 1.0  # well below TIMEOUT
+            ap._act_warp_traverse(s, s["player"])
+            assert captured["tx"] == ap.WARP_TRAVERSE_MARGIN_PX
+            assert ap._state.warp_traverse_detour_side == 1
+
+    def test_detour_persists_through_regen_oscillation(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """The persistent side survives a traverse -> (regen) ->
+        traverse cycle without resetting.  Simulates the captured
+        pathology: bot enters regen briefly, then comes back to
+        warp_traverse, and the detour must still be active.
+        """
+        captured = self._capture_goto(monkeypatch)
+        _clock[0] = 1000.0
+        s = _state(
+            player={"x": 1000.0, "y": 2400.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            world_w=3200, world_h=6400,
+        )
+        ap._act_warp_traverse(s, s["player"])
+        _clock[0] += ap.WARP_TRAVERSE_DETOUR_TIMEOUT_S + 0.5
+        ap._act_warp_traverse(s, s["player"])
+        assert ap._state.warp_traverse_detour_side == 1
+        # Simulate a regen interlude: clock advances, no traverse
+        # ticks fire.  Then a new traverse tick.
+        _clock[0] += 10.0
+        ap._act_warp_traverse(s, s["player"])
+        # Side still latched at left wall.
+        assert ap._state.warp_traverse_detour_side == 1
+        assert captured["tx"] == ap.WARP_TRAVERSE_MARGIN_PX
+
+    def test_detour_clears_when_obstacle_bypassed(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """When py advances WARP_TRAVERSE_DETOUR_CLEAR_PX past the
+        commit anchor, the side resets to 0 and target_x returns to
+        centre.  Models the bot successfully routing around the
+        obstacle via the lateral path.
+        """
+        captured = self._capture_goto(monkeypatch)
+        _clock[0] = 1000.0
+        commit_y = 2400.0
+        s = _state(
+            player={"x": 1000.0, "y": commit_y, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            world_w=3200, world_h=6400,
+        )
+        ap._act_warp_traverse(s, s["player"])
+        _clock[0] += ap.WARP_TRAVERSE_DETOUR_TIMEOUT_S + 0.5
+        ap._act_warp_traverse(s, s["player"])
+        assert ap._state.warp_traverse_detour_side == 1
+        commit_anchor = ap._state.warp_traverse_detour_commit_y
+        # Advance py past the clear threshold.
+        s["player"]["y"] = commit_anchor + ap.WARP_TRAVERSE_DETOUR_CLEAR_PX + 10.0
+        _clock[0] += 1.0
+        ap._act_warp_traverse(s, s["player"])
+        assert ap._state.warp_traverse_detour_side == 0
+        assert captured["tx"] == 1600.0
+
+    def test_additional_timeout_flips_side(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """If the bot is still stuck after the first detour fires
+        AND another TIMEOUT elapses without progress, flip to the
+        opposite wall.  Handles wide blockers that cover one side.
+        """
+        captured = self._capture_goto(monkeypatch)
+        _clock[0] = 1000.0
+        world_w = 3200.0
+        s = _state(
+            player={"x": 1000.0, "y": 2400.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            world_w=int(world_w), world_h=6400,
+        )
+        ap._act_warp_traverse(s, s["player"])
+        # First timeout: left wall.
+        _clock[0] += ap.WARP_TRAVERSE_DETOUR_TIMEOUT_S + 0.5
+        ap._act_warp_traverse(s, s["player"])
+        assert ap._state.warp_traverse_detour_side == 1
+        assert captured["tx"] == ap.WARP_TRAVERSE_MARGIN_PX
+        # Second timeout (still no y progress): flip to right wall.
+        _clock[0] += ap.WARP_TRAVERSE_DETOUR_TIMEOUT_S + 0.5
+        ap._act_warp_traverse(s, s["player"])
+        assert ap._state.warp_traverse_detour_side == -1
+        assert captured["tx"] == (world_w - ap.WARP_TRAVERSE_MARGIN_PX)
+        # Third timeout: back to left wall.
+        _clock[0] += ap.WARP_TRAVERSE_DETOUR_TIMEOUT_S + 0.5
+        ap._act_warp_traverse(s, s["player"])
+        assert ap._state.warp_traverse_detour_side == 1
+
+    def test_new_arc_resets_persistent_side(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """Crossing into a new warp zone (py < max_y * 0.5) clears
+        the persistent side so the new arc starts fresh at centre.
+        """
+        captured = self._capture_goto(monkeypatch)
+        _clock[0] = 1000.0
+        s = _state(
+            player={"x": 1000.0, "y": 2400.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            world_w=3200, world_h=6400,
+        )
+        ap._act_warp_traverse(s, s["player"])
+        _clock[0] += ap.WARP_TRAVERSE_DETOUR_TIMEOUT_S + 0.5
+        ap._act_warp_traverse(s, s["player"])
+        assert ap._state.warp_traverse_detour_side == 1
+        # New arc: bot spawns at y=200 in a fresh warp zone.
+        _clock[0] += 100.0
+        s["player"]["y"] = 200.0
+        ap._act_warp_traverse(s, s["player"])
+        assert ap._state.warp_traverse_detour_side == 0
+        assert ap._state.warp_traverse_detour_commit_y == 0.0
+        assert captured["tx"] == 1600.0
+
+
 class TestWarpBackToMainReArms:
     """2026-05-16: after the post-boss warp out to a warp zone
     succeeded (``warp_after_boss_done`` latched True), the bot can

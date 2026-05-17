@@ -568,37 +568,63 @@ def _act_warp_traverse(state: dict, p: dict) -> None:
     # Lateral-detour tracker (2026-05-17): every tick of warp_traverse
     # records the bot's best y for the current arc.  If max_y fails
     # to advance for WARP_TRAVERSE_DETOUR_TIMEOUT_S, the action
-    # switches target_x from the world centre to an alternating
-    # wall margin to route around the central obstacle that's been
-    # bouncing the bot back into REGEN.  Trackers persist across
-    # the traverse → regen → traverse oscillation (intentional --
-    # cumulative no-progress time is exactly what we want to
-    # measure) and reset only when the bot's y drops to half of the
-    # tracked max, signalling a fresh arc in a new warp zone.
+    # commits a detour SIDE (left or right wall) that persists in
+    # state across ticks until the bot's y advances
+    # WARP_TRAVERSE_DETOUR_CLEAR_PX past the commit y -- the signal
+    # that the obstacle has been bypassed.  Additional timeouts
+    # flip sides for wide blockers.
+    #
+    # Trackers persist across the traverse <-> regen oscillation
+    # (intentional -- cumulative no-progress time is exactly what
+    # we want to measure) and reset only when the bot's y drops to
+    # half of the tracked max, signalling a fresh arc in a new warp
+    # zone.
     now = _ap._get_now()
     if py_now < _ap._state.warp_traverse_max_y * 0.5:
+        # New arc in a fresh warp zone: reset all detour state so
+        # the new arc starts at centre.
         _ap._state.warp_traverse_max_y = py_now
         _ap._state.warp_traverse_progress_at = now
         _ap._state.warp_traverse_detour_count = 0
+        _ap._state.warp_traverse_detour_side = 0
+        _ap._state.warp_traverse_detour_commit_y = 0.0
     elif py_now > _ap._state.warp_traverse_max_y:
         _ap._state.warp_traverse_max_y = py_now
         _ap._state.warp_traverse_progress_at = now
+        # If a detour was active AND we've cleared the obstacle by
+        # WARP_TRAVERSE_DETOUR_CLEAR_PX past the commit anchor,
+        # expire the side so the bot resumes centre target for the
+        # remainder of the arc.
+        if (_ap._state.warp_traverse_detour_side != 0
+                and py_now >= (_ap._state.warp_traverse_detour_commit_y
+                               + _ap.WARP_TRAVERSE_DETOUR_CLEAR_PX)):
+            _ap._state.warp_traverse_detour_side = 0
     elif _ap._state.warp_traverse_progress_at == 0.0:
         # First tick after entry; seed the timer.
         _ap._state.warp_traverse_progress_at = now
     no_progress_s = now - _ap._state.warp_traverse_progress_at
     if no_progress_s >= _ap.WARP_TRAVERSE_DETOUR_TIMEOUT_S:
-        # Detour fires: alternate between left and right wall
-        # margins so a wide central obstacle gets bypassed on
-        # whichever side is clear.  Reset the progress timer so
-        # the next stall fires the NEXT detour (cycling sides) and
-        # bump the counter for telemetry visibility.
+        # Detour commit: bump the counter, anchor the y position so
+        # the clear check has a reference, reset the timer so the
+        # NEXT timeout fires another (flipped) detour, and flip the
+        # side.  If side was already non-zero (a previous detour
+        # didn't help), flip to the opposite wall; otherwise start
+        # with left.
         _ap._state.warp_traverse_detour_count += 1
         _ap._state.warp_traverse_progress_at = now
-        if _ap._state.warp_traverse_detour_count % 2 == 1:
-            target_x = _ap.WARP_TRAVERSE_MARGIN_PX
+        _ap._state.warp_traverse_detour_commit_y = py_now
+        if _ap._state.warp_traverse_detour_side <= 0:
+            _ap._state.warp_traverse_detour_side = 1   # left wall
         else:
-            target_x = world_w - _ap.WARP_TRAVERSE_MARGIN_PX
+            _ap._state.warp_traverse_detour_side = -1  # right wall
+    # Pick the target_x from the persistent side (NOT recomputed
+    # from no_progress_s each tick -- that was the PR #133
+    # single-tick bug).  Once a side is committed it stays through
+    # the regen <-> traverse oscillation until cleared.
+    if _ap._state.warp_traverse_detour_side > 0:
+        target_x = _ap.WARP_TRAVERSE_MARGIN_PX
+    elif _ap._state.warp_traverse_detour_side < 0:
+        target_x = world_w - _ap.WARP_TRAVERSE_MARGIN_PX
     else:
         target_x = world_w / 2.0
     if py_now >= target_y - _ap.WARP_TRAVERSE_ARRIVAL_PX:
