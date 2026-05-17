@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import random
+from collections import deque
 from typing import TYPE_CHECKING
 
 import arcade
@@ -19,6 +20,17 @@ _CLOUD_RADIUS = 80.0        # collision radius
 _CLOUD_COUNT = 40           # number of clouds in the maze
 _CLOUD_SIZE = 160           # texture size
 _EXTRA_LARGE_COUNT = 3      # huge clouds that are hard to avoid
+
+# Path connectivity check (run once at spawn): coarse-grid BFS that
+# guarantees at least one safe corridor from the bottom of the zone to
+# the top.  ``_PATH_CELL_PX`` is the cell size of the BFS grid;
+# ``_PATH_CLEARANCE_PX`` is the buffer beyond ``cloud.radius`` a cell
+# centre must clear to count as passable (the ship has 28 px radius
+# but ``GasArea.contains_point`` only damages on centre-inside-radius,
+# so a 20 px buffer leaves room for the ship body without forcing the
+# corridor wider than necessary).
+_PATH_CELL_PX = 64
+_PATH_CLEARANCE_PX = 20.0
 
 
 def _generate_cloud_texture() -> arcade.Texture:
@@ -93,6 +105,10 @@ class GasCloudWarpZone(WarpZoneBase):
             self._clouds.append(GasCloud(_large_tex, lx, ly, size=1500,
                                          world_w=WARP_ZONE_WIDTH, world_h=WARP_ZONE_HEIGHT,
                                          mobile=True))
+        # Guarantee at least one corridor exists at spawn.  Clouds drift
+        # afterwards, so this only addresses the placement-time wall
+        # case (mostly relevant when two extra-large clouds line up).
+        self._ensure_path_through()
 
     def teardown(self, gv: GameView) -> None:
         super().teardown(gv)
@@ -126,3 +142,59 @@ class GasCloudWarpZone(WarpZoneBase):
             arcade.draw_rect_filled(
                 arcade.LBWH(cx - hw - 50, cy - hh - 50, hw * 2 + 100, hh * 2 + 100),
                 (20, 40, 10, 120))
+
+    # ── Spawn-time connectivity guarantee ───────────────────────────────
+    def _has_path_bottom_to_top(self) -> bool:
+        """Coarse-grid BFS: returns True iff some bottom-row cell
+        reaches some top-row cell without crossing a cloud."""
+        cell = _PATH_CELL_PX
+        cols = WARP_ZONE_WIDTH // cell
+        rows = WARP_ZONE_HEIGHT // cell
+        blocked = [[False] * cols for _ in range(rows)]
+        for cloud in self._clouds:
+            cr = cloud.radius + _PATH_CLEARANCE_PX
+            cr2 = cr * cr
+            min_col = max(0, int((cloud.center_x - cr) // cell))
+            max_col = min(cols - 1, int((cloud.center_x + cr) // cell))
+            min_row = max(0, int((cloud.center_y - cr) // cell))
+            max_row = min(rows - 1, int((cloud.center_y + cr) // cell))
+            for r in range(min_row, max_row + 1):
+                cy = r * cell + cell * 0.5
+                dy = cy - cloud.center_y
+                dy2 = dy * dy
+                for c in range(min_col, max_col + 1):
+                    if blocked[r][c]:
+                        continue
+                    cx = c * cell + cell * 0.5
+                    dx = cx - cloud.center_x
+                    if dx * dx + dy2 < cr2:
+                        blocked[r][c] = True
+        visited = [[False] * cols for _ in range(rows)]
+        q: deque[tuple[int, int]] = deque()
+        for c in range(cols):
+            if not blocked[0][c]:
+                visited[0][c] = True
+                q.append((0, c))
+        while q:
+            r, c = q.popleft()
+            if r == rows - 1:
+                return True
+            for dr, dc in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+                nr, nc = r + dr, c + dc
+                if (0 <= nr < rows and 0 <= nc < cols
+                        and not visited[nr][nc] and not blocked[nr][nc]):
+                    visited[nr][nc] = True
+                    q.append((nr, nc))
+        return False
+
+    def _ensure_path_through(self) -> None:
+        """Remove largest clouds (one at a time) until a corridor opens.
+        Termination is guaranteed: in the worst case every cloud is
+        removed and the empty zone is trivially passable."""
+        if self._has_path_bottom_to_top():
+            return
+        candidates = sorted(self._clouds, key=lambda c: -c.radius)
+        for cloud in candidates:
+            cloud.remove_from_sprite_lists()
+            if self._has_path_bottom_to_top():
+                return
