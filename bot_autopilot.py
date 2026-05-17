@@ -1602,6 +1602,7 @@ from bot_autopilot_lifecycle import (
     _observe_death_edges,
     _maybe_log_boss_engage_edges,
     _maybe_clear_death_recovery,
+    _observe_warp_back_to_main,
 )
 
 
@@ -1699,6 +1700,14 @@ def _do_auto(state: dict, p: dict) -> None:
     # modules + consumables.  See ``_observe_death_edges`` for the
     # full state machine.
     _observe_death_edges(state, p, now)
+
+    # Re-arm the post-boss warp cascade if the bot is observed back
+    # in MAIN after warp_after_boss_done was already True.  Captured
+    # 2026-05-16: bot warped to a warp zone, traversed to Nebula,
+    # then wandered into Nebula's central return wormhole and ended
+    # up back in MAIN with the latch sticky -- no path out.  See
+    # ``_observe_warp_back_to_main`` for the full rationale.
+    _observe_warp_back_to_main(state, p, now)
 
     # Stuck watchdog: if the ship has been pinned against either
     # the world boundary OR a station building cluster, override

@@ -7474,14 +7474,25 @@ class TestPostBossWarpToWormholeTrigger:
         ap._do_auto(s, s["player"])
         assert ap._fsm["state"] != ap.S_WARP_TO_WORMHOLE
 
-    def test_warp_done_latch_blocks_reentry(
+    def test_warp_done_latch_blocks_reentry_outside_main(
             self, _clock, _fresh_bot_state, monkeypatch):
-        """One-shot: after the latch is set, the bot doesn't try
-        to warp again even though every other gate matches."""
+        """While the bot is *outside* MAIN (e.g. mid-traverse in
+        Nebula) the latch keeps the warp-to-wormhole cascade quiet
+        so the bot doesn't keep trying to re-route to a wormhole
+        that doesn't exist in this zone.
+
+        Note: the previous "one-shot blocks even in MAIN" behavior
+        was intentionally inverted on 2026-05-16 -- if the bot
+        ends up back in MAIN (e.g. Nebula's central return
+        wormhole), ``_observe_warp_back_to_main`` clears the
+        latch and the cascade re-fires.  Pinned by
+        ``TestWarpBackToMainReArms``.
+        """
         ap._state.boss_was_killed = True
         ap._state.warp_after_boss_done = True
         ap._state.queue.modules_to_install = []
         s = self._ready_state()
+        s["zone"]["id"] = "ZoneID.ZONE2"
         ap._do_auto(s, s["player"])
         assert ap._fsm["state"] != ap.S_WARP_TO_WORMHOLE
 
@@ -7801,6 +7812,121 @@ class TestWarpTraverseAction:
         # exit threshold instead of braking 10-50 px short.
         assert "called" in captured
         assert "idled" not in captured
+
+
+class TestWarpBackToMainReArms:
+    """2026-05-16: after the post-boss warp out to a warp zone
+    succeeded (``warp_after_boss_done`` latched True), the bot can
+    still end up back in MAIN -- e.g. by walking into Nebula's
+    central return wormhole.  The session-sticky latch then blocked
+    the FSM from ever re-routing to a wormhole, so the bot farmed
+    Zone 1 forever.
+
+    Fix: ``_observe_warp_back_to_main`` runs each tick and clears
+    both ``warp_after_boss_done`` and ``warp_traverse_done`` whenever
+    the bot is observed in MAIN with the post-boss latch still True
+    (a logical contradiction -- the latch was set on leaving MAIN).
+    The existing ``S_WARP_TO_WORMHOLE`` cascade then re-fires.
+    """
+
+    @staticmethod
+    def _ready_state(zone="ZoneID.MAIN", **player_overrides):
+        player = {"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                  "shields": 150, "max_shields": 150}
+        player.update(player_overrides)
+        s = _state(
+            player=player,
+            buildings=[{"x": 4000.0, "y": 4000.0,
+                        "building_type": "Home Station"}],
+        )
+        s["zone"]["id"] = zone
+        s["quick_use_slots"] = [
+            {"item_type": "repair_pack", "count": 5},
+            {"item_type": "shield_recharge", "count": 5},
+        ]
+        s["wormholes"] = [
+            {"x": 200.0, "y": 200.0,
+             "zone_target": "ZoneID.WARP_METEOR"},
+            {"x": 6200.0, "y": 200.0,
+             "zone_target": "ZoneID.WARP_LIGHTNING"},
+        ]
+        return s
+
+    def test_clears_latches_when_back_in_main_after_warp(
+            self, _clock, _fresh_bot_state):
+        """Both ``warp_after_boss_done`` and ``warp_traverse_done``
+        clear when the bot is in MAIN with the post-boss latch set."""
+        ap._state.boss_was_killed = True
+        ap._state.warp_after_boss_done = True
+        ap._state.warp_traverse_done = True
+        s = self._ready_state(zone="ZoneID.MAIN")
+        ap._observe_warp_back_to_main(s, s["player"], 0.0)
+        assert ap._state.warp_after_boss_done is False
+        assert ap._state.warp_traverse_done is False
+
+    def test_no_op_when_latch_not_set(
+            self, _clock, _fresh_bot_state):
+        """Without the latch, the observer is a no-op so it doesn't
+        churn the telemetry log every tick of a normal MAIN-zone
+        session."""
+        ap._state.warp_after_boss_done = False
+        ap._state.warp_traverse_done = False
+        s = self._ready_state(zone="ZoneID.MAIN")
+        ap._observe_warp_back_to_main(s, s["player"], 0.0)
+        assert ap._state.warp_after_boss_done is False
+        assert ap._state.warp_traverse_done is False
+
+    def test_no_op_in_warp_zone(self, _clock, _fresh_bot_state):
+        """While the bot is actually in a warp zone the latch
+        should stay set -- the FSM's traverse cascade depends on it."""
+        ap._state.boss_was_killed = True
+        ap._state.warp_after_boss_done = True
+        ap._state.warp_traverse_done = False
+        s = self._ready_state(zone="ZoneID.WARP_GAS")
+        ap._observe_warp_back_to_main(s, s["player"], 0.0)
+        assert ap._state.warp_after_boss_done is True
+        assert ap._state.warp_traverse_done is False
+
+    def test_no_op_in_nebula(self, _clock, _fresh_bot_state):
+        """Nebula (ZONE2) isn't MAIN -- observer should not fire.
+        The bot's expected dwell in Nebula keeps the latch set so
+        the cascade doesn't kick in until the bot actually returns."""
+        ap._state.boss_was_killed = True
+        ap._state.warp_after_boss_done = True
+        ap._state.warp_traverse_done = True
+        s = self._ready_state(zone="ZoneID.ZONE2")
+        ap._observe_warp_back_to_main(s, s["player"], 0.0)
+        assert ap._state.warp_after_boss_done is True
+        assert ap._state.warp_traverse_done is True
+
+    def test_main_word_in_warp_zone_id_does_not_trigger(
+            self, _clock, _fresh_bot_state):
+        """Defensive: a hypothetical zone id containing both
+        ``MAIN`` and ``WARP`` (e.g. a future ``MAIN_WARP_*``) must
+        not fool the observer.  The match keys off ``MAIN`` AND
+        NOT ``WARP``."""
+        ap._state.boss_was_killed = True
+        ap._state.warp_after_boss_done = True
+        ap._state.warp_traverse_done = False
+        s = self._ready_state(zone="ZoneID.MAIN_WARP_HYPOTHETICAL")
+        ap._observe_warp_back_to_main(s, s["player"], 0.0)
+        assert ap._state.warp_after_boss_done is True
+
+    def test_end_to_end_do_auto_reroutes_warp_after_relatch(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """End-to-end: bot wakes in MAIN with post-boss latch set,
+        ``_do_auto`` runs the observer (clears latch), then the
+        choose-state cascade re-fires ``S_WARP_TO_WORMHOLE``."""
+        monkeypatch.setattr(
+            ap, "_act_warp_to_wormhole", lambda s, p: None)
+        ap._state.boss_was_killed = True
+        ap._state.warp_after_boss_done = True
+        ap._state.warp_traverse_done = True
+        ap._state.queue.modules_to_install = []
+        s = self._ready_state(zone="ZoneID.MAIN")
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_WARP_TO_WORMHOLE
+        assert ap._state.warp_after_boss_done is False
 
 
 class TestBossKilledLatchInEngageEndEdge:
