@@ -1357,6 +1357,19 @@ class BotState:
     # ``MAIN``) so the trigger is one-shot per session.
     boss_was_killed: bool = False
     warp_after_boss_done: bool = False
+    # Pending-relatch flag (2026-05-17 follow-up to PR #129):
+    # set True by ``_observe_warp_back_to_main`` when the bot is
+    # observed back in MAIN after a prior warp-out.  Lets the
+    # ``S_WARP_TO_WORMHOLE`` cascade fire WITHOUT the
+    # consumables-in-slots check on the re-warp -- after death the
+    # bot's quick-use slots are wiped and the one-shot consumable
+    # craft phase has already been used.  Without this relaxation
+    # the bot is stranded farming Zone 1 forever (captured
+    # 2026-05-17: bot installed recovered modules then went
+    # straight to GATHER, never warped despite the relatch
+    # clearing ``warp_after_boss_done``).
+    # Cleared once the bot actually transitions out of MAIN.
+    warp_relatched_pending: bool = False
     # ``warp_traverse_done`` (2026-05-15): latches True once the
     # bot has crossed to the far side of the warp zone after the
     # post-boss warp.  Blocks re-routing to S_WARP_TRAVERSE on
@@ -1465,6 +1478,7 @@ class BotState:
         self.boss_turret_assist_active = False
         self.boss_was_killed = False
         self.warp_after_boss_done = False
+        self.warp_relatched_pending = False
         self.warp_traverse_done = False
         self.warp_traverse_max_y = 0.0
         self.warp_traverse_progress_at = 0.0

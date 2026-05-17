@@ -9016,6 +9016,140 @@ class TestWarpBackToMainReArms:
         assert ap._state.warp_after_boss_done is False
 
 
+class TestWarpRelatchPendingBestEffort:
+    """2026-05-17 follow-up to PR #129: the lifecycle relatch
+    correctly clears ``warp_after_boss_done`` when the bot is
+    observed back in MAIN, but the S_WARP_TO_WORMHOLE cascade
+    still required consumables in quick-use slots.  After death,
+    the bot's slots get wiped and the one-shot consumable craft
+    phase has already been used -- so the cascade falls through
+    to GATHER and the bot is stranded farming Zone 1 forever.
+
+    Captured log: bot died at (5566, 4948), relatched at (4016,
+    3878), installed 4 recovered modules, then went straight to
+    GATHER without ever attempting a warp.
+
+    Fix: ``_observe_warp_back_to_main`` now sets a
+    ``warp_relatched_pending`` flag.  While this flag is True, the
+    S_WARP_TO_WORMHOLE cascade fires even without consumables in
+    slots -- a best-effort warp on the assumption that being
+    stranded in MAIN is worse than warping unprepared.  The flag
+    clears once the cascade detects the bot has left MAIN.
+    """
+
+    @staticmethod
+    def _ready_state(zone="ZoneID.MAIN", **player_overrides):
+        player = {"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                  "shields": 150, "max_shields": 150}
+        player.update(player_overrides)
+        s = _state(
+            player=player,
+            buildings=[{"x": 4000.0, "y": 4000.0,
+                        "building_type": "Home Station"}],
+        )
+        s["zone"]["id"] = zone
+        # NO quick_use_slots -- this is the post-death case where
+        # the slots are wiped.
+        s["wormholes"] = [
+            {"x": 200.0, "y": 200.0,
+             "zone_target": "ZoneID.WARP_METEOR"},
+        ]
+        return s
+
+    def test_relatch_sets_pending_flag(
+            self, _clock, _fresh_bot_state):
+        """``_observe_warp_back_to_main`` sets the pending flag
+        alongside clearing the other latches."""
+        ap._state.boss_was_killed = True
+        ap._state.warp_after_boss_done = True
+        ap._state.warp_traverse_done = True
+        ap._state.warp_relatched_pending = False
+        s = self._ready_state(zone="ZoneID.MAIN")
+        ap._observe_warp_back_to_main(s, s["player"], 0.0)
+        assert ap._state.warp_relatched_pending is True
+
+    def test_warp_fires_without_consumables_when_pending(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """The captured pathology: post-death state with no
+        consumables in slots.  Pending flag set -> cascade still
+        fires S_WARP_TO_WORMHOLE."""
+        monkeypatch.setattr(
+            ap, "_act_warp_to_wormhole", lambda s, p: None)
+        ap._state.boss_was_killed = True
+        ap._state.warp_after_boss_done = False
+        ap._state.warp_relatched_pending = True
+        ap._state.queue.modules_to_install = []
+        s = self._ready_state(zone="ZoneID.MAIN")
+        # No quick_use_slots in state -- captured post-death state.
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_WARP_TO_WORMHOLE
+
+    def test_warp_still_blocked_without_pending_no_consumables(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """Without the pending flag, the cascade STILL requires
+        consumables -- the initial post-boss warp behavior is
+        unchanged (the gate exists to ensure the first warp is
+        prepared)."""
+        ap._state.boss_was_killed = True
+        ap._state.warp_after_boss_done = False
+        ap._state.warp_relatched_pending = False  # NOT relatched
+        ap._state.queue.modules_to_install = []
+        s = self._ready_state(zone="ZoneID.MAIN")
+        # No quick_use_slots -- gate fails.
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] != ap.S_WARP_TO_WORMHOLE
+
+    def test_pending_clears_on_main_exit(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """Once the bot leaves MAIN (zone_id no longer contains
+        MAIN), the cascade clears the pending flag alongside
+        setting warp_after_boss_done."""
+        ap._state.boss_was_killed = True
+        ap._state.warp_after_boss_done = False
+        ap._state.warp_relatched_pending = True
+        s = _state(
+            player={"x": 1600.0, "y": 500.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            world_w=3200, world_h=6400,
+        )
+        s["zone"]["id"] = "ZoneID.WARP_GAS"  # out of MAIN
+        ap._do_auto(s, s["player"])
+        assert ap._state.warp_after_boss_done is True
+        assert ap._state.warp_relatched_pending is False
+
+    def test_consumables_still_preferred_when_present(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """With consumables in slots AND pending flag, the cascade
+        still fires (the relaxation is additive, not replacing)."""
+        monkeypatch.setattr(
+            ap, "_act_warp_to_wormhole", lambda s, p: None)
+        ap._state.boss_was_killed = True
+        ap._state.warp_after_boss_done = False
+        ap._state.warp_relatched_pending = True
+        ap._state.queue.modules_to_install = []
+        s = self._ready_state(zone="ZoneID.MAIN")
+        s["quick_use_slots"] = [
+            {"item_type": "repair_pack", "count": 5},
+            {"item_type": "shield_recharge", "count": 5},
+        ]
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_WARP_TO_WORMHOLE
+
+    def test_modules_to_install_still_blocks_relatch_warp(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """The relatch relaxation only bypasses the consumables
+        check -- modules-to-install still blocks the warp (the
+        bot needs its modules on the ship before attempting a
+        risky unprepared warp)."""
+        ap._state.boss_was_killed = True
+        ap._state.warp_after_boss_done = False
+        ap._state.warp_relatched_pending = True
+        ap._state.queue.modules_to_install = ["broadside"]
+        s = self._ready_state(zone="ZoneID.MAIN")
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] != ap.S_WARP_TO_WORMHOLE
+
+
 class TestBossKilledLatchInEngageEndEdge:
     """``boss_was_killed`` flips True on ``boss_engage_end`` with
     outcome=boss_killed, sticky for the session."""

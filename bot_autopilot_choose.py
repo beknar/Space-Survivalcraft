@@ -413,12 +413,17 @@ def choose_next_state(state: dict, p: dict, cur: str) -> str:
         _ap._state.boss_was_killed
         or bool(state.get("boss_defeated", False)))
     # Latch warp_done when we've transitioned out of MAIN after
-    # boss kill (post-warp landing).
+    # boss kill (post-warp landing).  Also clear the pending-relatch
+    # flag (set by ``_observe_warp_back_to_main`` on the prior return
+    # to MAIN) -- the bot has successfully re-warped, so the
+    # consumables-relaxation guard for the cascade is no longer
+    # needed until the next return.
     if (boss_killed_signal
             and not _ap._state.warp_after_boss_done
             and not in_main_zone
             and zone_id):
         _ap._state.warp_after_boss_done = True
+        _ap._state.warp_relatched_pending = False
         _ap._telemetry_log(
             "warp_after_boss_complete",
             zone_id=zone_id,
@@ -437,7 +442,14 @@ def choose_next_state(state: dict, p: dict, cur: str) -> str:
             (s.get("item_type") == "shield_recharge"
              and int(s.get("count", 0)) > 0)
             for s in slots)
-        if have_repair and have_shield:
+        # Initial post-boss warp requires consumables in slots.
+        # Re-warp after a return-to-MAIN relatch fires regardless
+        # of consumables (captured 2026-05-17: bot's quick-use
+        # slots get wiped on death and the one-shot consumable
+        # craft phase is already exhausted, so the strict gate
+        # leaves the bot stranded farming Zone 1 forever).  The
+        # bot's best-effort warp is preferable to no warp at all.
+        if (have_repair and have_shield) or _ap._state.warp_relatched_pending:
             return _ap.S_WARP_TO_WORMHOLE
 
     # 2. ENGAGE — alien within band.  Preempts the rest.
