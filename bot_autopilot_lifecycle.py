@@ -258,6 +258,14 @@ def _observe_warp_back_to_main(state: dict, p: dict, now: float) -> None:
         return
     _ap._state.warp_after_boss_done = False
     _ap._state.warp_traverse_done = False
+    # Mark the pending-relatch flag so the S_WARP_TO_WORMHOLE
+    # cascade fires even when consumables aren't in slots (the
+    # post-death case captured 2026-05-17: bot has installed
+    # recovered modules but quick-use slots are wiped and the
+    # one-shot consumable craft phase has already been used).
+    # The flag clears when the cascade detects the bot has left
+    # MAIN again.
+    _ap._state.warp_relatched_pending = True
     _ap._telemetry_log(
         "warp_after_boss_relatch_for_return",
         zone_id=zone_id,
