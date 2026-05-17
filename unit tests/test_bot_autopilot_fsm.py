@@ -5506,6 +5506,185 @@ class TestNearestPickupEdgeFilter:
         assert ap.PICKUP_EDGE_SKIP_PX >= ap.STUCK_WORLD_MARGIN_PX
 
 
+# ── Fix (2026-05-17): return-wormhole proximity target filter ─────────
+
+class TestReturnWormholeTargetFilter:
+    """``_nearest_pickup`` and ``_nearest_asteroid`` skip targets
+    sitting inside the danger zone of a return wormhole (one whose
+    ``zone_target`` contains ``MAIN``), but ONLY when the bot is
+    currently in a non-MAIN zone.
+
+    Pinned by 2026-05-16 bot_io capture: bot in Nebula collided
+    with the central return wormhole at (3200, 3200) and got
+    teleported back to MAIN.  The ``wormhole_repulsion`` field
+    deflected the path but a strong target attraction past the
+    wormhole overcame it.  Filtering at selection guarantees the
+    bot never picks a target whose approach crosses the danger
+    zone.  PR #129 fixed the consequence (re-arm warp cascade on
+    accidental return); this PR fixes the root cause.
+
+    Threshold = ``WORMHOLE_REPULSION_RADIUS_PX +
+    WORMHOLE_REPULSION_RANGE_PX`` = 350 px.
+    """
+
+    _WH = {"x": 3200.0, "y": 3200.0, "zone_target": "ZoneID.MAIN"}
+
+    def test_pickup_inside_danger_zone_skipped_when_alternative(self):
+        """Pickup near return wormhole in Nebula: filter selects
+        the safe alternative even if it's farther from the bot."""
+        s = _state(
+            player={"x": 4000.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            iron_pickups=[
+                {"x": 3300.0, "y": 3200.0, "item_type": "iron"},  # 100 px from wh -- DANGER
+                {"x": 5000.0, "y": 3200.0, "item_type": "iron"},  # 1800 px from wh -- SAFE
+            ],
+            world_w=6400, world_h=6400,
+        )
+        s["wormholes"] = [self._WH]
+        s["zone"]["id"] = "ZoneID.ZONE2"
+        nearest, _d = ap._nearest_pickup(s, 4000.0, 3200.0)
+        assert nearest["x"] == 5000.0  # safe alternative wins
+
+    def test_asteroid_inside_danger_zone_skipped_when_alternative(self):
+        """Symmetric pin for ``_nearest_asteroid``."""
+        s = _state(
+            player={"x": 4000.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            asteroids=[
+                {"x": 3300.0, "y": 3200.0, "hp": 50},  # DANGER
+                {"x": 5000.0, "y": 3200.0, "hp": 50},  # SAFE
+            ],
+            world_w=6400, world_h=6400,
+        )
+        s["wormholes"] = [self._WH]
+        s["zone"]["id"] = "ZoneID.ZONE2"
+        nearest, _d = ap._nearest_asteroid(s, 4000.0, 3200.0)
+        assert nearest["x"] == 5000.0
+
+    def test_pickup_outside_danger_zone_returned_normally(self):
+        """Pickup outside the 350 px danger zone: filter is a no-op."""
+        s = _state(
+            player={"x": 5000.0, "y": 5000.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            iron_pickups=[
+                {"x": 4500.0, "y": 4500.0, "item_type": "iron"},  # ~1800 px from wh
+            ],
+            world_w=6400, world_h=6400,
+        )
+        s["wormholes"] = [self._WH]
+        s["zone"]["id"] = "ZoneID.ZONE2"
+        nearest, _d = ap._nearest_pickup(s, 5000.0, 5000.0)
+        assert nearest["x"] == 4500.0
+
+    def test_filter_disabled_in_main_zone(self):
+        """In MAIN the wormholes are OUTBOUND (target=WARP_*) and
+        even ones with ``MAIN`` text shouldn't filter -- the bot is
+        already where the filter would route it to.  More robustly:
+        the helper short-circuits in MAIN regardless of wormhole
+        targets, so the existing GATHER/MINE behavior in Zone 1 is
+        unaffected by this PR.
+        """
+        s = _state(
+            player={"x": 4000.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            iron_pickups=[
+                {"x": 3300.0, "y": 3200.0, "item_type": "iron"},
+            ],
+            world_w=6400, world_h=6400,
+        )
+        s["wormholes"] = [self._WH]
+        s["zone"]["id"] = "ZoneID.MAIN"
+        nearest, _d = ap._nearest_pickup(s, 4000.0, 3200.0)
+        assert nearest is not None
+        assert nearest["x"] == 3300.0  # not filtered
+
+    def test_outbound_wormholes_not_filtered(self):
+        """Only wormholes whose target contains ``MAIN`` are filtered.
+        Nebula's post-boss corner wormholes (target=NEBULA_WARP_*)
+        must not trigger the filter so the bot can still mine
+        asteroids near them en route to Star Maze.
+        """
+        s = _state(
+            player={"x": 4000.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            iron_pickups=[
+                {"x": 3300.0, "y": 3200.0, "item_type": "iron"},
+            ],
+            world_w=6400, world_h=6400,
+        )
+        s["wormholes"] = [
+            {"x": 3200.0, "y": 3200.0,
+             "zone_target": "ZoneID.NEBULA_WARP_GAS"},
+        ]
+        s["zone"]["id"] = "ZoneID.ZONE2"
+        nearest, _d = ap._nearest_pickup(s, 4000.0, 3200.0)
+        assert nearest is not None
+        assert nearest["x"] == 3300.0  # NEBULA_WARP_* is outbound
+
+    def test_fallback_when_every_target_inside_danger_zone(self):
+        """If every reachable target is inside the danger zone,
+        fall back to the closest -- let the blacklist + stuck-
+        watchdog handle the consequences rather than starving the
+        bot of targets entirely.  Same fallback shape as the
+        edge filter.
+        """
+        s = _state(
+            player={"x": 4000.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            iron_pickups=[
+                {"x": 3300.0, "y": 3200.0, "item_type": "iron"},
+                {"x": 3400.0, "y": 3200.0, "item_type": "iron"},
+            ],
+            world_w=6400, world_h=6400,
+        )
+        s["wormholes"] = [self._WH]
+        s["zone"]["id"] = "ZoneID.ZONE2"
+        nearest, _d = ap._nearest_pickup(s, 4000.0, 3200.0)
+        # Both are in the danger zone; fall back to closest.
+        assert nearest is not None
+
+    def test_no_wormholes_no_op(self):
+        """Empty wormhole list: filter does not engage even in a
+        non-MAIN zone.  Defensive for zones that have no return
+        wormholes at all (e.g. warp zones where the bot is in
+        traverse).
+        """
+        s = _state(
+            player={"x": 4000.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            iron_pickups=[
+                {"x": 3300.0, "y": 3200.0, "item_type": "iron"},
+            ],
+            world_w=6400, world_h=6400,
+        )
+        s["wormholes"] = []
+        s["zone"]["id"] = "ZoneID.ZONE2"
+        nearest, _d = ap._nearest_pickup(s, 4000.0, 3200.0)
+        assert nearest["x"] == 3300.0
+
+    def test_helper_threshold_matches_repulsion_field(self):
+        """The proximity threshold defaults to the same combined
+        radius the ``wormhole_repulsion`` field uses, so a target
+        survives the filter exactly when its approach won't be
+        deflected by the field.  Pinned to catch a future drift
+        where one constant moves without the other.
+        """
+        import bot_autopilot_navigation as nav
+        import bot_autopilot_targeting as targeting
+        s = _state(world_w=6400, world_h=6400)
+        s["wormholes"] = [self._WH]
+        s["zone"]["id"] = "ZoneID.ZONE2"
+        outer = (nav.WORMHOLE_REPULSION_RADIUS_PX
+                 + nav.WORMHOLE_REPULSION_RANGE_PX)
+        # Just inside outer radius -> filtered.
+        assert targeting._target_near_return_wormhole(
+            s, 3200.0 + outer - 1.0, 3200.0) is True
+        # Just outside -> not filtered.
+        assert targeting._target_near_return_wormhole(
+            s, 3200.0 + outer + 1.0, 3200.0) is False
+
+
 # ── Fix (2026-05-06): HUNT alien edge filter ─────────────────────────
 
 class TestNearestHuntableAlienEdgeFilter:
