@@ -588,9 +588,22 @@ def _act_warp_traverse(state: dict, p: dict) -> None:
     # telemetry so post-hoc analysis can measure time spent per zone
     # (especially WARP_GAS which has accumulated 5+ min stalls in
     # recent captures -- 2026-05-17).
-    is_new_arc = (
+    #
+    # First-ever case gated by ``py_now < world_h * 0.5`` to filter
+    # out the captured 2026-05-17 stale-state race: when the bot
+    # crosses MAIN -> WARP_GAS the state's zone_id flips to the
+    # new zone one tick before the position field updates to the
+    # new zone's spawn coords.  Without the bottom-half check a
+    # bogus arc_started fires with the bot's MAIN-zone position
+    # (top of MAIN, py ~6224), then a SECOND legit arc_started
+    # fires the next tick at the real spawn (py=200).  The
+    # bottom-half check accepts only positions that match a real
+    # warp-zone entry.
+    is_first_ever_at_spawn = (
         _ap._state.warp_traverse_arc_started_at == 0.0
-        or py_now < _ap._state.warp_traverse_max_y * 0.5)
+        and py_now < world_h * 0.5)
+    is_zone_drop = py_now < _ap._state.warp_traverse_max_y * 0.5
+    is_new_arc = is_first_ever_at_spawn or is_zone_drop
     if is_new_arc:
         _ap._state.warp_traverse_max_y = py_now
         _ap._state.warp_traverse_progress_at = now
@@ -684,6 +697,7 @@ def _act_warp_traverse(state: dict, p: dict) -> None:
             _ap._telemetry_log(
                 "warp_traverse_arc_completed",
                 zone_id=zone_id,
+                outcome="arrived",
                 arc_duration_s=(round(arc_duration_s, 1)
                                 if arc_duration_s is not None
                                 else None),
@@ -691,6 +705,11 @@ def _act_warp_traverse(state: dict, p: dict) -> None:
                 max_y=round(_ap._state.warp_traverse_max_y, 1),
                 detour_count=_ap._state.warp_traverse_detour_count,
                 **_ap._telemetry_snapshot_fields(state, p))
+            # Mark the arc consumed so the new lifecycle observer
+            # (``_observe_warp_traverse_arc_complete``) doesn't
+            # double-fire arc_completed on the inevitable FSM exit
+            # from S_WARP_TRAVERSE that follows the zone transition.
+            _ap._state.warp_traverse_arc_started_at = 0.0
         # Don't brake -- inertia from the drive carries the bot
         # across the EXIT_THRESHOLD (50 px from edge) and the game
         # auto-transitions zones.  Keep holding the same goto so
