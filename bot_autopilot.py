@@ -434,6 +434,19 @@ RECOVER_LOOT_BOSS_DANGER_PX:  float = 1000.0
 # can actually reach the top edge.
 WARP_TRAVERSE_MARGIN_PX:      float = 10.0
 WARP_TRAVERSE_ARRIVAL_PX:     float = 50.0
+# Lateral-detour timeout (2026-05-17): when ``_act_warp_traverse``
+# fails to advance the bot's max y over the current arc for this
+# many seconds, the action switches target_x from the world centre
+# to alternating wall margins so the bot routes around the
+# obstructing gas cloud / asteroid cluster blocking the centre
+# column.  Captured pathology: bot oscillated traverse → regen →
+# traverse → regen for 590 s in WARP_GAS, never advancing past
+# y=2670 because a gas cloud sat dead-centre on the path and
+# gas_repulsion alone wasn't strong enough to deflect the
+# attraction vector aimed at the top edge.  25 s timeout gives
+# normal arcs (typically 20-25 s end-to-end) headroom to finish
+# without firing the detour.
+WARP_TRAVERSE_DETOUR_TIMEOUT_S: float = 25.0
 
 # Boss TURRET-ASSIST mode (2026-05-12, eighth telemetry pass):
 # Replaces the "kite at 750 px from the boss" default with an
@@ -1327,6 +1340,19 @@ class BotState:
     # post-boss warp.  Blocks re-routing to S_WARP_TRAVERSE on
     # subsequent warp-zone visits.
     warp_traverse_done: bool = False
+    # Lateral-detour trackers (2026-05-17): ``_act_warp_traverse``
+    # by default targets the world centre + top edge.  If a gas
+    # cloud blocks the bot's path through the center column,
+    # gas_repulsion alone isn't always strong enough to deflect a
+    # strong target attraction, and the bot oscillates traverse →
+    # regen → traverse → regen forever at the same y.  These
+    # trackers measure progress and trigger a lateral detour after
+    # WARP_TRAVERSE_DETOUR_TIMEOUT_S seconds of no y advance.
+    # Captured 2026-05-17 bot_io: 590-s session, bot stuck in
+    # WARP_GAS oscillating around y=2400-2670 for the entire run.
+    warp_traverse_max_y: float = 0.0
+    warp_traverse_progress_at: float = 0.0
+    warp_traverse_detour_count: int = 0
 
     def reset(self) -> None:
         """Restore every field to its default.  Mutates dict fields
@@ -1385,6 +1411,9 @@ class BotState:
         self.boss_was_killed = False
         self.warp_after_boss_done = False
         self.warp_traverse_done = False
+        self.warp_traverse_max_y = 0.0
+        self.warp_traverse_progress_at = 0.0
+        self.warp_traverse_detour_count = 0
 
 
 _state = BotState()
