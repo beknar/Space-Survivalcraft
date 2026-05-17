@@ -15,6 +15,56 @@ import bot_autopilot_blacklist as _bl
 import bot_autopilot_navigation as _nav
 
 
+def _return_wormhole_positions(state: dict) -> list[tuple[float, float]]:
+    """Return the (x, y) positions of every wormhole whose
+    ``zone_target`` routes back to MAIN, ONLY when the bot is
+    currently in a non-MAIN zone.  Empty list otherwise.
+
+    Used by ``_nearest_pickup`` / ``_nearest_asteroid`` to skip
+    targets sitting inside a return wormhole's collision +
+    repulsion danger zone -- the existing wormhole_repulsion field
+    isn't always strong enough to deflect a target-driven path,
+    so filtering at selection time is the durable fix.
+
+    The MAIN-zone short-circuit mirrors ``wormhole_repulsion``:
+    in MAIN every wormhole is OUTBOUND (target=WARP_*) and the
+    bot is allowed (and expected) to route to one for the post-
+    boss warp.  Only the Nebula central wormhole and any future
+    "back to MAIN" wormhole gets filtered.
+    """
+    zone_id = str((state.get("zone") or {}).get("id", ""))
+    in_main_zone = ("MAIN" in zone_id) and ("WARP" not in zone_id)
+    if in_main_zone:
+        return []
+    out: list[tuple[float, float]] = []
+    for wh in (state.get("wormholes") or []):
+        zt = str(wh.get("zone_target", ""))
+        if "MAIN" in zt:
+            out.append((float(wh.get("x", 0.0)),
+                        float(wh.get("y", 0.0))))
+    return out
+
+
+def _target_near_return_wormhole(state: dict, x: float, y: float,
+                                 radius_px: float | None = None
+                                 ) -> bool:
+    """Test whether (x, y) sits inside any return wormhole's danger
+    zone (collision radius + repulsion range).  Caller decides what
+    "near" means via ``radius_px``; default is the sum used by the
+    ``wormhole_repulsion`` field.
+    """
+    if radius_px is None:
+        radius_px = (_nav.WORMHOLE_REPULSION_RADIUS_PX
+                     + _nav.WORMHOLE_REPULSION_RANGE_PX)
+    r2 = radius_px * radius_px
+    for (wx, wy) in _return_wormhole_positions(state):
+        dx = wx - x
+        dy = wy - y
+        if dx * dx + dy * dy <= r2:
+            return True
+    return False
+
+
 def _pickup_is_blacklisted(pu: dict) -> bool:
     return _bl.pickup_is_blacklisted(
         pu, _ap._state.pickup_blacklist, _ap._get_now)
@@ -28,15 +78,23 @@ def _nearest_pickup(state: dict, px: float, py: float
                     ) -> tuple[dict | None, float]:
     """Return (nearest_pickup, distance) skipping blacklisted pickups
     AND those sitting within ``PICKUP_EDGE_SKIP_PX`` of a world
-    boundary.
+    boundary AND those sitting inside a return wormhole's danger
+    zone (when the bot is in a non-MAIN zone).
 
     Edge filter rationale: pickups spawn wherever an alien dies —
     sometimes right against the world wall.  GATHER chasing one
     pins the bot against the boundary the same way edge-adjacent
     asteroids do.  Mirrors the fix added for ``_nearest_asteroid``
-    in PR #25.  Pre-filtering at selection skips the stuck event
-    entirely; the existing blacklist + 60 s TTL catches any pickup
-    we DO try to reach that turns out to be unreachable.
+    in PR #25.
+
+    Return-wormhole filter rationale (2026-05-17 bot_io capture):
+    in Nebula, the central return wormhole at the zone centre
+    teleports the bot back to MAIN on contact.  ``wormhole_repulsion``
+    deflects a target-driven path but isn't always strong enough
+    to overcome a 2000-px attraction vector aimed past it.  Filtering
+    at selection time guarantees the bot never picks a target that
+    would route it through the danger zone.  Falls back to the
+    unfiltered candidate when every pickup is filtered (rare).
     """
     candidate, d = _bl.nearest_pickup(
         state, px, py, _ap._state.pickup_blacklist, _ap._get_now)
@@ -48,12 +106,15 @@ def _nearest_pickup(state: dict, px: float, py: float
     cx = float(candidate.get("x", 0.0))
     cy = float(candidate.get("y", 0.0))
     margin = _ap.PICKUP_EDGE_SKIP_PX
-    if (cx >= margin and cx <= world_w - margin
-            and cy >= margin and cy <= world_h - margin):
+    edge_ok = (cx >= margin and cx <= world_w - margin
+               and cy >= margin and cy <= world_h - margin)
+    wh_safe = not _target_near_return_wormhole(state, cx, cy)
+    if edge_ok and wh_safe:
         return (candidate, d)
-    # Edge-adjacent.  Inline-filter the pickup lists for an interior
-    # alternative; fall back to the edge candidate if every pickup
-    # is edge-adjacent (rare — let the blacklist handle it).
+    # Filter-fail: scan for an alternative pickup that clears both
+    # the edge AND the wormhole-proximity tests.  Falls back to the
+    # original candidate if every pickup fails -- let the blacklist
+    # + 60 s TTL handle the unreachable one.
     iron = state.get("iron_pickups", []) or []
     bps = state.get("blueprint_pickups", []) or []
     best = None
@@ -63,6 +124,8 @@ def _nearest_pickup(state: dict, px: float, py: float
         by = float(pu.get("y", 0.0))
         if (bx < margin or bx > world_w - margin
                 or by < margin or by > world_h - margin):
+            continue
+        if _target_near_return_wormhole(state, bx, by):
             continue
         if _bl.pickup_is_blacklisted(
                 pu, _ap._state.pickup_blacklist, _ap._get_now):
@@ -109,12 +172,14 @@ def _nearest_asteroid(state: dict, px: float, py: float
     ax = float(candidate.get("x", 0.0))
     ay = float(candidate.get("y", 0.0))
     margin = _ap.ASTEROID_EDGE_SKIP_PX
-    if (ax >= margin and ax <= world_w - margin
-            and ay >= margin and ay <= world_h - margin):
+    edge_ok = (ax >= margin and ax <= world_w - margin
+               and ay >= margin and ay <= world_h - margin)
+    wh_safe = not _target_near_return_wormhole(state, ax, ay)
+    if edge_ok and wh_safe:
         return (candidate, d)
-    # Edge-adjacent.  Try the next-nearest by temporarily
-    # blacklisting (with a short TTL) and re-querying.  Cheaper
-    # to inline-filter the asteroids list once.
+    # Filter-fail: scan asteroids list for one that clears both
+    # the edge AND the wormhole-proximity tests.  See
+    # ``_nearest_pickup`` for the wormhole filter rationale.
     asteroids = state.get("asteroids", []) or []
     best = None
     best_d = float("inf")
@@ -124,6 +189,8 @@ def _nearest_asteroid(state: dict, px: float, py: float
         if (bx < margin or bx > world_w - margin
                 or by < margin or by > world_h - margin):
             continue
+        if _target_near_return_wormhole(state, bx, by):
+            continue
         if _bl.asteroid_is_blacklisted(
                 ast, _ap._state.asteroid_blacklist, _ap._get_now):
             continue
@@ -131,9 +198,9 @@ def _nearest_asteroid(state: dict, px: float, py: float
         if d2 < best_d:
             best, best_d = ast, d2
     if best is None:
-        # Fall back to the original (edge-adjacent) candidate.  No
-        # interior asteroid is reachable; let the existing
-        # blacklist + stuck-detect cycle handle it as before.
+        # Fall back to the original candidate.  No safe asteroid is
+        # reachable; let the existing blacklist + stuck-detect cycle
+        # handle it as before.
         return (candidate, d)
     return (best, best_d)
 
