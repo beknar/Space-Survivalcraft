@@ -454,6 +454,15 @@ WARP_TRAVERSE_DETOUR_TIMEOUT_S: float = 25.0
 # than typical gas-cloud diameter (~80-200 px) so we exit the
 # detour cleanly past the obstacle, not while still hugging it.
 WARP_TRAVERSE_DETOUR_CLEAR_PX:  float = 500.0
+# Meaningful-progress threshold (2026-05-17 follow-up to PRs #133
+# + #134): a max_y advance must exceed this many pixels past the
+# last "committed" y before the no-progress timer resets.  Without
+# this gate, a bot inching forward 3-50 px each traverse cycle (the
+# captured WARP_GAS pathology) keeps deferring the detour timer
+# forever.  200 px is half the 500-px DETOUR_CLEAR_PX so a single
+# meaningful advance contributes to both the detour timer and the
+# clear-check without one starving the other.
+WARP_TRAVERSE_MEANINGFUL_PROGRESS_PX: float = 200.0
 
 # Boss TURRET-ASSIST mode (2026-05-12, eighth telemetry pass):
 # Replaces the "kite at 750 px from the boss" default with an
@@ -1377,6 +1386,22 @@ class BotState:
     # detour expires once py advances WARP_TRAVERSE_DETOUR_CLEAR_PX
     # past this anchor (signal: the obstacle has been bypassed).
     warp_traverse_detour_commit_y: float = 0.0
+    # Last y at which the no-progress timer was reset (2026-05-17
+    # follow-up to PRs #133 + #134).  PR #134 reset the timer on
+    # ANY advance of max_y, so a stuck bot crawling forward 3-50 px
+    # per traverse cycle (just enough to clear ``py > max_y``) kept
+    # deferring the detour indefinitely.  Captured log: bot
+    # oscillated WARP_GAS for 5+ minutes, max_y crept from 3547 to
+    # 3633 in ~110 seconds via dozens of <50 px advances, detour
+    # never fired.  Fix: only reset progress_at when py advances
+    # WARP_TRAVERSE_MEANINGFUL_PROGRESS_PX past this committed y.
+    warp_traverse_progress_committed_y: float = 0.0
+    # Monotonic timestamp of arc entry (telemetry only).  Used to
+    # report the total time the bot spent in this warp zone in the
+    # ``warp_traverse_arc_completed`` event so post-hoc analysis can
+    # compare arc durations across sessions / map types and catch
+    # the kind of multi-minute oscillation captured in 2026-05-17.
+    warp_traverse_arc_started_at: float = 0.0
 
     def reset(self) -> None:
         """Restore every field to its default.  Mutates dict fields
@@ -1440,6 +1465,8 @@ class BotState:
         self.warp_traverse_detour_count = 0
         self.warp_traverse_detour_side = 0
         self.warp_traverse_detour_commit_y = 0.0
+        self.warp_traverse_progress_committed_y = 0.0
+        self.warp_traverse_arc_started_at = 0.0
 
 
 _state = BotState()

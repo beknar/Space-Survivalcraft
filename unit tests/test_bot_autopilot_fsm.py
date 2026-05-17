@@ -8456,6 +8456,217 @@ class TestWarpTraverseDetourPersistence:
         assert captured["tx"] == 1600.0
 
 
+class TestWarpTraverseStrictProgressGate:
+    """2026-05-17 follow-up to PR #134: ``py_now > max_y`` reset the
+    no-progress timer on ANY pixel advance, so a bot inching forward
+    3-50 px per traverse cycle (the captured WARP_GAS pathology)
+    kept deferring the detour indefinitely.  Captured log: bot
+    oscillated for 5+ minutes, max_y crept from 3547 to 3633 via
+    dozens of <50 px advances, detour never fired.
+
+    Fix: only reset progress_at when py has advanced
+    WARP_TRAVERSE_MEANINGFUL_PROGRESS_PX (200 px) past the last
+    committed y.  Tiny advances are recorded in max_y for the
+    detour-clear check but don't postpone the timer.
+    """
+
+    @staticmethod
+    def _capture_goto(monkeypatch):
+        captured: dict = {}
+        monkeypatch.setattr(
+            ap, "_do_goto",
+            lambda state, p, tx, ty, stop_radius=30.0,
+            brake_on_arrival=True: captured.update(tx=tx, ty=ty))
+        return captured
+
+    def test_tiny_advances_do_not_reset_progress_timer(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """Inch forward 50 px every 5 s for 30 s -- the no-progress
+        timer must NOT reset on the tiny advances and the detour
+        must fire at the 25-s timeout.
+        """
+        captured = self._capture_goto(monkeypatch)
+        _clock[0] = 1000.0
+        s = _state(
+            player={"x": 1000.0, "y": 3500.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            world_w=3200, world_h=6400,
+        )
+        ap._act_warp_traverse(s, s["player"])
+        commit_y_initial = ap._state.warp_traverse_progress_committed_y
+        assert commit_y_initial == 3500.0
+        # Inch forward 50 px every 5 s for 6 ticks (30 s total).
+        # Total advance: 300 px > 200 (meaningful), so the LAST tick
+        # should reset the timer.  But the EARLIER ticks should not.
+        for step in range(5):
+            _clock[0] += 5.0
+            s["player"]["y"] += 50.0
+            ap._act_warp_traverse(s, s["player"])
+            # max_y advances every tick.
+            assert ap._state.warp_traverse_max_y == 3500.0 + (step + 1) * 50.0
+            # But committed_y stays at the initial value until py
+            # crosses the meaningful threshold.
+            advance = (step + 1) * 50.0
+            if advance < ap.WARP_TRAVERSE_MEANINGFUL_PROGRESS_PX:
+                assert (ap._state.warp_traverse_progress_committed_y
+                        == commit_y_initial)
+        # After enough advance (250 px > 200), committed_y resets.
+        # The detour should NOT fire (timer reset by meaningful
+        # advance).
+        assert (ap._state.warp_traverse_progress_committed_y
+                > commit_y_initial)
+        assert ap._state.warp_traverse_detour_side == 0
+
+    def test_meaningful_advance_resets_timer(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """A single advance >= MEANINGFUL_PROGRESS_PX resets the
+        no-progress timer + committed_y."""
+        captured = self._capture_goto(monkeypatch)
+        _clock[0] = 1000.0
+        s = _state(
+            player={"x": 1000.0, "y": 3000.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            world_w=3200, world_h=6400,
+        )
+        ap._act_warp_traverse(s, s["player"])
+        # Advance by exactly MEANINGFUL_PROGRESS_PX.
+        _clock[0] += 1.0
+        s["player"]["y"] = 3000.0 + ap.WARP_TRAVERSE_MEANINGFUL_PROGRESS_PX
+        ap._act_warp_traverse(s, s["player"])
+        # Timer reset to now; committed_y advanced.
+        assert ap._state.warp_traverse_progress_at == _clock[0]
+        assert (ap._state.warp_traverse_progress_committed_y
+                == 3000.0 + ap.WARP_TRAVERSE_MEANINGFUL_PROGRESS_PX)
+
+    def test_detour_fires_despite_tiny_advances(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """The exact captured pathology: bot advances max_y by 10 px
+        every 5 s for 35 s.  Total advance = 70 px < MEANINGFUL.
+        Detour SHOULD fire at the 25-s mark even though max_y has
+        technically been increasing -- PR #134's regression was that
+        it did NOT.
+        """
+        captured = self._capture_goto(monkeypatch)
+        _clock[0] = 1000.0
+        s = _state(
+            player={"x": 1000.0, "y": 3500.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            world_w=3200, world_h=6400,
+        )
+        ap._act_warp_traverse(s, s["player"])  # seed
+        # Sub-meaningful advances over 30 s of wall-clock time.
+        for step in range(6):
+            _clock[0] += 5.0
+            s["player"]["y"] += 10.0   # only 10 px per cycle
+            ap._act_warp_traverse(s, s["player"])
+        # 30 s elapsed, total advance 60 px (< 200 = MEANINGFUL).
+        # Detour must have fired during this window.
+        assert ap._state.warp_traverse_detour_side != 0
+        assert ap._state.warp_traverse_detour_count >= 1
+
+
+class TestWarpTraverseTelemetry:
+    """2026-05-17: telemetry events for warp_traverse so post-hoc
+    analysis can measure arc duration per zone (especially
+    WARP_GAS where multi-minute stalls have been captured).
+    Three new events:
+      * ``warp_traverse_arc_started`` on entry to a new arc
+      * ``warp_traverse_detour_committed`` when the lateral detour
+        fires (after the meaningful-progress timeout)
+      * ``warp_traverse_arc_completed`` when the bot reaches the
+        arrival band (alongside the existing ``warp_traverse_complete``)
+    """
+
+    @staticmethod
+    def _capture_telemetry(monkeypatch):
+        events: list = []
+        original = ap._telemetry_log
+
+        def _intercept(event, **kwargs):
+            events.append((event, kwargs))
+            return original(event, **kwargs)
+
+        monkeypatch.setattr(ap, "_telemetry_log", _intercept)
+        return events
+
+    @staticmethod
+    def _capture_goto(monkeypatch):
+        captured: dict = {}
+        monkeypatch.setattr(
+            ap, "_do_goto",
+            lambda state, p, tx, ty, stop_radius=30.0,
+            brake_on_arrival=True: captured.update(tx=tx, ty=ty))
+        return captured
+
+    def test_arc_started_event_fires_on_new_arc(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        self._capture_goto(monkeypatch)
+        events = self._capture_telemetry(monkeypatch)
+        _clock[0] = 1000.0
+        s = _state(
+            player={"x": 1600.0, "y": 200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            world_w=3200, world_h=6400,
+        )
+        s["zone"]["id"] = "ZoneID.WARP_GAS"
+        ap._act_warp_traverse(s, s["player"])
+        kinds = [ev for ev, _ in events]
+        assert "warp_traverse_arc_started" in kinds
+        arc_start = next(kw for ev, kw in events
+                         if ev == "warp_traverse_arc_started")
+        assert arc_start.get("zone_id") == "ZoneID.WARP_GAS"
+        assert arc_start.get("arc_start_y") == 200.0
+
+    def test_detour_committed_event_fires_on_timeout(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        self._capture_goto(monkeypatch)
+        events = self._capture_telemetry(monkeypatch)
+        _clock[0] = 1000.0
+        s = _state(
+            player={"x": 1000.0, "y": 3500.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            world_w=3200, world_h=6400,
+        )
+        s["zone"]["id"] = "ZoneID.WARP_GAS"
+        ap._act_warp_traverse(s, s["player"])
+        _clock[0] += ap.WARP_TRAVERSE_DETOUR_TIMEOUT_S + 0.5
+        ap._act_warp_traverse(s, s["player"])
+        kinds = [ev for ev, _ in events]
+        assert "warp_traverse_detour_committed" in kinds
+        detour = next(kw for ev, kw in events
+                      if ev == "warp_traverse_detour_committed")
+        assert detour.get("detour_side") == "left"
+        assert detour.get("detour_count") == 1
+        assert detour.get("zone_id") == "ZoneID.WARP_GAS"
+
+    def test_arc_completed_event_reports_duration(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        self._capture_goto(monkeypatch)
+        events = self._capture_telemetry(monkeypatch)
+        _clock[0] = 1000.0
+        s = _state(
+            player={"x": 1600.0, "y": 200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            world_w=3200, world_h=6400,
+        )
+        s["zone"]["id"] = "ZoneID.WARP_GAS"
+        # Enter the arc; arc_started_at = 1000.0.
+        ap._act_warp_traverse(s, s["player"])
+        # Jump the bot into the arrival band to trigger completion.
+        _clock[0] += 120.0
+        target_y = 6400.0 - ap.WARP_TRAVERSE_MARGIN_PX
+        s["player"]["y"] = target_y - ap.WARP_TRAVERSE_ARRIVAL_PX + 10.0
+        ap._act_warp_traverse(s, s["player"])
+        kinds = [ev for ev, _ in events]
+        assert "warp_traverse_arc_completed" in kinds
+        arc = next(kw for ev, kw in events
+                   if ev == "warp_traverse_arc_completed")
+        assert arc.get("zone_id") == "ZoneID.WARP_GAS"
+        assert arc.get("arc_duration_s") == 120.0
+        # max_y reflects the final position reached.
+        assert arc.get("max_y") >= target_y - ap.WARP_TRAVERSE_ARRIVAL_PX
+
+
 class TestWarpBackToMainReArms:
     """2026-05-16: after the post-boss warp out to a warp zone
     succeeded (``warp_after_boss_done`` latched True), the bot can
