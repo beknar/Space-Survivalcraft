@@ -224,3 +224,41 @@ def _maybe_clear_death_recovery(state: dict, p: dict, now: float) -> None:
         elapsed_s=round(now - _ap._state.death_recovery_started_at, 1),
         **_ap._telemetry_snapshot_fields(state, p))
     _ap._state.death_recovery_pending = False
+
+
+def _observe_warp_back_to_main(state: dict, p: dict, now: float) -> None:
+    """Re-arm the post-boss warp cascade when the bot ends up back in
+    MAIN after having already warped out.
+
+    Captured pathology (2026-05-16 bot_io log): after a successful
+    post-boss warp to WARP_GAS -> traverse -> Nebula, the bot
+    wandered around Nebula and walked into the central return
+    wormhole (``zones/zone2.py`` plants one at the zone centre that
+    routes back to MAIN).  The session-sticky
+    ``warp_after_boss_done`` latch (set on the first non-MAIN tick
+    in ``choose_next_state``) meant the FSM never re-fired the
+    warp-to-wormhole cascade -- the bot just farmed Zone 1
+    indefinitely.
+
+    Fix: whenever the bot is observed in MAIN with the latch still
+    True, that's a logical contradiction (the latch was set *because*
+    the bot left MAIN) -- clear it, and the symmetrical
+    ``warp_traverse_done`` latch too, so the next tick's choose
+    cascade routes back through a corner wormhole and on into Nebula.
+
+    Gates remain unchanged (modules_to_install empty, consumables
+    equipped, no death recovery), so a bot still mid-install or
+    without health packs won't immediately bounce out.
+    """
+    if not _ap._state.warp_after_boss_done:
+        return
+    zone_id = str((state.get("zone") or {}).get("id", ""))
+    in_main = ("MAIN" in zone_id) and ("WARP" not in zone_id)
+    if not in_main:
+        return
+    _ap._state.warp_after_boss_done = False
+    _ap._state.warp_traverse_done = False
+    _ap._telemetry_log(
+        "warp_after_boss_relatch_for_return",
+        zone_id=zone_id,
+        **_ap._telemetry_snapshot_fields(state, p))
