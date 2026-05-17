@@ -447,6 +447,13 @@ WARP_TRAVERSE_ARRIVAL_PX:     float = 50.0
 # normal arcs (typically 20-25 s end-to-end) headroom to finish
 # without firing the detour.
 WARP_TRAVERSE_DETOUR_TIMEOUT_S: float = 25.0
+# Detour expiry threshold (2026-05-17 follow-up to PR #133): once
+# the bot's max y advances this many pixels past the y at which the
+# detour was committed, the obstacle is considered bypassed and the
+# detour side resets to 0 (target back to centre).  500 px is wider
+# than typical gas-cloud diameter (~80-200 px) so we exit the
+# detour cleanly past the obstacle, not while still hugging it.
+WARP_TRAVERSE_DETOUR_CLEAR_PX:  float = 500.0
 
 # Boss TURRET-ASSIST mode (2026-05-12, eighth telemetry pass):
 # Replaces the "kite at 750 px from the boss" default with an
@@ -1353,6 +1360,23 @@ class BotState:
     warp_traverse_max_y: float = 0.0
     warp_traverse_progress_at: float = 0.0
     warp_traverse_detour_count: int = 0
+    # Detour SIDE -- persistent across ticks (2026-05-17 follow-up
+    # to PR #133).  Without this, the detour target_x set in PR
+    # #133 lasted exactly one tick before the next call read
+    # no_progress_s = ~1 s (just reset) and reverted target_x to
+    # world centre -- so the bot did 1 tick toward the wall, then
+    # 25 s back toward the central gas cloud, then 1 tick toward
+    # the wall again, etc.  Captured log showed x stayed in
+    # 1592-1731 across 30 oscillations.  Now the side persists
+    # in state until the bot clears the obstacle.
+    #   * 0 = centre target
+    #   * +1 = left wall (target_x = WARP_TRAVERSE_MARGIN_PX)
+    #   * -1 = right wall (target_x = world_w - margin)
+    warp_traverse_detour_side: int = 0
+    # py at the moment the detour side was last committed; the
+    # detour expires once py advances WARP_TRAVERSE_DETOUR_CLEAR_PX
+    # past this anchor (signal: the obstacle has been bypassed).
+    warp_traverse_detour_commit_y: float = 0.0
 
     def reset(self) -> None:
         """Restore every field to its default.  Mutates dict fields
@@ -1414,6 +1438,8 @@ class BotState:
         self.warp_traverse_max_y = 0.0
         self.warp_traverse_progress_at = 0.0
         self.warp_traverse_detour_count = 0
+        self.warp_traverse_detour_side = 0
+        self.warp_traverse_detour_commit_y = 0.0
 
 
 _state = BotState()
