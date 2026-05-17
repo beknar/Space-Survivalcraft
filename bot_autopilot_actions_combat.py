@@ -564,7 +564,43 @@ def _act_warp_traverse(state: dict, p: dict) -> None:
     world_h = float(zone.get("world_h", 6400) or 6400)
     py_now = float(p.get("y", 0.0))
     target_y = world_h - _ap.WARP_TRAVERSE_MARGIN_PX
-    target_x = world_w / 2.0
+
+    # Lateral-detour tracker (2026-05-17): every tick of warp_traverse
+    # records the bot's best y for the current arc.  If max_y fails
+    # to advance for WARP_TRAVERSE_DETOUR_TIMEOUT_S, the action
+    # switches target_x from the world centre to an alternating
+    # wall margin to route around the central obstacle that's been
+    # bouncing the bot back into REGEN.  Trackers persist across
+    # the traverse → regen → traverse oscillation (intentional --
+    # cumulative no-progress time is exactly what we want to
+    # measure) and reset only when the bot's y drops to half of the
+    # tracked max, signalling a fresh arc in a new warp zone.
+    now = _ap._get_now()
+    if py_now < _ap._state.warp_traverse_max_y * 0.5:
+        _ap._state.warp_traverse_max_y = py_now
+        _ap._state.warp_traverse_progress_at = now
+        _ap._state.warp_traverse_detour_count = 0
+    elif py_now > _ap._state.warp_traverse_max_y:
+        _ap._state.warp_traverse_max_y = py_now
+        _ap._state.warp_traverse_progress_at = now
+    elif _ap._state.warp_traverse_progress_at == 0.0:
+        # First tick after entry; seed the timer.
+        _ap._state.warp_traverse_progress_at = now
+    no_progress_s = now - _ap._state.warp_traverse_progress_at
+    if no_progress_s >= _ap.WARP_TRAVERSE_DETOUR_TIMEOUT_S:
+        # Detour fires: alternate between left and right wall
+        # margins so a wide central obstacle gets bypassed on
+        # whichever side is clear.  Reset the progress timer so
+        # the next stall fires the NEXT detour (cycling sides) and
+        # bump the counter for telemetry visibility.
+        _ap._state.warp_traverse_detour_count += 1
+        _ap._state.warp_traverse_progress_at = now
+        if _ap._state.warp_traverse_detour_count % 2 == 1:
+            target_x = _ap.WARP_TRAVERSE_MARGIN_PX
+        else:
+            target_x = world_w - _ap.WARP_TRAVERSE_MARGIN_PX
+    else:
+        target_x = world_w / 2.0
     if py_now >= target_y - _ap.WARP_TRAVERSE_ARRIVAL_PX:
         if not _ap._state.warp_traverse_done:
             _ap._state.warp_traverse_done = True

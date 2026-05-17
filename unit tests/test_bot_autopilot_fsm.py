@@ -8149,6 +8149,150 @@ class TestWarpTraverseAction:
         assert "idled" not in captured
 
 
+class TestWarpTraverseLateralDetour:
+    """``_act_warp_traverse`` now tracks the bot's max y per arc
+    and switches target_x from the world centre to an alternating
+    wall margin after WARP_TRAVERSE_DETOUR_TIMEOUT_S seconds of
+    no y progress.
+
+    Pinned by 2026-05-17 bot_io capture: 590-s session, bot stuck
+    in WARP_GAS oscillating traverse → regen → traverse → regen
+    around y=2400-2670 because a gas cloud sat dead-centre on the
+    drive path.  ``gas_repulsion`` alone wasn't strong enough to
+    deflect a target attraction aimed at the top edge.
+    """
+
+    @staticmethod
+    def _capture_goto(monkeypatch):
+        captured: dict = {}
+        monkeypatch.setattr(
+            ap, "_do_goto",
+            lambda state, p, tx, ty, stop_radius=30.0,
+            brake_on_arrival=True: captured.update(tx=tx, ty=ty))
+        return captured
+
+    def test_centre_target_when_y_progressing(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """Normal traverse with y advancing: target stays at
+        centre (world_w/2)."""
+        captured = self._capture_goto(monkeypatch)
+        _clock[0] = 1000.0
+        s = _state(
+            player={"x": 1600.0, "y": 2000.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            world_w=3200, world_h=6400,
+        )
+        ap._act_warp_traverse(s, s["player"])
+        # First tick: max_y updates to 2000, timer reset, no detour.
+        assert captured["tx"] == 1600.0
+        # Advance the bot further north a few ticks below the
+        # arrival band; target_x must stay centred.
+        for y in (2500.0, 3000.0, 3500.0):
+            _clock[0] += 1.0
+            s["player"]["y"] = y
+            ap._act_warp_traverse(s, s["player"])
+            assert captured["tx"] == 1600.0
+        assert ap._state.warp_traverse_detour_count == 0
+
+    def test_detour_fires_after_timeout_no_progress(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """Stall for WARP_TRAVERSE_DETOUR_TIMEOUT_S without y
+        advancing: target_x flips to a wall margin."""
+        captured = self._capture_goto(monkeypatch)
+        _clock[0] = 1000.0
+        s = _state(
+            player={"x": 1000.0, "y": 2400.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            world_w=3200, world_h=6400,
+        )
+        ap._act_warp_traverse(s, s["player"])  # seed max_y + timer
+        assert captured["tx"] == 1600.0
+        # Advance the clock just past the timeout without y progress.
+        _clock[0] += ap.WARP_TRAVERSE_DETOUR_TIMEOUT_S + 0.5
+        ap._act_warp_traverse(s, s["player"])
+        # Detour active: target_x = left wall (count=1, odd).
+        assert captured["tx"] == ap.WARP_TRAVERSE_MARGIN_PX
+        assert ap._state.warp_traverse_detour_count == 1
+
+    def test_detour_alternates_sides(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """Consecutive timeouts alternate left / right wall so a
+        wide central obstacle gets bypassed on whichever side is
+        clear."""
+        captured = self._capture_goto(monkeypatch)
+        _clock[0] = 1000.0
+        world_w = 3200.0
+        s = _state(
+            player={"x": 1000.0, "y": 2400.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            world_w=int(world_w), world_h=6400,
+        )
+        ap._act_warp_traverse(s, s["player"])  # seed
+        # First detour: left wall.
+        _clock[0] += ap.WARP_TRAVERSE_DETOUR_TIMEOUT_S + 0.5
+        ap._act_warp_traverse(s, s["player"])
+        assert captured["tx"] == ap.WARP_TRAVERSE_MARGIN_PX
+        # Second detour (still no progress): right wall.
+        _clock[0] += ap.WARP_TRAVERSE_DETOUR_TIMEOUT_S + 0.5
+        ap._act_warp_traverse(s, s["player"])
+        assert captured["tx"] == (world_w - ap.WARP_TRAVERSE_MARGIN_PX)
+        # Third detour: left wall again.
+        _clock[0] += ap.WARP_TRAVERSE_DETOUR_TIMEOUT_S + 0.5
+        ap._act_warp_traverse(s, s["player"])
+        assert captured["tx"] == ap.WARP_TRAVERSE_MARGIN_PX
+        assert ap._state.warp_traverse_detour_count == 3
+
+    def test_detour_does_not_fire_when_progressing(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """Even if many seconds elapse, the detour does NOT fire as
+        long as the bot's max y keeps advancing -- normal traverse
+        completes cleanly."""
+        captured = self._capture_goto(monkeypatch)
+        _clock[0] = 1000.0
+        s = _state(
+            player={"x": 1600.0, "y": 200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            world_w=3200, world_h=6400,
+        )
+        ap._act_warp_traverse(s, s["player"])
+        # Drive north over a long interval; each tick advances max_y
+        # which resets the no-progress timer.
+        for y in (1000.0, 2000.0, 3000.0, 4000.0, 5000.0):
+            _clock[0] += ap.WARP_TRAVERSE_DETOUR_TIMEOUT_S - 1.0
+            s["player"]["y"] = y
+            ap._act_warp_traverse(s, s["player"])
+            assert captured["tx"] == 1600.0
+        assert ap._state.warp_traverse_detour_count == 0
+
+    def test_trackers_reset_on_new_arc(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """When the bot's y drops to less than half of the tracked
+        max (i.e., a new warp arc spawned in another warp zone),
+        the trackers reset cleanly so the timeout doesn't carry
+        over from the previous arc.
+        """
+        captured = self._capture_goto(monkeypatch)
+        _clock[0] = 1000.0
+        # Arc 1: bot reaches y=5000.
+        s = _state(
+            player={"x": 1600.0, "y": 5000.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            world_w=3200, world_h=6400,
+        )
+        ap._act_warp_traverse(s, s["player"])
+        assert ap._state.warp_traverse_max_y == 5000.0
+        # Arc 2: bot spawns at y=200 in a fresh warp zone.
+        _clock[0] += 100.0  # any reasonable interval
+        s["player"]["y"] = 200.0
+        ap._act_warp_traverse(s, s["player"])
+        # max_y reset to the new arc's starting y, timer fresh,
+        # detour count zeroed.
+        assert ap._state.warp_traverse_max_y == 200.0
+        assert ap._state.warp_traverse_detour_count == 0
+        # No detour fires on the very next call -- timer just reset.
+        assert captured["tx"] == 1600.0
+
+
 class TestWarpBackToMainReArms:
     """2026-05-16: after the post-boss warp out to a warp zone
     succeeded (``warp_after_boss_done`` latched True), the bot can
