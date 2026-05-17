@@ -740,6 +740,28 @@ HUNT_ANCHOR_GRID_PX:    float = 200.0
 HUNT_ANCHOR_MAX_HITS:   int   = 3
 HUNT_LONG_GIVEUP_S:     float = 120.0
 
+# Pin-zone tracking (2026-05-17): when stuck_detected fires the
+# bot's current position is added as a pin-zone anchor.  Target
+# selectors then filter pickups / asteroids within
+# PIN_ZONE_RADIUS_PX of any non-expired anchor for the TTL, so the
+# bot can't be pulled back into a known stuck location by new
+# targets spawning in the area.  Captured pathology: 8 stuck
+# events in 130 s at (8592, 1453) in Nebula, bot frozen for 30+ s
+# at shields=0, burned 28 repair packs.  Specific pickup /
+# asteroid blacklists weren't enough since the surrounding 54
+# aliens kept dropping new pickups in the same cluster.
+#
+# Threshold rationale:
+#   * radius 400 px wider than HUNT_ANCHOR_GRID_PX so the filter
+#     blanket-covers the slop in the recorded position
+#   * TTL 180 s long enough for the bot to drift to a different
+#     region of the zone and find fresh targets there
+#   * cap 16 anchors so a degenerate session doesn't grow the
+#     list unbounded; oldest expire first
+PIN_ZONE_RADIUS_PX:     float = 400.0
+PIN_ZONE_TTL_S:         float = 180.0
+PIN_ZONE_MAX:           int   = 16
+
 # ``_nearest_asteroid`` skips asteroids within this distance of any
 # world boundary at selection time.  Wider than STUCK_WORLD_MARGIN_PX
 # (200) so the bot has room to circle the asteroid + brake before
@@ -1152,6 +1174,19 @@ class BotState:
     # over minutes at the same cluster anchor) that the acute
     # 10 s window above won't see.
     hunt_anchor_hits: dict = field(default_factory=dict)
+    # Active pin-zone anchors recorded from stuck_detected events
+    # across ALL fsm states (not just HUNT).  Each entry is
+    # ``(cx, cy, expiry_ts)`` -- the targeting helpers filter
+    # pickups / asteroids / huntable aliens within
+    # PIN_ZONE_RADIUS_PX of any non-expired anchor so the bot
+    # can't be pulled back into a known stuck location while
+    # the TTL is active.  Captured 2026-05-17 bot_io: 8 stuck
+    # events in 130 s at (8592, 1453) in Nebula -- bot frozen
+    # for 30+ s with shields=0, burned 28 repair packs.  Specific
+    # blacklisted pickups / asteroids weren't enough since the
+    # surrounding 54 aliens kept spawning new pickups in the
+    # same area.  See PIN_ZONE_* constants for the tuning.
+    pin_zones: list = field(default_factory=list)
     # Last shields value seen during S_REGEN — the escape valve
     # in _choose_next_state compares the current value against this
     # to detect "shields not recovering" (i.e., still being shot)
@@ -1316,6 +1351,7 @@ class BotState:
         self.hunt_stuck_times.clear()
         self.hunt_giveup_until = 0.0
         self.hunt_anchor_hits.clear()
+        self.pin_zones.clear()
         self.last_regen_shields = 0
         self.last_regen_progress_at = 0.0
         self.consumables_equipped = False
@@ -1378,6 +1414,51 @@ def _stuck_reset() -> None:
     s["history"] = []
     s["escape_until"] = 0.0
     s["last_log"] = 0.0
+
+
+def _record_pin_zone_anchor(x: float, y: float, now: float) -> None:
+    """Add (x, y, now + PIN_ZONE_TTL_S) to ``_state.pin_zones``,
+    evicting expired entries first.  Caps the list at
+    PIN_ZONE_MAX entries by dropping the oldest-expiring entry so
+    a runaway stuck-loop can't grow the list unbounded.
+
+    Called from the stuck-watchdog every time ``stuck_detected``
+    fires so the targeting helpers can filter targets within
+    PIN_ZONE_RADIUS_PX of any active anchor for the TTL.
+    """
+    # Evict expired first.
+    if _state.pin_zones:
+        _state.pin_zones[:] = [z for z in _state.pin_zones
+                               if z[2] > now]
+    _state.pin_zones.append((float(x), float(y),
+                             now + PIN_ZONE_TTL_S))
+    # Cap by dropping the soonest-expiring entry (typically the
+    # oldest) if the list overflows.  This is a defensive bound;
+    # the TTL alone normally keeps the list small.
+    if len(_state.pin_zones) > PIN_ZONE_MAX:
+        _state.pin_zones.sort(key=lambda z: z[2])
+        _state.pin_zones.pop(0)
+
+
+def _target_in_pin_zone(x: float, y: float, now: float | None = None
+                        ) -> bool:
+    """Test whether (x, y) is inside any non-expired pin-zone's
+    radius.  Used by the targeting helpers to filter pickups /
+    asteroids near recently-stuck positions.
+    """
+    if not _state.pin_zones:
+        return False
+    if now is None:
+        now = _get_now()
+    r2 = PIN_ZONE_RADIUS_PX * PIN_ZONE_RADIUS_PX
+    for (cx, cy, exp) in _state.pin_zones:
+        if exp <= now:
+            continue
+        dx = cx - x
+        dy = cy - y
+        if dx * dx + dy * dy <= r2:
+            return True
+    return False
 
 
 def _fsm_reset(initial: str = S_MINE) -> None:
@@ -1875,6 +1956,15 @@ def _do_auto(state: dict, p: dict) -> None:
                           f"{anchor} hit {HUNT_ANCHOR_MAX_HITS}× — "
                           f"suppressing S_HUNT for "
                           f"{HUNT_LONG_GIVEUP_S:.0f}s")
+        # Pin-zone anchor (2026-05-17): every stuck event adds the
+        # current ship position to the pin-zone list so the target
+        # selectors filter pickups / asteroids near it for the TTL.
+        # Generalizes the HUNT-anchor pattern above to all FSM
+        # states -- the captured log showed 8 stuck events in 130 s
+        # at the same Nebula anchor, but only HUNT had per-anchor
+        # giveup logic so ENGAGE/MINE/GATHER kept pulling the bot
+        # back via newly-spawned targets in the same cluster.
+        _record_pin_zone_anchor(sx, sy, now)
         _telemetry_log("stuck_detected",
                        cause=("building"
                               if not _ship_clear_of_buildings(p, state)

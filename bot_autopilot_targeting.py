@@ -109,12 +109,13 @@ def _nearest_pickup(state: dict, px: float, py: float
     edge_ok = (cx >= margin and cx <= world_w - margin
                and cy >= margin and cy <= world_h - margin)
     wh_safe = not _target_near_return_wormhole(state, cx, cy)
-    if edge_ok and wh_safe:
+    pin_safe = not _ap._target_in_pin_zone(cx, cy)
+    if edge_ok and wh_safe and pin_safe:
         return (candidate, d)
-    # Filter-fail: scan for an alternative pickup that clears both
-    # the edge AND the wormhole-proximity tests.  Falls back to the
-    # original candidate if every pickup fails -- let the blacklist
-    # + 60 s TTL handle the unreachable one.
+    # Filter-fail: scan for an alternative pickup that clears the
+    # edge AND wormhole-proximity AND pin-zone tests.  Falls back to
+    # the original candidate if every pickup fails -- let the
+    # blacklist + 60 s TTL handle the unreachable one.
     iron = state.get("iron_pickups", []) or []
     bps = state.get("blueprint_pickups", []) or []
     best = None
@@ -126,6 +127,8 @@ def _nearest_pickup(state: dict, px: float, py: float
                 or by < margin or by > world_h - margin):
             continue
         if _target_near_return_wormhole(state, bx, by):
+            continue
+        if _ap._target_in_pin_zone(bx, by):
             continue
         if _bl.pickup_is_blacklisted(
                 pu, _ap._state.pickup_blacklist, _ap._get_now):
@@ -175,11 +178,12 @@ def _nearest_asteroid(state: dict, px: float, py: float
     edge_ok = (ax >= margin and ax <= world_w - margin
                and ay >= margin and ay <= world_h - margin)
     wh_safe = not _target_near_return_wormhole(state, ax, ay)
-    if edge_ok and wh_safe:
+    pin_safe = not _ap._target_in_pin_zone(ax, ay)
+    if edge_ok and wh_safe and pin_safe:
         return (candidate, d)
-    # Filter-fail: scan asteroids list for one that clears both
-    # the edge AND the wormhole-proximity tests.  See
-    # ``_nearest_pickup`` for the wormhole filter rationale.
+    # Filter-fail: scan asteroids list for one that clears the
+    # edge AND wormhole-proximity AND pin-zone tests.  See
+    # ``_nearest_pickup`` for the filter rationale.
     asteroids = state.get("asteroids", []) or []
     best = None
     best_d = float("inf")
@@ -190,6 +194,8 @@ def _nearest_asteroid(state: dict, px: float, py: float
                 or by < margin or by > world_h - margin):
             continue
         if _target_near_return_wormhole(state, bx, by):
+            continue
+        if _ap._target_in_pin_zone(bx, by):
             continue
         if _bl.asteroid_is_blacklisted(
                 ast, _ap._state.asteroid_blacklist, _ap._get_now):

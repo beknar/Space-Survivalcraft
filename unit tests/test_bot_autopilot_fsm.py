@@ -5685,6 +5685,162 @@ class TestReturnWormholeTargetFilter:
             s, 3200.0 + outer + 1.0, 3200.0) is False
 
 
+# ── Fix (2026-05-17): pin-zone target filter ─────────────────────────
+
+class TestPinZoneTargetFilter:
+    """Every ``stuck_detected`` event records the bot's position as
+    a pin-zone anchor; target selectors then filter pickups +
+    asteroids within ``PIN_ZONE_RADIUS_PX`` of any non-expired
+    anchor for ``PIN_ZONE_TTL_S`` seconds.
+
+    Pinned by 2026-05-17 bot_io capture: 8 stuck events in 130 s at
+    (8592, 1453) in Nebula, bot frozen for 30+ s at shields=0,
+    burned 28 repair packs during the pin.  Generalizes the
+    HUNT-anchor giveup pattern to all FSM states by hooking the
+    filter at target selection rather than per-state.
+    """
+
+    def test_record_pin_zone_anchor_appends_with_ttl(
+            self, _clock, _fresh_bot_state):
+        _clock[0] = 1000.0
+        ap._record_pin_zone_anchor(123.0, 456.0, _clock[0])
+        assert len(ap._state.pin_zones) == 1
+        cx, cy, exp = ap._state.pin_zones[0]
+        assert (cx, cy) == (123.0, 456.0)
+        assert exp == 1000.0 + ap.PIN_ZONE_TTL_S
+
+    def test_record_pin_zone_anchor_evicts_expired(
+            self, _clock, _fresh_bot_state):
+        # Seed with an expired entry, then add a fresh one.
+        ap._state.pin_zones[:] = [(1.0, 1.0, 500.0)]  # exp at t=500
+        _clock[0] = 1000.0
+        ap._record_pin_zone_anchor(2.0, 2.0, _clock[0])
+        # Old expired entry evicted; new fresh entry retained.
+        assert len(ap._state.pin_zones) == 1
+        assert ap._state.pin_zones[0][:2] == (2.0, 2.0)
+
+    def test_record_pin_zone_anchor_caps_at_pin_zone_max(
+            self, _clock, _fresh_bot_state):
+        _clock[0] = 1000.0
+        # Add MAX + 1 unique anchors; list should not exceed cap.
+        for i in range(ap.PIN_ZONE_MAX + 5):
+            ap._record_pin_zone_anchor(float(i * 1000),
+                                       float(i * 1000), _clock[0])
+        assert len(ap._state.pin_zones) == ap.PIN_ZONE_MAX
+
+    def test_target_in_pin_zone_inside_radius_returns_true(
+            self, _clock, _fresh_bot_state):
+        _clock[0] = 1000.0
+        ap._state.pin_zones[:] = [
+            (5000.0, 5000.0, 1000.0 + ap.PIN_ZONE_TTL_S),
+        ]
+        # Inside radius (10 px from anchor).
+        assert ap._target_in_pin_zone(5010.0, 5000.0) is True
+        # On the edge of the radius (slightly inside).
+        assert ap._target_in_pin_zone(
+            5000.0 + ap.PIN_ZONE_RADIUS_PX - 1.0, 5000.0) is True
+
+    def test_target_in_pin_zone_outside_radius_returns_false(
+            self, _clock, _fresh_bot_state):
+        _clock[0] = 1000.0
+        ap._state.pin_zones[:] = [
+            (5000.0, 5000.0, 1000.0 + ap.PIN_ZONE_TTL_S),
+        ]
+        # Just past the radius -- not filtered.
+        assert ap._target_in_pin_zone(
+            5000.0 + ap.PIN_ZONE_RADIUS_PX + 1.0, 5000.0) is False
+
+    def test_target_in_pin_zone_ignores_expired_anchors(
+            self, _clock, _fresh_bot_state):
+        _clock[0] = 5000.0
+        # Anchor expired at t=1000, current time t=5000.
+        ap._state.pin_zones[:] = [(5000.0, 5000.0, 1000.0)]
+        assert ap._target_in_pin_zone(5010.0, 5000.0) is False
+
+    def test_empty_pin_zones_is_no_op(self, _clock, _fresh_bot_state):
+        assert ap._state.pin_zones == []
+        assert ap._target_in_pin_zone(0.0, 0.0) is False
+        assert ap._target_in_pin_zone(9999.0, 9999.0) is False
+
+    def test_nearest_pickup_skips_in_pin_zone(
+            self, _clock, _fresh_bot_state):
+        """Pickup inside an active pin zone is filtered when an
+        alternative exists outside."""
+        _clock[0] = 1000.0
+        ap._state.pin_zones[:] = [
+            (8600.0, 1450.0, 1000.0 + ap.PIN_ZONE_TTL_S),
+        ]
+        s = _state(
+            player={"x": 7000.0, "y": 3000.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            iron_pickups=[
+                {"x": 8600.0, "y": 1450.0,           # inside pin zone
+                 "item_type": "iron"},
+                {"x": 5000.0, "y": 3000.0,           # outside
+                 "item_type": "iron"},
+            ],
+            world_w=9600, world_h=9600,
+        )
+        nearest, _d = ap._nearest_pickup(s, 7000.0, 3000.0)
+        assert nearest["x"] == 5000.0  # alternative wins
+
+    def test_nearest_asteroid_skips_in_pin_zone(
+            self, _clock, _fresh_bot_state):
+        """Symmetric pin for ``_nearest_asteroid``."""
+        _clock[0] = 1000.0
+        ap._state.pin_zones[:] = [
+            (8600.0, 1450.0, 1000.0 + ap.PIN_ZONE_TTL_S),
+        ]
+        s = _state(
+            player={"x": 7000.0, "y": 3000.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            asteroids=[
+                {"x": 8600.0, "y": 1450.0, "hp": 50},  # pin zone
+                {"x": 5000.0, "y": 3000.0, "hp": 50},  # safe
+            ],
+            world_w=9600, world_h=9600,
+        )
+        nearest, _d = ap._nearest_asteroid(s, 7000.0, 3000.0)
+        assert nearest["x"] == 5000.0
+
+    def test_nearest_pickup_falls_back_when_all_in_pin_zones(
+            self, _clock, _fresh_bot_state):
+        """If every pickup is inside a pin zone, return the closest
+        anyway -- let the blacklist + stuck-watchdog handle the rest
+        rather than starving the bot of targets entirely."""
+        _clock[0] = 1000.0
+        ap._state.pin_zones[:] = [
+            (3200.0, 3200.0, 1000.0 + ap.PIN_ZONE_TTL_S),
+        ]
+        s = _state(
+            player={"x": 3500.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            iron_pickups=[
+                {"x": 3200.0, "y": 3200.0, "item_type": "iron"},
+                {"x": 3100.0, "y": 3200.0, "item_type": "iron"},
+            ],
+            world_w=9600, world_h=9600,
+        )
+        nearest, _d = ap._nearest_pickup(s, 3500.0, 3200.0)
+        assert nearest is not None  # falls back
+
+    def test_no_pin_zones_does_not_disturb_existing_behavior(
+            self, _clock, _fresh_bot_state):
+        """With ``pin_zones`` empty (a fresh session), the existing
+        edge / wormhole filters and selection order are unchanged."""
+        assert ap._state.pin_zones == []
+        s = _state(
+            player={"x": 3500.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            iron_pickups=[
+                {"x": 3200.0, "y": 3200.0, "item_type": "iron"},
+            ],
+            world_w=6400, world_h=6400,
+        )
+        nearest, _d = ap._nearest_pickup(s, 3500.0, 3200.0)
+        assert nearest["x"] == 3200.0
+
+
 # ── Fix (2026-05-06): HUNT alien edge filter ─────────────────────────
 
 class TestNearestHuntableAlienEdgeFilter:
