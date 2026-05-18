@@ -266,6 +266,49 @@ def _observe_warp_back_to_main(state: dict, p: dict, now: float) -> None:
     # The flag clears when the cascade detects the bot has left
     # MAIN again.
     _ap._state.warp_relatched_pending = True
+
+    # Re-craft / re-install prep before the next warp (2026-05-17
+    # follow-up to PRs #138 / #139 / #141).  PRs #138/#139 added
+    # a best-effort warp that bypasses the consumables + modules
+    # gates when the bot is stranded in MAIN after a return.
+    # That kept the bot from being permanently stuck, but the
+    # bot then warped UNDER-PREPARED -- captured logs showed it
+    # dying repeatedly in successive warp zones because the one-
+    # shot craft queues are exhausted by the first arc.
+    #
+    # Top up the consumable craft queue when station inventory
+    # is depleted, and re-queue any unreachable modules
+    # (dropped at a Nebula death position the bot can't reach)
+    # for re-crafting from blueprints.  The refined warp gate in
+    # ``bot_autopilot_choose.py`` defers the relaxed warp when
+    # any of CRAFT / INSTALL / EQUIP can fire -- so the bot
+    # finishes its prep before re-entering the wormholes.
+    queue = _ap._state.queue
+    has_consumables_in_station = _ap._consumables_in_station_inv(state)
+    if (not has_consumables_in_station
+            and queue.repair_packs_remaining == 0
+            and queue.shield_recharges_remaining == 0):
+        queue.repair_packs_remaining = _ap.WARP_RECRAFT_REPAIR_BATCHES
+        queue.shield_recharges_remaining = (
+            _ap.WARP_RECRAFT_SHIELD_BATCHES)
+    # Re-queue unreachable modules for re-craft.  When the bot
+    # died in Nebula and walked back to MAIN via the central
+    # wormhole, its lost modules are at the Nebula death
+    # position and unreachable from MAIN's station inv.
+    # ``_next_install_target`` returns None despite a non-empty
+    # install queue.  Add those modules back to ``modules_to_craft``
+    # so the craft cascade re-makes them from blueprints (assuming
+    # blueprints + iron are in station).
+    if (queue.modules_to_install
+            and _ap._next_install_target(state) is None):
+        for key in queue.modules_to_install:
+            if key not in queue.modules_to_craft:
+                queue.modules_to_craft.append(key)
+        # Reset the module-phase latch so the craft cascade's
+        # entry gate (2000-iron threshold) re-evaluates instead
+        # of trusting the stale started-flag.
+        queue.module_phase_started = False
+
     _ap._telemetry_log(
         "warp_after_boss_relatch_for_return",
         zone_id=zone_id,
