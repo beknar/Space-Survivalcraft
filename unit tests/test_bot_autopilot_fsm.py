@@ -9135,17 +9135,72 @@ class TestWarpRelatchPendingBestEffort:
         ap._do_auto(s, s["player"])
         assert ap._fsm["state"] == ap.S_WARP_TO_WORMHOLE
 
-    def test_modules_to_install_still_blocks_relatch_warp(
+    def test_modules_to_install_still_blocks_when_reachable(
             self, _clock, _fresh_bot_state, monkeypatch):
-        """The relatch relaxation only bypasses the consumables
-        check -- modules-to-install still blocks the warp (the
-        bot needs its modules on the ship before attempting a
-        risky unprepared warp)."""
+        """If the queued modules are in station inventory
+        (reachable), S_INSTALL still preempts S_WARP_TO_WORMHOLE
+        -- the bot installs first then warps.  The relatch
+        relaxation only kicks in when modules are UNREACHABLE
+        (e.g., dropped at a Nebula death position).  Covered by
+        ``test_modules_unreachable_lets_relatch_warp`` below.
+        """
         ap._state.boss_was_killed = True
         ap._state.warp_after_boss_done = False
         ap._state.warp_relatched_pending = True
         ap._state.queue.modules_to_install = ["broadside"]
         s = self._ready_state(zone="ZoneID.MAIN")
+        # Module is in station inventory -- reachable.
+        s["station_inventory"]["items"]["mod_broadside"] = 1
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] != ap.S_WARP_TO_WORMHOLE
+
+    def test_modules_unreachable_lets_relatch_warp(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """Captured 2026-05-17: bot's 6th relatch had
+        ``modules_to_install_left=4`` but the modules were at a
+        Nebula death position (bot returned to MAIN via the
+        central wormhole without dying).  S_INSTALL couldn't
+        fire (modules not in station inv), S_WARP_TO_WORMHOLE
+        couldn't fire (queue non-empty), bot farmed MAIN for
+        20+ minutes.
+
+        Fix: when ``warp_relatched_pending`` is True AND
+        ``_next_install_target`` returns None despite a non-empty
+        queue, the modules check is bypassed and the warp fires.
+        """
+        monkeypatch.setattr(
+            ap, "_act_warp_to_wormhole", lambda s, p: None)
+        ap._state.boss_was_killed = True
+        ap._state.warp_after_boss_done = False
+        ap._state.warp_relatched_pending = True
+        # Queue has modules but station_inventory is empty --
+        # _next_install_target returns None.
+        ap._state.queue.modules_to_install = [
+            "shield_booster", "broadside", "shield_enhancer",
+            "armor_plate"]
+        s = self._ready_state(zone="ZoneID.MAIN")
+        # Empty station inv -- modules unreachable.
+        assert s["station_inventory"]["items"] == {}
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_WARP_TO_WORMHOLE
+
+    def test_modules_unreachable_without_relatch_does_not_warp(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """Without ``warp_relatched_pending``, the modules-
+        unreachable case does NOT bypass the gate.  Initial
+        post-boss behavior is unchanged -- the gate only relaxes
+        on a relatch.
+        """
+        ap._state.boss_was_killed = True
+        ap._state.warp_after_boss_done = False
+        ap._state.warp_relatched_pending = False
+        ap._state.queue.modules_to_install = ["broadside"]
+        s = self._ready_state(zone="ZoneID.MAIN")
+        # Module not in station -- but no relatch, so gate holds.
+        s["quick_use_slots"] = [
+            {"item_type": "repair_pack", "count": 5},
+            {"item_type": "shield_recharge", "count": 5},
+        ]
         ap._do_auto(s, s["player"])
         assert ap._fsm["state"] != ap.S_WARP_TO_WORMHOLE
 
