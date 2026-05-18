@@ -458,14 +458,33 @@ def choose_next_state(state: dict, p: dict, cur: str) -> str:
             (s.get("item_type") == "shield_recharge"
              and int(s.get("count", 0)) > 0)
             for s in slots)
+        # Prep-work check (2026-05-17 follow-up to PR #141): the
+        # bot should re-craft / re-install / re-equip whatever is
+        # missing before re-entering wormholes, instead of warping
+        # under-prepared and dying.  Defer the relaxed warp gate
+        # when any prep action is available; the cascade will
+        # naturally pick CRAFT / INSTALL / EQUIP from sections
+        # 5.5 / 5.6 instead.  Only the initial post-boss warp
+        # (warp_relatched_pending == False) uses the strict
+        # have_repair AND have_shield gate.
+        can_craft = _ap._next_craft_target(state) is not None
+        can_install = _ap._next_install_target(state) is not None
+        has_consumables_unequipped = (
+            not (have_repair and have_shield)
+            and _ap._consumables_in_station_inv(state))
+        prep_work_available = (
+            can_craft or can_install or has_consumables_unequipped)
         # Initial post-boss warp requires consumables in slots.
-        # Re-warp after a return-to-MAIN relatch fires regardless
-        # of consumables (captured 2026-05-17: bot's quick-use
-        # slots get wiped on death and the one-shot consumable
-        # craft phase is already exhausted, so the strict gate
-        # leaves the bot stranded farming Zone 1 forever).  The
-        # bot's best-effort warp is preferable to no warp at all.
-        if (have_repair and have_shield) or _ap._state.warp_relatched_pending:
+        # Re-warp after a return-to-MAIN relatch fires only when
+        # there's no more prep work the bot could be doing at the
+        # station (captured 2026-05-17: bot's quick-use slots get
+        # wiped on death and the one-shot consumable craft phase
+        # is already exhausted; without the relaxation the strict
+        # gate strands the bot in MAIN forever).
+        warp_best_effort = (
+            _ap._state.warp_relatched_pending
+            and not prep_work_available)
+        if (have_repair and have_shield) or warp_best_effort:
             return _ap.S_WARP_TO_WORMHOLE
 
     # 2. ENGAGE — alien within band.  Preempts the rest.

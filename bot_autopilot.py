@@ -1077,6 +1077,15 @@ MODULE_INSTALL_QUEUE: tuple[str, ...] = (
 # cycles produces 25 repair packs and 25 shield recharges.
 REPAIR_PACK_CRAFT_BATCHES: int = 5
 SHIELD_RECHARGE_CRAFT_BATCHES: int = 5
+# Re-craft batches added to the consumable queue when the bot
+# returns to MAIN with no consumables in station inventory (2026-
+# 05-17, follow-up to PR #141).  Smaller than the initial 5
+# batches because the bot typically only needs a partial restock
+# to survive the next warp arc -- it can come back for more if
+# needed.  Each batch yields 5 consumables, so 3 batches = 15
+# repair packs / 15 shield recharges.
+WARP_RECRAFT_REPAIR_BATCHES: int = 3
+WARP_RECRAFT_SHIELD_BATCHES: int = 3
 
 
 # ── Stuck + potential-field tuning (re-exported from bot_autopilot_navigation) ──

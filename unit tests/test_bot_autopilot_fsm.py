@@ -9275,6 +9275,144 @@ class TestWarpRelatchPendingBestEffort:
         assert ap._fsm["state"] != ap.S_WARP_TO_WORMHOLE
 
 
+class TestWarpRecraftBeforeRewarp:
+    """2026-05-17 follow-up to PR #141: PRs #138 / #139 added a
+    best-effort warp that bypasses the consumables + modules gates
+    when the bot is stranded in MAIN after a return.  That kept
+    the bot from being permanently stuck, but the bot then warped
+    UNDER-PREPARED -- captured logs showed it dying repeatedly in
+    successive warp zones because the one-shot craft queues are
+    exhausted by the first arc.
+
+    Fix: the relatch observer now tops up the consumable craft
+    queue (when station inv is depleted) and re-queues unreachable
+    modules for re-crafting.  The warp cascade defers the best-
+    effort warp when any of CRAFT / INSTALL / EQUIP can fire --
+    so the bot finishes its prep before re-entering the wormholes.
+    """
+
+    @staticmethod
+    def _staged_relatch_state(zone="ZoneID.MAIN"):
+        s = _state(
+            player={"x": 4017.0, "y": 3879.0, "heading": 0.0,
+                    "shields": 80, "max_shields": 100},
+            buildings=[
+                {"x": 4000.0, "y": 4000.0,
+                 "building_type": "Home Station"},
+                {"x": 4100.0, "y": 4100.0,
+                 "building_type": "Basic Crafter"},
+            ],
+        )
+        s["zone"]["id"] = zone
+        return s
+
+    def test_relatch_tops_up_consumable_queue_when_depleted(
+            self, _clock, _fresh_bot_state):
+        """If station has no consumables AND queue counters are 0,
+        the relatch observer tops them up to the WARP_RECRAFT
+        defaults so the bot crafts more before re-warping.
+        """
+        ap._state.boss_was_killed = True
+        ap._state.warp_after_boss_done = True
+        ap._state.queue.repair_packs_remaining = 0
+        ap._state.queue.shield_recharges_remaining = 0
+        s = self._staged_relatch_state()
+        ap._observe_warp_back_to_main(s, s["player"], 0.0)
+        assert (ap._state.queue.repair_packs_remaining
+                == ap.WARP_RECRAFT_REPAIR_BATCHES)
+        assert (ap._state.queue.shield_recharges_remaining
+                == ap.WARP_RECRAFT_SHIELD_BATCHES)
+
+    def test_relatch_does_not_top_up_when_station_has_consumables(
+            self, _clock, _fresh_bot_state):
+        """If station already has consumables, don't top up the
+        queue -- the existing stash is enough."""
+        ap._state.boss_was_killed = True
+        ap._state.warp_after_boss_done = True
+        ap._state.queue.repair_packs_remaining = 0
+        ap._state.queue.shield_recharges_remaining = 0
+        s = self._staged_relatch_state()
+        # Station has consumables -- no re-craft needed.
+        s["station_inventory"]["items"]["repair_pack"] = 10
+        s["station_inventory"]["items"]["shield_recharge"] = 10
+        ap._observe_warp_back_to_main(s, s["player"], 0.0)
+        assert ap._state.queue.repair_packs_remaining == 0
+        assert ap._state.queue.shield_recharges_remaining == 0
+
+    def test_relatch_requeues_unreachable_modules_to_craft(
+            self, _clock, _fresh_bot_state):
+        """Modules in the install queue but not in station inv
+        get re-queued for crafting so the bot rebuilds them from
+        blueprints."""
+        ap._state.boss_was_killed = True
+        ap._state.warp_after_boss_done = True
+        ap._state.queue.modules_to_install = [
+            "shield_booster", "broadside"]
+        ap._state.queue.modules_to_craft.clear()
+        s = self._staged_relatch_state()
+        # Station inv is empty -- modules unreachable.
+        ap._observe_warp_back_to_main(s, s["player"], 0.0)
+        # Modules re-added to craft queue.
+        assert "shield_booster" in ap._state.queue.modules_to_craft
+        assert "broadside" in ap._state.queue.modules_to_craft
+
+    def test_relatch_does_not_requeue_when_modules_reachable(
+            self, _clock, _fresh_bot_state):
+        """If the install target IS reachable (modules in station),
+        don't re-queue for crafting -- just install the existing
+        copies."""
+        ap._state.boss_was_killed = True
+        ap._state.warp_after_boss_done = True
+        ap._state.queue.modules_to_install = ["broadside"]
+        ap._state.queue.modules_to_craft.clear()
+        s = self._staged_relatch_state()
+        # Module IS in station -- reachable for install.
+        s["station_inventory"]["items"]["mod_broadside"] = 1
+        ap._observe_warp_back_to_main(s, s["player"], 0.0)
+        # No re-queue -- existing copy will be installed.
+        assert ap._state.queue.modules_to_craft == []
+
+    def test_warp_defers_when_consumables_in_station_unequipped(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """Bot has consumables in station but slots are empty.
+        Warp cascade defers so the EQUIP cascade can fire."""
+        ap._state.boss_was_killed = True
+        ap._state.warp_after_boss_done = False
+        ap._state.warp_relatched_pending = True
+        ap._state.queue.modules_to_install = []
+        s = self._staged_relatch_state()
+        # Station has consumables; quick_use slots empty.
+        s["station_inventory"]["items"]["repair_pack"] = 10
+        s["station_inventory"]["items"]["shield_recharge"] = 10
+        ap._do_auto(s, s["player"])
+        # Warp deferred -- EQUIP work available.
+        assert ap._fsm["state"] != ap.S_WARP_TO_WORMHOLE
+
+    def test_warp_fires_when_no_prep_work_available(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """When truly nothing to do at station (no craft, no
+        install, no equip), the best-effort warp fires."""
+        monkeypatch.setattr(
+            ap, "_act_warp_to_wormhole", lambda s, p: None)
+        ap._state.boss_was_killed = True
+        ap._state.warp_after_boss_done = False
+        ap._state.warp_relatched_pending = True
+        ap._state.queue.modules_to_install = []
+        ap._state.queue.modules_to_craft.clear()
+        ap._state.queue.repair_packs_remaining = 0
+        ap._state.queue.shield_recharges_remaining = 0
+        ap._state.queue.consumable_phase_started = True
+        s = self._staged_relatch_state()
+        # Empty station + empty queue + no install + no consumables
+        # in slots -- nothing prep can do.  Warp fires.
+        s["wormholes"] = [
+            {"x": 200.0, "y": 200.0,
+             "zone_target": "ZoneID.WARP_METEOR"},
+        ]
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_WARP_TO_WORMHOLE
+
+
 class TestBossKilledLatchInEngageEndEdge:
     """``boss_was_killed`` flips True on ``boss_engage_end`` with
     outcome=boss_killed, sticky for the session."""
