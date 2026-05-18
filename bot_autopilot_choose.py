@@ -428,11 +428,27 @@ def choose_next_state(state: dict, p: dict, cur: str) -> str:
             "warp_after_boss_complete",
             zone_id=zone_id,
             **_ap._telemetry_snapshot_fields(state, p))
+    # Modules-to-install gate (2026-05-17 follow-up): the queue
+    # blocks the warp by default, but if the queue is non-empty AND
+    # ``_next_install_target`` returns None, the modules have been
+    # queued from a prior death but aren't reachable from this
+    # zone's station inventory (e.g. modules dropped at a Nebula
+    # death position, bot returned to MAIN via the central return
+    # wormhole without dying).  In that case S_INSTALL can't drain
+    # the queue either, so blocking on it strands the bot in MAIN
+    # forever.  Relax the gate alongside the consumables relaxation
+    # when ``warp_relatched_pending`` is True.
+    modules_unreachable = (
+        bool(_ap._state.queue.modules_to_install)
+        and _ap._next_install_target(state) is None)
+    modules_gate_ok = (
+        not _ap._state.queue.modules_to_install
+        or (_ap._state.warp_relatched_pending and modules_unreachable))
     if (boss_killed_signal
             and not _ap._state.warp_after_boss_done
             and in_main_zone
             and not _ap._state.death_recovery_pending
-            and not _ap._state.queue.modules_to_install):
+            and modules_gate_ok):
         slots = state.get("quick_use_slots") or []
         have_repair = any(
             (s.get("item_type") == "repair_pack"
