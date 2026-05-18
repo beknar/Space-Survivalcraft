@@ -500,6 +500,101 @@ class TestRegenEscapeValveFastDrop:
             "hysteresis -- 1.5 s timer still rules")
 
 
+class TestRegenEscapeValveWarpZone:
+    """2026-05-17: warp zones (METEOR / LIGHTNING / GAS / ENEMY)
+    have ENVIRONMENTAL damage but no alien threat objects, so the
+    existing threatened+stalled escape valve doesn't fire.  REGEN's
+    default action is _do_idle, so the bot bleeds out from meteor /
+    gas / lightning damage with no way to escape.
+
+    Captured pathology: bot died at y=5266 in WARP_METEOR after
+    20 s of REGEN-idle with shields oscillating 4-39.  Bot only
+    needed to push ~1100 px further north to exit.
+
+    Fix: escape valve also fires when bot is in a warp zone AND
+    shields stalled, regardless of threat.  Cascade then re-routes
+    to S_WARP_TRAVERSE which drives the bot toward the arrival band.
+    """
+
+    @staticmethod
+    def _staged_regen_state(zone_id):
+        ap._fsm["state"] = ap.S_REGEN
+        ap._fsm["entered_at"] = 0.0
+        # Stalled regen: shields oscillating but never recovering.
+        ap._state.last_regen_shields = 30
+        ap._state.last_regen_progress_at = 0.0
+        s = _state(
+            player={"x": 1600.0, "y": 5266.0, "heading": 0.0,
+                    "shields": 5, "max_shields": 120},
+            world_w=3200, world_h=6400,
+        )
+        s["zone"]["id"] = zone_id
+        return s
+
+    def test_regen_exits_when_stalled_in_warp_zone(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """Bot stalled in REGEN inside WARP_METEOR with shields
+        oscillating + no alien threat.  Escape valve must fire so
+        the cascade can re-route to S_WARP_TRAVERSE."""
+        monkeypatch.setattr(ap, "_act_warp_traverse", lambda s, p: None)
+        # Set the post-boss + traverse latches so the cascade can
+        # actually pick S_WARP_TRAVERSE after REGEN exits.
+        ap._state.boss_was_killed = True
+        ap._state.warp_after_boss_done = True
+        ap._state.warp_traverse_done = False
+        _clock[0] = 100.0  # advance past REGEN_NO_PROGRESS_TIMEOUT
+        s = self._staged_regen_state("ZoneID.WARP_METEOR")
+        ap._do_auto(s, s["player"])
+        # Escape valve fired -- bot is now in S_WARP_TRAVERSE,
+        # not S_REGEN.
+        assert ap._fsm["state"] == ap.S_WARP_TRAVERSE
+
+    def test_regen_stays_in_main_with_no_threat(
+            self, _clock, _fresh_bot_state):
+        """Bot stalled in REGEN in MAIN with no threat.  Without a
+        threat AND not in a warp zone, the bot stays in REGEN --
+        the warp-zone relaxation does NOT affect MAIN behavior."""
+        _clock[0] = 100.0  # advance past timeout
+        s = self._staged_regen_state("ZoneID.MAIN")
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_REGEN
+
+    def test_regen_exits_in_warp_gas_zone(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """Mirror of the METEOR case for WARP_GAS.  Same
+        environmental-damage mechanic, same fix applies."""
+        monkeypatch.setattr(ap, "_act_warp_traverse", lambda s, p: None)
+        ap._state.boss_was_killed = True
+        ap._state.warp_after_boss_done = True
+        ap._state.warp_traverse_done = False
+        _clock[0] = 100.0
+        s = self._staged_regen_state("ZoneID.WARP_GAS")
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_WARP_TRAVERSE
+
+    def test_regen_stays_when_not_stalled_in_warp_zone(
+            self, _clock, _fresh_bot_state):
+        """If shields ARE recovering in a warp zone (e.g. heal
+        cooldown is winning), stay in REGEN -- the relaxation only
+        kicks in when shields are stalled."""
+        ap._fsm["state"] = ap.S_REGEN
+        ap._fsm["entered_at"] = 0.0
+        ap._state.last_regen_shields = 5
+        ap._state.last_regen_progress_at = 100.0
+        _clock[0] = 100.1   # only 0.1 s since last progress
+        s = _state(
+            player={"x": 1600.0, "y": 5266.0, "heading": 0.0,
+                    "shields": 30, "max_shields": 120},
+            world_w=3200, world_h=6400,
+        )
+        s["zone"]["id"] = "ZoneID.WARP_METEOR"
+        # Shields gained from 5 -> 30 just now: timer reset.
+        # Stalled gate (1.5 s or 20 px drop) hasn't fired.
+        ap._do_auto(s, s["player"])
+        # Stay in REGEN -- shields are recovering.
+        assert ap._fsm["state"] == ap.S_REGEN
+
+
 # ── REGEN entry-side mirror (2026-05-04 anti-thrash) ─────────────────
 
 class TestRegenEntryWhileThreatenedSuppressed:

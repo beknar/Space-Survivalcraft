@@ -234,12 +234,27 @@ def choose_next_state(state: dict, p: dict, cur: str) -> str:
                 or shields_dropped_px >= _ap.REGEN_FAST_DROP_PX)
             threatened = (threat is not None
                           and td < _ap.ENGAGE_ENTER_PX)
-            if threatened and shields_stalled:
-                # Escape valve — sustained no-progress while
-                # threatened means we're truly deadlocked.  Let
-                # priority cascade pick ENGAGE (or whatever fits).
-                # Don't update trackers so a future REGEN re-entry
-                # starts fresh.
+            # Warp-zone escape (2026-05-17): captured pathology --
+            # bot died at y=5266 in WARP_METEOR after 20 s of REGEN
+            # idle with shields oscillating 4-39.  Warp zones have
+            # ENVIRONMENTAL damage (meteors, gas, lightning bolts)
+            # but no alien threat objects, so the threatened+stalled
+            # gate never fires.  REGEN's default action is _do_idle
+            # while environmental damage chews through whatever the
+            # heal-shield cooldown can recover -- bot bleeds out.
+            # Exit REGEN regardless of threat when shields are
+            # stalled in a warp zone so the cascade re-routes to
+            # S_WARP_TRAVERSE and the bot keeps driving north
+            # toward the arrival band.
+            zone_id = str((state.get("zone") or {}).get("id", ""))
+            in_warp_zone = "WARP" in zone_id
+            if (threatened or in_warp_zone) and shields_stalled:
+                # Escape valve — sustained no-progress under threat
+                # OR in a warp zone with environmental damage means
+                # we're truly deadlocked.  Let priority cascade pick
+                # ENGAGE / WARP_TRAVERSE (or whatever fits).  Don't
+                # update trackers so a future REGEN re-entry starts
+                # fresh.
                 pass
             else:
                 return _ap.S_REGEN
