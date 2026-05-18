@@ -8728,19 +8728,19 @@ class TestWarpTraverseFsmExitTelemetry:
 
     def test_observer_emits_arc_completed_outcome_interrupted(
             self, _clock, _fresh_bot_state, monkeypatch):
-        """Bot exited warp_traverse with max_y BELOW the crossed
-        threshold (e.g. preempted by REGEN, death, ENGAGE) ->
-        outcome=interrupted."""
+        """Bot exited the warp zone (zone_id changed from WARP_*
+        to MAIN, e.g. died and respawned) with max_y BELOW the
+        crossed threshold -> outcome=interrupted."""
         events = self._capture_telemetry(monkeypatch)
         ap._state.warp_traverse_arc_started_at = 1000.0
         ap._state.warp_traverse_max_y = 3000.0  # well below threshold
-        ap._fsm["state"] = ap.S_REGEN
+        ap._fsm["state"] = ap.S_RECOVER_LOOT  # post-death recovery
         s = _state(
-            player={"x": 1600.0, "y": 3000.0, "heading": 0.0,
+            player={"x": 4017.0, "y": 3879.0, "heading": 0.0,
                     "shields": 0, "max_shields": 150},
-            world_w=3200, world_h=6400,
         )
-        s["zone"]["id"] = "ZoneID.WARP_GAS"
+        # Bot is back in MAIN after dying in the warp zone.
+        s["zone"]["id"] = "ZoneID.MAIN"
         _clock[0] = 1200.0
         ap._observe_warp_traverse_arc_complete(
             s, s["player"], _clock[0])
@@ -8796,6 +8796,76 @@ class TestWarpTraverseFsmExitTelemetry:
             s, s["player"], 1100.0)
         kinds = [ev for ev, _ in events]
         assert "warp_traverse_arc_completed" not in kinds
+
+    def test_observer_noop_during_regen_in_warp_zone(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """Captured 2026-05-17 regression: PR #137's observer fired
+        arc_completed every time the FSM transitioned warp_traverse
+        -> regen within the same warp zone, resetting arc_started_at
+        and indirectly resetting every per-arc tracker on the next
+        regen -> traverse re-entry.  This disabled PR #134's
+        persistent detour side.
+
+        Fix: observer no-ops while ``"WARP" in zone_id``.  Only
+        actual zone exits (zone-cross to ZONE2, death-respawn to
+        MAIN) count as arc completion.
+        """
+        events = self._capture_telemetry(monkeypatch)
+        ap._state.warp_traverse_arc_started_at = 1000.0
+        ap._state.warp_traverse_max_y = 3000.0
+        ap._state.warp_traverse_detour_count = 1
+        ap._state.warp_traverse_detour_side = 1
+        ap._fsm["state"] = ap.S_REGEN  # paused for shield recovery
+        s = _state(
+            player={"x": 1600.0, "y": 3000.0, "heading": 0.0,
+                    "shields": 0, "max_shields": 150},
+            world_w=3200, world_h=6400,
+        )
+        s["zone"]["id"] = "ZoneID.WARP_GAS"  # still in warp zone
+        ap._observe_warp_traverse_arc_complete(
+            s, s["player"], 1200.0)
+        kinds = [ev for ev, _ in events]
+        assert "warp_traverse_arc_completed" not in kinds
+        # All per-arc trackers preserved across the regen pause.
+        assert ap._state.warp_traverse_arc_started_at == 1000.0
+        assert ap._state.warp_traverse_max_y == 3000.0
+        assert ap._state.warp_traverse_detour_count == 1
+        assert ap._state.warp_traverse_detour_side == 1
+
+    def test_observer_fires_on_zone_cross_to_nebula(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """Bot crossed the warp zone (max_y near top) and the game's
+        auto-zone-transition moved it to ZONE2.  Observer fires
+        with outcome=crossed."""
+        events = self._capture_telemetry(monkeypatch)
+        ap._state.warp_traverse_arc_started_at = 1000.0
+        ap._state.warp_traverse_max_y = 6300.0
+        ap._fsm["state"] = ap.S_SEARCH
+        s = _state(world_w=9600, world_h=9600)
+        s["zone"]["id"] = "ZoneID.ZONE2"  # no longer WARP
+        ap._observe_warp_traverse_arc_complete(
+            s, s["player"], 1100.0)
+        arc = next(kw for ev, kw in events
+                   if ev == "warp_traverse_arc_completed")
+        assert arc.get("outcome") == "crossed"
+
+    def test_observer_fires_on_death_respawn_to_main(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """Bot died in the warp zone, respawned in MAIN.  Observer
+        fires with outcome=interrupted."""
+        events = self._capture_telemetry(monkeypatch)
+        ap._state.warp_traverse_arc_started_at = 1000.0
+        ap._state.warp_traverse_max_y = 2500.0  # didn't cross
+        ap._fsm["state"] = ap.S_RECOVER_LOOT
+        s = _state(world_w=6400, world_h=6400)
+        s["zone"]["id"] = "ZoneID.MAIN"  # respawn target
+        ap._observe_warp_traverse_arc_complete(
+            s, s["player"], 1050.0)
+        arc = next(kw for ev, kw in events
+                   if ev == "warp_traverse_arc_completed")
+        assert arc.get("outcome") == "interrupted"
+        # Trackers consumed so the next arc starts fresh.
+        assert ap._state.warp_traverse_arc_started_at == 0.0
 
 
 class TestWarpTraverseSpuriousArcStartedGuard:

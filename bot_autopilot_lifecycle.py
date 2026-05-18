@@ -307,6 +307,28 @@ def _observe_warp_traverse_arc_complete(state: dict, p: dict,
     if _ap._fsm["state"] == _ap.S_WARP_TRAVERSE:
         return
     zone_id = str((state.get("zone") or {}).get("id", ""))
+    # The FSM leaving warp_traverse for regen / engage / death-
+    # recovery while the bot is STILL in a warp zone is a pause,
+    # not a completed arc.  Captured 2026-05-17 (post-PR-#137):
+    # the observer was firing arc_completed on every traverse ->
+    # regen oscillation, resetting ``arc_started_at`` to 0.0, and
+    # the next regen -> traverse re-entry tripped the action
+    # handler's first-ever-arc detection (``arc_started_at == 0.0
+    # AND py < world_h/2``), which then ALSO reset every
+    # per-arc tracker (max_y, progress_at, detour_count,
+    # detour_side, detour_commit_y).  PR #134's persistent detour
+    # side was effectively disabled: a single 25-s no-progress
+    # detour fire was wiped out by the next regen interlude,
+    # leaving the bot oscillating forever.
+    #
+    # Gating on ``"WARP" not in zone_id`` keeps the observer firing
+    # only on actual zone transitions (auto-zone-transition past
+    # the arrival band, death-respawn to MAIN, accidental walk
+    # back through the Nebula central wormhole).  Regen interludes
+    # within the same warp zone leave the trackers intact so the
+    # detour can accumulate enough no-progress time to fire.
+    if "WARP" in zone_id:
+        return
     arc_duration_s = now - _ap._state.warp_traverse_arc_started_at
     crossed = (_ap._state.warp_traverse_max_y
                >= _ap.WARP_TRAVERSE_CROSSED_MAX_Y_PX)
