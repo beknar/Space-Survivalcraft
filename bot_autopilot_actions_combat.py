@@ -470,6 +470,47 @@ def _act_regen(state: dict, p: dict) -> None:
     _ap._do_goto(state, p, tx, ty, stop_radius=120.0)
 
 
+def _act_flee_gas(state: dict, p: dict) -> None:
+    """FLEE_GAS: drive out of the damaging gas cloud the bot is
+    currently inside.  Same ray-out math as ``_act_regen``'s gas
+    branch -- target a point past the cloud edge by
+    ``REGEN_GAS_ESCAPE_MARGIN_PX`` on the cloud-centre -> bot ray,
+    so the bot exits the field rather than hugging it.
+
+    Pre-fix the gas escape only fired when the bot was already in
+    S_REGEN.  Captured 2026-05-18 telemetry: bot in S_ENGAGE inside
+    a WARP_GAS cloud at (3823, 3089), shields drained 18 -> 0 over
+    ~3 s of stuck_detected events while it fought an alien
+    standing in the same cloud.  This handler runs whenever
+    ``choose_next_state`` routes us to S_FLEE_GAS regardless of
+    what the bot would otherwise be doing.
+    """
+    px = float(p.get("x", 0.0))
+    py = float(p.get("y", 0.0))
+    inside_cloud = _gas_cloud_at(state, px, py)
+    if inside_cloud is None:
+        # Defensive: caller (choose_next_state) only routes here
+        # when inside a cloud.  If state shifted between tick and
+        # handler dispatch, just idle for one tick -- next tick's
+        # choose will route us out of S_FLEE_GAS.
+        _ap._do_idle()
+        return
+    cx, cy, radius = inside_cloud
+    dx = px - cx
+    dy = py - cy
+    d = math.hypot(dx, dy)
+    if d < 1.0:
+        dx, dy, d = 1.0, 0.0, 1.0
+    ux, uy = dx / d, dy / d
+    target_dist = radius + _ap.REGEN_GAS_ESCAPE_MARGIN_PX
+    tx = cx + ux * target_dist
+    ty = cy + uy * target_dist
+    zone = state.get("zone") or {}
+    tx, ty, _ = _nav.clamp_to_world(tx, ty, zone)
+    _ap.KeyState.hold("space", False)
+    _ap._do_goto(state, p, tx, ty, stop_radius=80.0)
+
+
 def _gas_cloud_at(state: dict, px: float, py: float):
     """Return ``(cx, cy, radius)`` of the first gas cloud whose
     interior contains ``(px, py)``, or ``None`` if the bot is

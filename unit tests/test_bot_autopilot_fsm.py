@@ -12059,3 +12059,204 @@ class TestEngageBossDodgeTelemetry:
         dodge_events = [e for (e, _) in events
                         if e == "engage_boss_dodge"]
         assert dodge_events == []
+
+
+# ── FLEE_GAS (2026-05-18) ────────────────────────────────────────────────
+
+
+class TestFleeGasFSM:
+    """Pin the new S_FLEE_GAS state: when the bot is inside a
+    damaging gas cloud, FSM must preempt productive states
+    (ENGAGE, MINE, GATHER, HUNT, ENGAGE_BOSS, WARP_TRAVERSE) and
+    drive the bot out of the cloud.
+
+    Captured pathology (2026-05-18 autopilot_telemetry.jsonl):
+    bot in S_ENGAGE inside WARP_GAS at (3823, 3089), shields
+    drained 18 -> 0 over 3 s of stuck_detected events while it
+    fought an alien standing in the same cloud.  Pre-fix the
+    only gas-escape lived inside ``_act_regen`` so non-REGEN
+    states sat in the damage field.
+    """
+
+    def _gas_state(self, **overrides):
+        """Build a state dict with a gas cloud at (0, 0) and the
+        player inside it.  Overrides let individual tests change
+        player position, aliens, shields, etc."""
+        s = _state(**{k: v for k, v in overrides.items()
+                      if k != "gas_areas"})
+        s["gas_areas"] = overrides.get("gas_areas",
+                                       [{"x": 0.0, "y": 0.0,
+                                         "radius": 200.0}])
+        return s
+
+    def test_inside_gas_with_alien_nearby_picks_flee_gas_over_engage(
+            self, _clock):
+        """The exact captured scenario: alien in engage range,
+        bot inside a gas cloud.  Pre-fix the bot picked ENGAGE
+        and bled out.  Post-fix S_FLEE_GAS preempts."""
+        s = self._gas_state(
+            player={"x": 50.0, "y": 0.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            aliens=[{"x": 100.0, "y": 0.0, "hp": 50}],
+        )
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_FLEE_GAS
+
+    def test_inside_gas_with_asteroid_picks_flee_gas_over_mine(
+            self, _clock):
+        s = self._gas_state(
+            player={"x": 50.0, "y": 0.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            asteroids=[{"x": 80.0, "y": 0.0, "hp": 100}],
+        )
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_FLEE_GAS
+
+    def test_inside_gas_with_pickup_picks_flee_gas_over_gather(
+            self, _clock):
+        s = self._gas_state(
+            player={"x": 50.0, "y": 0.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            iron_pickups=[{"x": 60.0, "y": 0.0}],
+        )
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_FLEE_GAS
+
+    def test_outside_gas_does_not_pick_flee_gas(self, _clock):
+        """Bot at (500, 0), gas cloud at origin with 200 px
+        radius — bot is well clear, FSM picks the normal
+        productive state (MINE on the visible asteroid)."""
+        s = self._gas_state(
+            player={"x": 500.0, "y": 0.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            asteroids=[{"x": 600.0, "y": 0.0, "hp": 100}],
+        )
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] != ap.S_FLEE_GAS
+
+    def test_inside_gas_with_low_shields_picks_regen_not_flee(
+            self, _clock):
+        """REGEN must still preempt FLEE_GAS: shields below 40 %
+        is the more urgent defensive interrupt, and
+        ``_act_regen`` already has its own gas-escape ramp."""
+        s = self._gas_state(
+            player={"x": 50.0, "y": 0.0, "heading": 0.0,
+                    "shields": 30, "max_shields": 150},   # 20 %
+        )
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_REGEN
+
+    def test_no_gas_in_state_does_not_pick_flee(self, _clock):
+        """If the ``gas_areas`` key is missing from state
+        (older API, MAIN zone) the FSM never picks FLEE_GAS
+        even at the world origin."""
+        s = _state(
+            player={"x": 0.0, "y": 0.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            asteroids=[{"x": 80.0, "y": 0.0, "hp": 100}],
+        )
+        assert "gas_areas" not in s
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] != ap.S_FLEE_GAS
+
+    def test_flee_gas_preempts_engage_boss_when_in_cloud(
+            self, _clock):
+        """Boss alive + inside a gas cloud: FLEE_GAS preempts
+        the boss fight.  Sitting in gas during a boss fight just
+        compounds boss DPS with gas DPS; better to step out.
+        The boss won't despawn -- next tick post-escape the
+        cascade re-enters ENGAGE_BOSS automatically."""
+        s = self._gas_state(
+            player={"x": 50.0, "y": 0.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            buildings=[{"building_type": "Home Station",
+                        "x": 1000.0, "y": 0.0, "hp": 1000}],
+        )
+        s["boss"] = {"x": 300.0, "y": 0.0, "hp": 500, "phase": 1}
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_FLEE_GAS
+
+    def test_flee_gas_exits_when_bot_leaves_cloud(self, _clock):
+        """Enter FLEE_GAS while inside, then simulate the bot
+        driving out.  After MIN_DWELL_S the FSM transitions out
+        -- proves the state isn't sticky once the gas no longer
+        surrounds the bot."""
+        s = self._gas_state(
+            player={"x": 50.0, "y": 0.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            asteroids=[{"x": 500.0, "y": 0.0, "hp": 100}],
+        )
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_FLEE_GAS
+        # Bot drives clear of the cloud; advance past MIN_DWELL
+        # so the FSM is free to transition.
+        s["player"]["x"] = 500.0
+        _clock[0] += ap.MIN_DWELL_S + 0.1
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] != ap.S_FLEE_GAS
+
+
+class TestFleeGasActionHandler:
+    """The action handler must drive the bot along the cloud-
+    centre -> bot ray, targeting a point past the cloud edge by
+    REGEN_GAS_ESCAPE_MARGIN_PX so the bot exits the field, not
+    hugs it."""
+
+    def test_handler_targets_past_cloud_edge_on_ray(
+            self, monkeypatch):
+        """Cloud at (3000, 3000) radius 200; bot at (3100, 3000);
+        ray is +X, target sits at +X past edge by margin.  Used
+        a world-interior position so ``clamp_to_world`` doesn't
+        push the y target away from the world edge."""
+        goto_calls: list = []
+        monkeypatch.setattr(
+            ap, "_do_goto",
+            lambda state, p, tx, ty, stop_radius=80.0:
+                goto_calls.append((tx, ty, stop_radius)))
+
+        class _FakeKey:
+            @staticmethod
+            def hold(name, on): pass
+
+        monkeypatch.setattr(ap, "KeyState", _FakeKey)
+        s = _state(
+            player={"x": 3100.0, "y": 3000.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+        )
+        s["gas_areas"] = [{"x": 3000.0, "y": 3000.0,
+                           "radius": 200.0}]
+        ap._act_flee_gas(s, s["player"])
+        assert len(goto_calls) == 1
+        tx, ty, _ = goto_calls[0]
+        expected_dx = 200.0 + ap.REGEN_GAS_ESCAPE_MARGIN_PX
+        assert tx == pytest.approx(3000.0 + expected_dx)
+        assert ty == pytest.approx(3000.0)
+
+    def test_handler_idles_when_no_longer_in_cloud(
+            self, monkeypatch):
+        """Defensive: if state shifted between FSM tick and
+        handler dispatch (cloud popped, bot moved out), the
+        handler must not crash -- just idle and let the next
+        tick's choose route us out."""
+        idle_calls = [0]
+        monkeypatch.setattr(
+            ap, "_do_idle", lambda: idle_calls.__setitem__(
+                0, idle_calls[0] + 1))
+        goto_calls: list = []
+        monkeypatch.setattr(
+            ap, "_do_goto",
+            lambda *a, **kw: goto_calls.append(a))
+
+        class _FakeKey:
+            @staticmethod
+            def hold(name, on): pass
+
+        monkeypatch.setattr(ap, "KeyState", _FakeKey)
+        s = _state(
+            player={"x": 5000.0, "y": 5000.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+        )
+        s["gas_areas"] = [{"x": 0.0, "y": 0.0, "radius": 200.0}]
+        ap._act_flee_gas(s, s["player"])
+        assert idle_calls[0] == 1
+        assert goto_calls == []

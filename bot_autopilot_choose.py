@@ -292,6 +292,28 @@ def choose_next_state(state: dict, p: dict, cur: str) -> str:
                 _ap._state.last_regen_progress_at = _ap._get_now()
                 return _ap.S_REGEN
 
+    # 1.1 FLEE_GAS (2026-05-18) — bot is sitting inside a damaging
+    #     gas cloud.  Captured pathology: in S_ENGAGE at (3823, 3089)
+    #     inside WARP_GAS, shields drained 18 -> 0 over 3 s while the
+    #     bot fought an alien standing in the same cloud.  Pre-fix
+    #     the only gas-escape lived inside ``_act_regen``, so any
+    #     non-REGEN state (ENGAGE, MINE, GATHER, HUNT, ENGAGE_BOSS,
+    #     WARP_TRAVERSE, ...) let the bot bleed out.
+    #
+    #     Priority below REGEN (which has its own gas-escape ramp
+    #     and is the more urgent defensive interrupt when shields
+    #     are collapsing) but above every productive state.  The
+    #     action handler drives along the cloud-centre -> bot ray
+    #     past the cloud edge by ``REGEN_GAS_ESCAPE_MARGIN_PX`` --
+    #     same math ``_act_regen`` already uses.
+    #
+    #     No threat check: gas damage applies even when no aliens
+    #     are around (WARP_GAS, parts of the Nebula), and a kiting
+    #     alien in the same cloud is exactly the scenario that
+    #     triggered the user report.
+    if _ap._gas_cloud_at(state, px, py) is not None:
+        return _ap.S_FLEE_GAS
+
     now = _ap._get_now()
 
     # 1.4  RECOVER_LOOT — after the bot just died, navigate back to
