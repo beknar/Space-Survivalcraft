@@ -202,6 +202,9 @@ class _MiniAlien(arcade.Sprite):
         self._fire_cd: float = random.uniform(0, _MINI_FIRE_CD)
         self._heading: float = random.uniform(0, 360)
 
+    def take_damage(self, amount: int) -> None:
+        self.hp -= amount
+
     def update_mini(self, dt: float, px: float, py: float):
         """Simple pursue AI — move toward player and fire."""
 
