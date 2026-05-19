@@ -487,12 +487,22 @@ def _act_flee_gas(state: dict, p: dict) -> None:
     """
     px = float(p.get("x", 0.0))
     py = float(p.get("y", 0.0))
-    inside_cloud = _gas_cloud_at(state, px, py)
+    # Use the same exit-hysteresis margin as ``choose_next_state``
+    # so the handler keeps driving the bot out across the entire
+    # hysteresis band, not just while strictly inside the cloud.
+    # Without this the bot crosses the strict edge, the strict
+    # ``_gas_cloud_at`` returns None, the defensive idle below
+    # releases all keys, and the bot drifts in the hysteresis band
+    # while FSM still holds S_FLEE_GAS -- making no progress
+    # toward the escape target.
+    inside_cloud = _gas_cloud_at(state, px, py,
+                                 _ap.FLEE_GAS_EXIT_MARGIN_PX)
     if inside_cloud is None:
-        # Defensive: caller (choose_next_state) only routes here
-        # when inside a cloud.  If state shifted between tick and
-        # handler dispatch, just idle for one tick -- next tick's
-        # choose will route us out of S_FLEE_GAS.
+        # Defensive: choose only routes here when within
+        # ``FLEE_GAS_EXIT_MARGIN_PX`` of a cloud edge.  If state
+        # shifted between tick and handler dispatch (cloud popped,
+        # bot teleported, etc.) just idle for one tick -- next
+        # tick's choose will route us out of S_FLEE_GAS.
         _ap._do_idle()
         return
     cx, cy, radius = inside_cloud

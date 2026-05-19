@@ -12313,3 +12313,49 @@ class TestFleeGasActionHandler:
         ap._act_flee_gas(s, s["player"])
         assert idle_calls[0] == 1
         assert goto_calls == []
+
+    def test_handler_drives_through_hysteresis_band(
+            self, monkeypatch):
+        """When the bot is past the strict cloud edge but still
+        within ``FLEE_GAS_EXIT_MARGIN_PX``, the handler must
+        keep driving toward the escape target -- not idle.
+        Otherwise the bot crosses the boundary, the handler
+        releases all keys, and the bot drifts in the hysteresis
+        band making no further progress.
+
+        Cloud at (3000, 3000) radius 200; bot at (3250, 3000) is
+        50 px past the strict edge but inside the 100 px exit
+        margin.  Handler must still call _do_goto, not _do_idle.
+        """
+        idle_calls = [0]
+        monkeypatch.setattr(
+            ap, "_do_idle", lambda: idle_calls.__setitem__(
+                0, idle_calls[0] + 1))
+        goto_calls: list = []
+        monkeypatch.setattr(
+            ap, "_do_goto",
+            lambda state, p, tx, ty, stop_radius=80.0:
+                goto_calls.append((tx, ty)))
+
+        class _FakeKey:
+            @staticmethod
+            def hold(name, on): pass
+
+        monkeypatch.setattr(ap, "KeyState", _FakeKey)
+        s = _state(
+            player={"x": 3250.0, "y": 3000.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+        )
+        s["gas_areas"] = [{"x": 3000.0, "y": 3000.0,
+                           "radius": 200.0}]
+        ap._act_flee_gas(s, s["player"])
+        assert idle_calls[0] == 0, (
+            "handler must not idle while in the hysteresis band")
+        assert len(goto_calls) == 1
+        # Drive target sits past the strict cloud edge by
+        # REGEN_GAS_ESCAPE_MARGIN_PX, regardless of where in the
+        # band the bot started.
+        tx, ty = goto_calls[0]
+        expected_dx = 200.0 + ap.REGEN_GAS_ESCAPE_MARGIN_PX
+        assert tx == pytest.approx(3000.0 + expected_dx)
+        assert ty == pytest.approx(3000.0)
