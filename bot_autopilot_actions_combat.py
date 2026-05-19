@@ -487,12 +487,22 @@ def _act_flee_gas(state: dict, p: dict) -> None:
     """
     px = float(p.get("x", 0.0))
     py = float(p.get("y", 0.0))
-    inside_cloud = _gas_cloud_at(state, px, py)
+    # Use the same exit-hysteresis margin as ``choose_next_state``
+    # so the handler keeps driving the bot out across the entire
+    # hysteresis band, not just while strictly inside the cloud.
+    # Without this the bot crosses the strict edge, the strict
+    # ``_gas_cloud_at`` returns None, the defensive idle below
+    # releases all keys, and the bot drifts in the hysteresis band
+    # while FSM still holds S_FLEE_GAS -- making no progress
+    # toward the escape target.
+    inside_cloud = _gas_cloud_at(state, px, py,
+                                 _ap.FLEE_GAS_EXIT_MARGIN_PX)
     if inside_cloud is None:
-        # Defensive: caller (choose_next_state) only routes here
-        # when inside a cloud.  If state shifted between tick and
-        # handler dispatch, just idle for one tick -- next tick's
-        # choose will route us out of S_FLEE_GAS.
+        # Defensive: choose only routes here when within
+        # ``FLEE_GAS_EXIT_MARGIN_PX`` of a cloud edge.  If state
+        # shifted between tick and handler dispatch (cloud popped,
+        # bot teleported, etc.) just idle for one tick -- next
+        # tick's choose will route us out of S_FLEE_GAS.
         _ap._do_idle()
         return
     cx, cy, radius = inside_cloud
@@ -511,19 +521,32 @@ def _act_flee_gas(state: dict, p: dict) -> None:
     _ap._do_goto(state, p, tx, ty, stop_radius=80.0)
 
 
-def _gas_cloud_at(state: dict, px: float, py: float):
+def _gas_cloud_at(state: dict, px: float, py: float,
+                  extra_radius: float = 0.0):
     """Return ``(cx, cy, radius)`` of the first gas cloud whose
     interior contains ``(px, py)``, or ``None`` if the bot is
-    in clear space.  Helper for ``_act_regen``'s gas-escape
-    branch.  Lists are short (typically <50 entries) so the
-    linear scan is cheap; mirrors the per-cloud loop in
-    ``gas_repulsion`` for consistency.
+    in clear space.  Helper for ``_act_regen`` / ``_act_flee_gas``
+    plus the FLEE_GAS branch in ``choose_next_state``.
+
+    ``extra_radius`` widens the match radius for hysteresis: when
+    ``cur == S_FLEE_GAS`` the choose function passes
+    ``FLEE_GAS_EXIT_MARGIN_PX`` so the bot stays in FLEE_GAS
+    until clearly past the cloud edge.  Without this, the bot
+    exits the boundary on one tick, WARP_TRAVERSE drives it
+    straight back into the cloud the next tick, and the FSM
+    thrashes ~10 Hz while shields drain.  Captured pathology
+    (2026-05-18 telemetry): 17 FLEE_GAS <-> WARP_TRAVERSE
+    transitions, one with 93 ms dwell.
+
+    Lists are short (typically <50 entries) so the linear scan
+    is cheap; mirrors the per-cloud loop in ``gas_repulsion``
+    for consistency.
     """
     for c in (state.get("gas_areas") or []):
         cx = float(c.get("x", 0.0))
         cy = float(c.get("y", 0.0))
         radius = float(c.get("radius", 80.0))
-        if math.hypot(px - cx, py - cy) < radius:
+        if math.hypot(px - cx, py - cy) < radius + extra_radius:
             return (cx, cy, radius)
     return None
 

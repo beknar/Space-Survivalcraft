@@ -12178,20 +12178,73 @@ class TestFleeGasFSM:
 
     def test_flee_gas_exits_when_bot_leaves_cloud(self, _clock):
         """Enter FLEE_GAS while inside, then simulate the bot
-        driving out.  After MIN_DWELL_S the FSM transitions out
-        -- proves the state isn't sticky once the gas no longer
+        driving well clear of the cloud (past edge + exit
+        margin).  After MIN_DWELL_S the FSM transitions out --
+        proves the state isn't sticky once the gas no longer
         surrounds the bot."""
         s = self._gas_state(
             player={"x": 50.0, "y": 0.0, "heading": 0.0,
                     "shields": 150, "max_shields": 150},
-            asteroids=[{"x": 500.0, "y": 0.0, "hp": 100}],
+            asteroids=[{"x": 600.0, "y": 0.0, "hp": 100}],
         )
         ap._do_auto(s, s["player"])
         assert ap._fsm["state"] == ap.S_FLEE_GAS
-        # Bot drives clear of the cloud; advance past MIN_DWELL
+        # Bot drives well clear: 600 px from a 200 px radius
+        # cloud centred at origin is 400 px past the edge, well
+        # past the 100 px exit margin.  Advance past MIN_DWELL
         # so the FSM is free to transition.
-        s["player"]["x"] = 500.0
+        s["player"]["x"] = 600.0
         _clock[0] += ap.MIN_DWELL_S + 0.1
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] != ap.S_FLEE_GAS
+
+    def test_flee_gas_holds_inside_exit_margin(self, _clock):
+        """Exit hysteresis: bot is just past the cloud edge but
+        still within ``FLEE_GAS_EXIT_MARGIN_PX``.  FSM must hold
+        S_FLEE_GAS rather than releasing to a productive state
+        that would drive the bot straight back into the cloud.
+
+        Captured pathology (2026-05-18 telemetry, 17 FLEE_GAS
+        <-> WARP_TRAVERSE flips, one 93 ms dwell, shields losing
+        ~52 px per thrash cycle).
+        """
+        s = self._gas_state(
+            player={"x": 50.0, "y": 0.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            asteroids=[{"x": 600.0, "y": 0.0, "hp": 100}],
+        )
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_FLEE_GAS
+        # Move bot just past the cloud edge but inside the exit
+        # margin: distance from cloud centre = 250, cloud radius
+        # 200, margin 100, so 250 is inside (radius + margin).
+        s["player"]["x"] = 250.0
+        _clock[0] += ap.MIN_DWELL_S + 0.1
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_FLEE_GAS, (
+            "FLEE_GAS must hold while bot is inside the exit "
+            "margin -- otherwise the downstream traverse/engage "
+            "drive pulls it straight back into the cloud")
+
+    def test_flee_gas_entry_uses_strict_radius_no_margin(
+            self, _clock):
+        """Entry side of the hysteresis: when NOT already in
+        FLEE_GAS, the bot must be genuinely inside the cloud
+        (distance < radius, no margin applied) before the state
+        fires.  Otherwise FLEE_GAS would pre-emptively trigger
+        every time the bot drives within margin of any cloud,
+        thrashing the cascade and preventing legitimate work
+        like mining a cluster that happens to sit near a gas
+        field."""
+        s = self._gas_state(
+            player={"x": 250.0, "y": 0.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            asteroids=[{"x": 300.0, "y": 0.0, "hp": 100}],
+        )
+        # Bot at 250, cloud at 0 radius 200 -- bot is 50 px PAST
+        # the cloud edge, but within the 100 px exit margin.
+        # Since cur != S_FLEE_GAS, the entry path uses the
+        # strict radius and does NOT fire FLEE_GAS.
         ap._do_auto(s, s["player"])
         assert ap._fsm["state"] != ap.S_FLEE_GAS
 
@@ -12260,3 +12313,49 @@ class TestFleeGasActionHandler:
         ap._act_flee_gas(s, s["player"])
         assert idle_calls[0] == 1
         assert goto_calls == []
+
+    def test_handler_drives_through_hysteresis_band(
+            self, monkeypatch):
+        """When the bot is past the strict cloud edge but still
+        within ``FLEE_GAS_EXIT_MARGIN_PX``, the handler must
+        keep driving toward the escape target -- not idle.
+        Otherwise the bot crosses the boundary, the handler
+        releases all keys, and the bot drifts in the hysteresis
+        band making no further progress.
+
+        Cloud at (3000, 3000) radius 200; bot at (3250, 3000) is
+        50 px past the strict edge but inside the 100 px exit
+        margin.  Handler must still call _do_goto, not _do_idle.
+        """
+        idle_calls = [0]
+        monkeypatch.setattr(
+            ap, "_do_idle", lambda: idle_calls.__setitem__(
+                0, idle_calls[0] + 1))
+        goto_calls: list = []
+        monkeypatch.setattr(
+            ap, "_do_goto",
+            lambda state, p, tx, ty, stop_radius=80.0:
+                goto_calls.append((tx, ty)))
+
+        class _FakeKey:
+            @staticmethod
+            def hold(name, on): pass
+
+        monkeypatch.setattr(ap, "KeyState", _FakeKey)
+        s = _state(
+            player={"x": 3250.0, "y": 3000.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+        )
+        s["gas_areas"] = [{"x": 3000.0, "y": 3000.0,
+                           "radius": 200.0}]
+        ap._act_flee_gas(s, s["player"])
+        assert idle_calls[0] == 0, (
+            "handler must not idle while in the hysteresis band")
+        assert len(goto_calls) == 1
+        # Drive target sits past the strict cloud edge by
+        # REGEN_GAS_ESCAPE_MARGIN_PX, regardless of where in the
+        # band the bot started.
+        tx, ty = goto_calls[0]
+        expected_dx = 200.0 + ap.REGEN_GAS_ESCAPE_MARGIN_PX
+        assert tx == pytest.approx(3000.0 + expected_dx)
+        assert ty == pytest.approx(3000.0)
