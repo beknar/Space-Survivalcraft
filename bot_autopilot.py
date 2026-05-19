@@ -406,6 +406,20 @@ BOSS_FLEE_TARGET_PX:          float = 2000.0
 # the Nebula for 30+ s with shields stuck at 1-2/120; gas damage
 # matched the regen rate, so passive recovery never completed.
 REGEN_GAS_ESCAPE_MARGIN_PX:   float = 200.0
+# FLEE_GAS exit hysteresis (2026-05-18 follow-up to S_FLEE_GAS).
+# Once the bot enters S_FLEE_GAS we need the choose function to
+# hold the state until the bot is CLEARLY past the cloud edge --
+# not just one pixel past the boundary.  Without this, the bot
+# exits the boundary on one tick, WARP_TRAVERSE / ENGAGE / etc
+# resumes its goal-directed drive, and the bot re-enters the same
+# or an adjacent cloud on the next tick.  Telemetry captured 17
+# FLEE_GAS <-> WARP_TRAVERSE flips in one session, one with 93 ms
+# dwell, costing 52 shields per ~2 s thrash cycle.  Chosen smaller
+# than ``REGEN_GAS_ESCAPE_MARGIN_PX`` (200) so the action
+# handler's ``_do_goto`` target sits a clear buffer past the
+# hysteresis exit -- the bot commits to fully crossing the
+# boundary before the state releases.
+FLEE_GAS_EXIT_MARGIN_PX:      float = 100.0
 # Boss-camping-death-pos danger radius for recover_loot suppression.
 # If the boss is within this distance of ``death_recovery_pos``,
 # entering S_RECOVER_LOOT walks the bot into the boss's range and

@@ -311,7 +311,21 @@ def choose_next_state(state: dict, p: dict, cur: str) -> str:
     #     are around (WARP_GAS, parts of the Nebula), and a kiting
     #     alien in the same cloud is exactly the scenario that
     #     triggered the user report.
-    if _ap._gas_cloud_at(state, px, py) is not None:
+    #
+    #     Exit hysteresis (2026-05-18 follow-up): when ``cur`` is
+    #     already S_FLEE_GAS, widen the match radius by
+    #     ``FLEE_GAS_EXIT_MARGIN_PX`` so the state holds until the
+    #     bot is clearly past the cloud edge.  Captured pathology:
+    #     17 FLEE_GAS <-> WARP_TRAVERSE flips in one session, one
+    #     with 93 ms dwell.  Bot exited the cloud boundary, the
+    #     downstream traverse/engage drive pulled it straight back
+    #     into the same or an adjacent cloud, and shields drained
+    #     ~52 px per thrash cycle.  Entry stays strict (no margin)
+    #     so the bot doesn't pre-emptively detour around clouds it
+    #     never reaches.
+    exit_margin = (_ap.FLEE_GAS_EXIT_MARGIN_PX
+                   if cur == _ap.S_FLEE_GAS else 0.0)
+    if _ap._gas_cloud_at(state, px, py, exit_margin) is not None:
         return _ap.S_FLEE_GAS
 
     now = _ap._get_now()

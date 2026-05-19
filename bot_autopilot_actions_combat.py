@@ -511,19 +511,32 @@ def _act_flee_gas(state: dict, p: dict) -> None:
     _ap._do_goto(state, p, tx, ty, stop_radius=80.0)
 
 
-def _gas_cloud_at(state: dict, px: float, py: float):
+def _gas_cloud_at(state: dict, px: float, py: float,
+                  extra_radius: float = 0.0):
     """Return ``(cx, cy, radius)`` of the first gas cloud whose
     interior contains ``(px, py)``, or ``None`` if the bot is
-    in clear space.  Helper for ``_act_regen``'s gas-escape
-    branch.  Lists are short (typically <50 entries) so the
-    linear scan is cheap; mirrors the per-cloud loop in
-    ``gas_repulsion`` for consistency.
+    in clear space.  Helper for ``_act_regen`` / ``_act_flee_gas``
+    plus the FLEE_GAS branch in ``choose_next_state``.
+
+    ``extra_radius`` widens the match radius for hysteresis: when
+    ``cur == S_FLEE_GAS`` the choose function passes
+    ``FLEE_GAS_EXIT_MARGIN_PX`` so the bot stays in FLEE_GAS
+    until clearly past the cloud edge.  Without this, the bot
+    exits the boundary on one tick, WARP_TRAVERSE drives it
+    straight back into the cloud the next tick, and the FSM
+    thrashes ~10 Hz while shields drain.  Captured pathology
+    (2026-05-18 telemetry): 17 FLEE_GAS <-> WARP_TRAVERSE
+    transitions, one with 93 ms dwell.
+
+    Lists are short (typically <50 entries) so the linear scan
+    is cheap; mirrors the per-cloud loop in ``gas_repulsion``
+    for consistency.
     """
     for c in (state.get("gas_areas") or []):
         cx = float(c.get("x", 0.0))
         cy = float(c.get("y", 0.0))
         radius = float(c.get("radius", 80.0))
-        if math.hypot(px - cx, py - cy) < radius:
+        if math.hypot(px - cx, py - cy) < radius + extra_radius:
             return (cx, cy, radius)
     return None
 
