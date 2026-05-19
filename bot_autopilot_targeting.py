@@ -65,6 +65,41 @@ def _target_near_return_wormhole(state: dict, x: float, y: float,
     return False
 
 
+# Margin past the gas cloud's visible radius for the target filter
+# (2026-05-17): a pickup spawning right at the cloud's edge would
+# pass a strict "inside" test but reaching it still drags the bot
+# through the damage zone on approach.  50 px buffer accounts for
+# the approach trajectory.
+PICKUP_GAS_AVOID_MARGIN_PX: float = 50.0
+
+
+def _target_in_gas_cloud(state: dict, x: float, y: float,
+                         margin_px: float | None = None) -> bool:
+    """Test whether (x, y) sits inside any gas cloud's damage zone
+    (visible radius + ``margin_px`` safety buffer).  Used by the
+    pickup / asteroid selectors to skip targets that would lure
+    the bot into a gas cloud where damage compounds faster than
+    heal-shield can recover.
+
+    Captured 2026-05-17 bot_io: bot dropped to shields=1 while
+    blacklisting three pickups in succession at the NE edge of a
+    gas cloud cluster.  The reactive blacklist works but each
+    "lesson" cost the bot ~40 shield + several heal-shield uses.
+    Pre-filtering at selection eliminates the lesson entirely.
+    """
+    if margin_px is None:
+        margin_px = PICKUP_GAS_AVOID_MARGIN_PX
+    for c in (state.get("gas_areas") or []):
+        cx = float(c.get("x", 0.0))
+        cy = float(c.get("y", 0.0))
+        radius = float(c.get("radius", 80.0)) + margin_px
+        dx = cx - x
+        dy = cy - y
+        if dx * dx + dy * dy <= radius * radius:
+            return True
+    return False
+
+
 def _pickup_is_blacklisted(pu: dict) -> bool:
     return _bl.pickup_is_blacklisted(
         pu, _ap._state.pickup_blacklist, _ap._get_now)
@@ -110,12 +145,16 @@ def _nearest_pickup(state: dict, px: float, py: float
                and cy >= margin and cy <= world_h - margin)
     wh_safe = not _target_near_return_wormhole(state, cx, cy)
     pin_safe = not _ap._target_in_pin_zone(cx, cy)
-    if edge_ok and wh_safe and pin_safe:
+    gas_safe = not _target_in_gas_cloud(state, cx, cy)
+    if edge_ok and wh_safe and pin_safe and gas_safe:
         return (candidate, d)
     # Filter-fail: scan for an alternative pickup that clears the
-    # edge AND wormhole-proximity AND pin-zone tests.  Falls back to
-    # the original candidate if every pickup fails -- let the
-    # blacklist + 60 s TTL handle the unreachable one.
+    # edge AND wormhole-proximity AND pin-zone AND gas-cloud tests.
+    # If every pickup fails, the fallback semantics differ by
+    # filter: edge / wormhole / pin all fall back to the original
+    # candidate (defensive), but gas-cloud filter returns ``None``
+    # per user spec ("give up and leave the gas cloud" rather than
+    # try to reach a pickup inside it).
     iron = state.get("iron_pickups", []) or []
     bps = state.get("blueprint_pickups", []) or []
     best = None
@@ -130,6 +169,8 @@ def _nearest_pickup(state: dict, px: float, py: float
             continue
         if _ap._target_in_pin_zone(bx, by):
             continue
+        if _target_in_gas_cloud(state, bx, by):
+            continue
         if _bl.pickup_is_blacklisted(
                 pu, _ap._state.pickup_blacklist, _ap._get_now):
             continue
@@ -137,6 +178,15 @@ def _nearest_pickup(state: dict, px: float, py: float
         if d2 < best_d:
             best, best_d = pu, d2
     if best is None:
+        # User spec: if the original candidate is in a gas cloud
+        # and no safe alternative exists, GIVE UP -- don't fall
+        # back to the in-cloud target.  The bot's _act_gather
+        # will see no target and the cascade will route to other
+        # behaviors (MINE / SEARCH / IDLE).  If REGEN later
+        # detects the bot inside a cloud, its gas-escape branch
+        # drives the bot out.
+        if not gas_safe:
+            return (None, float("inf"))
         return (candidate, d)
     return (best, best_d)
 
@@ -179,11 +229,12 @@ def _nearest_asteroid(state: dict, px: float, py: float
                and ay >= margin and ay <= world_h - margin)
     wh_safe = not _target_near_return_wormhole(state, ax, ay)
     pin_safe = not _ap._target_in_pin_zone(ax, ay)
-    if edge_ok and wh_safe and pin_safe:
+    gas_safe = not _target_in_gas_cloud(state, ax, ay)
+    if edge_ok and wh_safe and pin_safe and gas_safe:
         return (candidate, d)
     # Filter-fail: scan asteroids list for one that clears the
-    # edge AND wormhole-proximity AND pin-zone tests.  See
-    # ``_nearest_pickup`` for the filter rationale.
+    # edge AND wormhole-proximity AND pin-zone AND gas-cloud tests.
+    # See ``_nearest_pickup`` for the filter rationale.
     asteroids = state.get("asteroids", []) or []
     best = None
     best_d = float("inf")
@@ -197,6 +248,8 @@ def _nearest_asteroid(state: dict, px: float, py: float
             continue
         if _ap._target_in_pin_zone(bx, by):
             continue
+        if _target_in_gas_cloud(state, bx, by):
+            continue
         if _bl.asteroid_is_blacklisted(
                 ast, _ap._state.asteroid_blacklist, _ap._get_now):
             continue
@@ -204,9 +257,13 @@ def _nearest_asteroid(state: dict, px: float, py: float
         if d2 < best_d:
             best, best_d = ast, d2
     if best is None:
-        # Fall back to the original candidate.  No safe asteroid is
-        # reachable; let the existing blacklist + stuck-detect cycle
+        # If the original candidate is in a gas cloud and no safe
+        # alternative exists, give up entirely (same shape as the
+        # pickup selector).  Otherwise fall back to the original
+        # candidate -- let the blacklist + stuck-detect cycle
         # handle it as before.
+        if not gas_safe:
+            return (None, float("inf"))
         return (candidate, d)
     return (best, best_d)
 

@@ -5936,6 +5936,147 @@ class TestPinZoneTargetFilter:
         assert nearest["x"] == 3200.0
 
 
+# ── Fix (2026-05-17): gas-cloud target filter ─────────────────────────
+
+class TestGasCloudTargetFilter:
+    """``_nearest_pickup`` / ``_nearest_asteroid`` skip targets
+    inside any gas cloud's damage zone (visible radius +
+    ``PICKUP_GAS_AVOID_MARGIN_PX`` safety buffer).
+
+    Captured 2026-05-17 bot_io: bot dropped to shields=1 while
+    blacklisting three pickups in succession at the NE edge of a
+    gas cloud cluster.  Each "lesson" cost ~40 shield + heal-shield
+    uses; pre-filtering at selection eliminates the lesson
+    entirely.
+
+    Unlike the edge / wormhole / pin-zone filters which fall back
+    to the original candidate when every alternative fails, the
+    gas-cloud filter returns ``None`` per user spec ("give up and
+    leave the gas cloud" rather than try to reach a pickup inside
+    it).  The bot's GATHER state exits and the cascade routes to
+    other behaviors.
+    """
+
+    _CLOUD = {"x": 5000.0, "y": 5500.0, "radius": 200.0}
+
+    def test_pickup_inside_gas_cloud_filtered(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """Pickup inside a gas cloud is skipped when a safe
+        alternative exists."""
+        import bot_autopilot_targeting as targeting
+        s = _state(
+            player={"x": 3000.0, "y": 3000.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            iron_pickups=[
+                {"x": 5050.0, "y": 5500.0, "item_type": "iron"},  # IN cloud
+                {"x": 2500.0, "y": 3000.0, "item_type": "iron"},  # SAFE
+            ],
+            world_w=9600, world_h=9600,
+        )
+        s["gas_areas"] = [self._CLOUD]
+        nearest, _d = ap._nearest_pickup(s, 3000.0, 3000.0)
+        assert nearest["x"] == 2500.0  # safe alternative wins
+
+    def test_asteroid_inside_gas_cloud_filtered(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """Symmetric pin for ``_nearest_asteroid``."""
+        s = _state(
+            player={"x": 3000.0, "y": 3000.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            asteroids=[
+                {"x": 5050.0, "y": 5500.0, "hp": 50},  # IN cloud
+                {"x": 2500.0, "y": 3000.0, "hp": 50},  # SAFE
+            ],
+            world_w=9600, world_h=9600,
+        )
+        s["gas_areas"] = [self._CLOUD]
+        nearest, _d = ap._nearest_asteroid(s, 3000.0, 3000.0)
+        assert nearest["x"] == 2500.0
+
+    def test_pickup_filter_returns_none_when_all_in_cloud(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """User spec: 'give up and leave the gas cloud' rather
+        than try to reach a pickup inside it.  When every visible
+        pickup is in a gas cloud, return ``None`` instead of
+        falling back to the in-cloud candidate."""
+        s = _state(
+            player={"x": 3000.0, "y": 3000.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            iron_pickups=[
+                {"x": 5050.0, "y": 5500.0, "item_type": "iron"},
+                {"x": 4950.0, "y": 5400.0, "item_type": "iron"},
+            ],
+            world_w=9600, world_h=9600,
+        )
+        s["gas_areas"] = [self._CLOUD]
+        nearest, _d = ap._nearest_pickup(s, 3000.0, 3000.0)
+        assert nearest is None
+
+    def test_asteroid_filter_returns_none_when_all_in_cloud(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        s = _state(
+            player={"x": 3000.0, "y": 3000.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            asteroids=[
+                {"x": 5050.0, "y": 5500.0, "hp": 50},
+                {"x": 4950.0, "y": 5400.0, "hp": 50},
+            ],
+            world_w=9600, world_h=9600,
+        )
+        s["gas_areas"] = [self._CLOUD]
+        nearest, _d = ap._nearest_asteroid(s, 3000.0, 3000.0)
+        assert nearest is None
+
+    def test_pickup_filter_uses_margin_past_visible_radius(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """A pickup just outside the visible radius but within
+        the safety margin is also filtered (so the approach
+        trajectory doesn't drag the bot through the damage zone).
+        """
+        import bot_autopilot_targeting as targeting
+        s = _state(world_w=9600, world_h=9600)
+        s["gas_areas"] = [self._CLOUD]
+        # Inside visible radius -> filtered.
+        assert targeting._target_in_gas_cloud(
+            s, 5050.0, 5500.0) is True
+        # Just past visible radius (200) but within margin
+        # (200 + 50 = 250) -> filtered.
+        assert targeting._target_in_gas_cloud(
+            s, 5230.0, 5500.0) is True
+        # Past visible radius + margin -> safe.
+        assert targeting._target_in_gas_cloud(
+            s, 5300.0, 5500.0) is False
+
+    def test_no_gas_clouds_no_op(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """Zones without gas (Zone 1, Star Maze, MAIN) populate
+        an empty ``gas_areas`` list -> filter is a no-op."""
+        s = _state(
+            player={"x": 3000.0, "y": 3000.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            iron_pickups=[
+                {"x": 5050.0, "y": 5500.0, "item_type": "iron"},
+            ],
+            world_w=9600, world_h=9600,
+        )
+        # No gas_areas in state.
+        nearest, _d = ap._nearest_pickup(s, 3000.0, 3000.0)
+        assert nearest["x"] == 5050.0  # not filtered
+
+    def test_gas_cloud_does_not_disturb_default_test_state(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """The default ``_state()`` helper doesn't include
+        gas_areas, so existing tests in MAIN-zone scenarios are
+        unaffected by this PR.  Smoke-test for that invariant."""
+        s = _state(
+            iron_pickups=[{"x": 100.0, "y": 100.0,
+                           "item_type": "iron"}],
+        )
+        assert "gas_areas" not in s
+        nearest, _d = ap._nearest_pickup(s, 0.0, 0.0)
+        assert nearest is not None
+
+
 # ── Fix (2026-05-06): HUNT alien edge filter ─────────────────────────
 
 class TestNearestHuntableAlienEdgeFilter:
