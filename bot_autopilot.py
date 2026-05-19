@@ -635,6 +635,17 @@ S_WARP_TO_WORMHOLE  = "warp_to_wormhole"
 # the far-side margin so the FSM falls through to the regular
 # cascade afterward.
 S_WARP_TRAVERSE     = "warp_traverse"
+# S_FLEE_GAS (2026-05-18): bot is inside a damaging gas cloud --
+# drive out before doing anything else.  Captured pathology: bot
+# in S_ENGAGE at (3823, 3089) in WARP_GAS, shields drained 18 -> 0
+# over 3 s of stuck_detected events while fighting an alien inside
+# the same cloud.  Pre-fix the only gas-escape lived inside
+# ``_act_regen``, so any non-REGEN state happily idled in the
+# damage field.  S_FLEE_GAS preempts every productive state
+# (ENGAGE, MINE, GATHER, HUNT, ENGAGE_BOSS, WARP_TRAVERSE, ...)
+# but defers to S_REGEN, which already has its own gas-escape
+# branch and is the more urgent shield-collapse signal.
+S_FLEE_GAS          = "flee_gas"
 
 ALL_STATES = (
     S_ENGAGE, S_GATHER, S_REGEN, S_MINE, S_SEARCH,
@@ -642,6 +653,7 @@ ALL_STATES = (
     S_HUNT, S_IDLE_AT_BASE, S_ENGAGE_BOSS,
     S_EQUIP_CONSUMABLES, S_PRE_BOSS_MINE, S_FORTIFY, S_BUILD_QWI,
     S_RECOVER_LOOT, S_WARP_TO_WORMHOLE, S_WARP_TRAVERSE,
+    S_FLEE_GAS,
 )
 
 # Maximum range at which the bot will commit to chasing an alien
@@ -1782,7 +1794,7 @@ from bot_autopilot_actions_station import (
 from bot_autopilot_actions_combat import (
     _act_engage, _act_engage_boss, _act_regen, _maybe_use_consumables,
     _act_gather, _act_idle_at_base, _act_warp_to_wormhole,
-    _act_warp_traverse,
+    _act_warp_traverse, _act_flee_gas, _gas_cloud_at,
 )
 
 
@@ -2160,7 +2172,7 @@ def _do_auto(state: dict, p: dict) -> None:
         if desired in (S_ENGAGE, S_REGEN, S_ENGAGE_BOSS,
                        S_EQUIP_CONSUMABLES, S_FORTIFY,
                        S_BUILD_QWI, S_WARP_TO_WORMHOLE,
-                       S_WARP_TRAVERSE) or \
+                       S_WARP_TRAVERSE, S_FLEE_GAS) or \
                 idle_react or \
                 dwell >= MIN_DWELL_S:
             _fsm["state"] = desired
@@ -2236,6 +2248,8 @@ def _do_auto(state: dict, p: dict) -> None:
         _act_warp_to_wormhole(state, p)
     elif cur == S_WARP_TRAVERSE:
         _act_warp_traverse(state, p)
+    elif cur == S_FLEE_GAS:
+        _act_flee_gas(state, p)
     else:  # S_SEARCH
         _do_spiral_search(state, p)
 
