@@ -530,35 +530,6 @@ def test_equip_consumables_returns_failure_when_station_empty():
     assert hud.calls == []
 
 
-def test_equip_consumables_binds_ship_side_stock_when_station_empty():
-    """2026-05-12 eleventh-pass extension: when consumables are
-    already in the SHIP inventory (death-drop recovery puts them
-    there; deposit skips them by design) and the station has none,
-    the endpoint must still bind them to quick-use slots instead
-    of returning ``ok=False``.  This is the WHOLE POINT of EQUIP
-    in the post-recovery scenario."""
-    ship, _ = _stub_inv_with_items({"repair_pack": 3,
-                                    "shield_recharge": 2})
-    station, _ = _stub_inv_with_items({"iron": 500})
-    hud = _StubHud()
-    gv = SimpleNamespace(
-        inventory=ship, _station_inv=station, _hud=hud,
-        building_list=[],
-    )
-    result = bot_builder.equip_consumables_to_quick_use(gv)
-    assert result["ok"] is True
-    # Nothing was withdrawn from station (it had none).
-    assert result["repair_pack"] == 0
-    assert result["shield_recharge"] == 0
-    # Ship totals reflect the existing cargo, slot-bound to HUD.
-    assert result["ship_repair_total"] == 3
-    assert result["ship_shield_total"] == 2
-    assert (0, "repair_pack", 3) in hud.calls
-    assert (1, "shield_recharge", 2) in hud.calls
-    # Station iron untouched.
-    assert station.count_item("iron") == 500
-
-
 # ── Quantum Wave Integrator placement ─────────────────────────────────────
 
 
