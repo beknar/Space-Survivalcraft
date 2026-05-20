@@ -387,3 +387,95 @@ def _observe_warp_traverse_arc_complete(state: dict, p: dict,
     # Consume the arc so the next entry to warp_traverse starts a
     # fresh arc with a new arc_started event.
     _ap._state.warp_traverse_arc_started_at = 0.0
+
+
+def _observe_gas_lingering(state: dict, p: dict, now: float) -> None:
+    """Detect when the bot has been stuck inside a gas cloud
+    taking damage for too long, and emit one ``gas_lingering``
+    event per linger episode.
+
+    Pure observability hook -- doesn't drive any behaviour.  Lets
+    the operator see "bot bled out in a gas cloud" directly in
+    the telemetry log instead of cross-referencing
+    state_transition timestamps and shield deltas by hand.
+
+    Fires when:
+      * Bot has been continuously inside a gas cloud for
+        >= ``GAS_LINGER_DETECT_S`` seconds (3.0 s)
+      * AND has lost >= ``GAS_LINGER_DAMAGE_PX`` shields + hp
+        combined since the entry edge (20 px)
+
+    Throttled: one event per linger episode (``gas_linger_event_fired``
+    latch).  On exit from the cloud, the entry trackers reset so
+    the next entry starts fresh.
+
+    The ``fsm_state`` field on the event is the key diagnostic:
+
+      * ``flee_gas`` -- FLEE_GAS is running but the bot is still
+        bleeding out (e.g. exit hysteresis stall, geometry pinned
+        against world edge)
+      * anything else -- FSM didn't preempt to FLEE_GAS, which is
+        the original pathology PR #147 addressed
+
+    Either case is actionable.
+    """
+    px = float(p.get("x", 0.0))
+    py = float(p.get("y", 0.0))
+    cloud = _ap._gas_cloud_at(state, px, py)
+
+    if cloud is None:
+        # Outside any cloud -- reset trackers so the next entry
+        # starts a fresh episode.
+        if _ap._state.gas_linger_entered_at != 0.0:
+            _ap._state.gas_linger_entered_at = 0.0
+            _ap._state.gas_linger_entry_shields = 0
+            _ap._state.gas_linger_entry_hp = 0
+            _ap._state.gas_linger_event_fired = False
+        return
+
+    sh = int(p.get("shields", 0))
+    hp = int(p.get("hp", 0))
+
+    if _ap._state.gas_linger_entered_at == 0.0:
+        # Cloud-entry edge -- snapshot the moment of entry so the
+        # damage delta is anchored at the right baseline.  Pop a
+        # fresh latch so the per-episode throttle works.
+        _ap._state.gas_linger_entered_at = now
+        _ap._state.gas_linger_entry_shields = sh
+        _ap._state.gas_linger_entry_hp = hp
+        _ap._state.gas_linger_event_fired = False
+        return
+
+    if _ap._state.gas_linger_event_fired:
+        # Already fired for this episode -- one event per cloud
+        # stay.  Bot has to exit + re-enter to fire again.
+        return
+
+    dwell_s = now - _ap._state.gas_linger_entered_at
+    if dwell_s < _ap.GAS_LINGER_DETECT_S:
+        return
+
+    shield_loss = _ap._state.gas_linger_entry_shields - sh
+    hp_loss = _ap._state.gas_linger_entry_hp - hp
+    total_loss = max(0, shield_loss) + max(0, hp_loss)
+    if total_loss < _ap.GAS_LINGER_DAMAGE_PX:
+        # Inside cloud long enough to count, but no damage taken
+        # (gas areas in some zones are slow, or the bot is being
+        # actively healed by consumables / station umbrella).
+        # Don't fire -- not a pathology.
+        return
+
+    cx, cy, radius = cloud
+    _ap._state.gas_linger_event_fired = True
+    _ap._telemetry_log(
+        "gas_lingering",
+        dwell_s=round(dwell_s, 2),
+        shield_loss=int(shield_loss),
+        hp_loss=int(hp_loss),
+        entry_shields=int(_ap._state.gas_linger_entry_shields),
+        entry_hp=int(_ap._state.gas_linger_entry_hp),
+        cloud_x=round(cx, 1),
+        cloud_y=round(cy, 1),
+        cloud_radius=round(radius, 1),
+        fsm_state=_ap._fsm["state"],
+        **_ap._telemetry_snapshot_fields(state, p))

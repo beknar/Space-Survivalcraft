@@ -12368,3 +12368,217 @@ class TestFleeGasActionHandler:
         expected_dx = 200.0 + ap.REGEN_GAS_ESCAPE_MARGIN_PX
         assert tx == pytest.approx(3000.0 + expected_dx)
         assert ty == pytest.approx(3000.0)
+
+
+# ── gas_lingering telemetry (2026-05-19) ─────────────────────────────────
+
+
+class TestObserveGasLingering:
+    """Pin the ``gas_lingering`` telemetry event:
+
+      * Fires when bot has been continuously inside a gas cloud
+        for ``GAS_LINGER_DETECT_S`` seconds AND lost at least
+        ``GAS_LINGER_DAMAGE_PX`` of shields + hp combined.
+      * One event per linger episode (no spam during a long stay).
+      * Resets cleanly when the bot exits the cloud.
+      * Doesn't drive any FSM behaviour -- pure observability.
+
+    Called by ``_do_auto`` once per tick alongside the other
+    lifecycle observers.
+    """
+
+    def _make_state(self, px=100.0, py=0.0, shields=120,
+                    max_shields=120, hp=120, max_hp=120,
+                    gas_at=(0.0, 0.0, 200.0)):
+        s = _state(player={"x": px, "y": py, "heading": 0.0,
+                           "hp": hp, "max_hp": max_hp,
+                           "shields": shields,
+                           "max_shields": max_shields})
+        if gas_at is not None:
+            cx, cy, r = gas_at
+            s["gas_areas"] = [{"x": cx, "y": cy, "radius": r}]
+        return s
+
+    def _capture(self, monkeypatch):
+        events: list = []
+        monkeypatch.setattr(
+            ap, "_telemetry_log",
+            lambda evt, **kw: events.append((evt, kw)))
+        return events
+
+    def test_entry_does_not_fire_event(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """First tick inside a cloud just records the entry --
+        the dwell threshold hasn't elapsed."""
+        events = self._capture(monkeypatch)
+        s = self._make_state()
+        ap._observe_gas_lingering(s, s["player"], _clock[0])
+        gl = [e for (e, _) in events if e == "gas_lingering"]
+        assert gl == []
+        assert ap._state.gas_linger_entered_at == _clock[0]
+        assert ap._state.gas_linger_entry_shields == 120
+
+    def test_fires_when_dwell_and_damage_thresholds_met(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """Bot enters cloud at full shields, sits for > 3 s, loses
+        > 20 px combined shield/hp -- one event fires."""
+        events = self._capture(monkeypatch)
+        s = self._make_state(shields=120)
+        # Entry tick.
+        ap._observe_gas_lingering(s, s["player"], _clock[0])
+        # Advance past the dwell threshold; simulate gas damage.
+        _clock[0] += ap.GAS_LINGER_DETECT_S + 0.1
+        s["player"]["shields"] = 60   # -60 from entry
+        ap._observe_gas_lingering(s, s["player"], _clock[0])
+        gl = [(e, kw) for (e, kw) in events if e == "gas_lingering"]
+        assert len(gl) == 1
+        kw = gl[0][1]
+        assert kw["shield_loss"] == 60
+        assert kw["hp_loss"] == 0
+        assert kw["entry_shields"] == 120
+        assert kw["cloud_x"] == 0.0
+        assert kw["cloud_y"] == 0.0
+        assert kw["cloud_radius"] == 200.0
+        assert kw["dwell_s"] >= ap.GAS_LINGER_DETECT_S
+
+    def test_dwell_below_threshold_does_not_fire(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """Bot in cloud < threshold -- no event even with heavy
+        damage."""
+        events = self._capture(monkeypatch)
+        s = self._make_state(shields=120)
+        ap._observe_gas_lingering(s, s["player"], _clock[0])
+        # Half the threshold -- should not fire even with shield loss.
+        _clock[0] += ap.GAS_LINGER_DETECT_S * 0.5
+        s["player"]["shields"] = 30
+        ap._observe_gas_lingering(s, s["player"], _clock[0])
+        gl = [e for (e, _) in events if e == "gas_lingering"]
+        assert gl == []
+
+    def test_damage_below_threshold_does_not_fire(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """Bot sits in cloud past dwell threshold but takes
+        < GAS_LINGER_DAMAGE_PX damage -- gas might be weak or
+        bot is being healed.  Not a pathology, no event."""
+        events = self._capture(monkeypatch)
+        s = self._make_state(shields=120)
+        ap._observe_gas_lingering(s, s["player"], _clock[0])
+        _clock[0] += ap.GAS_LINGER_DETECT_S + 0.1
+        # Only 5 px loss -- well below the threshold.
+        s["player"]["shields"] = 115
+        ap._observe_gas_lingering(s, s["player"], _clock[0])
+        gl = [e for (e, _) in events if e == "gas_lingering"]
+        assert gl == []
+
+    def test_no_event_when_outside_any_cloud(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """Bot in clear space -- observer is a no-op."""
+        events = self._capture(monkeypatch)
+        s = _state(player={"x": 5000.0, "y": 5000.0,
+                            "heading": 0.0,
+                            "shields": 30, "max_shields": 120,
+                            "hp": 30, "max_hp": 120})
+        # No gas_areas at all.
+        ap._observe_gas_lingering(s, s["player"], _clock[0])
+        assert ap._state.gas_linger_entered_at == 0.0
+        gl = [e for (e, _) in events if e == "gas_lingering"]
+        assert gl == []
+
+    def test_event_fires_only_once_per_linger(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """Bot sits in cloud for 10 s -- one event only, no spam
+        on every subsequent tick."""
+        events = self._capture(monkeypatch)
+        s = self._make_state(shields=120)
+        ap._observe_gas_lingering(s, s["player"], _clock[0])
+        _clock[0] += ap.GAS_LINGER_DETECT_S + 0.1
+        s["player"]["shields"] = 60
+        ap._observe_gas_lingering(s, s["player"], _clock[0])
+        # Sit for several more seconds.  Continued shield loss
+        # would otherwise re-fire; the per-episode latch must
+        # suppress that.
+        for _ in range(20):
+            _clock[0] += 0.5
+            s["player"]["shields"] = max(0, s["player"]["shields"] - 5)
+            ap._observe_gas_lingering(s, s["player"], _clock[0])
+        gl = [e for (e, _) in events if e == "gas_lingering"]
+        assert len(gl) == 1, "must fire exactly once per linger"
+
+    def test_exit_then_reenter_resets_and_can_fire_again(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """Bot exits a cloud + re-enters a different (or same)
+        cloud later -- the second episode is independent and can
+        fire its own event."""
+        events = self._capture(monkeypatch)
+        s = self._make_state(shields=120)
+        # Episode 1.
+        ap._observe_gas_lingering(s, s["player"], _clock[0])
+        _clock[0] += ap.GAS_LINGER_DETECT_S + 0.1
+        s["player"]["shields"] = 60
+        ap._observe_gas_lingering(s, s["player"], _clock[0])
+        # Exit cloud.
+        _clock[0] += 1.0
+        s["player"]["x"] = 5000.0  # well outside cloud at (0,0) r=200
+        ap._observe_gas_lingering(s, s["player"], _clock[0])
+        assert ap._state.gas_linger_entered_at == 0.0
+        # Episode 2 -- back inside.
+        _clock[0] += 1.0
+        s["player"]["x"] = 50.0
+        s["player"]["shields"] = 120
+        ap._observe_gas_lingering(s, s["player"], _clock[0])
+        _clock[0] += ap.GAS_LINGER_DETECT_S + 0.1
+        s["player"]["shields"] = 50
+        ap._observe_gas_lingering(s, s["player"], _clock[0])
+        gl = [e for (e, _) in events if e == "gas_lingering"]
+        assert len(gl) == 2, (
+            "second linger episode must fire its own event after "
+            "the bot exited and re-entered the cloud")
+
+    def test_event_carries_fsm_state(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """The ``fsm_state`` field is the key diagnostic -- it
+        distinguishes "FSM never preempted to FLEE_GAS" from
+        "FLEE_GAS active but bot still stuck"."""
+        events = self._capture(monkeypatch)
+        ap._fsm["state"] = ap.S_ENGAGE
+        s = self._make_state(shields=120)
+        ap._observe_gas_lingering(s, s["player"], _clock[0])
+        _clock[0] += ap.GAS_LINGER_DETECT_S + 0.1
+        s["player"]["shields"] = 50
+        ap._observe_gas_lingering(s, s["player"], _clock[0])
+        gl = [(e, kw) for (e, kw) in events if e == "gas_lingering"]
+        assert len(gl) == 1
+        assert gl[0][1]["fsm_state"] == ap.S_ENGAGE
+
+    def test_hp_loss_also_counts_toward_damage_threshold(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """Most clouds only chip shields, but if HP is taking
+        the hit (no shields left) the event should still fire.
+        Threshold sums shield_loss + hp_loss."""
+        events = self._capture(monkeypatch)
+        # Enter with shields at 0 already (gas chews HP directly).
+        s = self._make_state(shields=0, hp=120)
+        ap._observe_gas_lingering(s, s["player"], _clock[0])
+        _clock[0] += ap.GAS_LINGER_DETECT_S + 0.1
+        s["player"]["hp"] = 80   # -40 hp from entry
+        ap._observe_gas_lingering(s, s["player"], _clock[0])
+        gl = [(e, kw) for (e, kw) in events if e == "gas_lingering"]
+        assert len(gl) == 1
+        assert gl[0][1]["hp_loss"] == 40
+        assert gl[0][1]["shield_loss"] == 0
+
+    def test_negative_damage_delta_is_treated_as_zero(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """If shields are HIGHER than at entry (consumable healed
+        over the gas damage), shield_loss is negative.  Total
+        damage clamps at zero so a healing bot doesn't trip the
+        event."""
+        events = self._capture(monkeypatch)
+        s = self._make_state(shields=60)
+        ap._observe_gas_lingering(s, s["player"], _clock[0])
+        _clock[0] += ap.GAS_LINGER_DETECT_S + 0.1
+        # Consumable kicked in -- shields now higher than entry.
+        s["player"]["shields"] = 100
+        ap._observe_gas_lingering(s, s["player"], _clock[0])
+        gl = [e for (e, _) in events if e == "gas_lingering"]
+        assert gl == []
