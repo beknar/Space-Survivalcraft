@@ -420,6 +420,26 @@ REGEN_GAS_ESCAPE_MARGIN_PX:   float = 200.0
 # hysteresis exit -- the bot commits to fully crossing the
 # boundary before the state releases.
 FLEE_GAS_EXIT_MARGIN_PX:      float = 100.0
+# Gas-lingering telemetry thresholds (2026-05-19).  Fire a
+# ``gas_lingering`` event when the bot has been continuously inside
+# a gas cloud for ``GAS_LINGER_DETECT_S`` seconds AND has lost
+# at least ``GAS_LINGER_DAMAGE_PX`` of shields + hp combined since
+# the entry edge.  Pure observability -- doesn't drive any behaviour.
+# Makes the "stuck in a cloud bleeding out" pathology visible
+# directly instead of forcing the operator to cross-reference
+# state_transition timestamps and shield deltas by hand (which is
+# how we caught the FLEE_GAS thrash in PR #148 and the
+# consumable over-firing in PR #151).
+#
+# 3.0 s is comfortably longer than the bot SHOULD need to drive
+# out of any cloud (cloud_radius is typically a few hundred px,
+# bot speed is several hundred px/s).  20 px loss covers about
+# 4 ticks of gas damage; anything below that is plausibly a
+# transit through a small cloud.  One event per linger episode
+# (throttled by the ``gas_linger_event_fired`` latch, reset on
+# exit).
+GAS_LINGER_DETECT_S:          float = 3.0
+GAS_LINGER_DAMAGE_PX:         int   = 20
 # Boss-camping-death-pos danger radius for recover_loot suppression.
 # If the boss is within this distance of ``death_recovery_pos``,
 # entering S_RECOVER_LOOT walks the bot into the boss's range and
@@ -1361,6 +1381,15 @@ class BotState:
     last_alive_modules: list = field(default_factory=list)
     last_alive_consumable_types: list = field(default_factory=list)
     was_dead: bool = False  # alive->dead edge detector
+    # Gas-lingering telemetry latch (2026-05-19).  Captures the
+    # tick the bot first entered the current gas cloud + the
+    # shields/hp at that moment so ``_observe_gas_lingering`` can
+    # emit a single ``gas_lingering`` event per linger episode.
+    # ``entered_at == 0.0`` means "not currently inside any cloud".
+    gas_linger_entered_at: float = 0.0
+    gas_linger_entry_shields: int = 0
+    gas_linger_entry_hp: int = 0
+    gas_linger_event_fired: bool = False
     # ``death_recovery_pending`` flips True on the dead->alive edge
     # when the prior loadout contained anything worth recovering.
     # Cleared by the recovery action once the dropped pickups have
@@ -1514,6 +1543,10 @@ class BotState:
         self.last_alive_modules = []
         self.last_alive_consumable_types = []
         self.was_dead = False
+        self.gas_linger_entered_at = 0.0
+        self.gas_linger_entry_shields = 0
+        self.gas_linger_entry_hp = 0
+        self.gas_linger_event_fired = False
         self.death_recovery_pending = False
         self.death_recovery_pos = (0.0, 0.0)
         self.death_recovery_modules = []
@@ -1835,6 +1868,7 @@ from bot_autopilot_lifecycle import (
     _maybe_clear_death_recovery,
     _observe_warp_back_to_main,
     _observe_warp_traverse_arc_complete,
+    _observe_gas_lingering,
 )
 
 
@@ -1932,6 +1966,12 @@ def _do_auto(state: dict, p: dict) -> None:
     # modules + consumables.  See ``_observe_death_edges`` for the
     # full state machine.
     _observe_death_edges(state, p, now)
+
+    # Gas-lingering detector (2026-05-19).  Pure telemetry --
+    # fires a ``gas_lingering`` event when the bot has been
+    # stuck in a damaging gas cloud for too long.  See
+    # ``_observe_gas_lingering`` for thresholds + rationale.
+    _observe_gas_lingering(state, p, now)
 
     # Re-arm the post-boss warp cascade if the bot is observed back
     # in MAIN after warp_after_boss_done was already True.  Captured
