@@ -11714,10 +11714,15 @@ class TestMaybeUseConsumables:
 
 
 class TestHealActiveLatch:
-    """Heal-active latches keep firing until the bar reaches max,
-    matching the user spec ("use until 100%").  Without the latch
-    one 50%-heal use would leave the bot at e.g. 80% HP — above the
-    50% re-trigger threshold, so no second fire."""
+    """Heal-active latches keep firing until the bar reaches the
+    DISARM band (~70 %).  Updated 2026-05-19 from the original
+    "fire until 100 %" spec: telemetry showed 32 heal_shield_fire
+    events from 16 arms in one session (and 44 hp_fire / 22 hp arms)
+    -- the next-tick check after a 50 %-heal use saw the bar still
+    <100 % and fired a second charge that overhealed.  Disarming at
+    70 % caps the single-event spend at one charge while leaving
+    sustained-damage scenarios handled via natural re-arming when
+    the bar dips back below ``CONSUMABLE_USE_*_PCT``."""
 
     def test_hp_latch_arms_when_threshold_crosses(
             self, _clock, _fresh_bot_state, monkeypatch):
@@ -11751,13 +11756,39 @@ class TestHealActiveLatch:
         ap._maybe_use_consumables(s, s["player"])
         assert ap._state.heal_hp_active is False
 
-    def test_hp_latch_stays_armed_at_intermediate_hp(
+    def test_hp_latch_disarms_at_disarm_threshold(
             self, _clock, _fresh_bot_state, monkeypatch):
-        """If HP rose to 80 % (above 50 % threshold but below max),
-        the latch must STAY armed so the next tick still fires.
-        This is the spec-correctness test — under the old
-        threshold-only logic the latch never existed and the bot
-        would stop firing here."""
+        """HP reaches CONSUMABLE_DISARM_HP_PCT (~ 70 %) -- the
+        latch must disarm and the next-cooldown tick must NOT
+        fire again.  Pre-fix this case fired a second charge
+        because the latch only disarmed at 100 %."""
+        captured: list = []
+        monkeypatch.setattr(
+            ap, "_post_use_quick_use",
+            lambda slot: captured.append(slot) or {"ok": True})
+        ap._state.heal_hp_active = True
+        # HP at 75 % -- just past the 70 % disarm threshold.
+        s = _state(
+            player={"x": 0, "y": 0, "heading": 0,
+                    "hp": 75, "max_hp": 100,
+                    "shields": 150, "max_shields": 150},
+        )
+        s["quick_use_slots"] = [
+            {"item_type": "repair_pack", "count": 25},
+        ]
+        ap._maybe_use_consumables(s, s["player"])
+        assert ap._state.heal_hp_active is False
+        assert captured == [], (
+            "latch must release at 75 % HP -- no third charge to "
+            "top off to 100 %")
+
+    def test_hp_latch_stays_armed_below_disarm_threshold(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """If HP rose to 60 % (above 30 % arm threshold but below
+        70 % disarm threshold), the latch stays armed -- a heal in
+        flight may still be applying, and damage may be outpacing
+        the heal.  Keep firing under sustained damage; natural
+        disarm fires once the bar crosses the 70 % band."""
         captured: list = []
         monkeypatch.setattr(
             ap, "_post_use_quick_use",
@@ -11765,7 +11796,7 @@ class TestHealActiveLatch:
         ap._state.heal_hp_active = True
         s = _state(
             player={"x": 0, "y": 0, "heading": 0,
-                    "hp": 80, "max_hp": 100,
+                    "hp": 60, "max_hp": 100,
                     "shields": 150, "max_shields": 150},
         )
         s["quick_use_slots"] = [
@@ -11773,7 +11804,7 @@ class TestHealActiveLatch:
         ]
         ap._maybe_use_consumables(s, s["player"])
         assert ap._state.heal_hp_active is True
-        assert captured == [0]   # fires even at 80 % because latch armed
+        assert captured == [0]   # still armed, fires
 
     def test_shield_latch_independent_from_hp_latch(
             self, _clock, _fresh_bot_state, monkeypatch):
@@ -11793,12 +11824,15 @@ class TestHealActiveLatch:
         assert ap._state.heal_hp_active is False
         assert ap._state.heal_shield_active is True
 
-    def test_latch_keeps_firing_across_ticks_until_full(
+    def test_single_use_per_drop_event(
             self, _clock, _fresh_bot_state, monkeypatch):
-        """Simulates the user's exact spec: HP drops to 30 %, the
-        bot must fire repeatedly (not just once) until HP reaches
-        100 %.  Each fire bumps HP by 50 % of max in the test
-        harness, mirroring the in-game heal."""
+        """The 2026-05-19 spec: HP drops to 30 %, ONE charge brings
+        HP to 80 % (past the 70 % disarm), latch releases, the
+        cooldown tick fires no second charge.  Pre-fix the latch
+        disarmed only at 100 % so a second charge fired on the
+        next cooldown boundary even though the bot was already
+        safely past 70 % -- wasting one repair pack per drop event.
+        """
         captured: list = []
 
         def fake_post(slot):
@@ -11822,17 +11856,44 @@ class TestHealActiveLatch:
         ap._maybe_use_consumables(s, s["player"])
         assert captured == [0]
         assert s["player"]["hp"] == 80
-        # Tick 2 after cooldown: latch still armed, fire again
-        # (hp 80 -> 100).
+        # Tick 2 after cooldown: 80 % >= 70 % disarm -- latch
+        # releases, no second fire.
         _clock[0] += ap.CONSUMABLE_USE_COOLDOWN_S + 0.1
         ap._maybe_use_consumables(s, s["player"])
-        assert captured == [0, 0]
-        assert s["player"]["hp"] == 100
-        # Tick 3 after cooldown: latch disarms, no fire.
-        _clock[0] += ap.CONSUMABLE_USE_COOLDOWN_S + 0.1
-        ap._maybe_use_consumables(s, s["player"])
-        assert captured == [0, 0]
+        assert captured == [0], (
+            "must NOT fire a second charge: one consumable already "
+            "brought HP from 30 -> 80, past the 70 % disarm band")
         assert ap._state.heal_hp_active is False
+
+    def test_sustained_damage_re_arms_latch_and_fires_again(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """If damage outpaces the heal -- e.g., gas cloud or boss
+        cannon -- the bot must keep firing.  Sequence: drop to
+        30 %, fire (heal to 80 %), then damage pushes HP back
+        below 30 % (re-arm), fire again.  Verifies the
+        threshold-based design doesn't strand the bot under
+        sustained damage."""
+        captured: list = []
+        monkeypatch.setattr(
+            ap, "_post_use_quick_use",
+            lambda slot: captured.append(slot) or {"ok": True})
+        s = _state(
+            player={"x": 0, "y": 0, "heading": 0,
+                    "hp": 30, "max_hp": 100,
+                    "shields": 150, "max_shields": 150},
+        )
+        s["quick_use_slots"] = [
+            {"item_type": "repair_pack", "count": 25},
+        ]
+        # First fire at 30 %.
+        ap._maybe_use_consumables(s, s["player"])
+        assert captured == [0]
+        # Simulate heal + heavy damage -> bot back below 30 %.
+        s["player"]["hp"] = 25
+        _clock[0] += ap.CONSUMABLE_USE_COOLDOWN_S + 0.1
+        ap._maybe_use_consumables(s, s["player"])
+        assert captured == [0, 0]
+        assert ap._state.heal_hp_active is True
 
     def test_latch_stops_firing_when_consumable_runs_out(
             self, _clock, _fresh_bot_state, monkeypatch):

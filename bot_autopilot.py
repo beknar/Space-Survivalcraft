@@ -549,6 +549,20 @@ QWI_BUILD_IRON_TARGET:        int   = 2000   # station-iron buffer before placin
 # station-tether kite + shield regen handle on their own.
 CONSUMABLE_USE_HP_PCT:        float = 0.30   # use repair pack at <= 30 % HP
 CONSUMABLE_USE_SHIELD_PCT:    float = 0.20   # use shield recharge at <= 20 % shields
+# Disarm thresholds (2026-05-19): one consumable lifts the bar by
+# 50 % of max, so a single use from the 20-30 % arm threshold lands
+# at 70-80 % -- already a safe band.  Pre-fix the latches disarmed
+# only at 100 %, which made the auto-use loop fire a second (and
+# sometimes third) consumable during the next 1 s cooldown window
+# to "top off" the bar to full.  Captured 2026-05-18 telemetry:
+# 32 heal_shield_fire events but only 16 heal_shield_arm events
+# (and 44 / 22 for HP) -- the bot was burning 2x consumables per
+# drop event.  Disarming at ~70 % preserves the original "fire
+# again under sustained damage" behaviour (damage below the arm
+# threshold re-arms naturally) while capping the single-event
+# spend at one charge.
+CONSUMABLE_DISARM_HP_PCT:     float = 0.70   # release HP latch at >= 70 % HP
+CONSUMABLE_DISARM_SHIELD_PCT: float = 0.70   # release shield latch at >= 70 % shields
 # Cooldown between auto-use POSTs so the bot doesn't spam the
 # endpoint when a tick hits the threshold.  REPAIR_PACK_HEAL +
 # SHIELD_RECHARGE_HEAL are 0.5 each so one use brings 50 % to
