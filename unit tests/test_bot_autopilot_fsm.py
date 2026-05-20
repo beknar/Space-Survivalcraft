@@ -12631,3 +12631,127 @@ class TestObserveGasLingering:
         ap._observe_gas_lingering(s, s["player"], _clock[0])
         gl = [e for (e, _) in events if e == "gas_lingering"]
         assert gl == []
+
+
+# ── Warp-zone swarm engage suppression (2026-05-19) ───────────────────────
+
+
+class TestWarpSwarmEngageSuppression:
+    """Pin the suppression that keeps the bot in WARP_TRAVERSE when
+    it's in a warp zone with too many aliens to safely engage.
+
+    Captured pathology (2026-05-19 telemetry): 4 ENGAGE deaths in
+    WARP_ENEMY in a single session.  Pattern was identical each time:
+    WARP_TRAVERSE at full shields -> an alien crosses into the 800 px
+    engage band -> FSM preempts to ENGAGE -> bot kites that alien
+    while ~20 others swarm -> shields 120 -> 0 in 5-7 s -> death.
+    With this suppression, ENGAGE stops preempting; WARP_TRAVERSE
+    keeps the bot driving toward the far edge while combat assist
+    (per-frame auto-aim) handles defense.
+    """
+
+    def _warp_state(self, alien_count=20, in_warp_zone=True,
+                    cur_state=None, **player_kw):
+        zone_id = "ZoneID.WARP_ENEMY" if in_warp_zone else "ZoneID.MAIN"
+        aliens = [{"x": 100.0 + i * 50.0, "y": 0.0, "hp": 50}
+                  for i in range(alien_count)]
+        s = _state(
+            player={"x": 0.0, "y": 0.0, "heading": 0.0,
+                    "shields": 120, "max_shields": 120,
+                    **player_kw},
+            aliens=aliens,
+        )
+        s["zone"] = {"world_w": 6400, "world_h": 8000,
+                     "zone_id": zone_id, "id": zone_id}
+        if cur_state is not None:
+            ap._fsm["state"] = cur_state
+        return s
+
+    def test_swarm_in_warp_zone_suppresses_engage(self, _clock):
+        """20 aliens in WARP_ENEMY, bot in WARP_TRAVERSE -- ENGAGE
+        must NOT fire even though aliens are inside the 800 px
+        band."""
+        s = self._warp_state(alien_count=20,
+                             cur_state=ap.S_WARP_TRAVERSE)
+        # Need the boss-was-killed latch + warp_after_boss_done to
+        # let WARP_TRAVERSE be the legitimate fall-through state.
+        ap._state.boss_was_killed = True
+        ap._state.warp_after_boss_done = True
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] != ap.S_ENGAGE, (
+            "ENGAGE must be suppressed for swarms in warp zones")
+
+    def test_threshold_boundary_just_below_suppresses_nothing(
+            self, _clock):
+        """Alien count exactly one below the threshold -- ENGAGE
+        fires normally."""
+        s = self._warp_state(
+            alien_count=ap.WARP_SWARM_ENGAGE_SUPPRESS_ALIENS - 1)
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_ENGAGE
+
+    def test_threshold_boundary_at_threshold_suppresses(
+            self, _clock):
+        """At the exact threshold, ENGAGE is suppressed."""
+        s = self._warp_state(
+            alien_count=ap.WARP_SWARM_ENGAGE_SUPPRESS_ALIENS,
+            cur_state=ap.S_WARP_TRAVERSE)
+        ap._state.boss_was_killed = True
+        ap._state.warp_after_boss_done = True
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] != ap.S_ENGAGE
+
+    def test_main_zone_with_many_aliens_still_engages(self, _clock):
+        """Outside of warp zones the suppression doesn't fire --
+        MAIN zone gets the normal ENGAGE behaviour even with many
+        aliens around (the bot's home base is here; abandoning
+        ENGAGE would let aliens chew on the station)."""
+        s = self._warp_state(alien_count=20, in_warp_zone=False)
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_ENGAGE
+
+    def test_warp_zone_with_few_aliens_still_engages(self, _clock):
+        """WARP_METEOR / WARP_GAS / WARP_LIGHTNING don't spawn
+        aliens but a stray one could drift in.  With aliens
+        count < threshold, ENGAGE still fires -- the bot can
+        safely kite a single threat without getting swarmed."""
+        s = self._warp_state(alien_count=3)
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_ENGAGE
+
+    def test_suppression_lets_warp_traverse_continue(self, _clock):
+        """The whole point: with ENGAGE suppressed in a swarm, the
+        FSM should fall through to WARP_TRAVERSE (assuming the
+        post-boss warp gates are set) so the bot keeps moving
+        toward the far edge instead of standing and dying."""
+        s = self._warp_state(
+            alien_count=20, cur_state=ap.S_WARP_TRAVERSE)
+        ap._state.boss_was_killed = True
+        ap._state.warp_after_boss_done = True
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_WARP_TRAVERSE
+
+    def test_already_in_regen_stays_in_regen_during_swarm(
+            self, _clock):
+        """If the bot is already in REGEN when a swarm appears, the
+        REGEN hold branch keeps it there until shields recover or
+        the warp-zone escape valve fires.  Swarm-suppression only
+        affects ENGAGE preemption, not REGEN holding.  Critical
+        because the REGEN entry side is naturally blocked when a
+        threat is close (existing behavior); we want to confirm
+        the HOLD side still works."""
+        s = self._warp_state(
+            alien_count=20,
+            cur_state=ap.S_REGEN,
+            shields=50,   # ~42 %, below REGEN_EXIT_PCT (60 %)
+        )
+        # Stamp the REGEN entry so the escape-valve timer doesn't
+        # fire on tick 1.
+        ap._fsm["entered_at"] = _clock[0]
+        ap._state.last_regen_shields = 50
+        ap._state.last_regen_progress_at = _clock[0]
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_REGEN, (
+            "REGEN must hold when bot is already in it, even with "
+            "a swarm in the warp zone")
+

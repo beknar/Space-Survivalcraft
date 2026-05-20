@@ -253,6 +253,18 @@ nearest = _bl.nearest
 
 ENGAGE_ENTER_PX: float = 800.0
 ENGAGE_EXIT_PX:  float = 1000.0
+# Warp-zone swarm gate (2026-05-19).  When the bot is in a warp
+# zone (e.g. WARP_ENEMY with its 4 spawners) and the alien count
+# exceeds this threshold, suppress ENGAGE preemption so
+# WARP_TRAVERSE keeps the bot driving toward the far edge instead
+# of kiting one alien while ~20 others swarm.  Combat assist
+# (the in-process auto-aim + fire hook) keeps firing at the
+# closest threat each frame, so the bot still defends itself --
+# the FSM just doesn't divert from the traversal goal.  Captured
+# 2026-05-19 telemetry: 4 ENGAGE deaths in WARP_ENEMY in one
+# session, shields 120 -> 0 in 5-7 s each, aliens_count 20-22 in
+# every case.
+WARP_SWARM_ENGAGE_SUPPRESS_ALIENS: int = 8
 GATHER_ENTER_PX: float = 1500.0
 GATHER_EXIT_PX:  float = 1700.0
 REGEN_ENTER_PCT: float = 0.40
