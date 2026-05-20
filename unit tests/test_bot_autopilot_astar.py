@@ -597,3 +597,183 @@ class TestCostWeightedFlagDispatch:
         # centre is 60 px from each building, > 55 px hard radius).
         cw_blocked, _costs, _gw2, _gh2 = astar._build_cost_grid(s)
         assert (40, 40) not in cw_blocked
+
+
+# ── Gas cloud planner integration (2026-05-19) ──────────────────────
+
+class TestGasCloudBlocking:
+    """The 2026-05-19 follow-up: gas clouds in ``state["gas_areas"]``
+    are treated as additional circular obstacles in both the binary
+    and cost-weighted grids.  Captured pathology: a 750 px radius
+    cloud in WARP_GAS that the reactive ``_act_flee_gas`` couldn't
+    escape in a single 600 px goto.  Proactive A* routes around it.
+    """
+
+    def _state_with_gas(self, clouds, **kw):
+        s = _state(**kw)
+        s["gas_areas"] = list(clouds)
+        return s
+
+    def test_binary_no_gas_areas_is_no_op(self):
+        s = _state(buildings=[])
+        s["gas_areas"] = []
+        blocked, gw, gh = astar._build_grid(s)
+        baseline, gw2, gh2 = astar._build_grid(_state(buildings=[]))
+        assert blocked == baseline
+        assert gw == gw2 and gh == gh2
+
+    def test_binary_gas_cloud_blocks_interior_cells(self):
+        s = self._state_with_gas([
+            {"x": 3200.0, "y": 3200.0, "radius": 200.0}
+        ])
+        blocked, _, _ = astar._build_grid(s)
+        cx, cy = astar._cell_of(3200.0, 3200.0, astar.ASTAR_CELL_PX)
+        assert (cx, cy) in blocked
+        far_cx, far_cy = astar._cell_of(
+            3700.0, 3200.0, astar.ASTAR_CELL_PX)
+        assert (far_cx, far_cy) not in blocked
+
+    def test_cost_no_gas_areas_is_no_op(self):
+        s = _state(buildings=[])
+        s["gas_areas"] = []
+        blocked, costs, _, _ = astar._build_cost_grid(s)
+        baseline_b, baseline_c, _, _ = astar._build_cost_grid(
+            _state(buildings=[]))
+        assert blocked == baseline_b
+        assert costs == baseline_c
+
+    def test_cost_gas_cloud_hard_blocks_interior(self):
+        s = self._state_with_gas([
+            {"x": 3200.0, "y": 3200.0, "radius": 200.0}
+        ])
+        blocked, _costs, _, _ = astar._build_cost_grid(s)
+        cx, cy = astar._cell_of(3200.0, 3200.0, astar.ASTAR_CELL_PX)
+        assert (cx, cy) in blocked
+
+    def test_cost_gas_cloud_soft_annulus_has_cost(self):
+        """Cells past the hard radius but inside the soft annulus
+        get extra traversal cost so the planner prefers wider
+        detours when room allows."""
+        s = self._state_with_gas([
+            {"x": 3200.0, "y": 3200.0, "radius": 200.0}
+        ])
+        blocked, costs, _, _ = astar._build_cost_grid(s)
+        # Cell at 280 px east of centre: past hard (230) but
+        # inside soft (350).
+        cx, cy = astar._cell_of(3480.0, 3200.0, astar.ASTAR_CELL_PX)
+        assert (cx, cy) not in blocked
+        assert costs.get((cx, cy), 0.0) > 0.0
+
+    def test_cost_gas_cloud_outside_soft_radius_has_no_cost(self):
+        s = self._state_with_gas([
+            {"x": 3200.0, "y": 3200.0, "radius": 200.0}
+        ])
+        blocked, costs, _, _ = astar._build_cost_grid(s)
+        cx, cy = astar._cell_of(3900.0, 3200.0, astar.ASTAR_CELL_PX)
+        assert (cx, cy) not in blocked
+        assert costs.get((cx, cy), 0.0) == 0.0
+
+
+class TestPlanPathAroundGas:
+    """End-to-end: ``plan_path`` routes around gas clouds the same
+    way it routes around building clusters."""
+
+    def test_plan_routes_around_single_cloud_blocking_direct_line(self):
+        s = _state(buildings=[])
+        s["gas_areas"] = [
+            {"x": 3200.0, "y": 3200.0, "radius": 300.0}
+        ]
+        wp = astar.plan_path(s, 2400.0, 3200.0, 4000.0, 3200.0)
+        assert wp, "expected a path around the cloud, got unreachable"
+        assert wp[-1] == (4000.0, 3200.0)
+        # No waypoint inside the cloud edge.
+        crossed = any(
+            (wx - 3200.0) ** 2 + (wy - 3200.0) ** 2 <= 300.0 ** 2
+            for wx, wy in wp)
+        assert not crossed, f"path crossed cloud interior: {wp}"
+
+    def test_plan_open_world_with_no_clouds_returns_direct(self):
+        s = _state(buildings=[])
+        s["gas_areas"] = []
+        wp = astar.plan_path(s, 1000.0, 1000.0, 2000.0, 2000.0)
+        assert wp != []
+        assert wp[-1] == (2000.0, 2000.0)
+        assert len(wp) <= 2
+
+    def test_target_inside_cloud_is_unreachable(self):
+        """Pickup or asteroid inside a cloud -- bot must treat
+        it as unreachable so the FSM blacklists rather than
+        charging in and bleeding out."""
+        s = _state(buildings=[])
+        s["gas_areas"] = [
+            {"x": 3200.0, "y": 3200.0, "radius": 300.0}
+        ]
+        wp = astar.plan_path(s, 2400.0, 3200.0, 3200.0, 3200.0)
+        assert wp == []
+        assert astar.target_reachable(
+            s, 2400.0, 3200.0, 3200.0, 3200.0) is False
+
+    def test_plan_routes_around_giant_cloud(self):
+        """The captured 2026-05-19 pathology: 750 px radius cloud
+        at (574, 3374).  Bot must detour around it instead of
+        flee-bouncing through it."""
+        s = _state(zone_w=3000.0, zone_h=8000.0, buildings=[])
+        s["gas_areas"] = [
+            {"x": 574.9, "y": 3374.0, "radius": 750.0}
+        ]
+        wp = astar.plan_path(s, 1318.0, 3398.0, 1500.0, 6000.0)
+        assert wp, "expected detour around 750 px cloud"
+        for wx, wy in wp:
+            d = math.hypot(wx - 574.9, wy - 3374.0)
+            assert d >= 750.0, (
+                f"waypoint ({wx},{wy}) is inside the cloud edge "
+                f"(d={d:.1f} < 750)")
+
+    def test_plan_routes_through_gap_between_two_clouds(self):
+        """Two clouds flanking the direct path with a navigable
+        gap between them.  Planner should thread the gap rather
+        than detouring around both."""
+        s = _state(buildings=[])
+        s["gas_areas"] = [
+            {"x": 3200.0, "y": 2800.0, "radius": 150.0},
+            {"x": 3200.0, "y": 3600.0, "radius": 150.0},
+        ]
+        wp = astar.plan_path(s, 2400.0, 3200.0, 4000.0, 3200.0)
+        assert wp
+        max_y_excursion = max(abs(wy - 3200.0) for _wx, wy in wp)
+        assert max_y_excursion < 600.0, (
+            f"expected gap-thread, got y excursion of "
+            f"{max_y_excursion}: {wp}")
+
+
+class TestLosBlockedSetWithGas:
+    """``los_blocked_set`` includes gas clouds so the bot's
+    direct-line-of-sight fast path correctly identifies a cloud
+    between bot and goal and triggers the planner."""
+
+    def test_los_blocked_set_includes_gas_hard_block(self):
+        s = _state(buildings=[])
+        s["gas_areas"] = [
+            {"x": 3200.0, "y": 3200.0, "radius": 200.0}
+        ]
+        blocked = astar.los_blocked_set(s)
+        cx, cy = astar._cell_of(3200.0, 3200.0, astar.ASTAR_CELL_PX)
+        assert (cx, cy) in blocked
+
+    def test_los_returns_false_through_gas_cloud(self):
+        s = _state(buildings=[])
+        s["gas_areas"] = [
+            {"x": 3200.0, "y": 3200.0, "radius": 200.0}
+        ]
+        blocked = astar.los_blocked_set(s)
+        assert astar._line_of_sight(
+            (2400.0, 3200.0), (4000.0, 3200.0), blocked) is False
+
+    def test_los_returns_true_when_path_skirts_cloud(self):
+        s = _state(buildings=[])
+        s["gas_areas"] = [
+            {"x": 3200.0, "y": 3200.0, "radius": 200.0}
+        ]
+        blocked = astar.los_blocked_set(s)
+        assert astar._line_of_sight(
+            (2400.0, 4000.0), (4000.0, 4000.0), blocked) is True
