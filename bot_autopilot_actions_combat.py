@@ -505,16 +505,40 @@ def _act_flee_gas(state: dict, p: dict) -> None:
         # tick's choose will route us out of S_FLEE_GAS.
         _ap._do_idle()
         return
-    cx, cy, radius = inside_cloud
-    dx = px - cx
-    dy = py - cy
-    d = math.hypot(dx, dy)
-    if d < 1.0:
-        dx, dy, d = 1.0, 0.0, 1.0
-    ux, uy = dx / d, dy / d
-    target_dist = radius + _ap.REGEN_GAS_ESCAPE_MARGIN_PX
-    tx = cx + ux * target_dist
-    ty = cy + uy * target_dist
+    # Cluster-aware escape (2026-05-19 follow-up).  The previous
+    # single-cloud ray only escaped the cloud the bot was currently
+    # in -- when adjacent clouds clustered (typical in WARP_GAS), the
+    # bot crossed cloud A's edge straight into cloud B, the FSM
+    # bounced FLEE_GAS / REGEN / FLEE_GAS, and shields drained ~100 px
+    # over ~16 s without making real progress.  Reuse
+    # ``gas_repulsion`` which already sums contributions from every
+    # cloud within ``GAS_REPULSION_RANGE_PX`` so the drive direction
+    # points away from the cluster, not just the nearest cloud
+    # centre.  Target distance is large (``FLEE_GAS_CLUSTER_ESCAPE_PX``)
+    # so a single goto clears the whole local cluster instead of
+    # hugging the first cloud's edge.
+    gas_rx, gas_ry = _nav.gas_repulsion(p, state, target=None)
+    rep_mag = math.hypot(gas_rx, gas_ry)
+    if rep_mag >= 0.01:
+        ux, uy = gas_rx / rep_mag, gas_ry / rep_mag
+        tx = px + ux * _ap.FLEE_GAS_CLUSTER_ESCAPE_PX
+        ty = py + uy * _ap.FLEE_GAS_CLUSTER_ESCAPE_PX
+    else:
+        # Fallback: ``gas_repulsion`` only returns non-zero for
+        # clouds with ``state["gas_areas"]`` populated.  If we got
+        # here via the hysteresis band but the field is empty (cloud
+        # popped between tick and handler dispatch, or test harness),
+        # use the original single-cloud ray as a safety net.
+        cx, cy, radius = inside_cloud
+        dx = px - cx
+        dy = py - cy
+        d = math.hypot(dx, dy)
+        if d < 1.0:
+            dx, dy, d = 1.0, 0.0, 1.0
+        ux, uy = dx / d, dy / d
+        target_dist = radius + _ap.REGEN_GAS_ESCAPE_MARGIN_PX
+        tx = cx + ux * target_dist
+        ty = cy + uy * target_dist
     zone = state.get("zone") or {}
     tx, ty, _ = _nav.clamp_to_world(tx, ty, zone)
     _ap.KeyState.hold("space", False)

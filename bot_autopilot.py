@@ -420,6 +420,17 @@ REGEN_GAS_ESCAPE_MARGIN_PX:   float = 200.0
 # hysteresis exit -- the bot commits to fully crossing the
 # boundary before the state releases.
 FLEE_GAS_EXIT_MARGIN_PX:      float = 100.0
+# FLEE_GAS cluster-escape distance (2026-05-19 follow-up).  The
+# action handler drives this far along the net gas-repulsion vector
+# (summed across every cloud within ``GAS_REPULSION_RANGE_PX``) so
+# a single goto clears the whole local cluster instead of just
+# hugging one cloud's edge.  Captured pathology: in WARP_GAS the
+# bot ping-ponged FLEE_GAS / REGEN / FLEE_GAS at (2250-2370,
+# 4180-4250) for 16 s while shields drained ~100 px -- escaping
+# cloud A only dropped the bot inside adjacent cloud B.  Chosen
+# larger than the typical cloud diameter so the escape ray
+# crosses any adjacent cluster on the way out.
+FLEE_GAS_CLUSTER_ESCAPE_PX:   float = 600.0
 # Gas-lingering telemetry thresholds (2026-05-19).  Fire a
 # ``gas_lingering`` event when the bot has been continuously inside
 # a gas cloud for ``GAS_LINGER_DETECT_S`` seconds AND has lost

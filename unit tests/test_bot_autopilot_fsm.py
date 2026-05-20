@@ -12264,12 +12264,12 @@ class TestFleeGasActionHandler:
     REGEN_GAS_ESCAPE_MARGIN_PX so the bot exits the field, not
     hugs it."""
 
-    def test_handler_targets_past_cloud_edge_on_ray(
+    def test_handler_drives_along_repulsion_vector(
             self, monkeypatch):
-        """Cloud at (3000, 3000) radius 200; bot at (3100, 3000);
-        ray is +X, target sits at +X past edge by margin.  Used
-        a world-interior position so ``clamp_to_world`` doesn't
-        push the y target away from the world edge."""
+        """Single cloud at (3000, 3000) r=200; bot at (3100, 3000).
+        Net gas-repulsion vector points +X away from the cloud
+        centre.  Action handler drives ``FLEE_GAS_CLUSTER_ESCAPE_PX``
+        along that vector from the bot's current position."""
         goto_calls: list = []
         monkeypatch.setattr(
             ap, "_do_goto",
@@ -12290,8 +12290,9 @@ class TestFleeGasActionHandler:
         ap._act_flee_gas(s, s["player"])
         assert len(goto_calls) == 1
         tx, ty, _ = goto_calls[0]
-        expected_dx = 200.0 + ap.REGEN_GAS_ESCAPE_MARGIN_PX
-        assert tx == pytest.approx(3000.0 + expected_dx)
+        # Direction is +X (away from cloud at 3000,3000), magnitude
+        # FLEE_GAS_CLUSTER_ESCAPE_PX from the bot's current position.
+        assert tx == pytest.approx(3100.0 + ap.FLEE_GAS_CLUSTER_ESCAPE_PX)
         assert ty == pytest.approx(3000.0)
 
     def test_handler_idles_when_no_longer_in_cloud(
@@ -12361,13 +12362,61 @@ class TestFleeGasActionHandler:
         assert idle_calls[0] == 0, (
             "handler must not idle while in the hysteresis band")
         assert len(goto_calls) == 1
-        # Drive target sits past the strict cloud edge by
-        # REGEN_GAS_ESCAPE_MARGIN_PX, regardless of where in the
-        # band the bot started.
+        # Drive target follows the gas-repulsion vector for
+        # FLEE_GAS_CLUSTER_ESCAPE_PX from the current position --
+        # not anchored to the cloud edge so the bot keeps moving
+        # away even from within the hysteresis band.
         tx, ty = goto_calls[0]
-        expected_dx = 200.0 + ap.REGEN_GAS_ESCAPE_MARGIN_PX
-        assert tx == pytest.approx(3000.0 + expected_dx)
+        assert tx == pytest.approx(3250.0 + ap.FLEE_GAS_CLUSTER_ESCAPE_PX)
         assert ty == pytest.approx(3000.0)
+
+    def test_handler_steers_away_from_cluster_not_single_cloud(
+            self, monkeypatch):
+        """The 2026-05-19 follow-up: with cloud A west of the bot
+        AND cloud B north of the bot, the escape vector is the
+        SUM of both repulsions -- pointing southeast away from the
+        cluster.  Pre-fix the handler escaped along the +X ray
+        from cloud A, dropping the bot straight into cloud B.
+
+        Setup: bot at (3000, 3000).  Cloud A at (2800, 3000) r=200
+        (bot is INSIDE A -- distance 200).  Cloud B at (3000, 3200)
+        r=200 (bot is INSIDE B -- distance 200).  Repulsion from A
+        pushes +X, from B pushes -Y, net direction is southeast.
+        """
+        goto_calls: list = []
+        monkeypatch.setattr(
+            ap, "_do_goto",
+            lambda state, p, tx, ty, stop_radius=80.0:
+                goto_calls.append((tx, ty, stop_radius)))
+
+        class _FakeKey:
+            @staticmethod
+            def hold(name, on): pass
+
+        monkeypatch.setattr(ap, "KeyState", _FakeKey)
+        s = _state(
+            player={"x": 3000.0, "y": 3000.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+        )
+        s["gas_areas"] = [
+            {"x": 2800.0, "y": 3000.0, "radius": 200.0},
+            {"x": 3000.0, "y": 3200.0, "radius": 200.0},
+        ]
+        ap._act_flee_gas(s, s["player"])
+        assert len(goto_calls) == 1
+        tx, ty, _ = goto_calls[0]
+        # Net direction is southeast: +X (away from A) and -Y
+        # (away from B).  Same magnitude from each cloud (bot
+        # equidistant from both centres) so the unit vector is
+        # (1/sqrt(2), -1/sqrt(2)).
+        dx = tx - 3000.0
+        dy = ty - 3000.0
+        assert dx > 0, f"expected eastward escape, got dx={dx}"
+        assert dy < 0, f"expected southward escape, got dy={dy}"
+        # Magnitude of escape ray is FLEE_GAS_CLUSTER_ESCAPE_PX
+        # (the unit vector was normalised).
+        assert math.hypot(dx, dy) == pytest.approx(
+            ap.FLEE_GAS_CLUSTER_ESCAPE_PX, rel=0.01)
 
 
 # ── gas_lingering telemetry (2026-05-19) ─────────────────────────────────
