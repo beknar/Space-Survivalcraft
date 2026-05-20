@@ -114,6 +114,28 @@ ASTAR_HARD_BLOCK_RADIUS_PX: float = 55.0
 ASTAR_SOFT_COST_RADIUS_PX: float = 150.0
 ASTAR_SOFT_COST_MAX: float = 8.0
 
+# Gas-cloud planner integration (2026-05-19 follow-up).  Each gas
+# area in ``state["gas_areas"]`` (only populated in WARP_GAS and the
+# Nebula / Star-Maze variants) is treated as a circular obstacle
+# with the same layered hard/soft pattern as buildings:
+#
+#  * HARD block: cells whose centre is within
+#    ``cloud_radius + ASTAR_GAS_HARD_BLOCK_MARGIN_PX``.  The ship
+#    physically can't safely sit inside the cloud (gas damage drains
+#    shields ~5 px / s) so the planner refuses to route through it.
+#  * SOFT cost: cells in the annulus from the hard radius out to
+#    ``cloud_radius + ASTAR_GAS_SOFT_COST_RADIUS_PX``.  Encourages
+#    paths to stay clear of cloud edges without forcing a detour
+#    when no alternative exists.
+#
+# Captured 2026-05-19 telemetry showed a 750 px radius gas cloud
+# (one of the WARP_GAS giants) that ``_act_flee_gas`` couldn't
+# escape in a single 600 px goto.  Proactive A* routing around the
+# cloud avoids the reactive flee-bounce entirely.
+ASTAR_GAS_HARD_BLOCK_MARGIN_PX: float = 30.0
+ASTAR_GAS_SOFT_COST_RADIUS_PX: float = 150.0
+ASTAR_GAS_SOFT_COST_MAX: float = 8.0
+
 
 # ── Grid construction ──────────────────────────────────────────────────
 
@@ -183,6 +205,28 @@ def _build_grid(state: dict, cell_px: int = ASTAR_CELL_PX,
                     continue
                 wx, wy = _world_of(cx, cy, cell_px)
                 if (wx - bx) ** 2 + (wy - by) ** 2 <= block_radius_sq:
+                    blocked.add((cx, cy))
+
+    # Gas-cloud cells.  Same centre-based blocking, with the radius
+    # set to ``cloud.radius + ASTAR_GAS_HARD_BLOCK_MARGIN_PX`` so the
+    # planner refuses to route through any cloud.  No-op in zones
+    # where ``state["gas_areas"]`` is empty (MAIN, ZONE2, etc.).
+    for c in (state.get("gas_areas") or []):
+        cx_c = float(c.get("x", 0.0))
+        cy_c = float(c.get("y", 0.0))
+        cloud_r = float(c.get("radius", 80.0))
+        gas_block_r = cloud_r + ASTAR_GAS_HARD_BLOCK_MARGIN_PX
+        gas_block_r_sq = gas_block_r * gas_block_r
+        radius_cells = int(math.ceil(gas_block_r / cell_px)) + 1
+        cx0, cy0 = _cell_of(cx_c, cy_c, cell_px)
+        for cx in range(cx0 - radius_cells, cx0 + radius_cells + 1):
+            if not (0 <= cx < grid_w):
+                continue
+            for cy in range(cy0 - radius_cells, cy0 + radius_cells + 1):
+                if not (0 <= cy < grid_h):
+                    continue
+                wx, wy = _world_of(cx, cy, cell_px)
+                if (wx - cx_c) ** 2 + (wy - cy_c) ** 2 <= gas_block_r_sq:
                     blocked.add((cx, cy))
     return blocked, grid_w, grid_h
 
@@ -276,6 +320,48 @@ def _build_cost_grid(state: dict, cell_px: int = ASTAR_CELL_PX,
                     # 0 at the soft edge.  Stacks additively across
                     # overlapping buildings.
                     extra = soft_cost_max * (1.0 - t) * (1.0 - t)
+                    costs[(cx, cy)] = costs.get((cx, cy), 0.0) + extra
+
+    # Gas-cloud cells (2026-05-19 follow-up).  Same layered pattern
+    # as buildings: hard-block cells inside cloud_radius + margin,
+    # soft annulus outside that.  Cloud lists are zone-specific
+    # (WARP_GAS + Nebula / Star-Maze variants); no-op when empty.
+    for c in (state.get("gas_areas") or []):
+        cx_c = float(c.get("x", 0.0))
+        cy_c = float(c.get("y", 0.0))
+        cloud_r = float(c.get("radius", 80.0))
+        gas_hard_r = cloud_r + ASTAR_GAS_HARD_BLOCK_MARGIN_PX
+        gas_soft_r = cloud_r + ASTAR_GAS_SOFT_COST_RADIUS_PX
+        gas_hard_sq = gas_hard_r * gas_hard_r
+        gas_soft_sq = gas_soft_r * gas_soft_r
+        gas_soft_span = gas_soft_r - gas_hard_r
+        radius_cells = int(math.ceil(gas_soft_r / cell_px)) + 1
+        cx0, cy0 = _cell_of(cx_c, cy_c, cell_px)
+        # Always hard-block the cloud's centre cell (mirrors the
+        # building treatment so a goal positioned at the literal
+        # cloud centre reports unreachable rather than slipping
+        # through a cell-corner edge case).
+        if 0 <= cx0 < grid_w and 0 <= cy0 < grid_h:
+            blocked.add((cx0, cy0))
+            costs.pop((cx0, cy0), None)
+        for cx in range(cx0 - radius_cells, cx0 + radius_cells + 1):
+            if not (0 <= cx < grid_w):
+                continue
+            for cy in range(cy0 - radius_cells, cy0 + radius_cells + 1):
+                if not (0 <= cy < grid_h):
+                    continue
+                wx, wy = _world_of(cx, cy, cell_px)
+                d_sq = (wx - cx_c) ** 2 + (wy - cy_c) ** 2
+                if d_sq <= gas_hard_sq:
+                    blocked.add((cx, cy))
+                    costs.pop((cx, cy), None)
+                elif d_sq <= gas_soft_sq:
+                    if (cx, cy) in blocked:
+                        continue
+                    d = math.sqrt(d_sq)
+                    t = (d - gas_hard_r) / gas_soft_span
+                    extra = (ASTAR_GAS_SOFT_COST_MAX
+                             * (1.0 - t) * (1.0 - t))
                     costs[(cx, cy)] = costs.get((cx, cy), 0.0) + extra
     return blocked, costs, grid_w, grid_h
 
