@@ -558,7 +558,23 @@ def choose_next_state(state: dict, p: dict, cur: str) -> str:
         and threat is state.get("boss"))
     suppress_engage_no_hs = (
         boss_is_threat and hs_pri145 is None)
-    if not suppress_engage_no_hs:
+    # Warp-zone swarm suppression (2026-05-19).  WARP_ENEMY has 4
+    # spawners producing 6 mini aliens per wave; with ~20 aliens
+    # visible, ENGAGE diverts the bot to kite ONE while the rest
+    # shred it.  Captured pathology: 4 ENGAGE deaths in WARP_ENEMY
+    # in a single session, shields 120 -> 0 in 5-7 s each.  When the
+    # bot is in a warp zone with too many aliens to safely engage,
+    # let WARP_TRAVERSE drive it through to the far edge.  Combat
+    # assist (per-frame auto-aim + fire hook) keeps shooting the
+    # closest threat regardless of FSM state, so the bot still
+    # defends itself -- only the FSM-level "stop and fight" diversion
+    # is suppressed.  Other warp zones (METEOR, LIGHTNING, GAS) have
+    # no aliens so the gate naturally never fires there.
+    suppress_engage_warp_swarm = (
+        "WARP" in zone_id
+        and len(state.get("aliens") or [])
+        >= _ap.WARP_SWARM_ENGAGE_SUPPRESS_ALIENS)
+    if not suppress_engage_no_hs and not suppress_engage_warp_swarm:
         if cur == _ap.S_ENGAGE:
             if threat is not None and td < _ap.ENGAGE_EXIT_PX:
                 return _ap.S_ENGAGE
