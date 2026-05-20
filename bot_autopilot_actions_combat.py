@@ -792,21 +792,33 @@ def _maybe_use_consumables(state: dict, p: dict) -> None:
     before the FSM dispatch so the response is independent of which
     state the bot is in.
 
-    The user spec is "use until 100 %", so each consumable is
-    governed by a heal-active latch:
+    Each consumable is governed by a heal-active latch:
 
       * Latch ARMS when current value crosses below
         ``CONSUMABLE_USE_*_PCT`` of max.
-      * Latch DISARMS when current value reaches max.
+      * Latch DISARMS when current value crosses above
+        ``CONSUMABLE_DISARM_*_PCT`` of max (~ 70 %).
       * While the latch is armed, the auto-use loop fires on every
         tick (subject to ``CONSUMABLE_USE_COOLDOWN_S``) until either
-        max is reached or the matching consumable runs out.
+        the disarm band is reached or the matching consumable runs out.
 
     Without the latch a single 50 %-heal use only refills the deficit
     that tripped the threshold — if HP dropped to 30 % between ticks,
     one use lands at 80 %, the next tick reads ``80/100 > 0.5`` and
     no further use fires until the bar drops below 50 % again.  The
     latch closes that gap.
+
+    Disarm band (2026-05-19): originally the latch disarmed only at
+    100 %, which led the auto-use loop to fire 2-3 consumables per
+    arm cycle -- the next-tick check after a 50 %-heal use saw the
+    bar still <100 % and fired again on the next cooldown boundary,
+    even though the bar was already past 70 %.  Captured pathology:
+    32 heal_shield_fire events from 16 arms (and 44 hp_fire / 22 hp
+    arms) in a single session, i.e. ~2x charges per drop.  Disarming
+    at 70 % keeps the spend at one charge per drop event while
+    leaving sustained-damage scenarios (damage outpacing the heal)
+    handled correctly via natural re-arming when the bar dips back
+    below the arm threshold.
 
     Repair pack takes priority over shield recharge when both
     latches are armed on the same tick (HP can't passively regen;
@@ -824,7 +836,7 @@ def _maybe_use_consumables(state: dict, p: dict) -> None:
         _ap._state.heal_hp_active = True
         _ap._telemetry_log("heal_hp_arm",
                        hp=hp, max_hp=max_hp, hp_frac=round(hp_frac, 3))
-    if _ap._state.heal_hp_active and hp >= max_hp:
+    if _ap._state.heal_hp_active and hp_frac >= _ap.CONSUMABLE_DISARM_HP_PCT:
         _ap._state.heal_hp_active = False
         _ap._telemetry_log("heal_hp_disarm",
                        hp=hp, max_hp=max_hp)
@@ -833,7 +845,7 @@ def _maybe_use_consumables(state: dict, p: dict) -> None:
         _ap._telemetry_log("heal_shield_arm",
                        shields=sh, max_shields=max_sh,
                        sh_frac=round(sh_frac, 3))
-    if _ap._state.heal_shield_active and sh >= max_sh:
+    if _ap._state.heal_shield_active and sh_frac >= _ap.CONSUMABLE_DISARM_SHIELD_PCT:
         _ap._state.heal_shield_active = False
         _ap._telemetry_log("heal_shield_disarm",
                        shields=sh, max_shields=max_sh)
