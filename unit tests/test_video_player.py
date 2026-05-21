@@ -367,6 +367,114 @@ class TestDrainExplicitlyReleasesPyglerSourceRefs:
         VideoPlayer._drain_pending_cleanup()  # must not raise
 
 
+class TestDrainOnePerCallStallBudget:
+    """The 2026-05-20 follow-up: cap the drain at ONE player per call
+    so a burst of stop()'s doesn't stack deletions into a single
+    frame.  Captured pathology in the 2026-05-19 video-player soak:
+    the END measurement (60 frames over 4.35 s = 13.8 FPS) absorbed
+    the full multi-player drain cost in one frame.  Spreading the
+    drain across frames bounds the worst-case stall regardless of
+    queue depth."""
+
+    def setup_method(self):
+        from video_player import VideoPlayer
+        VideoPlayer._pending_cleanup = []
+
+    def _make_expired_queue(self, n):
+        from video_player import VideoPlayer
+        import time as _time
+
+        class _Pl(_FakePlayer):
+            def __init__(self):
+                super().__init__()
+                self._source = None
+                self._playlists = []
+
+        players = [_Pl() for _ in range(n)]
+        # All deadlines already expired -- candidates for drain.
+        VideoPlayer._pending_cleanup = [
+            (_time.monotonic() - 1.0, pl) for pl in players
+        ]
+        return players
+
+    def test_drain_caps_to_one_per_call(self):
+        """3 expired players in queue: one call drains exactly one."""
+        from video_player import VideoPlayer
+
+        players = self._make_expired_queue(3)
+        VideoPlayer._drain_pending_cleanup()
+        deleted = [pl for pl in players if pl.deleted]
+        assert len(deleted) == 1, (
+            f"expected exactly 1 drain per call, got {len(deleted)}")
+        assert len(VideoPlayer._pending_cleanup) == 2
+
+    def test_repeated_calls_drain_the_full_queue(self):
+        """N calls drain N players -- full queue empties one per
+        call instead of stacking into one frame."""
+        from video_player import VideoPlayer
+
+        players = self._make_expired_queue(5)
+        for _ in range(5):
+            VideoPlayer._drain_pending_cleanup()
+        assert all(pl.deleted for pl in players)
+        assert VideoPlayer._pending_cleanup == []
+
+    def test_drain_skips_future_deadlines_picks_first_expired(self):
+        """With a mix of expired and future deadlines, drain picks
+        the first expired entry encountered and stops.  Iteration
+        order is queue order, which mirrors stop() call order --
+        oldest stop drains first, matching the deferred-cleanup
+        contract."""
+        from video_player import VideoPlayer
+        import time as _time
+
+        class _Pl(_FakePlayer):
+            def __init__(self, tag):
+                super().__init__()
+                self._source = None
+                self._playlists = []
+                self.tag = tag
+
+        pl_future = _Pl("future")
+        pl_expired_old = _Pl("expired_old")
+        pl_expired_new = _Pl("expired_new")
+        VideoPlayer._pending_cleanup = [
+            (_time.monotonic() + 60.0, pl_future),
+            (_time.monotonic() - 2.0, pl_expired_old),
+            (_time.monotonic() - 1.0, pl_expired_new),
+        ]
+        VideoPlayer._drain_pending_cleanup()
+        assert pl_future.deleted is False
+        # First expired entry in queue order wins.
+        assert pl_expired_old.deleted is True
+        assert pl_expired_new.deleted is False
+        assert len(VideoPlayer._pending_cleanup) == 2
+
+    def test_drain_uses_gen_zero_gc_collect(self, monkeypatch):
+        """The post-drain gc.collect is gen-0 only.  The FFmpegSource
+        ref is always young at drain time (queued ~2 s ago) so gen-0
+        catches it; full collect would scan all generations of
+        long-lived game state, contributing 10-100x more cost per
+        call at the soak's ~2.8 GB RSS."""
+        from video_player import VideoPlayer
+        import gc as _gc
+
+        calls: list = []
+        real = _gc.collect
+
+        def spy(*a, **kw):
+            calls.append((a, kw))
+            return real(*a, **kw)
+
+        monkeypatch.setattr(_gc, "collect", spy)
+        self._make_expired_queue(1)
+        VideoPlayer._drain_pending_cleanup()
+        assert calls, "gc.collect must fire when a player drained"
+        # Gen-0 only.
+        assert calls[0][0] == (0,) or calls[0][1].get("generation") == 0, (
+            f"expected gc.collect(0), got args={calls[0]}")
+
+
 class TestUpdateLogicAlwaysDrainsCleanupQueue:
     """Regression — ``_drain_pending_cleanup`` used to only run from
     ``VideoPlayer.update`` / ``update_volume``, which themselves only

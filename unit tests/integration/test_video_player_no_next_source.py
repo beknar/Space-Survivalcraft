@@ -71,10 +71,14 @@ class TestRealVideoPlayerNeverCallsNextSource:
         # Drain the pending-cleanup queue so the deferred .delete()
         # actually runs before the next test (otherwise the player
         # leaks until the next update_volume / update tick).
+        # ``_drain_pending_cleanup`` caps at ONE per call (see the
+        # video_player docstring -- spreads per-frame stall cost) so
+        # we loop until the queue is empty.
         import time as _time
         for _entry in list(VideoPlayer._pending_cleanup):
             _entry[1].volume = 0.0
         VideoPlayer._pending_cleanup = [
             (0.0, pl) for _, pl in VideoPlayer._pending_cleanup
         ]
-        VideoPlayer._drain_pending_cleanup()
+        while VideoPlayer._pending_cleanup:
+            VideoPlayer._drain_pending_cleanup()
