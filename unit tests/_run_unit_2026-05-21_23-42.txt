@@ -1,0 +1,132 @@
+============================= test session starts =============================
+platform win32 -- Python 3.12.10, pytest-9.0.3, pluggy-1.6.0
+rootdir: C:\Users\bekna\Documents\code\Space-Survivalcraft
+configfile: pytest.ini
+collected 2268 items
+
+unit tests\test_5way_refactor_helpers.py ....................            [  0%]
+unit tests\test_alien.py ..................                              [  1%]
+unit tests\test_alien_laser_audio.py ......                              [  1%]
+unit tests\test_asteroid.py .........                                    [  2%]
+unit tests\test_asteroid_explosion.py ......                             [  2%]
+unit tests\test_asteroid_yields.py ..............                        [  3%]
+unit tests\test_basic_ship_build.py .................                    [  3%]
+unit tests\test_blueprint_pickup.py ........                             [  4%]
+unit tests\test_bot_api_state.py ....................................... [  6%]
+..........                                                               [  6%]
+unit tests\test_bot_autopilot_astar.py ................................. [  7%]
+.....................                                                    [  8%]
+unit tests\test_bot_autopilot_blacklist.py ...............               [  9%]
+unit tests\test_bot_autopilot_fsm.py ................................... [ 11%]
+........................................................................ [ 14%]
+........................................................................ [ 17%]
+........................................................................ [ 20%]
+........................................................................ [ 23%]
+........................................................................ [ 26%]
+........................................................................ [ 30%]
+........................................................................ [ 33%]
+......................................................................   [ 36%]
+unit tests\test_bot_autopilot_logic.py .......................           [ 37%]
+unit tests\test_bot_autopilot_navigation.py ............................ [ 38%]
+......................................                                   [ 40%]
+unit tests\test_bot_autopilot_reexports.py ..................            [ 41%]
+unit tests\test_bot_autopilot_telemetry.py ..........                    [ 41%]
+unit tests\test_bot_builder.py .............................             [ 42%]
+unit tests\test_bot_combat_assist.py ................................... [ 44%]
+....                                                                     [ 44%]
+unit tests\test_building.py ............................................ [ 46%]
+..................                                                       [ 47%]
+unit tests\test_character_save_load.py .........                         [ 47%]
+unit tests\test_collision_helpers.py .............                       [ 48%]
+unit tests\test_constants.py .........................................   [ 50%]
+unit tests\test_contrail.py .......                                      [ 50%]
+unit tests\test_damage.py ..........                                     [ 50%]
+unit tests\test_dialogue_overlay.py ..................                   [ 51%]
+unit tests\test_distance_sfx.py .........                                [ 51%]
+unit tests\test_drag_zorder_and_starmaze_ai.py .....                     [ 52%]
+unit tests\test_drone.py ............................................... [ 54%]
+...................                                                      [ 55%]
+unit tests\test_drone_asteroid_avoidance.py ..........                   [ 55%]
+unit tests\test_drone_blueprint_icon.py .................                [ 56%]
+unit tests\test_drone_followups.py .................                     [ 57%]
+unit tests\test_drone_maze_containment.py ....                           [ 57%]
+unit tests\test_drone_polish_round2.py ............                      [ 57%]
+unit tests\test_drone_slipspace.py ...                                   [ 57%]
+unit tests\test_escape_menu_keyboard.py ............................     [ 59%]
+unit tests\test_explosion.py ...........                                 [ 59%]
+unit tests\test_fleet_menu.py ................                           [ 60%]
+unit tests\test_force_wall.py .....................                      [ 61%]
+unit tests\test_gas_area.py ...............                              [ 61%]
+unit tests\test_gas_warp_zone_connectivity.py .........                  [ 62%]
+unit tests\test_help_menu_drones.py .....                                [ 62%]
+unit tests\test_input_inventory_priority.py ......                       [ 62%]
+unit tests\test_inventory.py ........................................... [ 64%]
+                                                                         [ 64%]
+unit tests\test_maze_spawner_entourage.py .............                  [ 65%]
+unit tests\test_melee_weapon.py ........................................ [ 67%]
+..........                                                               [ 67%]
+unit tests\test_menu_scroll_component.py .........................       [ 68%]
+unit tests\test_mini_alien_take_damage.py ....                           [ 68%]
+unit tests\test_modules.py ............................                  [ 69%]
+unit tests\test_nebula_shared.py ...................                     [ 70%]
+unit tests\test_null_field.py ...........................                [ 72%]
+unit tests\test_null_field_persistence.py .......                        [ 72%]
+unit tests\test_parked_ship.py .......................................   [ 74%]
+unit tests\test_perf_micro.py ........                                   [ 74%]
+unit tests\test_pickup.py ........                                       [ 74%]
+unit tests\test_player.py ........................                       [ 75%]
+unit tests\test_projectile.py ...........                                [ 76%]
+unit tests\test_qwi_and_nebula_boss.py ........................          [ 77%]
+unit tests\test_recent_features.py .................................     [ 78%]
+unit tests\test_refactor_helpers.py ..............                       [ 79%]
+unit tests\test_refugee_npc.py ................                          [ 80%]
+unit tests\test_respawn.py .............................                 [ 81%]
+unit tests\test_respawn_on_death.py ........................             [ 82%]
+unit tests\test_save_helpers.py ...............                          [ 83%]
+unit tests\test_session_boss_tweaks.py ..............................    [ 84%]
+unit tests\test_settings.py .....                                        [ 84%]
+unit tests\test_shield.py ........                                       [ 85%]
+unit tests\test_ship_manager.py ................                         [ 85%]
+unit tests\test_slipspace.py ....................                        [ 86%]
+unit tests\test_slipspace_minimap.py .....                               [ 86%]
+unit tests\test_soak_base_gc.py ...F.....                                [ 87%]
+unit tests\test_splash_keyboard.py ...............                       [ 87%]
+unit tests\test_stalker.py ..............................                [ 89%]
+unit tests\test_star_maze.py ........................................... [ 91%]
+....................................                                     [ 92%]
+unit tests\test_star_maze_deflect.py ....                                [ 92%]
+unit tests\test_star_maze_save_buildings.py .....                        [ 93%]
+unit tests\test_star_maze_turret_targets.py ....                         [ 93%]
+unit tests\test_star_maze_wormhole_gate.py ......                        [ 93%]
+unit tests\test_station_info_layout.py .....................             [ 94%]
+unit tests\test_station_shield.py ........                               [ 94%]
+unit tests\test_update_logic_split.py ............                       [ 95%]
+unit tests\test_video_player.py ..........................               [ 96%]
+unit tests\test_waypoint_planner.py ..................                   [ 97%]
+unit tests\test_world_setup.py ........                                  [ 97%]
+unit tests\test_world_stats.py ................                          [ 98%]
+unit tests\test_zone2_respawn.py ..........                              [ 98%]
+unit tests\test_zone2_update.py .......                                  [ 99%]
+unit tests\test_zone_gating.py .....................                     [100%]
+
+================================== FAILURES ===================================
+____________ TestGetRssMb.test_repeated_calls_return_close_values _____________
+
+self = <test_soak_base_gc.TestGetRssMb object at 0x000002B059011250>
+
+    def test_repeated_calls_return_close_values(self):
+        """Two back-to-back stabilized RSS reads should agree within
+        a small slack (no foreign allocator activity in between)."""
+        a = get_rss_mb()
+        b = get_rss_mb()
+>       assert abs(a - b) < 5.0, (
+            f"Stabilized RSS swung from {a:.1f} to {b:.1f} MB — "
+            f"GC stabilization may not be working")
+E       AssertionError: Stabilized RSS swung from 1110.6 to 1092.6 MB — GC stabilization may not be working
+E       assert 18.01171875 < 5.0
+E        +  where 18.01171875 = abs((1110.59765625 - 1092.5859375))
+
+E:\code\Space-Survivalcraft\unit tests\test_soak_base_gc.py:67: AssertionError
+=========================== short test summary info ===========================
+FAILED unit tests/test_soak_base_gc.py::TestGetRssMb::test_repeated_calls_return_close_values
+================= 1 failed, 2267 passed in 111.55s (0:01:51) ==================
