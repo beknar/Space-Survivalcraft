@@ -450,12 +450,17 @@ class TestDrainOnePerCallStallBudget:
         assert pl_expired_new.deleted is False
         assert len(VideoPlayer._pending_cleanup) == 2
 
-    def test_drain_uses_gen_zero_gc_collect(self, monkeypatch):
-        """The post-drain gc.collect is gen-0 only.  The FFmpegSource
-        ref is always young at drain time (queued ~2 s ago) so gen-0
-        catches it; full collect would scan all generations of
-        long-lived game state, contributing 10-100x more cost per
-        call at the soak's ~2.8 GB RSS."""
+    def test_drain_uses_full_gc_collect(self, monkeypatch):
+        """The post-drain gc.collect is full (all generations).
+
+        Originally (PR #157) this called ``gc.collect(0)`` to reduce
+        per-frame cost, but the 2026-05-20 soak proved pyglet's
+        cell-ref cycles land in gen-1+ before the drain runs.
+        Gen-0 couldn't break them and the test's leak rate tripled
+        (~315 MB/min vs the documented ~92 MB/min baseline), busting
+        the 1500 MB memory cap.  Full collect is the entire reason
+        this drain exists; one-per-call cap alone is sufficient to
+        bound the per-frame stall."""
         from video_player import VideoPlayer
         import gc as _gc
 
@@ -470,9 +475,11 @@ class TestDrainOnePerCallStallBudget:
         self._make_expired_queue(1)
         VideoPlayer._drain_pending_cleanup()
         assert calls, "gc.collect must fire when a player drained"
-        # Gen-0 only.
-        assert calls[0][0] == (0,) or calls[0][1].get("generation") == 0, (
-            f"expected gc.collect(0), got args={calls[0]}")
+        # Full collect (no generation arg, or generation=2).
+        a, kw = calls[0]
+        gen_arg = a[0] if a else kw.get("generation")
+        assert gen_arg in (None, 2), (
+            f"expected full gc.collect, got generation={gen_arg}")
 
 
 class TestUpdateLogicAlwaysDrainsCleanupQueue:
