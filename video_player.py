@@ -283,7 +283,7 @@ class VideoPlayer:
         state per video) stays alive via the player's own attribute
         until the player itself is GC'd, which can be deferred for
         a long time.  We explicitly null the player's source ref +
-        force gen-0 ``gc.collect`` so ``FFmpegSource.__del__`` fires
+        force full ``gc.collect`` so ``FFmpegSource.__del__`` fires
         (it closes the FFmpeg streams + the format context).  Without
         this, every play/stop cycle leaked one full FFmpeg context.
 
@@ -293,11 +293,18 @@ class VideoPlayer:
         2026-05-19 soak: at the END measurement (60 frames over 4.35 s
         = 13.8 FPS) one frame absorbed the full multi-player drain
         cost.  Spreading across frames bounds the worst-case stall
-        regardless of queue depth.  Also switched the post-drain
-        ``gc.collect()`` to gen-0 only -- the FFmpegSource is
-        always young at drain time (queued ~2 s ago) so gen-0 catches
-        it, and at the soak's ~2.8 GB RSS gen-2 sweeps were measured
-        to contribute the bulk of the per-frame drain cost.
+        regardless of queue depth.
+
+        Note (2026-05-21 follow-up): a prior iteration of this fix
+        also tried ``gc.collect(0)`` (gen-0 only) to reduce per-frame
+        cost, but the 2026-05-20 soak proved the cell-ref cycles
+        pyglet creates land in gen-1+ before the drain runs.  Gen-0
+        couldn't break them and the test's leak rate tripled to
+        ~315 MB/min (vs the documented baseline ~92 MB/min), busting
+        the 1500 MB cap.  Restored full ``gc.collect`` since cell-ref
+        cleanup is the entire reason this drain exists; the
+        one-per-call cap on its own is sufficient to bound the
+        per-frame stall.
         """
         if not cls._pending_cleanup:
             return
@@ -322,7 +329,7 @@ class VideoPlayer:
                 pass
             del cls._pending_cleanup[i]
             import gc as _gc
-            _gc.collect(0)
+            _gc.collect()
             return
 
     def stop(self) -> None:
