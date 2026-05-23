@@ -505,6 +505,21 @@ RECOVER_LOOT_BOSS_DANGER_PX:  float = 1000.0
 # can actually reach the top edge.
 WARP_TRAVERSE_MARGIN_PX:      float = 10.0
 WARP_TRAVERSE_ARRIVAL_PX:     float = 50.0
+# Wormhole-arrival pin timeout (2026-05-23).  When the bot has been
+# within ``WARP_TO_WORMHOLE_STOP_RADIUS_PX`` of its target wormhole
+# for this many seconds without the game's auto-warp collision (100
+# px) firing, the action handler latches ``warp_after_boss_done``
+# and releases so the FSM cascade picks something else.  Captured
+# pathology: 19 stuck_detected events over 63 s at exactly
+# (3310, 4167); bot reached the wormhole goto target, ``_do_goto``
+# released all keys, but the game-side warp didn't fire.  Without
+# this timeout the bot pings stuck-detect every ~3 s but the
+# escape bursts get undone by the next ``_act_warp_to_wormhole``
+# call re-asserting the stop.  5 s is comfortable headroom for any
+# legitimate first-frame race between bot arrival + game-side
+# collision-check tick.
+WARP_TO_WORMHOLE_STOP_RADIUS_PX: float = 50.0
+WARP_TO_WORMHOLE_PIN_TIMEOUT_S: float = 5.0
 # Lateral-detour timeout (2026-05-17): when ``_act_warp_traverse``
 # fails to advance the bot's max y over the current arc for this
 # many seconds, the action switches target_x from the world centre
@@ -1500,6 +1515,17 @@ class BotState:
     # WARP_TRAVERSE_DETOUR_TIMEOUT_S seconds of no y advance.
     # Captured 2026-05-17 bot_io: 590-s session, bot stuck in
     # WARP_GAS oscillating around y=2400-2670 for the entire run.
+    # Wormhole-arrival pin timer (2026-05-23).  Tracks how long the
+    # bot has been within ``stop_radius`` of its WARP_TO_WORMHOLE
+    # target without the game's auto-warp collision (player within
+    # 100 px of the wormhole) firing.  Captured pathology: 19 stuck
+    # events over 63 s at exactly (3310, 4167) -- bot reached its
+    # wormhole goto target and ``_do_goto`` released all keys, but
+    # the game-side auto-warp never fired.  Stuck-detect + escape
+    # bursts couldn't help because the next ``_act_warp_to_wormhole``
+    # tick re-targeted the same wormhole and re-asserted the stop.
+    # 0.0 == not currently parked at a wormhole.
+    warp_wormhole_arrived_at: float = 0.0
     warp_traverse_max_y: float = 0.0
     warp_traverse_progress_at: float = 0.0
     warp_traverse_detour_count: int = 0
@@ -1599,6 +1625,7 @@ class BotState:
         self.warp_after_boss_done = False
         self.warp_relatched_pending = False
         self.warp_traverse_done = False
+        self.warp_wormhole_arrived_at = 0.0
         self.warp_traverse_max_y = 0.0
         self.warp_traverse_progress_at = 0.0
         self.warp_traverse_detour_count = 0

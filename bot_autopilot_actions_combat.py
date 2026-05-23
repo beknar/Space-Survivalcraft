@@ -618,11 +618,43 @@ def _act_warp_to_wormhole(state: dict, p: dict) -> None:
         return
     tx = float(nearest.get("x", 0.0))
     ty = float(nearest.get("y", 0.0))
+    # Pin-timeout latch (2026-05-23).  When the bot has been within
+    # the goto stop_radius of the wormhole for too long without the
+    # game's auto-warp collision (100 px) firing, abandon this
+    # attempt -- the wormhole-stop loop above is unfixable from the
+    # bot's side (likely a player-snapshot vs. real-sprite precision
+    # mismatch, or a game-side hazard suppressing the transition).
+    # Latching ``warp_after_boss_done`` lets the FSM cascade resume
+    # productive work; if conditions change later (different
+    # wormhole, different attempt path) the existing relatch
+    # observer (``_observe_warp_back_to_main``) re-arms the warp.
+    stop_radius = _ap.WARP_TO_WORMHOLE_STOP_RADIUS_PX
+    now = _ap._get_now()
+    if nearest_d <= stop_radius:
+        if _ap._state.warp_wormhole_arrived_at == 0.0:
+            _ap._state.warp_wormhole_arrived_at = now
+        elif (now - _ap._state.warp_wormhole_arrived_at
+              >= _ap.WARP_TO_WORMHOLE_PIN_TIMEOUT_S):
+            _ap._telemetry_log(
+                "warp_to_wormhole_pin_timeout",
+                pin_s=round(
+                    now - _ap._state.warp_wormhole_arrived_at, 2),
+                wormhole_x=tx, wormhole_y=ty,
+                dist=round(nearest_d, 1),
+                **_ap._telemetry_snapshot_fields(state, p))
+            _ap._state.warp_after_boss_done = True
+            _ap._state.warp_wormhole_arrived_at = 0.0
+            return
+    else:
+        # Left the stop radius -- reset the timer so a future arrival
+        # gets the full PIN_TIMEOUT_S window before abandoning.
+        _ap._state.warp_wormhole_arrived_at = 0.0
     _ap.KeyState.hold("space", False)
-    # Stop radius 50 px sits well inside the 100 px collision
-    # window -- once we're within 50 the game will trigger the
-    # transition on the next physics tick.
-    _ap._do_goto(state, p, tx, ty, stop_radius=50.0)
+    # Stop radius sits well inside the 100 px collision window --
+    # once we're within it the game will trigger the transition on
+    # the next physics tick (when it does).  The pin-timeout above
+    # backs that out if no transition happens within PIN_TIMEOUT_S.
+    _ap._do_goto(state, p, tx, ty, stop_radius=stop_radius)
 
 
 def _act_warp_traverse(state: dict, p: dict) -> None:
