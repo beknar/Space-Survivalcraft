@@ -8229,9 +8229,13 @@ class TestWarpToWormholePinTimeout:
             "timer must reset when bot leaves stop_radius")
         assert ap._state.warp_after_boss_done is False
 
-    def test_far_from_wormhole_no_timer_armed(self, monkeypatch):
-        """Bot well outside stop_radius -- timer stays at 0, no
-        latch even after many seconds."""
+    def test_far_from_wormhole_arrival_timer_not_armed(
+            self, monkeypatch):
+        """Bot well outside stop_radius -- the arrival timer
+        stays at 0 and the arrival latch doesn't fire.  Clock
+        advance is kept below ``NO_PROGRESS_TIMEOUT_S`` so the
+        separate no-progress backstop (tested below) doesn't
+        also fire here."""
         clock = [1000.0]
         self._patch_now(monkeypatch, clock)
         s = _state(
@@ -8244,7 +8248,9 @@ class TestWarpToWormholePinTimeout:
         ]
         ap._act_warp_to_wormhole(s, s["player"])
         assert ap._state.warp_wormhole_arrived_at == 0.0
-        clock[0] += ap.WARP_TO_WORMHOLE_PIN_TIMEOUT_S * 3
+        # Advance well below NO_PROGRESS_TIMEOUT_S (15 s) so only
+        # the arrival branch is under test.
+        clock[0] += ap.WARP_TO_WORMHOLE_PIN_TIMEOUT_S * 0.5
         ap._act_warp_to_wormhole(s, s["player"])
         assert ap._state.warp_after_boss_done is False
 
@@ -8278,6 +8284,181 @@ class TestWarpToWormholePinTimeout:
         assert kw["wormhole_x"] == 210.0
         assert kw["wormhole_y"] == 210.0
         assert kw["pin_s"] >= ap.WARP_TO_WORMHOLE_PIN_TIMEOUT_S
+        # Reason field distinguishes arrival vs no-progress paths.
+        assert kw.get("reason") == "arrival"
+
+
+class TestWarpToWormholeNoProgressBackstop:
+    """The 2026-05-23 follow-up: when the bot can't get within
+    ``stop_radius`` of any wormhole (boundary repulsion / building
+    geometry / etc.), the arrival pin-timeout never arms.  This
+    backstop catches the en-route stuck by tracking the bot's
+    closest approach this arc and firing if it doesn't improve
+    by ``PROGRESS_THRESHOLD_PX`` over ``NO_PROGRESS_TIMEOUT_S``.
+
+    Captured pathology: 7 stuck_detected events at (582, 1347) over
+    18 s in WARP_TO_WORMHOLE, hs_dist=4220 (near west world edge).
+    Bot was orbiting at the boundary-repulsion radius, never
+    reaching the wormhole at the south edge.  PR #163's arrival
+    timer didn't help because ``nearest_d`` never dropped below
+    stop_radius (50 px).
+    """
+
+    def setup_method(self):
+        ap._state.warp_wormhole_arrived_at = 0.0
+        ap._state.warp_wormhole_best_d = 0.0
+        ap._state.warp_wormhole_progress_at = 0.0
+        ap._state.warp_after_boss_done = False
+
+    def _patch(self, monkeypatch, clock):
+        monkeypatch.setattr(ap, "_get_now", lambda: clock[0])
+        monkeypatch.setattr(ap, "_do_goto", lambda *a, **kw: None)
+
+    def test_first_en_route_tick_seeds_trackers(self, monkeypatch):
+        """Bot far from wormhole on first tick -- ``best_d`` and
+        ``progress_at`` get initialized.  Latch not set yet."""
+        clock = [1000.0]
+        self._patch(monkeypatch, clock)
+        s = _state(
+            player={"x": 1000.0, "y": 1000.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+        )
+        s["wormholes"] = [
+            {"x": 200.0, "y": 200.0,
+             "zone_target": "ZoneID.WARP_METEOR"},
+        ]
+        ap._act_warp_to_wormhole(s, s["player"])
+        assert ap._state.warp_wormhole_progress_at == 1000.0
+        # Distance ~1131 px -- this is what best_d gets seeded to.
+        assert ap._state.warp_wormhole_best_d > 0
+        assert ap._state.warp_after_boss_done is False
+
+    def test_no_progress_past_timeout_latches_done(
+            self, monkeypatch):
+        """Bot stays at the same distance for longer than
+        ``NO_PROGRESS_TIMEOUT_S`` -- backstop latches done."""
+        clock = [1000.0]
+        self._patch(monkeypatch, clock)
+        s = _state(
+            player={"x": 1000.0, "y": 1000.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+        )
+        s["wormholes"] = [
+            {"x": 200.0, "y": 200.0,
+             "zone_target": "ZoneID.WARP_METEOR"},
+        ]
+        # Tick 1 -- seed trackers.
+        ap._act_warp_to_wormhole(s, s["player"])
+        # Tick 2 -- past timeout, bot at same position.
+        clock[0] += ap.WARP_TO_WORMHOLE_NO_PROGRESS_TIMEOUT_S + 0.1
+        ap._act_warp_to_wormhole(s, s["player"])
+        assert ap._state.warp_after_boss_done is True
+        assert ap._state.warp_wormhole_progress_at == 0.0
+
+    def test_progress_resets_no_progress_timer(self, monkeypatch):
+        """If the bot makes meaningful progress (best_d drops by
+        >= PROGRESS_THRESHOLD_PX), the timer resets so the bot
+        gets the full window again to make MORE progress.  This
+        is the protective case: a slow but steady transit shouldn't
+        get abandoned mid-flight."""
+        clock = [1000.0]
+        self._patch(monkeypatch, clock)
+        s = _state(
+            player={"x": 1000.0, "y": 1000.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+        )
+        s["wormholes"] = [
+            {"x": 200.0, "y": 200.0,
+             "zone_target": "ZoneID.WARP_METEOR"},
+        ]
+        # Tick 1: distance ~1131.
+        ap._act_warp_to_wormhole(s, s["player"])
+        seed_progress_at = ap._state.warp_wormhole_progress_at
+        # Move 200 px closer (well past PROGRESS_THRESHOLD_PX).
+        s["player"]["x"] = 858.0
+        s["player"]["y"] = 858.0
+        clock[0] += 5.0
+        ap._act_warp_to_wormhole(s, s["player"])
+        # Timer reset to current clock; best_d dropped.
+        assert ap._state.warp_wormhole_progress_at > seed_progress_at
+        assert ap._state.warp_wormhole_best_d < 1131.0
+        # No latch.
+        assert ap._state.warp_after_boss_done is False
+
+    def test_micro_wobble_does_not_count_as_progress(
+            self, monkeypatch):
+        """Sub-threshold movement (boundary-repulsion oscillation)
+        does NOT reset the timer.  Captured pathology: bot
+        wobbled between (582, 1349) and (582, 1347) at the west
+        edge -- 2 px of movement, far below the 50 px progress
+        threshold."""
+        clock = [1000.0]
+        self._patch(monkeypatch, clock)
+        s = _state(
+            player={"x": 1000.0, "y": 1000.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+        )
+        s["wormholes"] = [
+            {"x": 200.0, "y": 200.0,
+             "zone_target": "ZoneID.WARP_METEOR"},
+        ]
+        ap._act_warp_to_wormhole(s, s["player"])
+        seed_progress_at = ap._state.warp_wormhole_progress_at
+        # Move 2 px -- well below PROGRESS_THRESHOLD_PX (50).
+        s["player"]["x"] = 998.0
+        clock[0] += 5.0
+        ap._act_warp_to_wormhole(s, s["player"])
+        # Timer NOT reset -- progress_at still at seed value.
+        assert ap._state.warp_wormhole_progress_at == seed_progress_at
+        # Latch not yet (still well under NO_PROGRESS_TIMEOUT_S).
+        assert ap._state.warp_after_boss_done is False
+        # Past the timeout -- latch.
+        clock[0] += ap.WARP_TO_WORMHOLE_NO_PROGRESS_TIMEOUT_S
+        ap._act_warp_to_wormhole(s, s["player"])
+        assert ap._state.warp_after_boss_done is True
+
+    def test_no_progress_timeout_emits_telemetry(self, monkeypatch):
+        """The no-progress branch fires the same
+        ``warp_to_wormhole_pin_timeout`` event but with
+        ``reason="no_progress"`` so the operator can tell the
+        arrival path from the en-route path in the log."""
+        clock = [1000.0]
+        events: list = []
+        monkeypatch.setattr(ap, "_get_now", lambda: clock[0])
+        monkeypatch.setattr(ap, "_do_goto", lambda *a, **kw: None)
+        monkeypatch.setattr(
+            ap, "_telemetry_log",
+            lambda evt, **kw: events.append((evt, kw)))
+        s = _state(
+            player={"x": 1000.0, "y": 1000.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+        )
+        s["wormholes"] = [
+            {"x": 200.0, "y": 200.0,
+             "zone_target": "ZoneID.WARP_METEOR"},
+        ]
+        ap._act_warp_to_wormhole(s, s["player"])
+        clock[0] += ap.WARP_TO_WORMHOLE_NO_PROGRESS_TIMEOUT_S + 0.1
+        ap._act_warp_to_wormhole(s, s["player"])
+        timeout_events = [(e, kw) for (e, kw) in events
+                          if e == "warp_to_wormhole_pin_timeout"]
+        assert len(timeout_events) == 1
+        kw = timeout_events[0][1]
+        assert kw["reason"] == "no_progress"
+        assert "best_d" in kw
+
+    def test_on_enter_resets_trackers(self):
+        """``_on_enter(S_WARP_TO_WORMHOLE)`` clears stale trackers
+        from a prior arc so a fresh entry starts with full
+        timeout budgets."""
+        # Pre-populate stale state.
+        ap._state.warp_wormhole_arrived_at = 999.9
+        ap._state.warp_wormhole_best_d = 1234.5
+        ap._state.warp_wormhole_progress_at = 555.0
+        ap._on_enter(ap.S_WARP_TO_WORMHOLE)
+        assert ap._state.warp_wormhole_arrived_at == 0.0
+        assert ap._state.warp_wormhole_best_d == 0.0
+        assert ap._state.warp_wormhole_progress_at == 0.0
 
 
 class TestWarpTriggerOnBossDefeatedFromSave:

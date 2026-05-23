@@ -520,6 +520,24 @@ WARP_TRAVERSE_ARRIVAL_PX:     float = 50.0
 # collision-check tick.
 WARP_TO_WORMHOLE_STOP_RADIUS_PX: float = 50.0
 WARP_TO_WORMHOLE_PIN_TIMEOUT_S: float = 5.0
+# No-progress backstop (2026-05-23 follow-up to PR #163).  When the
+# bot has been in WARP_TO_WORMHOLE for this many seconds without
+# meaningfully decreasing its nearest-wormhole distance, abandon
+# the attempt -- same latch as the arrival pin-timeout, second
+# activation path.  Catches the en-route stuck case PR #163 misses:
+# bot can't reach the wormhole because of boundary repulsion /
+# building geometry / etc., so ``nearest_d`` never drops below
+# ``WARP_TO_WORMHOLE_STOP_RADIUS_PX`` and the arrival timer never
+# arms.  Captured 2026-05-23 pathology: 7 stuck_detected events
+# at (582, 1347), 18 s duration, hs_dist=4220 (near west world
+# edge) -- bot was orbiting at the boundary repulsion radius
+# never reaching the wormhole.  15 s is long enough that
+# legitimate long-haul transits (with steered_heading bending
+# around buildings) get to complete; 50 px is the minimum
+# decrease that counts as "actual progress" (filters out
+# sub-cell wobble from boundary repulsion oscillation).
+WARP_TO_WORMHOLE_NO_PROGRESS_TIMEOUT_S: float = 15.0
+WARP_TO_WORMHOLE_PROGRESS_THRESHOLD_PX: float = 50.0
 # Lateral-detour timeout (2026-05-17): when ``_act_warp_traverse``
 # fails to advance the bot's max y over the current arc for this
 # many seconds, the action switches target_x from the world centre
@@ -1526,6 +1544,15 @@ class BotState:
     # tick re-targeted the same wormhole and re-asserted the stop.
     # 0.0 == not currently parked at a wormhole.
     warp_wormhole_arrived_at: float = 0.0
+    # No-progress backstop trackers (2026-05-23 follow-up).  Track
+    # the bot's closest approach to the nearest wormhole this arc;
+    # if the best-d doesn't decrease by
+    # ``WARP_TO_WORMHOLE_PROGRESS_THRESHOLD_PX`` over
+    # ``WARP_TO_WORMHOLE_NO_PROGRESS_TIMEOUT_S`` seconds, abandon.
+    # ``best_d=0.0`` AND ``progress_at=0.0`` means trackers are
+    # uninitialized (just entered WARP_TO_WORMHOLE).
+    warp_wormhole_best_d: float = 0.0
+    warp_wormhole_progress_at: float = 0.0
     warp_traverse_max_y: float = 0.0
     warp_traverse_progress_at: float = 0.0
     warp_traverse_detour_count: int = 0
@@ -1626,6 +1653,8 @@ class BotState:
         self.warp_relatched_pending = False
         self.warp_traverse_done = False
         self.warp_wormhole_arrived_at = 0.0
+        self.warp_wormhole_best_d = 0.0
+        self.warp_wormhole_progress_at = 0.0
         self.warp_traverse_max_y = 0.0
         self.warp_traverse_progress_at = 0.0
         self.warp_traverse_detour_count = 0
@@ -1970,6 +1999,16 @@ def _on_enter(new_state: str) -> None:
     """
     if new_state == S_SEARCH:
         _spiral_reset()
+    elif new_state == S_WARP_TO_WORMHOLE:
+        # Reset wormhole arrival + progress trackers so a fresh
+        # WARP_TO_WORMHOLE arc gets clean timing for both the
+        # PR #163 arrival pin-timeout and the 2026-05-23 follow-up
+        # no-progress backstop.  Without this a stale ``best_d``
+        # from a prior arc would make the no-progress timer think
+        # the bot started further away than it actually did.
+        _state.warp_wormhole_arrived_at = 0.0
+        _state.warp_wormhole_best_d = 0.0
+        _state.warp_wormhole_progress_at = 0.0
     elif new_state in (S_MINE, S_PRE_BOSS_MINE):
         # 50/50 dice roll: Mining Beam vs Energy Pickaxe.  Sticky
         # for the entire mining session so the bot doesn't tab-flap
