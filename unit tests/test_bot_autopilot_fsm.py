@@ -12755,3 +12755,154 @@ class TestWarpSwarmEngageSuppression:
             "REGEN must hold when bot is already in it, even with "
             "a swarm in the warp zone")
 
+
+# ── Warp-zone swarm REGEN suppression (2026-05-23) ────────────────────────
+
+
+class TestWarpSwarmRegenSuppression:
+    """Pin the symmetric REGEN suppression: in a warp zone with too
+    many aliens to safely idle, REGEN entry is blocked AND an
+    already-in-REGEN bot exits immediately on the next tick.
+
+    Captured pathology (2026-05-23 telemetry): 4 of 6 most recent
+    player deaths were in REGEN state in WARP_ENEMY arcs with
+    52-60 aliens visible.  REGEN's action is ``_do_idle`` -- safe
+    under normal conditions but a death sentence under swarm DPS.
+    Suppressing REGEN there lets WARP_TRAVERSE keep the bot
+    moving toward the exit; combat assist still auto-aims + fires
+    every frame, and consumables still auto-trigger at the
+    existing HP/shield thresholds.
+
+    Mirror of ``TestWarpSwarmEngageSuppression`` (PR #155) for the
+    REGEN side of the same failure family.
+    """
+
+    def _warp_state(self, alien_count=20, in_warp_zone=True,
+                    cur_state=None, shields=30, max_shields=120,
+                    alien_close=False):
+        """Build a state with ``alien_count`` aliens.  If
+        ``alien_close`` is False, aliens are placed at x=5000+
+        (well outside ENGAGE_ENTER_PX) so the ``threatened`` gate
+        in REGEN entry is False -- which is the gate the swarm
+        suppression is meant to backstop."""
+        zone_id = "ZoneID.WARP_ENEMY" if in_warp_zone else "ZoneID.MAIN"
+        if alien_close:
+            aliens = [{"x": 100.0 + i * 50.0, "y": 0.0, "hp": 50}
+                      for i in range(alien_count)]
+        else:
+            aliens = [{"x": 5000.0 + i * 50.0, "y": 5000.0, "hp": 50}
+                      for i in range(alien_count)]
+        s = _state(
+            player={"x": 0.0, "y": 0.0, "heading": 0.0,
+                    "shields": shields, "max_shields": max_shields},
+            aliens=aliens,
+        )
+        s["zone"] = {"world_w": 6400, "world_h": 8000,
+                     "zone_id": zone_id, "id": zone_id}
+        if cur_state is not None:
+            ap._fsm["state"] = cur_state
+        return s
+
+    def test_swarm_in_warp_zone_suppresses_regen_entry(
+            self, _clock):
+        """Bot at low shields with 20 aliens in WARP_ENEMY (none
+        close enough to trigger ``threatened``).  Without this
+        suppression REGEN would fire on the entry path.  With it,
+        REGEN entry is blocked -- bot stays in current state."""
+        s = self._warp_state(
+            alien_count=20, shields=30,   # ~25 %, below 40 % enter
+            alien_close=False,
+            cur_state=ap.S_WARP_TRAVERSE,
+        )
+        ap._state.boss_was_killed = True
+        ap._state.warp_after_boss_done = True
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] != ap.S_REGEN, (
+            "REGEN must be suppressed for swarms in warp zones")
+
+    def test_threshold_boundary_just_below_suppresses_nothing(
+            self, _clock):
+        """One alien below the threshold: normal REGEN entry
+        applies."""
+        s = self._warp_state(
+            alien_count=ap.WARP_SWARM_REGEN_SUPPRESS_ALIENS - 1,
+            shields=30, alien_close=False)
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_REGEN
+
+    def test_threshold_boundary_at_threshold_suppresses(
+            self, _clock):
+        """At the exact threshold, REGEN is suppressed."""
+        s = self._warp_state(
+            alien_count=ap.WARP_SWARM_REGEN_SUPPRESS_ALIENS,
+            shields=30, alien_close=False,
+            cur_state=ap.S_WARP_TRAVERSE)
+        ap._state.boss_was_killed = True
+        ap._state.warp_after_boss_done = True
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] != ap.S_REGEN
+
+    def test_main_zone_with_many_aliens_still_enters_regen(
+            self, _clock):
+        """Outside warp zones REGEN behaves normally: shields below
+        threshold + not-threatened-by-close-alien = enter REGEN."""
+        s = self._warp_state(
+            alien_count=20, shields=30, in_warp_zone=False,
+            alien_close=False)
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_REGEN
+
+    def test_warp_zone_with_few_aliens_still_enters_regen(
+            self, _clock):
+        """Sparse warp zone (METEOR, GAS, LIGHTNING) doesn't trip
+        the gate; the existing in-warp-zone escape valve continues
+        to handle environmental damage cases as before."""
+        s = self._warp_state(
+            alien_count=3, shields=30, alien_close=False)
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_REGEN
+
+    def test_already_in_regen_exits_under_warp_swarm(self, _clock):
+        """The hold-side branch: bot already in REGEN, swarm
+        appears.  The new swarm-escape-valve fires immediately --
+        no waiting for the 1.5 s no-progress timer.  Without this
+        the bot would idle for 1.5 s under 50+ alien DPS and die.
+        """
+        s = self._warp_state(
+            alien_count=20, shields=50,   # below regen_exit
+            alien_close=False,
+            cur_state=ap.S_REGEN)
+        # Set the REGEN-entry timers so the stall logic has a
+        # baseline.  Make shields appear to be RECOVERING so the
+        # stall escape valve does NOT fire -- only the new
+        # swarm-suppress should drive the exit.
+        ap._state.boss_was_killed = True
+        ap._state.warp_after_boss_done = True
+        ap._state.last_regen_shields = 50
+        ap._state.last_regen_progress_at = _clock[0]
+        ap._fsm["entered_at"] = _clock[0]
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] != ap.S_REGEN, (
+            "swarm suppression must release REGEN immediately, "
+            "without the 1.5 s stall-timer wait")
+
+    def test_engage_suppression_and_regen_suppression_compose(
+            self, _clock):
+        """Both PR #155 (ENGAGE suppress) and this PR (REGEN
+        suppress) fire together in WARP_ENEMY.  Bot at low shields
+        with aliens in engage range: ENGAGE blocked, REGEN
+        blocked, fall through to WARP_TRAVERSE."""
+        s = self._warp_state(
+            alien_count=20, shields=30,
+            alien_close=True,   # in engage range
+            cur_state=ap.S_WARP_TRAVERSE)
+        ap._state.boss_was_killed = True
+        ap._state.warp_after_boss_done = True
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] != ap.S_ENGAGE, (
+            "ENGAGE must stay suppressed (PR #155)")
+        assert ap._fsm["state"] != ap.S_REGEN, (
+            "REGEN must also be suppressed (PR #161)")
+        assert ap._fsm["state"] == ap.S_WARP_TRAVERSE, (
+            "fall through to WARP_TRAVERSE so bot keeps moving")
+
