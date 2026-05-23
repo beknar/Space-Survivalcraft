@@ -8124,6 +8124,162 @@ class TestWarpToWormholeAction:
         assert ap._state.warp_after_boss_done is True
 
 
+class TestWarpToWormholePinTimeout:
+    """The 2026-05-23 follow-up: if the bot has been within
+    ``stop_radius`` of its wormhole for ``PIN_TIMEOUT_S`` seconds
+    without the game's auto-warp firing, abandon the attempt and
+    latch ``warp_after_boss_done``.
+
+    Captured pathology: 19 stuck_detected events over 63 s at
+    exactly (3310, 4167) -- the bot reached its wormhole goto
+    target, ``_do_goto`` released all keys, the game-side warp
+    collision never fired, and the stuck-detect / escape-burst
+    mechanism couldn't recover because the next
+    ``_act_warp_to_wormhole`` call re-asserted the stop.
+    """
+
+    def setup_method(self):
+        ap._state.warp_wormhole_arrived_at = 0.0
+        ap._state.warp_after_boss_done = False
+
+    def _patch_now(self, monkeypatch, clock):
+        monkeypatch.setattr(ap, "_get_now", lambda: clock[0])
+        monkeypatch.setattr(ap, "_do_goto", lambda *a, **kw: None)
+
+    def test_first_arrival_records_arrived_at(self, monkeypatch):
+        """Bot enters stop_radius -- arrived_at stamped, no
+        timeout, latch not set."""
+        clock = [1000.0]
+        self._patch_now(monkeypatch, clock)
+        s = _state(
+            player={"x": 200.0, "y": 200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+        )
+        s["wormholes"] = [
+            {"x": 210.0, "y": 210.0,
+             "zone_target": "ZoneID.WARP_METEOR"},
+        ]
+        ap._act_warp_to_wormhole(s, s["player"])
+        # Distance ~14 px, well inside stop_radius (50).
+        assert ap._state.warp_wormhole_arrived_at == 1000.0
+        assert ap._state.warp_after_boss_done is False
+
+    def test_pinned_past_timeout_latches_done(self, monkeypatch):
+        """Bot at wormhole for > PIN_TIMEOUT_S -- latch fires,
+        timer resets."""
+        clock = [1000.0]
+        self._patch_now(monkeypatch, clock)
+        s = _state(
+            player={"x": 200.0, "y": 200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+        )
+        s["wormholes"] = [
+            {"x": 210.0, "y": 210.0,
+             "zone_target": "ZoneID.WARP_METEOR"},
+        ]
+        # Tick 1: arrival edge.
+        ap._act_warp_to_wormhole(s, s["player"])
+        # Tick 2: T+ PIN_TIMEOUT_S + 0.1 -- past the timeout.
+        clock[0] += ap.WARP_TO_WORMHOLE_PIN_TIMEOUT_S + 0.1
+        ap._act_warp_to_wormhole(s, s["player"])
+        assert ap._state.warp_after_boss_done is True
+        assert ap._state.warp_wormhole_arrived_at == 0.0
+
+    def test_pinned_within_timeout_does_not_latch(
+            self, monkeypatch):
+        """Half the timeout elapsed -- latch not yet set."""
+        clock = [1000.0]
+        self._patch_now(monkeypatch, clock)
+        s = _state(
+            player={"x": 200.0, "y": 200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+        )
+        s["wormholes"] = [
+            {"x": 210.0, "y": 210.0,
+             "zone_target": "ZoneID.WARP_METEOR"},
+        ]
+        ap._act_warp_to_wormhole(s, s["player"])
+        clock[0] += ap.WARP_TO_WORMHOLE_PIN_TIMEOUT_S * 0.5
+        ap._act_warp_to_wormhole(s, s["player"])
+        assert ap._state.warp_after_boss_done is False
+
+    def test_leaving_stop_radius_resets_timer(self, monkeypatch):
+        """Bot arrives, then leaves stop_radius (e.g. bumped by
+        an alien) -- timer resets so a future re-arrival gets the
+        full PIN_TIMEOUT_S window before the latch fires."""
+        clock = [1000.0]
+        self._patch_now(monkeypatch, clock)
+        s = _state(
+            player={"x": 200.0, "y": 200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+        )
+        s["wormholes"] = [
+            {"x": 210.0, "y": 210.0,
+             "zone_target": "ZoneID.WARP_METEOR"},
+        ]
+        # Arrival tick.
+        ap._act_warp_to_wormhole(s, s["player"])
+        assert ap._state.warp_wormhole_arrived_at == 1000.0
+        # Bot drifts well outside stop_radius (50 px).
+        s["player"]["x"] = 500.0
+        s["player"]["y"] = 500.0
+        clock[0] += 1.0
+        ap._act_warp_to_wormhole(s, s["player"])
+        assert ap._state.warp_wormhole_arrived_at == 0.0, (
+            "timer must reset when bot leaves stop_radius")
+        assert ap._state.warp_after_boss_done is False
+
+    def test_far_from_wormhole_no_timer_armed(self, monkeypatch):
+        """Bot well outside stop_radius -- timer stays at 0, no
+        latch even after many seconds."""
+        clock = [1000.0]
+        self._patch_now(monkeypatch, clock)
+        s = _state(
+            player={"x": 1000.0, "y": 1000.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+        )
+        s["wormholes"] = [
+            {"x": 200.0, "y": 200.0,
+             "zone_target": "ZoneID.WARP_METEOR"},
+        ]
+        ap._act_warp_to_wormhole(s, s["player"])
+        assert ap._state.warp_wormhole_arrived_at == 0.0
+        clock[0] += ap.WARP_TO_WORMHOLE_PIN_TIMEOUT_S * 3
+        ap._act_warp_to_wormhole(s, s["player"])
+        assert ap._state.warp_after_boss_done is False
+
+    def test_timeout_emits_telemetry(self, monkeypatch):
+        """The pin-timeout fires a ``warp_to_wormhole_pin_timeout``
+        telemetry event so the operator can confirm the latch from
+        the log instead of having to infer it from the absence of
+        further warp_to_wormhole transitions."""
+        clock = [1000.0]
+        events: list = []
+        monkeypatch.setattr(ap, "_get_now", lambda: clock[0])
+        monkeypatch.setattr(ap, "_do_goto", lambda *a, **kw: None)
+        monkeypatch.setattr(
+            ap, "_telemetry_log",
+            lambda evt, **kw: events.append((evt, kw)))
+        s = _state(
+            player={"x": 200.0, "y": 200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+        )
+        s["wormholes"] = [
+            {"x": 210.0, "y": 210.0,
+             "zone_target": "ZoneID.WARP_METEOR"},
+        ]
+        ap._act_warp_to_wormhole(s, s["player"])
+        clock[0] += ap.WARP_TO_WORMHOLE_PIN_TIMEOUT_S + 0.1
+        ap._act_warp_to_wormhole(s, s["player"])
+        timeout_events = [(e, kw) for (e, kw) in events
+                          if e == "warp_to_wormhole_pin_timeout"]
+        assert len(timeout_events) == 1
+        kw = timeout_events[0][1]
+        assert kw["wormhole_x"] == 210.0
+        assert kw["wormhole_y"] == 210.0
+        assert kw["pin_s"] >= ap.WARP_TO_WORMHOLE_PIN_TIMEOUT_S
+
+
 class TestWarpTriggerOnBossDefeatedFromSave:
     """2026-05-15: warp-to-wormhole trigger must also fire on
     save-loaded games where the in-session ``boss_was_killed``
