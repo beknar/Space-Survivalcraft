@@ -637,6 +637,7 @@ def _act_warp_to_wormhole(state: dict, p: dict) -> None:
               >= _ap.WARP_TO_WORMHOLE_PIN_TIMEOUT_S):
             _ap._telemetry_log(
                 "warp_to_wormhole_pin_timeout",
+                reason="arrival",
                 pin_s=round(
                     now - _ap._state.warp_wormhole_arrived_at, 2),
                 wormhole_x=tx, wormhole_y=ty,
@@ -646,9 +647,46 @@ def _act_warp_to_wormhole(state: dict, p: dict) -> None:
             _ap._state.warp_wormhole_arrived_at = 0.0
             return
     else:
-        # Left the stop radius -- reset the timer so a future arrival
-        # gets the full PIN_TIMEOUT_S window before abandoning.
+        # Left the stop radius -- reset the arrival timer so a
+        # future arrival gets the full PIN_TIMEOUT_S window before
+        # abandoning.
         _ap._state.warp_wormhole_arrived_at = 0.0
+        # No-progress backstop (2026-05-23 follow-up to PR #163):
+        # captured pathology where the bot pinned at (582, 1347)
+        # for 18 s in WARP_TO_WORMHOLE -- boundary repulsion at
+        # the west world edge prevented it from getting within
+        # stop_radius of a south-edge wormhole, so the arrival
+        # timer never armed.  Track best (min) nearest_d this
+        # arc; if it hasn't dropped by PROGRESS_THRESHOLD_PX
+        # over NO_PROGRESS_TIMEOUT_S, abandon.  ``_on_enter``
+        # resets the trackers on a fresh WARP_TO_WORMHOLE arc.
+        if _ap._state.warp_wormhole_progress_at == 0.0:
+            # First en-route tick this arc -- seed the trackers.
+            _ap._state.warp_wormhole_best_d = nearest_d
+            _ap._state.warp_wormhole_progress_at = now
+        elif nearest_d <= (
+                _ap._state.warp_wormhole_best_d
+                - _ap.WARP_TO_WORMHOLE_PROGRESS_THRESHOLD_PX):
+            # Meaningful progress -- bump the baseline + reset
+            # the no-progress timer.
+            _ap._state.warp_wormhole_best_d = nearest_d
+            _ap._state.warp_wormhole_progress_at = now
+        elif (now - _ap._state.warp_wormhole_progress_at
+              >= _ap.WARP_TO_WORMHOLE_NO_PROGRESS_TIMEOUT_S):
+            _ap._telemetry_log(
+                "warp_to_wormhole_pin_timeout",
+                reason="no_progress",
+                pin_s=round(
+                    now - _ap._state.warp_wormhole_progress_at, 2),
+                wormhole_x=tx, wormhole_y=ty,
+                dist=round(nearest_d, 1),
+                best_d=round(
+                    _ap._state.warp_wormhole_best_d, 1),
+                **_ap._telemetry_snapshot_fields(state, p))
+            _ap._state.warp_after_boss_done = True
+            _ap._state.warp_wormhole_best_d = 0.0
+            _ap._state.warp_wormhole_progress_at = 0.0
+            return
     _ap.KeyState.hold("space", False)
     # Stop radius sits well inside the 100 px collision window --
     # once we're within it the game will trigger the transition on
