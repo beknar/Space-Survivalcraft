@@ -98,8 +98,11 @@ class TestRunSoakWarmupSamples:
 
     def test_warmup_samples_one_excludes_start_cold_dip(self, monkeypatch):
         """START = 10 FPS (cold), END = 100 FPS (steady).  With
-        warmup_samples=1 the 10 is excluded → passes at 40 floor."""
-        _sb = self._patch(monkeypatch, [10.0, 100.0])
+        warmup_samples=1 the 10 is excluded → passes at 40 floor.
+
+        END now consumes 3 samples (median-of-three, see
+        ``TestRunSoakEndMedianSampling``); supply enough values."""
+        _sb = self._patch(monkeypatch, [10.0, 100.0, 100.0, 100.0])
         _sb.run_soak(
             object(), "warmup=1",
             lambda dt: None,
@@ -109,7 +112,7 @@ class TestRunSoakWarmupSamples:
     def test_warmup_samples_zero_catches_start_dip(self, monkeypatch):
         """With warmup_samples=0 the 10 FPS START is INCLUDED in
         the floor check → test fails loudly."""
-        _sb = self._patch(monkeypatch, [10.0, 100.0])
+        _sb = self._patch(monkeypatch, [10.0, 100.0, 100.0, 100.0])
         with pytest.raises(AssertionError, match="FPS dropped to"):
             _sb.run_soak(
                 object(), "warmup=0",
@@ -122,7 +125,7 @@ class TestRunSoakWarmupSamples:
         don't fail.  Mirrors the real 2026-04-18 night pattern
         where TestSoakStationInfoZone2 dipped to 39.1 FPS at START
         but steady-state held at 125+."""
-        _sb = self._patch(monkeypatch, [39.1, 125.0])
+        _sb = self._patch(monkeypatch, [39.1, 125.0, 125.0, 125.0])
         _sb.run_soak(
             object(), "real-world",
             lambda dt: None,
@@ -132,8 +135,11 @@ class TestRunSoakWarmupSamples:
     def test_end_sample_still_enforced(self, monkeypatch):
         """The END sample ALWAYS counts toward the floor — without
         that, a soak that regresses by the end could hide behind
-        the warmup grace."""
-        _sb = self._patch(monkeypatch, [100.0, 30.0])
+        the warmup grace.
+
+        END is now the median of 3 samples; supply 3 sustained
+        below-floor reads so the median = 30 fails the floor."""
+        _sb = self._patch(monkeypatch, [100.0, 30.0, 30.0, 30.0])
         with pytest.raises(AssertionError, match="FPS dropped to 30"):
             _sb.run_soak(
                 object(), "end-regression",
@@ -147,11 +153,12 @@ class TestRunSoakWarmupSamples:
         start, not a permanent get-out-of-jail card."""
         from integration import _soak_base as _sb
         # Enough FPS entries for a couple of loop ticks worth of
-        # sampling: START, one mid sample (the 15 dip), then END.
+        # sampling: START, one mid sample (the 15 dip), then 3
+        # END samples (median-of-three).
         import itertools
         fps_stream = itertools.chain(
-            iter([100.0, 15.0]),    # START, then mid-sample dip
-            itertools.repeat(100.0),  # any further samples + END
+            iter([100.0, 15.0]),       # START, then mid-sample dip
+            itertools.repeat(100.0),   # any further samples + END
         )
         monkeypatch.setattr(
             _sb, "measure_fps_quick", lambda *_a, **_kw: next(fps_stream))
@@ -165,3 +172,107 @@ class TestRunSoakWarmupSamples:
                 lambda dt: None,
                 min_fps=40, max_memory_growth_mb=10_000,
                 duration_s=0.05)
+
+
+class TestRunSoakEndMedianSampling:
+    """The 2026-05-22 fix: END FPS is the median of three back-to-
+    back samples, not a single measurement.  A one-off frame stall
+    in a single 60-frame END window no longer produces a misleading
+    FPS number unrepresentative of steady-state.  Captured pathology:
+    the 2026-05-19 cycle's VideoPlayer END dropped from 239.8 -> 13.8
+    because one frame absorbed a multi-player cleanup; the 9 mid-soak
+    samples all held 253-289 FPS."""
+
+    @staticmethod
+    def _patch(monkeypatch, fps_values):
+        from integration import _soak_base as _sb
+        it = iter(fps_values)
+        monkeypatch.setattr(
+            _sb, "measure_fps_quick", lambda *_a, **_kw: next(it))
+        monkeypatch.setattr(_sb, "get_rss_mb", lambda *_a, **_kw: 100.0)
+        monkeypatch.setattr(_sb, "WARMUP_FRAMES", 0)
+        return _sb
+
+    def test_end_median_robust_to_single_low_sample(
+            self, monkeypatch):
+        """One bad END sample sandwiched between two good ones --
+        the median picks the good value and the test passes the
+        floor.  Reproduces the VideoPlayer 13.8-vs-260 scenario."""
+        # START 100, END samples [200, 13, 200] -- median 200.
+        _sb = self._patch(monkeypatch, [100.0, 200.0, 13.0, 200.0])
+        _sb.run_soak(
+            object(), "single-stall",
+            lambda dt: None,
+            min_fps=40, max_memory_growth_mb=10_000,
+            duration_s=0)
+
+    def test_end_median_robust_to_single_high_sample(
+            self, monkeypatch):
+        """Symmetric: a sustained END regression must NOT be masked
+        by one fluke high sample.  END samples [10, 10, 200] --
+        median 10 catches the regression."""
+        _sb = self._patch(monkeypatch, [100.0, 10.0, 10.0, 200.0])
+        with pytest.raises(AssertionError, match="FPS dropped to 10"):
+            _sb.run_soak(
+                object(), "sustained-end-regression",
+                lambda dt: None,
+                min_fps=40, max_memory_growth_mb=10_000,
+                duration_s=0)
+
+    def test_end_median_takes_middle_value_when_sorted(
+            self, monkeypatch):
+        """Median is the middle of three sorted values regardless
+        of input order -- pins the math, not a specific ordering."""
+        # END samples [100, 50, 75] sort to [50, 75, 100], median 75.
+        _sb = self._patch(monkeypatch, [200.0, 100.0, 50.0, 75.0])
+        # min_fps=70 → 75 passes, 50 would have failed under
+        # single-sample.
+        _sb.run_soak(
+            object(), "median-middle",
+            lambda dt: None,
+            min_fps=70, max_memory_growth_mb=10_000,
+            duration_s=0)
+
+    def test_end_median_with_all_three_samples_below_floor_fails(
+            self, monkeypatch):
+        """Sustained END regression -- all three samples below
+        floor -- the median is below floor too, test fails.  This
+        is the case the median protects against false negatives
+        for: a real end-of-soak regression still gets caught."""
+        _sb = self._patch(monkeypatch, [100.0, 20.0, 25.0, 22.0])
+        with pytest.raises(AssertionError, match="FPS dropped to"):
+            _sb.run_soak(
+                object(), "all-three-below",
+                lambda dt: None,
+                min_fps=40, max_memory_growth_mb=10_000,
+                duration_s=0)
+
+    def test_end_consumes_exactly_three_samples(
+            self, monkeypatch):
+        """Pin the exact call count -- a future "compromise" between
+        speed and robustness might be tempted to drop back to one
+        or scale up to many, both of which break the cost / variance
+        balance.  Three is the smallest odd count that gives median
+        outlier-robustness."""
+        from integration import _soak_base as _sb
+        calls = {"n": 0}
+        # START sample is also via measure_fps_quick -- count is
+        # 1 + 3 = 4 total for a duration_s=0 soak (no mid samples).
+        fps_stream = iter([100.0] * 10)
+
+        def counter(*a, **kw):
+            calls["n"] += 1
+            return next(fps_stream)
+
+        monkeypatch.setattr(_sb, "measure_fps_quick", counter)
+        monkeypatch.setattr(_sb, "get_rss_mb", lambda *_a, **_kw: 100.0)
+        monkeypatch.setattr(_sb, "WARMUP_FRAMES", 0)
+        _sb.run_soak(
+            object(), "call-count",
+            lambda dt: None,
+            min_fps=40, max_memory_growth_mb=10_000,
+            duration_s=0)
+        # 1 START + 3 END = 4.
+        assert calls["n"] == 4, (
+            f"expected 1 START + 3 END measure_fps_quick calls, "
+            f"got {calls['n']}")
