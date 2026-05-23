@@ -160,14 +160,30 @@ def run_soak(
                   f"(+{mem - mem_start:.1f} MB)")
             last_sample = now
 
-    fps_end = measure_fps_quick(gv)
+    # Median-of-three END samples (2026-05-22).  A single END
+    # sample's 60-frame window can catch a one-off frame stall
+    # (cleanup spike, GC pause, OS scheduler hiccup) and report a
+    # misleading FPS number that's not representative of
+    # steady-state.  Captured pathology: the 2026-05-19 cycle's
+    # VideoPlayer END dropped from 239.8 -> 13.8 because one frame
+    # in the END window absorbed a multi-player cleanup; the
+    # 9 mid-soak samples all held 253-289 FPS.  Taking three
+    # back-to-back samples and using the median makes the END
+    # measurement robust to single-frame outliers while still
+    # catching genuine end-of-soak regressions (two of three
+    # samples would have to dip).  Cost: ~0.5-2 s per soak test;
+    # over the 71-test suite ~30-140 s of extra wall clock, within
+    # the existing 5h 26m envelope.
+    fps_end_samples = [measure_fps_quick(gv) for _ in range(3)]
+    fps_end = sorted(fps_end_samples)[1]
     mem_end = get_rss_mb()
     # END sample always counts toward the floor — if steady-state
     # FPS isn't recovering, this is the place to fail.
     fps_min = fps_end if fps_min is None else min(fps_min, fps_end)
     mem_growth = mem_end - mem_start
-    print(f"  [{label}] END: {fps_end:.1f} FPS, {mem_end:.0f} MB RSS "
-          f"(frames={frame_count})")
+    print(f"  [{label}] END: {fps_end:.1f} FPS (median of "
+          f"{[round(s, 1) for s in fps_end_samples]}), "
+          f"{mem_end:.0f} MB RSS (frames={frame_count})")
 
     assert fps_min >= min_fps, (
         f"{label}: FPS dropped to {fps_min:.1f} "
