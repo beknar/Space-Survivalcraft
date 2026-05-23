@@ -202,6 +202,20 @@ def choose_next_state(state: dict, p: dict, cur: str) -> str:
     else:
         regen_enter = _ap.REGEN_ENTER_PCT
         regen_exit = _ap.REGEN_EXIT_PCT
+    # Warp-zone swarm gate for REGEN (2026-05-23).  Symmetric to
+    # ``suppress_engage_warp_swarm`` below (PR #155): in a warp zone
+    # with too many aliens to safely idle, REGEN's ``_do_idle`` is
+    # a death sentence.  Captured 2026-05-23 telemetry: 4 of 6
+    # recent deaths were in REGEN state in WARP_ENEMY arcs with
+    # 52-60 aliens visible.  Suppressing REGEN under these
+    # conditions lets WARP_TRAVERSE keep the bot moving toward the
+    # exit; combat assist + auto-fired consumables provide defense.
+    zone_id_regen = str((state.get("zone") or {}).get("id", ""))
+    in_warp_swarm = (
+        "WARP" in zone_id_regen
+        and len(state.get("aliens") or [])
+        >= _ap.WARP_SWARM_REGEN_SUPPRESS_ALIENS)
+
     if cur == _ap.S_REGEN:
         if pct < regen_exit:
             # Time-based hysteresis (2026-05-13 fifteenth pass):
@@ -246,8 +260,7 @@ def choose_next_state(state: dict, p: dict, cur: str) -> str:
             # stalled in a warp zone so the cascade re-routes to
             # S_WARP_TRAVERSE and the bot keeps driving north
             # toward the arrival band.
-            zone_id = str((state.get("zone") or {}).get("id", ""))
-            in_warp_zone = "WARP" in zone_id
+            in_warp_zone = "WARP" in zone_id_regen
             if (threatened or in_warp_zone) and shields_stalled:
                 # Escape valve — sustained no-progress under threat
                 # OR in a warp zone with environmental damage means
@@ -255,6 +268,14 @@ def choose_next_state(state: dict, p: dict, cur: str) -> str:
                 # ENGAGE / WARP_TRAVERSE (or whatever fits).  Don't
                 # update trackers so a future REGEN re-entry starts
                 # fresh.
+                pass
+            elif in_warp_swarm:
+                # Swarm escape valve (2026-05-23): in a warp zone
+                # with many aliens, REGEN's idle is fatal even when
+                # shields haven't formally stalled yet.  Exit
+                # immediately so WARP_TRAVERSE can keep the bot
+                # moving.  No stall-timer wait -- the bot can't
+                # afford the 1.5 s under swarm DPS.
                 pass
             else:
                 return _ap.S_REGEN
@@ -285,6 +306,15 @@ def choose_next_state(state: dict, p: dict, cur: str) -> str:
                           and td < _ap.ENGAGE_ENTER_PX)
             if threatened:
                 pass  # stay in current state; ENGAGE/etc preempts
+            elif in_warp_swarm:
+                # Warp-swarm suppression (2026-05-23): even with no
+                # specific alien close enough to trigger ``threatened``,
+                # a warp zone full of aliens is no place to idle.
+                # Stay in WARP_TRAVERSE (or whatever cur is) so the
+                # bot keeps moving toward the exit; combat assist +
+                # auto-fired consumables handle defense.  Mirrors the
+                # ``suppress_engage_warp_swarm`` gate from PR #155.
+                pass
             else:
                 # Entering REGEN — initialize the trend baseline
                 # AND the no-progress timer.
