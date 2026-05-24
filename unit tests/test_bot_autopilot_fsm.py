@@ -13882,3 +13882,107 @@ class TestOutsideBaseSwarmEngageSuppression:
         assert ap._fsm["state"] == ap.S_BUILD_NEBULA, (
             f"expected S_BUILD_NEBULA, got {ap._fsm['state']}")
 
+
+# ── Swarm-suppress productive-alt helper ──────────────────────────────────
+
+
+class TestOutsideMainSwarmSuppresses:
+    """Direct tests for ``bot_autopilot_choose._outside_main_swarm_suppresses``
+    -- the predicate hoisted from the duplicated ENGAGE / REGEN
+    inline blocks.  These pin the contract independently of the
+    full FSM cascade so future refactors of choose_next_state can
+    move call sites without unintended behavioural drift.
+    """
+
+    @staticmethod
+    def _import():
+        import bot_autopilot_choose as choose
+        return choose._outside_main_swarm_suppresses
+
+    def _state(self, *, zone_id: str, alien_count: int = 10,
+               iron: int = 0, boss_defeated: bool = True) -> dict:
+        return {
+            "zone": {"id": zone_id},
+            "aliens": [{"x": 0.0, "y": 0.0, "hp": 1}
+                       for _ in range(alien_count)],
+            "boss_defeated": boss_defeated,
+            "inventory": {"items": {"iron": iron}},
+            "station_inventory": {"items": {}},
+        }
+
+    def test_main_zone_never_suppresses(self):
+        fn = self._import()
+        s = self._state(zone_id="ZoneID.MAIN", alien_count=100)
+        ap._state.boss_was_killed = True
+        ap._state.warp_after_boss_done = True
+        ap._state.warp_traverse_done = False
+        assert fn(s, "ZoneID.MAIN", 5) is False
+
+    def test_warp_zone_with_post_boss_traverse_alt_suppresses(self):
+        fn = self._import()
+        ap._state.boss_was_killed = True
+        ap._state.warp_after_boss_done = True
+        ap._state.warp_traverse_done = False
+        s = self._state(zone_id="ZoneID.WARP_ENEMY",
+                        alien_count=ap.WARP_SWARM_ENGAGE_SUPPRESS_ALIENS)
+        assert fn(s, "ZoneID.WARP_ENEMY",
+                  ap.WARP_SWARM_ENGAGE_SUPPRESS_ALIENS) is True
+
+    def test_warp_zone_pre_boss_does_not_suppress(self):
+        """No productive alt -- bot hasn't beaten the boss yet, so
+        WARP_TRAVERSE isn't a goal.  ENGAGE / REGEN should fire."""
+        fn = self._import()
+        ap._state.boss_was_killed = False
+        ap._state.warp_after_boss_done = False
+        ap._state.warp_traverse_done = False
+        s = self._state(zone_id="ZoneID.WARP_ENEMY",
+                        alien_count=50, boss_defeated=False)
+        assert fn(s, "ZoneID.WARP_ENEMY", 5) is False
+
+    def test_zone2_with_iron_and_no_hs_suppresses(self):
+        fn = self._import()
+        ap._state.nebula_build_done = False
+        s = self._state(zone_id="ZoneID.ZONE2",
+                        alien_count=ap.WARP_SWARM_ENGAGE_SUPPRESS_ALIENS,
+                        iron=ap.BUILD_IRON_THRESHOLD)
+        assert fn(s, "ZoneID.ZONE2",
+                  ap.WARP_SWARM_ENGAGE_SUPPRESS_ALIENS) is True
+
+    def test_zone2_with_hs_already_built_does_not_suppress(self):
+        fn = self._import()
+        ap._state.nebula_build_done = True
+        s = self._state(zone_id="ZoneID.ZONE2", alien_count=50,
+                        iron=ap.BUILD_IRON_THRESHOLD)
+        assert fn(s, "ZoneID.ZONE2", 5) is False
+
+    def test_zone2_with_no_iron_does_not_suppress(self):
+        fn = self._import()
+        ap._state.nebula_build_done = False
+        s = self._state(zone_id="ZoneID.ZONE2", alien_count=50, iron=0)
+        assert fn(s, "ZoneID.ZONE2", 5) is False
+
+    def test_below_threshold_does_not_suppress(self):
+        """All productive-alt gates satisfied but alien count below
+        threshold -- helper returns False."""
+        fn = self._import()
+        ap._state.boss_was_killed = True
+        ap._state.warp_after_boss_done = True
+        ap._state.warp_traverse_done = False
+        s = self._state(zone_id="ZoneID.WARP_ENEMY", alien_count=2)
+        assert fn(s, "ZoneID.WARP_ENEMY", 5) is False
+
+    def test_engage_and_regen_share_predicate(self):
+        """Sanity: same productive-alt gate, just different alien
+        thresholds.  Verify both ENGAGE and REGEN constants drive
+        the helper identically."""
+        fn = self._import()
+        ap._state.boss_was_killed = True
+        ap._state.warp_after_boss_done = True
+        ap._state.warp_traverse_done = False
+        threshold_engage = ap.WARP_SWARM_ENGAGE_SUPPRESS_ALIENS
+        threshold_regen = ap.WARP_SWARM_REGEN_SUPPRESS_ALIENS
+        n = max(threshold_engage, threshold_regen)
+        s = self._state(zone_id="ZoneID.WARP_ENEMY", alien_count=n)
+        assert fn(s, "ZoneID.WARP_ENEMY", threshold_engage) is True
+        assert fn(s, "ZoneID.WARP_ENEMY", threshold_regen) is True
+
