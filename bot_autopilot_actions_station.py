@@ -261,6 +261,49 @@ def _act_build(state: dict, p: dict) -> None:
             print(f"  - {f}")
 
 
+def _act_build_nebula(state: dict, p: dict) -> None:
+    """BUILD_NEBULA: fire the starter-base trigger in ZONE2 and
+    latch ``_state.nebula_build_done`` so the FSM falls through
+    to MINE / SEARCH on subsequent ticks.
+
+    Mirror of ``_act_build`` (different latch only).  The
+    game-side ``/build_starter_base`` endpoint places at the
+    player's current position into the active zone's
+    ``building_list``, which is zone-scoped via the ZoneState
+    stash mechanism (see ``zones/__init__.py``).  So the same
+    endpoint that built the MAIN base lands a fresh starter
+    base in Nebula when called from ZONE2 -- the per-zone
+    Home Station ``max=1`` cap is enforced against the
+    current zone's building_list, not save-wide.
+    """
+    if _ap._state.nebula_build_done:
+        # Already POSTed once this Nebula visit -- coast until
+        # the FSM transitions out on the next tick.
+        _ap._do_idle()
+        return
+    _ap.KeyState.release_all()
+    _ap._do_idle()
+    print("[autopilot] BUILD_NEBULA: requesting starter base "
+          f"(iron={_ap._iron_total(state)})")
+    # Mark done BEFORE the POST so a re-entry mid-POST (if it
+    # ever happens) early-returns above.  Same guard pattern as
+    # ``_act_build``.
+    _ap._state.nebula_build_done = True
+    result = _ap._post_build_starter_base()
+    if result is None:
+        print("[autopilot] BUILD_NEBULA: POST failed; flagging "
+              "done so the FSM resumes normal flow")
+        return
+    placed = result.get("placed", [])
+    failed = result.get("failed", [])
+    print(f"[autopilot] BUILD_NEBULA: placed {len(placed)} "
+          f"({[p['type'] for p in placed]})  "
+          f"failed {len(failed)}")
+    if failed:
+        for f in failed:
+            print(f"  - {f}")
+
+
 def _act_at_station(
         state: dict,
         p: dict,
