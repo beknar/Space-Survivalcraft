@@ -614,20 +614,29 @@ def choose_next_state(state: dict, p: dict, cur: str) -> str:
         and threat is state.get("boss"))
     suppress_engage_no_hs = (
         boss_is_threat and hs_pri145 is None)
-    # Warp-zone swarm suppression (2026-05-19).  WARP_ENEMY has 4
-    # spawners producing 6 mini aliens per wave; with ~20 aliens
-    # visible, ENGAGE diverts the bot to kite ONE while the rest
-    # shred it.  Captured pathology: 4 ENGAGE deaths in WARP_ENEMY
-    # in a single session, shields 120 -> 0 in 5-7 s each.  When the
-    # bot is in a warp zone with too many aliens to safely engage,
-    # let WARP_TRAVERSE drive it through to the far edge.  Combat
-    # assist (per-frame auto-aim + fire hook) keeps shooting the
-    # closest threat regardless of FSM state, so the bot still
-    # defends itself -- only the FSM-level "stop and fight" diversion
-    # is suppressed.  Other warp zones (METEOR, LIGHTNING, GAS) have
-    # no aliens so the gate naturally never fires there.
+    # Outside-base swarm suppression (2026-05-19; broadened
+    # 2026-05-23 v3 from warp-only to all non-MAIN zones).
+    # WARP_ENEMY's 4 spawners + ZONE2 (Nebula) + STAR_MAZE all
+    # produce swarm densities where ENGAGE's kite-one-while-rest-
+    # shred-you pattern is a death sentence.  Original PR #155
+    # captured 4 ENGAGE deaths in WARP_ENEMY (shields 120 -> 0 in
+    # 5-7 s each); the 2026-05-23 v3 cycle captured the same
+    # pattern in ZONE2 -- bot warped post-boss to Nebula with 48
+    # aliens, no Nebula HS yet, got pinned in a 870x800 px kite
+    # box for 500+ s, burned 23 repair packs to stay alive at
+    # ~35 HP.  Broadened gate ("not MAIN" instead of "is WARP")
+    # mirrors PR #165's REGEN suppression -- MAIN is the only
+    # zone where ENGAGE's diversion is safe (HS umbrella +
+    # station shield + fortify turrets layer on top of the bot's
+    # kite).  Outside MAIN, falling through to MINE / GATHER /
+    # BUILD_NEBULA / WARP_TRAVERSE is strictly safer; combat
+    # assist keeps firing every frame so the bot still defends
+    # itself.  Sparse warp zones (METEOR, LIGHTNING, GAS) have
+    # no aliens -- gate naturally never fires.
+    in_main_zone_engage = (
+        "MAIN" in zone_id and "WARP" not in zone_id)
     suppress_engage_warp_swarm = (
-        "WARP" in zone_id
+        not in_main_zone_engage
         and len(state.get("aliens") or [])
         >= _ap.WARP_SWARM_ENGAGE_SUPPRESS_ALIENS)
     if not suppress_engage_no_hs and not suppress_engage_warp_swarm:
