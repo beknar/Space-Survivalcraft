@@ -2164,3 +2164,234 @@ class TestWarpRecraftBeforeRewarp:
         assert ap._fsm["state"] == ap.S_WARP_TO_WORMHOLE
 
 
+# ── Nebula-death recovery gate (2026-05-24) ───────────────────────────────
+
+
+class TestNebulaDeathRecoveryGate:
+    """Captured 2026-05-24 bot_io: 22 player_death events in a
+    35-minute window, 20 of them in ZONE2 or the warp zones
+    en-route.  The bot looped warp -> die in Nebula -> respawn ->
+    warp back without rebuilding its consumable buffer or healing
+    -- the existing relatch recraft only fires when station inv is
+    empty, and the best-effort warp gate fires whenever no prep
+    work is available, so a bot with empty quick-use slots and no
+    consumables anywhere warped under-prepared every time.
+
+    Fix: ``nebula_recovery_pending`` latches True at the alive ->
+    dead edge when the death happens in ZONE2.  While latched:
+      * ``_observe_warp_back_to_main`` aggressively tops up the
+        consumable craft queue with NEBULA_RECOVERY_*_BATCHES even
+        when station inv has some consumables (the goal is fresh
+        25 + 25 batches, not "just enough to fire");
+      * the warp-to-wormhole gate in ``choose_next_state`` becomes
+        strict: consumables-in-slots AND HP / shields at the
+        configured recovery percentages (default 100 %).  No
+        best-effort relaxation.
+      * Cleared by the existing ``warp_after_boss_complete``
+        observer once the warp-out lands.
+    """
+
+    @staticmethod
+    def _ready_to_warp_state(*, hp_pct=1.0, shields_pct=1.0,
+                             have_repair=True, have_shield=True):
+        """Set up a /state where the bot is at the Home Station in
+        MAIN, modules installed, station inv has consumables, and
+        the various warp gates are satisfied except for the
+        Nebula-recovery checks the test wants to exercise."""
+        s = _state(
+            player={"x": 4000.0, "y": 4000.0, "heading": 0.0,
+                    "shields": int(150 * shields_pct),
+                    "max_shields": 150,
+                    "hp": int(200 * hp_pct), "max_hp": 200},
+            buildings=[_hs_building(x=4000.0, y=4000.0)],
+        )
+        s["zone"]["id"] = "ZoneID.MAIN"
+        s["wormholes"] = [
+            {"x": 4500.0, "y": 4500.0,
+             "zone_target": "ZoneID.WARP_METEOR"},
+        ]
+        slots = []
+        if have_repair:
+            slots.append({"item_type": "repair_pack", "count": 5})
+        if have_shield:
+            slots.append({"item_type": "shield_recharge", "count": 5})
+        s["quick_use_slots"] = slots
+        return s
+
+    def _arm_state_for_warp(self):
+        """Set the warp-cascade latches so the warp gate is the only
+        thing standing between cur and S_WARP_TO_WORMHOLE."""
+        ap._state.boss_was_killed = True
+        ap._state.warp_after_boss_done = False
+        ap._state.queue.modules_to_install.clear()
+        ap._state.queue.modules_to_craft.clear()
+        ap._state.queue.repair_packs_remaining = 0
+        ap._state.queue.shield_recharges_remaining = 0
+        ap._state.queue.consumable_phase_started = True
+        ap._state.consumables_equipped = True
+
+    # ── Latch arming ──────────────────────────────────────────────────
+
+    def test_death_in_nebula_sets_nebula_recovery_pending(
+            self, _clock, _fresh_bot_state):
+        """Alive -> dead edge with zone_id containing ZONE2 must
+        arm the recovery latch."""
+        ap._state.nebula_recovery_pending = False
+        ap._state.was_dead = False
+        ap._state.last_alive_pos = (4000.0, 4000.0)
+        s = _state(player={"x": 4000.0, "y": 4000.0,
+                           "heading": 0.0, "shields": 0,
+                           "max_shields": 150, "is_dead": True})
+        s["zone"]["id"] = "ZoneID.ZONE2"
+        ap._observe_death_edges(s, s["player"], 1000.0)
+        assert ap._state.nebula_recovery_pending is True
+        assert ap._state.was_dead is True
+
+    def test_death_in_main_does_not_arm_latch(
+            self, _clock, _fresh_bot_state):
+        """Death in MAIN doesn't trigger Nebula recovery -- the
+        bot's just at home, not stranded after a Nebula run."""
+        ap._state.nebula_recovery_pending = False
+        ap._state.was_dead = False
+        ap._state.last_alive_pos = (4000.0, 4000.0)
+        s = _state(player={"x": 4000.0, "y": 4000.0,
+                           "heading": 0.0, "shields": 0,
+                           "max_shields": 150, "is_dead": True})
+        s["zone"]["id"] = "ZoneID.MAIN"
+        ap._observe_death_edges(s, s["player"], 1000.0)
+        assert ap._state.nebula_recovery_pending is False
+
+    def test_death_in_warp_zone_does_not_arm_latch(
+            self, _clock, _fresh_bot_state):
+        """Warp-zone deaths are en-route; the strict ZONE2 check
+        means warp-zone deaths leave the existing best-effort
+        relaxation in place (existing behaviour unchanged)."""
+        ap._state.nebula_recovery_pending = False
+        ap._state.was_dead = False
+        ap._state.last_alive_pos = (3000.0, 3000.0)
+        s = _state(player={"x": 3000.0, "y": 3000.0,
+                           "heading": 0.0, "shields": 0,
+                           "max_shields": 150, "is_dead": True})
+        s["zone"]["id"] = "ZoneID.WARP_ENEMY"
+        ap._observe_death_edges(s, s["player"], 1000.0)
+        assert ap._state.nebula_recovery_pending is False
+
+    # ── Warp-back observer top-up ────────────────────────────────────
+
+    def test_relatch_observer_force_tops_up_when_recovery_pending(
+            self, _clock, _fresh_bot_state):
+        """When the recovery latch is set, the warp-back observer
+        tops up the consumable queue to NEBULA_RECOVERY_*_BATCHES
+        even when station already has some consumables."""
+        ap._state.boss_was_killed = True
+        ap._state.warp_after_boss_done = True
+        ap._state.nebula_recovery_pending = True
+        ap._state.queue.repair_packs_remaining = 0
+        ap._state.queue.shield_recharges_remaining = 0
+        ap._state.queue.consumable_phase_started = True
+        ap._state.consumables_equipped = True
+        s = _state(
+            player={"x": 4017.0, "y": 3879.0, "heading": 0.0},
+            buildings=[_hs_building()])
+        s["zone"]["id"] = "ZoneID.MAIN"
+        # Station already has SOME consumables -- the basic recraft
+        # would skip; the Nebula-recovery path tops up anyway.
+        s["station_inventory"]["items"]["repair_pack"] = 4
+        s["station_inventory"]["items"]["shield_recharge"] = 4
+        ap._observe_warp_back_to_main(s, s["player"], 0.0)
+        assert (ap._state.queue.repair_packs_remaining
+                == ap.NEBULA_RECOVERY_REPAIR_BATCHES)
+        assert (ap._state.queue.shield_recharges_remaining
+                == ap.NEBULA_RECOVERY_SHIELD_BATCHES)
+        # Re-arms the consumable craft phase so cascade picks it up.
+        assert ap._state.queue.consumable_phase_started is False
+        assert ap._state.consumables_equipped is False
+
+    # ── Warp gate strict mode ────────────────────────────────────────
+
+    def test_recovery_latch_blocks_best_effort_warp(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """Without the Nebula latch, an empty-everything bot
+        warps via the best-effort path.  With the latch set, the
+        warp must be blocked even when no prep work is available
+        -- the bot needs to stay at HS until fully ready."""
+        monkeypatch.setattr(
+            ap, "_act_warp_to_wormhole", lambda s, p: None)
+        self._arm_state_for_warp()
+        ap._state.warp_relatched_pending = True
+        ap._state.nebula_recovery_pending = True
+        s = self._ready_to_warp_state(
+            have_repair=False, have_shield=False)
+        s["station_inventory"]["items"] = {}
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] != ap.S_WARP_TO_WORMHOLE
+
+    def test_recovery_latch_blocks_warp_without_consumables(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """Even with full HP/shields, missing consumables in slots
+        blocks the warp while the latch is set."""
+        monkeypatch.setattr(
+            ap, "_act_warp_to_wormhole", lambda s, p: None)
+        self._arm_state_for_warp()
+        ap._state.nebula_recovery_pending = True
+        s = self._ready_to_warp_state(
+            have_repair=False, have_shield=False)
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] != ap.S_WARP_TO_WORMHOLE
+
+    def test_recovery_latch_blocks_warp_below_hp_threshold(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """Full consumables + full shields but HP below the
+        recovery threshold -- still blocked."""
+        monkeypatch.setattr(
+            ap, "_act_warp_to_wormhole", lambda s, p: None)
+        self._arm_state_for_warp()
+        ap._state.nebula_recovery_pending = True
+        s = self._ready_to_warp_state(hp_pct=0.5, shields_pct=1.0)
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] != ap.S_WARP_TO_WORMHOLE
+
+    def test_recovery_latch_blocks_warp_below_shields_threshold(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """Full HP but shields below the recovery threshold --
+        still blocked."""
+        monkeypatch.setattr(
+            ap, "_act_warp_to_wormhole", lambda s, p: None)
+        self._arm_state_for_warp()
+        ap._state.nebula_recovery_pending = True
+        s = self._ready_to_warp_state(hp_pct=1.0, shields_pct=0.5)
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] != ap.S_WARP_TO_WORMHOLE
+
+    def test_recovery_latch_releases_when_fully_ready(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """Latch + consumables in slots + full HP + full shields:
+        the warp fires."""
+        monkeypatch.setattr(
+            ap, "_act_warp_to_wormhole", lambda s, p: None)
+        self._arm_state_for_warp()
+        ap._state.nebula_recovery_pending = True
+        s = self._ready_to_warp_state(hp_pct=1.0, shields_pct=1.0)
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_WARP_TO_WORMHOLE
+
+    # ── Latch clearing on warp-out ───────────────────────────────────
+
+    def test_warp_out_clears_recovery_latch(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """Once the bot's warp arc lands (first non-MAIN tick after
+        boss-killed), the warp_after_boss_complete observer in
+        choose_next_state clears the latch so the next death
+        cycle starts fresh."""
+        monkeypatch.setattr(
+            ap, "_act_warp_to_wormhole", lambda s, p: None)
+        ap._state.boss_was_killed = True
+        ap._state.warp_after_boss_done = False
+        ap._state.nebula_recovery_pending = True
+        s = self._ready_to_warp_state()
+        s["zone"]["id"] = "ZoneID.WARP_METEOR"
+        ap._do_auto(s, s["player"])
+        assert ap._state.warp_after_boss_done is True
+        assert ap._state.nebula_recovery_pending is False
+
+

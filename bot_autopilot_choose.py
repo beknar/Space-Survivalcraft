@@ -552,6 +552,11 @@ def choose_next_state(state: dict, p: dict, cur: str) -> str:
             and zone_id):
         _ap._state.warp_after_boss_done = True
         _ap._state.warp_relatched_pending = False
+        # The warp-out landed -- the bot's preparation gauntlet
+        # (recraft + re-equip + heal to full) is done, so clear the
+        # Nebula-death recovery latch.  Next non-MAIN death will
+        # re-arm it.
+        _ap._state.nebula_recovery_pending = False
         _ap._telemetry_log(
             "warp_after_boss_complete",
             zone_id=zone_id,
@@ -612,7 +617,28 @@ def choose_next_state(state: dict, p: dict, cur: str) -> str:
         warp_best_effort = (
             _ap._state.warp_relatched_pending
             and not prep_work_available)
-        if (have_repair and have_shield) or warp_best_effort:
+        # Nebula-death recovery gate (2026-05-24): when the bot
+        # died in Nebula on the prior arc, demand strict prep --
+        # consumables in slots AND HP / shields at the configured
+        # recovery percentages.  No best-effort relaxation: the
+        # captured pathology (22 deaths in 35 min) shows the bot
+        # warping back under-prepared and dying repeatedly.  By
+        # blocking the warp here, the FSM cascade falls through to
+        # CRAFT / EQUIP / IDLE_AT_BASE -- the bot rebuilds at the
+        # home-station umbrella where shield + HP regen are both
+        # active and stays put until it's fully ready.
+        if _ap._state.nebula_recovery_pending:
+            player = state.get("player") or {}
+            hp = int(player.get("hp", 0))
+            hp_max = max(1, int(player.get("max_hp", 1)))
+            sh_now = int(player.get("shields", 0))
+            sh_max = max(1, int(player.get("max_shields", 1)))
+            hp_ready = (hp / hp_max) >= _ap.NEBULA_RECOVERY_HP_PCT
+            sh_ready = (sh_now / sh_max) >= _ap.NEBULA_RECOVERY_SHIELDS_PCT
+            if (have_repair and have_shield
+                    and hp_ready and sh_ready):
+                return _ap.S_WARP_TO_WORMHOLE
+        elif (have_repair and have_shield) or warp_best_effort:
             return _ap.S_WARP_TO_WORMHOLE
 
     # 2. ENGAGE — alien within band.  Preempts the rest.

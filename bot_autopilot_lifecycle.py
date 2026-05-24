@@ -104,6 +104,17 @@ def _observe_death_edges(state: dict, p: dict, now: float) -> None:
             _ap._state.last_alive_modules)
         _ap._state.death_recovery_consumables = list(
             _ap._state.last_alive_consumable_types)
+        # Nebula-death recovery latch (2026-05-24).  Captured
+        # pathology: 22 deaths in 35 min, 20 in ZONE2 or the warp
+        # zones en-route; the bot looped warp -> die -> warp without
+        # rebuilding its consumable buffer.  Latch True when the
+        # death happens in the Nebula (ZONE2) so the next warp gate
+        # forces consumable rebuild + full HP/shields before allowing
+        # re-entry.  Cleared by the existing
+        # ``warp_after_boss_complete`` gate once the warp-out lands.
+        zone_id_at_death = str((state.get("zone") or {}).get("id", ""))
+        if "ZONE2" in zone_id_at_death:
+            _ap._state.nebula_recovery_pending = True
         boss = state.get("boss")
         boss_ctx = None
         if boss is not None:
@@ -120,6 +131,9 @@ def _observe_death_edges(state: dict, p: dict, now: float) -> None:
             lost_modules=list(_ap._state.death_recovery_modules),
             lost_consumables=list(_ap._state.death_recovery_consumables),
             boss_context=boss_ctx,
+            zone_id=zone_id_at_death,
+            nebula_recovery_armed=bool(
+                _ap._state.nebula_recovery_pending),
         )
 
 
@@ -291,6 +305,28 @@ def _observe_warp_back_to_main(state: dict, p: dict, now: float) -> None:
         queue.repair_packs_remaining = _ap.WARP_RECRAFT_REPAIR_BATCHES
         queue.shield_recharges_remaining = (
             _ap.WARP_RECRAFT_SHIELD_BATCHES)
+    # Nebula-death recovery (2026-05-24).  When the bot died in
+    # Nebula on the prior arc, force a full fresh batch of repair
+    # packs + shield recharges even if station inventory still has
+    # some -- the death loop captured in the 2026-05-24 telemetry
+    # (22 deaths / 35 min) shows the existing "station empty only"
+    # trigger is too conservative.  Setting the queue counts only
+    # tops up if the craft phase is unscheduled; if the queue
+    # already holds remaining batches we don't duplicate them.
+    if _ap._state.nebula_recovery_pending:
+        if queue.repair_packs_remaining < _ap.NEBULA_RECOVERY_REPAIR_BATCHES:
+            queue.repair_packs_remaining = (
+                _ap.NEBULA_RECOVERY_REPAIR_BATCHES)
+        if queue.shield_recharges_remaining < _ap.NEBULA_RECOVERY_SHIELD_BATCHES:
+            queue.shield_recharges_remaining = (
+                _ap.NEBULA_RECOVERY_SHIELD_BATCHES)
+        # Re-arm the consumable craft phase so the FSM cascade
+        # picks S_CRAFT again -- ``consumable_phase_started`` is
+        # sticky from the initial craft, but the recovery flow
+        # needs the gate to re-evaluate against the fresh queue.
+        queue.consumable_phase_started = False
+        # Force a re-equip after the recovery crafts land.
+        _ap._state.consumables_equipped = False
     # Re-queue unreachable modules for re-craft.  When the bot
     # died in Nebula and walked back to MAIN via the central
     # wormhole, its lost modules are at the Nebula death
