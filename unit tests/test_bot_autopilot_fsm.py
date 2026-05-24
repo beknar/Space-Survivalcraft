@@ -13692,3 +13692,109 @@ class TestRegenDrivesToHomeStation:
         assert captured.get("tx") != 1000.0, (
             "gas escape must take priority over HS drive")
 
+
+# ── ENGAGE outside-base swarm suppression (2026-05-23 v3) ─────────────────
+
+
+class TestOutsideBaseSwarmEngageSuppression:
+    """The 2026-05-23 v3 broadening: ENGAGE suppression now also
+    fires in ZONE2 (Nebula), STAR_MAZE, and any non-MAIN zone with
+    8+ aliens visible.  Captured pathology: bot warped post-boss
+    to ZONE2 with 48 aliens, no Nebula HS yet, got pinned in a
+    870x800 px kite box for 500+ s with one state transition
+    (MINE -> ENGAGE on first tick).  Burned 23 repair packs to
+    stay alive at ~35 HP.
+
+    Mirror of ``TestOutsideBaseSwarmRegenSuppression`` (PR #165)
+    for ENGAGE: same "MAIN is the only safe-to-engage zone"
+    semantic.  Falling through to BUILD_NEBULA / MINE / etc. lets
+    the bot make progress instead of dying in place.
+    """
+
+    def _state_in_zone(self, zone_name, alien_count=20,
+                       cur_state=None, **player_overrides):
+        zone_id = f"ZoneID.{zone_name}"
+        # Aliens placed within ENGAGE_ENTER_PX (800) of player so
+        # the ENGAGE branch would otherwise fire.
+        aliens = [{"x": 200.0 + i * 30.0, "y": 0.0, "hp": 50}
+                  for i in range(alien_count)]
+        s = _state(
+            player={"x": 0.0, "y": 0.0, "heading": 0.0,
+                    "shields": 120, "max_shields": 120,
+                    **player_overrides},
+            aliens=aliens,
+        )
+        s["zone"] = {"world_w": 6400, "world_h": 8000,
+                     "zone_id": zone_id, "id": zone_id}
+        if cur_state is not None:
+            ap._fsm["state"] = cur_state
+        return s
+
+    def test_zone2_nebula_swarm_suppresses_engage(self, _clock):
+        """ZONE2 with 20 aliens close enough to trigger ENGAGE --
+        new broader gate blocks the diversion."""
+        s = self._state_in_zone("ZONE2", alien_count=20)
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] != ap.S_ENGAGE, (
+            "ENGAGE must be suppressed in ZONE2 swarms too "
+            "(captured pathology: bot pinned in kite box for "
+            "500+ s in Nebula)")
+
+    def test_star_maze_swarm_suppresses_engage(self, _clock):
+        s = self._state_in_zone("STAR_MAZE", alien_count=20)
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] != ap.S_ENGAGE
+
+    def test_nebula_warp_zone_swarm_suppresses_engage(self, _clock):
+        """NEBULA_WARP_ENEMY -- post-Nebula-boss warp variants
+        also count as non-MAIN."""
+        s = self._state_in_zone("NEBULA_WARP_ENEMY",
+                                alien_count=20)
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] != ap.S_ENGAGE
+
+    def test_main_zone_swarm_still_engages(self, _clock):
+        """MAIN with 20 aliens -- HS umbrella + station shield +
+        fortify turrets make ENGAGE safe here.  Gate must NOT
+        fire."""
+        s = self._state_in_zone("MAIN", alien_count=20)
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_ENGAGE, (
+            "ENGAGE must still fire in MAIN (the layered defense "
+            "of HS umbrella / station shield / turrets makes the "
+            "kite safe)")
+
+    def test_zone2_sparse_aliens_still_engages(self, _clock):
+        """Sparse Nebula encounter -- < threshold aliens -- ENGAGE
+        fires normally.  The bot can safely kite a small group."""
+        s = self._state_in_zone(
+            "ZONE2",
+            alien_count=ap.WARP_SWARM_ENGAGE_SUPPRESS_ALIENS - 1)
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_ENGAGE
+
+    def test_zone2_swarm_with_iron_falls_to_build_nebula(
+            self, _clock):
+        """The captured-pathology fix: bot in Nebula with iron +
+        clear area + 20 aliens.  ENGAGE suppressed, cascade falls
+        to S_BUILD_NEBULA -- bot builds the Nebula base instead
+        of dying in the kite trap."""
+        # Aliens far enough (5000+) to not block ``_build_area_clear``
+        # but close enough (under 800 px) that ENGAGE would
+        # otherwise trigger.  Use the close set for ENGAGE-trigger.
+        s = self._state_in_zone(
+            "ZONE2", alien_count=20)
+        # Override to give the bot iron for build.
+        s["inventory"] = {"items": {"iron": ap.BUILD_IRON_THRESHOLD}}
+        # Move aliens out of the BUILD_CLEAR_RADIUS (400 px) but
+        # still within engage range.  Spread across the +X axis
+        # starting at 500 px so the closest is in ENGAGE_ENTER_PX
+        # but outside BUILD_CLEAR_RADIUS.
+        s["aliens"] = [{"x": 500.0 + i * 50.0, "y": 0.0,
+                        "hp": 50} for i in range(20)]
+        ap._state.nebula_build_done = False
+        ap._state.build_done = True   # MAIN already built
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_BUILD_NEBULA, (
+            f"expected S_BUILD_NEBULA, got {ap._fsm['state']}")
+

@@ -255,15 +255,27 @@ ENGAGE_ENTER_PX: float = 800.0
 ENGAGE_EXIT_PX:  float = 1000.0
 # Warp-zone swarm gate (2026-05-19).  When the bot is in a warp
 # zone (e.g. WARP_ENEMY with its 4 spawners) and the alien count
-# exceeds this threshold, suppress ENGAGE preemption so
-# WARP_TRAVERSE keeps the bot driving toward the far edge instead
-# of kiting one alien while ~20 others swarm.  Combat assist
-# (the in-process auto-aim + fire hook) keeps firing at the
-# closest threat each frame, so the bot still defends itself --
-# the FSM just doesn't divert from the traversal goal.  Captured
-# 2026-05-19 telemetry: 4 ENGAGE deaths in WARP_ENEMY in one
-# session, shields 120 -> 0 in 5-7 s each, aliens_count 20-22 in
-# every case.
+# exceeds this threshold, suppress ENGAGE preemption so the
+# cascade falls through to a movement-capable state (WARP_TRAVERSE
+# / BUILD_NEBULA / MINE / GATHER) instead of kiting one alien
+# while ~20 others swarm.  Combat assist (the in-process auto-aim
+# + fire hook) keeps firing at the closest threat each frame, so
+# the bot still defends itself -- only the FSM-level "stop and
+# fight" diversion is suppressed.  Captured 2026-05-19 telemetry:
+# 4 ENGAGE deaths in WARP_ENEMY in one session, shields 120 -> 0
+# in 5-7 s each, aliens_count 20-22 in every case.
+#
+# Broadened 2026-05-23 v3 from warp-only to all non-MAIN zones.
+# Captured pathology: bot warped post-boss to ZONE2 (Nebula)
+# with 48 aliens, no Nebula HS yet, pinned in a 870x800 px kite
+# box for 500+ s, burned 23 repair packs to stay alive at ~35 HP.
+# MAIN is the only zone where ENGAGE's diversion is safe (HS
+# umbrella + station shield + fortify turrets layer on top of
+# the bot's kite).  Outside MAIN, falling through to a productive
+# state (MINE / BUILD_NEBULA / etc.) is strictly safer.  Name
+# kept as ``WARP_SWARM_ENGAGE_SUPPRESS_ALIENS`` for backward-
+# compat with existing tests; gate is now "outside-base"
+# semantically.
 WARP_SWARM_ENGAGE_SUPPRESS_ALIENS: int = 8
 # Outside-base swarm REGEN suppression (2026-05-23, broadened
 # 2026-05-23 v2).  Same intent as the ENGAGE suppression above
