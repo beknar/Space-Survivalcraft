@@ -337,6 +337,18 @@ class WarpState:
     traverse_detour_commit_y: float = 0.0
     traverse_progress_committed_y: float = 0.0
     traverse_arc_started_at: float = 0.0
+    # Nebula-death recovery latch (2026-05-24).  Latches True at
+    # the alive->dead edge when the bot dies in ZONE2 (Nebula).
+    # Forces the warp-to-wormhole gate into strict mode: no
+    # best-effort path, consumables required in slots, and shields
+    # + HP required at the configured recovery percentages (default
+    # 100 %) before the next warp can fire.  Combined with the
+    # recraft top-up in ``_observe_warp_back_to_main`` this keeps
+    # the bot at the home-station umbrella rebuilding consumables
+    # + healing until it's actually ready to survive another arc.
+    # Cleared once the warp-out transition lands (handled by the
+    # existing ``warp_after_boss_complete`` gate in choose).
+    nebula_recovery_pending: bool = False
 
 
 @dataclass
@@ -667,6 +679,8 @@ BotState.warp_traverse_progress_committed_y = _alias(
     "warp", "traverse_progress_committed_y")
 BotState.warp_traverse_arc_started_at = _alias(
     "warp", "traverse_arc_started_at")
+BotState.nebula_recovery_pending = _alias(
+    "warp", "nebula_recovery_pending")
 
 # GasLingerState aliases.
 BotState.gas_linger_entered_at = _alias("gas_linger", "entered_at")

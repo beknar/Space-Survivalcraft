@@ -1041,6 +1041,24 @@ SHIELD_RECHARGE_CRAFT_BATCHES: int = 5
 # repair packs / 15 shield recharges.
 WARP_RECRAFT_REPAIR_BATCHES: int = 3
 WARP_RECRAFT_SHIELD_BATCHES: int = 3
+# Nebula-death recovery batches (2026-05-24).  When the bot dies in
+# ZONE2 (Nebula), latch ``nebula_recovery_pending`` and force a
+# fresh craft of repair packs + shield recharges before the next
+# warp can fire -- even if the station inventory still has some
+# consumables.  Captured pathology: 22 deaths in a 35-minute span,
+# 20 of them in Nebula or the warp zones en-route; the bot looped
+# warp -> die -> warp without ever rebuilding its consumable
+# buffer because the existing recraft trigger only fires when
+# station inventory is fully empty.
+NEBULA_RECOVERY_REPAIR_BATCHES: int = 5
+NEBULA_RECOVERY_SHIELD_BATCHES: int = 5
+# Health-bar fullness gate for the post-Nebula-death recovery.
+# 1.0 = require the bar at exactly its max before the warp can
+# fire.  Combined with the consumables-in-slots gate, this forces
+# the bot to idle at the home-station umbrella (where shield +
+# HP regen are both active) until it's fully topped up.
+NEBULA_RECOVERY_HP_PCT: float = 1.0
+NEBULA_RECOVERY_SHIELDS_PCT: float = 1.0
 
 
 # ── Stuck + potential-field tuning (re-exported from bot_autopilot_navigation) ──
