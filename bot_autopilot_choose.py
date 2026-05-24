@@ -202,17 +202,28 @@ def choose_next_state(state: dict, p: dict, cur: str) -> str:
     else:
         regen_enter = _ap.REGEN_ENTER_PCT
         regen_exit = _ap.REGEN_EXIT_PCT
-    # Warp-zone swarm gate for REGEN (2026-05-23).  Symmetric to
-    # ``suppress_engage_warp_swarm`` below (PR #155): in a warp zone
-    # with too many aliens to safely idle, REGEN's ``_do_idle`` is
-    # a death sentence.  Captured 2026-05-23 telemetry: 4 of 6
-    # recent deaths were in REGEN state in WARP_ENEMY arcs with
-    # 52-60 aliens visible.  Suppressing REGEN under these
-    # conditions lets WARP_TRAVERSE keep the bot moving toward the
-    # exit; combat assist + auto-fired consumables provide defense.
+    # Outside-base swarm gate for REGEN (2026-05-23 v2; originally
+    # warp-only in PR #162).  Same intent as PR #155's
+    # ENGAGE-swarm-suppress but applied to REGEN: when the bot is
+    # not under the home-station umbrella AND the alien count is
+    # high enough that idling is fatal, suppress REGEN so the
+    # cascade falls through to a movement-capable state (HUNT,
+    # GATHER, MINE, WARP_TRAVERSE, ...).  Combat assist + auto-fired
+    # consumables still provide defense; only the FSM-level
+    # ``_do_idle`` recovery diversion is suppressed.
+    #
+    # Originally gated on ``"WARP" in zone_id`` only.  Captured
+    # 2026-05-23 v2 telemetry caught REGEN deaths in non-WARP zones
+    # too (ZONE2 / Nebula, STAR_MAZE) where MazeSpawner / Nebula
+    # alien spawners can produce comparable swarm density.  Broader
+    # gate: any zone EXCEPT MAIN.  MAIN is the only zone with a
+    # Home Station umbrella + station shield-regen, which is what
+    # makes REGEN's idle recovery actually work.
     zone_id_regen = str((state.get("zone") or {}).get("id", ""))
+    in_main_zone_regen = (
+        "MAIN" in zone_id_regen and "WARP" not in zone_id_regen)
     in_warp_swarm = (
-        "WARP" in zone_id_regen
+        not in_main_zone_regen
         and len(state.get("aliens") or [])
         >= _ap.WARP_SWARM_REGEN_SUPPRESS_ALIENS)
 

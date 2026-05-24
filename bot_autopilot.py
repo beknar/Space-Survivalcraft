@@ -265,19 +265,26 @@ ENGAGE_EXIT_PX:  float = 1000.0
 # session, shields 120 -> 0 in 5-7 s each, aliens_count 20-22 in
 # every case.
 WARP_SWARM_ENGAGE_SUPPRESS_ALIENS: int = 8
-# Symmetric REGEN suppression (2026-05-23).  Same warp-swarm signal
-# as the ENGAGE suppression above, applied to REGEN.  REGEN's
-# action is _do_idle (no thrust) -- safe and recovery-positive
-# under normal conditions where shields regen faster than gas /
-# stray damage chips them.  But in a WARP_ENEMY swarm of 50+
-# aliens, idling is a death sentence.  Captured 2026-05-23
-# telemetry: 4 of 6 most recent deaths were in REGEN state in
-# WARP_ENEMY arcs (52-60 aliens visible each).  Suppressing
-# REGEN under these conditions lets WARP_TRAVERSE keep the bot
-# moving toward the exit; combat assist still auto-aims + fires
-# at the closest threat each frame, consumables still auto-trigger
-# at the existing HP/shield thresholds.  The bot eats some damage
-# but reaches the far edge instead of standing and bleeding out.
+# Outside-base swarm REGEN suppression (2026-05-23, broadened
+# 2026-05-23 v2).  Same intent as the ENGAGE suppression above
+# (PR #155), applied to REGEN.  REGEN's action is _do_idle (no
+# thrust) -- safe and recovery-positive while sitting under the
+# home-station umbrella where shields regen faster than incoming
+# damage.  But in a WARP_ENEMY / ZONE2 / STAR_MAZE swarm with
+# no HS umbrella, idling is a death sentence.
+#
+# Originally gated on ``"WARP" in zone_id`` (PR #162).  The
+# 2026-05-23 v2 cycle captured 29 REGEN deaths in a row at
+# ~(3975, 4250) -- some in WARP_ENEMY but at least some in
+# ZONE2 / Nebula or STAR_MAZE where MazeSpawner / Nebula
+# spawners produce comparable swarm density.  Broadened to fire
+# in any zone except MAIN: MAIN is the only zone with the HS
+# umbrella + station shield-regen that makes REGEN's idle
+# recovery actually work.
+#
+# Name kept as ``WARP_SWARM_REGEN_SUPPRESS_ALIENS`` to preserve
+# backward-compat with existing test references; the actual gate
+# is "not MAIN" now (see ``bot_autopilot_choose.py``).
 WARP_SWARM_REGEN_SUPPRESS_ALIENS: int = 8
 GATHER_ENTER_PX: float = 1500.0
 GATHER_EXIT_PX:  float = 1700.0
