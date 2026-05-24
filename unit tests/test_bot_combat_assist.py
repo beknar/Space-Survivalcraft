@@ -91,6 +91,9 @@ def _reset_assist_state(monkeypatch):
         "melee_engaged": False,
         "_had_threat_last_tick": False,
         "_melee_engaged_until": 0.0,
+        "misty_step_fires": 0,
+        "force_wall_fires": 0,
+        "death_blossom_fires": 0,
     })
     monkeypatch.setattr(ca, "_get_random", lambda: 0.99)  # ranged
     yield
@@ -410,3 +413,235 @@ class TestMeleeLockGrace:
         assert ca._state["melee_engaged"] is False, (
             "fresh engagement must re-roll the dice, not inherit"
             " the prior engagement's commitment")
+
+
+# ── Nebula-tier module-use helpers (2026-05-24) ───────────────────────────
+
+
+def _gv_with_modules(modules, *, px=4000.0, py=4000.0, heading=0.0,
+                     shields=120, max_shields=120,
+                     ability_meter=100.0, gas_clouds=(),
+                     aliens=(), missiles=0,
+                     misty_cd=0.0, force_cd=0.0,
+                     death_blossom_active=False):
+    """gv stub with the attributes the new module helpers read.
+    Tests can drive each helper in isolation without needing a
+    real GameView."""
+
+    class _Inv:
+        def __init__(self, items):
+            self._items = dict(items)
+
+        def count_item(self, key):
+            return self._items.get(key, 0)
+
+        def remove_item(self, key, n=1):
+            self._items[key] = max(0, self._items.get(key, 0) - n)
+
+    class _Zone:
+        def __init__(self, clouds):
+            self._clouds = clouds
+            self.rooms = None
+            self.walls = None
+    weapons = [_weapon("Basic Laser"), _weapon("Melee")]
+    inv_items = {}
+    if missiles:
+        inv_items["missile"] = missiles
+    return SimpleNamespace(
+        player=SimpleNamespace(
+            center_x=px, center_y=py, heading=heading, guns=1,
+            shields=shields, max_shields=max_shields),
+        alien_list=list(aliens),
+        _boss=None,
+        _nebula_boss=None,
+        _weapons=weapons,
+        _weapon_idx=0,
+        _active_weapon=weapons[0],
+        _module_slots=list(modules),
+        _ability_meter=ability_meter,
+        _misty_step_cd=misty_cd,
+        _force_wall_cd=force_cd,
+        _force_walls=[],
+        _death_blossom_active=death_blossom_active,
+        _death_blossom_timer=0.0,
+        _death_blossom_missiles_left=0,
+        _zone=_Zone(list(gas_clouds)),
+        inventory=_Inv(inv_items),
+        _escape_menu=SimpleNamespace(open=False),
+        _player_dead=False,
+        _hud=SimpleNamespace(
+            get_quick_use=lambda i: None,
+            set_quick_use=lambda i, t, c: None),
+        _flash_game_msg=lambda *a, **kw: None,
+        _misty_step_snd=None,
+        _force_wall_snd=None,
+        _use_glow=(0, 0, 0, 0),
+        _use_glow_timer=0.0,
+    )
+
+
+def _cloud(x, y, r):
+    return SimpleNamespace(center_x=x, center_y=y, radius=r)
+
+
+class TestMaybeFireMistyStepGas:
+    """The assist fires misty_step in the escape direction when
+    the player is inside a damaging gas cloud."""
+
+    def test_no_fire_without_module_installed(self, monkeypatch):
+        gv = _gv_with_modules(
+            modules=[], gas_clouds=[_cloud(4000.0, 4000.0, 200.0)])
+        # If the module isn't installed, _maybe_fire returns False
+        # immediately without ever calling the (un-installable)
+        # game-side handler.
+        assert ca._maybe_fire_misty_step_gas(gv) is False
+        assert ca._state["misty_step_fires"] == 0
+
+    def test_no_fire_outside_any_cloud(self, monkeypatch):
+        gv = _gv_with_modules(
+            modules=["misty_step"],
+            gas_clouds=[_cloud(0.0, 0.0, 100.0)])
+        # Player far from the cloud.
+        assert ca._maybe_fire_misty_step_gas(gv) is False
+        assert ca._state["misty_step_fires"] == 0
+
+    def test_fires_when_inside_cloud(self, monkeypatch):
+        """Player sitting at the cloud centre + module installed +
+        ability budget + no cooldown -> fires and increments the
+        counter.  We monkey-patch ``fire_misty_step`` so the test
+        runs without spinning up a full GameView."""
+        gv = _gv_with_modules(
+            modules=["misty_step"], px=4000.0, py=4000.0,
+            gas_clouds=[_cloud(3900.0, 4000.0, 250.0)])
+        called: list = []
+        from input_handlers_keys import fire_misty_step  # noqa: F401
+
+        def fake_fire(g, key):
+            called.append(key)
+            return True
+
+        import input_handlers_keys
+        monkeypatch.setattr(
+            input_handlers_keys, "fire_misty_step", fake_fire)
+        fired = ca._maybe_fire_misty_step_gas(gv)
+        assert fired is True
+        assert ca._state["misty_step_fires"] == 1
+        assert len(called) == 1
+
+    def test_choose_escape_key_picks_axis_furthest_from_cloud(self):
+        """Cloud east of player + heading=0 (N) -> escape ray
+        points west -> pick A (strafe-left)."""
+        import arcade
+        gv = _gv_with_modules(modules=["misty_step"],
+                              px=0.0, py=0.0, heading=0.0)
+        key = ca._misty_step_escape_key(
+            gv, (200.0, 0.0, 100.0))  # cloud east; player west
+        assert key == arcade.key.A
+
+
+class TestMaybeFireForceWall:
+    """Force wall arms when shields drop under the threshold AND
+    a threat is currently behind the ship."""
+
+    def test_no_fire_without_module_installed(self):
+        gv = _gv_with_modules(modules=[], shields=10, max_shields=120)
+        threat = SimpleNamespace(center_x=-100.0, center_y=0.0, hp=50)
+        assert ca._maybe_fire_force_wall(gv, threat, 100.0) is False
+
+    def test_no_fire_above_shields_threshold(self):
+        gv = _gv_with_modules(modules=["force_wall"],
+                              shields=120, max_shields=120)
+        threat = SimpleNamespace(center_x=-100.0, center_y=0.0, hp=50)
+        assert ca._maybe_fire_force_wall(gv, threat, 100.0) is False
+
+    def test_no_fire_when_threat_in_front(self):
+        gv = _gv_with_modules(modules=["force_wall"], px=4000.0,
+                              py=4000.0, shields=20, max_shields=120,
+                              heading=0.0)
+        # Heading=0 -> forward vector is (0, +y).  Threat directly
+        # north of the player is "in front" -> force wall (which
+        # plants behind) would be wasted.
+        threat = SimpleNamespace(center_x=4000.0, center_y=4400.0, hp=50)
+        assert ca._maybe_fire_force_wall(gv, threat, 400.0) is False
+
+    def test_fires_when_threat_behind_and_shields_low(
+            self, monkeypatch):
+        gv = _gv_with_modules(modules=["force_wall"], px=4000.0,
+                              py=4000.0, shields=20, max_shields=120,
+                              heading=0.0, ability_meter=100.0,
+                              force_cd=0.0)
+        # Heading=0 (north) + threat south of player -> behind.
+        threat = SimpleNamespace(center_x=4000.0, center_y=3600.0, hp=50)
+
+        import input_handlers_keys
+        called: list = []
+
+        def fake_force(g):
+            called.append(True)
+            g._force_wall_cd = 2.0  # simulate game-side cooldown
+            g._ability_meter -= 30.0
+
+        monkeypatch.setattr(
+            input_handlers_keys, "_try_force_wall", fake_force)
+        fired = ca._maybe_fire_force_wall(gv, threat, 400.0)
+        assert fired is True
+        assert ca._state["force_wall_fires"] == 1
+        assert called == [True]
+
+
+class TestMaybeFireDeathBlossom:
+    """Death Blossom fires only when the close-range alien cluster
+    is dense enough (>= DEATH_BLOSSOM_CLUSTER_MIN inside the
+    DEATH_BLOSSOM_CLUSTER_RANGE)."""
+
+    def test_no_fire_without_module_installed(self):
+        # Six aliens at the same spot as the player (px=4000 by
+        # default) -- all inside cluster range -- but module missing.
+        gv = _gv_with_modules(
+            modules=[], missiles=20,
+            aliens=[_alien(4000, 4000)] * 6)
+        assert ca._maybe_fire_death_blossom(gv) is False
+
+    def test_no_fire_without_missiles(self):
+        gv = _gv_with_modules(
+            modules=["death_blossom"], missiles=0,
+            aliens=[_alien(4000, 4000)] * 6)
+        assert ca._maybe_fire_death_blossom(gv) is False
+
+    def test_no_fire_when_below_cluster_min(self, monkeypatch):
+        # Two aliens close -- below the default threshold of 4.
+        gv = _gv_with_modules(
+            modules=["death_blossom"], missiles=20,
+            aliens=[_alien(4000, 4000), _alien(4050, 4000)])
+        assert ca._maybe_fire_death_blossom(gv) is False
+
+    def test_fires_when_cluster_dense(self, monkeypatch):
+        # Six aliens all within the death-blossom range of the
+        # player (px=4000, py=4000 by default).
+        aliens = [_alien(4000 + i * 20, 4000) for i in range(6)]
+        gv = _gv_with_modules(
+            modules=["death_blossom"], missiles=20, aliens=aliens)
+
+        import input_handlers_keys
+        called: list = []
+
+        def fake_blossom(g):
+            called.append(True)
+            g._death_blossom_active = True
+
+        monkeypatch.setattr(
+            input_handlers_keys, "_try_death_blossom", fake_blossom)
+        fired = ca._maybe_fire_death_blossom(gv)
+        assert fired is True
+        assert ca._state["death_blossom_fires"] == 1
+        assert called == [True]
+
+    def test_skips_aliens_beyond_close_range(self, monkeypatch):
+        # Aliens FAR beyond DEATH_BLOSSOM_CLUSTER_RANGE_PX from
+        # the player (px=4000).
+        far = 4000 + ca.DEATH_BLOSSOM_CLUSTER_RANGE_PX + 100.0
+        aliens = [_alien(far, 4000 + i * 10) for i in range(6)]
+        gv = _gv_with_modules(
+            modules=["death_blossom"], missiles=20, aliens=aliens)
+        assert ca._maybe_fire_death_blossom(gv) is False
+

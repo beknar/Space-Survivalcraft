@@ -203,6 +203,91 @@ def _try_death_blossom(gv: GameView) -> None:
     disable_null_field_around_player(gv)
 
 
+def fire_misty_step(gv: GameView, key: int) -> bool:
+    """Execute a misty-step teleport in the direction encoded by
+    ``key`` (one of ``arcade.key.W/A/S/D``).
+
+    Extracted from ``_try_misty_step`` so external callers (the bot
+    combat assist, the bot autopilot, tests) can trigger the
+    teleport without going through the double-tap detector.
+    Performs all the same gates ``_try_misty_step`` enforces
+    (escape menu / player dead / module presence / cooldown /
+    ability budget / maze-wall collision) and returns True iff
+    the teleport actually happened.
+    """
+    if gv._escape_menu.open or gv._player_dead:
+        return False
+    if "misty_step" not in gv._module_slots:
+        return False
+    from constants import MISTY_STEP_DISTANCE, MISTY_STEP_COST, MISTY_STEP_COOLDOWN
+    if gv._misty_step_cd > 0 or gv._ability_meter < MISTY_STEP_COST:
+        return False
+    rad = math.radians(gv.player.heading)
+    if key == arcade.key.W:
+        dx, dy = math.sin(rad), math.cos(rad)
+    elif key == arcade.key.S:
+        dx, dy = -math.sin(rad), -math.cos(rad)
+    elif key == arcade.key.A:
+        dx, dy = -math.cos(rad), math.sin(rad)
+    elif key == arcade.key.D:
+        dx, dy = math.cos(rad), -math.sin(rad)
+    else:
+        return False
+    gv._ability_meter -= MISTY_STEP_COST
+    gv._misty_step_cd = MISTY_STEP_COOLDOWN
+    from update_logic import disable_null_field_around_player
+    disable_null_field_around_player(gv)
+    start_x = gv.player.center_x
+    start_y = gv.player.center_y
+    target_x = start_x + dx * MISTY_STEP_DISTANCE
+    target_y = start_y + dy * MISTY_STEP_DISTANCE
+    rooms = getattr(gv._zone, "rooms", None)
+    walls = getattr(gv._zone, "walls", None)
+    from zones.maze_geometry import (
+        point_inside_any_room_interior as _in_room,
+        circle_hits_any_wall as _hits_wall,
+        point_in_rect,
+    )
+    from constants import SHIP_RADIUS
+
+    def _segment_crosses_wall() -> bool:
+        if not walls:
+            return False
+        seg_len = math.hypot(target_x - start_x, target_y - start_y)
+        n = max(2, int(seg_len / 16.0) + 1)
+        for i in range(n + 1):
+            t = i / n
+            sx = start_x + (target_x - start_x) * t
+            sy = start_y + (target_y - start_y) * t
+            for w in walls:
+                if point_in_rect(sx, sy, w):
+                    return True
+        return False
+
+    if ((rooms and _in_room(target_x, target_y, rooms))
+            or (walls
+                and _hits_wall(target_x, target_y,
+                               SHIP_RADIUS, walls))
+            or _segment_crosses_wall()):
+        # Refund + flash; teleport did NOT happen.
+        gv._ability_meter += MISTY_STEP_COST
+        gv._misty_step_cd = 0.0
+        gv._flash_game_msg("Blocked by maze wall!", 0.8)
+        return False
+    gv.player.center_x = target_x
+    gv.player.center_y = target_y
+    gv._use_glow = (160, 80, 255, 160)
+    gv._use_glow_timer = 0.3
+    _player = arcade.play_sound(gv._misty_step_snd, volume=0.4)
+    if _player is not None:
+        import pyglet
+        pyglet.clock.schedule_once(
+            lambda _dt, p=_player: (
+                p.pause() if hasattr(p, "pause") else None),
+            5.0)
+    return True
+
+
 def _try_misty_step(gv: GameView, key: int) -> None:
     """Handle WASD key-press -- double-tap within 0.3s triggers teleport."""
     if gv._escape_menu.open or gv._player_dead:
@@ -210,74 +295,16 @@ def _try_misty_step(gv: GameView, key: int) -> None:
     if "misty_step" not in gv._module_slots:
         return
     import time
-    from constants import MISTY_STEP_DISTANCE, MISTY_STEP_COST, MISTY_STEP_COOLDOWN
     if not hasattr(gv, '_misty_last_tap'):
         gv._misty_last_tap = {}
     now = time.monotonic()
     last = gv._misty_last_tap.get(key, 0)
-    if (now - last < 0.3 and gv._misty_step_cd <= 0
-            and gv._ability_meter >= MISTY_STEP_COST):
-        gv._ability_meter -= MISTY_STEP_COST
-        gv._misty_step_cd = MISTY_STEP_COOLDOWN
-        rad = math.radians(gv.player.heading)
-        if key == arcade.key.W:
-            dx, dy = math.sin(rad), math.cos(rad)
-        elif key == arcade.key.S:
-            dx, dy = -math.sin(rad), -math.cos(rad)
-        elif key == arcade.key.A:
-            dx, dy = -math.cos(rad), math.sin(rad)
-        else:  # D
-            dx, dy = math.cos(rad), -math.sin(rad)
-        from update_logic import disable_null_field_around_player
-        disable_null_field_around_player(gv)
-        start_x = gv.player.center_x
-        start_y = gv.player.center_y
-        target_x = start_x + dx * MISTY_STEP_DISTANCE
-        target_y = start_y + dy * MISTY_STEP_DISTANCE
-        rooms = getattr(gv._zone, "rooms", None)
-        walls = getattr(gv._zone, "walls", None)
-        from zones.maze_geometry import (
-            point_inside_any_room_interior as _in_room,
-            circle_hits_any_wall as _hits_wall,
-            point_in_rect,
-        )
-        from constants import SHIP_RADIUS
-
-        def _segment_crosses_wall() -> bool:
-            if not walls:
-                return False
-            seg_len = math.hypot(target_x - start_x, target_y - start_y)
-            n = max(2, int(seg_len / 16.0) + 1)
-            for i in range(n + 1):
-                t = i / n
-                sx = start_x + (target_x - start_x) * t
-                sy = start_y + (target_y - start_y) * t
-                for w in walls:
-                    if point_in_rect(sx, sy, w):
-                        return True
-            return False
-
-        if ((rooms and _in_room(target_x, target_y, rooms))
-                or (walls
-                    and _hits_wall(target_x, target_y,
-                                   SHIP_RADIUS, walls))
-                or _segment_crosses_wall()):
-            gv._ability_meter += MISTY_STEP_COST
-            gv._misty_step_cd = 0.0
-            gv._flash_game_msg("Blocked by maze wall!", 0.8)
-            gv._misty_last_tap[key] = 0
-            return
-        gv.player.center_x = target_x
-        gv.player.center_y = target_y
-        gv._use_glow = (160, 80, 255, 160)
-        gv._use_glow_timer = 0.3
-        _player = arcade.play_sound(gv._misty_step_snd, volume=0.4)
-        if _player is not None:
-            import pyglet
-            pyglet.clock.schedule_once(
-                lambda _dt, p=_player: (
-                    p.pause() if hasattr(p, "pause") else None),
-                5.0)
+    if now - last < 0.3:
+        # Double-tap detected -- run the teleport.  Reset the
+        # tap-timer regardless of whether the teleport actually
+        # fired (cooldown / ability budget / wall collision can
+        # all veto), since the user clearly meant to trigger it.
+        fire_misty_step(gv, key)
         gv._misty_last_tap[key] = 0
     else:
         gv._misty_last_tap[key] = now

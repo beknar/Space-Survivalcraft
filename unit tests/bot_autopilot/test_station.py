@@ -3646,3 +3646,89 @@ class TestActPlaceAiPilotNebula:
         assert posts == []
 
 
+# ── Nebula advanced-module auto-queue (2026-05-24) ────────────────────────
+
+
+class TestNebulaAdvancedModuleAutoQueue:
+    """When the bot is in ZONE2 and an advanced module
+    (misty_step / force_wall / death_blossom) is sitting in the
+    station inventory but not yet on the ship, the housekeeping
+    short-circuit appends it to the install queue so the existing
+    CRAFT / INSTALL pipeline picks it up.
+    """
+
+    def _zone2_with_inv(self, *, station_items=None,
+                        module_slots=None):
+        s = _state(
+            player={"x": 4000.0, "y": 4000.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            station_inventory_items=station_items or {},
+            module_slots=module_slots or [],
+            buildings=[{"x": 4000.0, "y": 4000.0,
+                        "building_type": "Home Station"}])
+        s["zone"]["id"] = "ZoneID.ZONE2"
+        return s
+
+    def test_queues_misty_step_when_present(self, _clock):
+        ap._state.queue.modules_to_install.clear()
+        ap._state.queue.modules_to_craft.clear()
+        s = self._zone2_with_inv(station_items={"mod_misty_step": 1})
+        ap._do_auto(s, s["player"])
+        assert "misty_step" in ap._state.queue.modules_to_install
+
+    def test_queues_all_three_when_all_present(self, _clock):
+        ap._state.queue.modules_to_install.clear()
+        ap._state.queue.modules_to_craft.clear()
+        s = self._zone2_with_inv(station_items={
+            "mod_misty_step": 1,
+            "mod_force_wall": 1,
+            "mod_death_blossom": 1,
+        })
+        ap._do_auto(s, s["player"])
+        assert "misty_step" in ap._state.queue.modules_to_install
+        assert "force_wall" in ap._state.queue.modules_to_install
+        assert "death_blossom" in ap._state.queue.modules_to_install
+
+    def test_skips_modules_already_installed(self, _clock):
+        ap._state.queue.modules_to_install.clear()
+        ap._state.queue.modules_to_craft.clear()
+        s = self._zone2_with_inv(
+            station_items={"mod_misty_step": 1,
+                           "mod_force_wall": 1},
+            module_slots=["misty_step"])
+        ap._do_auto(s, s["player"])
+        assert "misty_step" not in ap._state.queue.modules_to_install
+        assert "force_wall" in ap._state.queue.modules_to_install
+
+    def test_skips_modules_already_queued(self, _clock):
+        ap._state.queue.modules_to_install.clear()
+        ap._state.queue.modules_to_craft.clear()
+        # Pre-seed the queue with misty_step.
+        ap._state.queue.modules_to_install.append("misty_step")
+        before_len = len(ap._state.queue.modules_to_install)
+        s = self._zone2_with_inv(
+            station_items={"mod_misty_step": 1})
+        ap._do_auto(s, s["player"])
+        # Should NOT double-append.
+        assert ap._state.queue.modules_to_install.count(
+            "misty_step") == 1
+        assert len(ap._state.queue.modules_to_install) == before_len
+
+    def test_does_not_queue_outside_zone2(self, _clock):
+        ap._state.queue.modules_to_install.clear()
+        ap._state.queue.modules_to_craft.clear()
+        s = self._zone2_with_inv(
+            station_items={"mod_misty_step": 1})
+        s["zone"]["id"] = "ZoneID.MAIN"
+        ap._do_auto(s, s["player"])
+        assert "misty_step" not in ap._state.queue.modules_to_install
+
+    def test_does_not_queue_when_station_lacks_module(
+            self, _clock):
+        ap._state.queue.modules_to_install.clear()
+        ap._state.queue.modules_to_craft.clear()
+        s = self._zone2_with_inv(station_items={})
+        ap._do_auto(s, s["player"])
+        # Empty station -> nothing to queue.
+        for k in ("misty_step", "force_wall", "death_blossom"):
+            assert k not in ap._state.queue.modules_to_install
