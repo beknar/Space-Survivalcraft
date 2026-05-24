@@ -3814,3 +3814,90 @@ class TestWormholeRepulsion:
         assert rx == 0.0 and ry == 0.0
 
 
+# ── BotState sub-dataclass grouping (PR 5) ────────────────────────────────
+
+
+class TestBotStateGroupingAliases:
+    """The 2026-05-24 PR 5 refactor grouped 24 flat BotState fields
+    into ``WarpState`` / ``GasLingerState`` / ``BossCombatState``
+    sub-dataclasses, with property aliases preserving the legacy
+    flat names so external code keeps working.  These tests pin
+    the alias contract: every legacy name maps both ways
+    (get / set) to its sub-object counterpart.
+    """
+
+    def _aliases(self):
+        return [
+            # (legacy_name, sub_object, sub_attr, sample_value)
+            ("warp_after_boss_done", "warp", "after_boss_done", True),
+            ("warp_relatched_pending", "warp", "relatched_pending", True),
+            ("warp_traverse_done", "warp", "traverse_done", True),
+            ("warp_wormhole_arrived_at", "warp",
+             "wormhole_arrived_at", 1234.5),
+            ("warp_wormhole_best_d", "warp", "wormhole_best_d", 99.0),
+            ("warp_wormhole_progress_at", "warp",
+             "wormhole_progress_at", 500.0),
+            ("warp_traverse_max_y", "warp", "traverse_max_y", 3000.0),
+            ("warp_traverse_progress_at", "warp",
+             "traverse_progress_at", 100.0),
+            ("warp_traverse_detour_count", "warp",
+             "traverse_detour_count", 3),
+            ("warp_traverse_detour_side", "warp",
+             "traverse_detour_side", -1),
+            ("warp_traverse_detour_commit_y", "warp",
+             "traverse_detour_commit_y", 2800.0),
+            ("warp_traverse_progress_committed_y", "warp",
+             "traverse_progress_committed_y", 2750.0),
+            ("warp_traverse_arc_started_at", "warp",
+             "traverse_arc_started_at", 950.0),
+            ("gas_linger_entered_at", "gas_linger", "entered_at", 1.5),
+            ("gas_linger_entry_shields", "gas_linger",
+             "entry_shields", 99),
+            ("gas_linger_entry_hp", "gas_linger", "entry_hp", 80),
+            ("gas_linger_event_fired", "gas_linger",
+             "event_fired", True),
+            ("boss_engage_started_at", "boss_combat",
+             "engage_started_at", 700.0),
+            ("boss_engage_start_hp", "boss_combat",
+             "engage_start_hp", 150),
+            ("boss_engage_start_shields", "boss_combat",
+             "engage_start_shields", 120),
+            ("boss_engage_start_boss_hp", "boss_combat",
+             "engage_start_boss_hp", 2000),
+            ("boss_lure_active", "boss_combat", "lure_active", True),
+            ("boss_turret_assist_active", "boss_combat",
+             "turret_assist_active", True),
+            ("boss_was_killed", "boss_combat", "was_killed", True),
+        ]
+
+    def test_setter_writes_through_to_sub_object(self):
+        ap._fsm_reset()
+        for legacy, sub, attr, value in self._aliases():
+            setattr(ap._state, legacy, value)
+            assert getattr(getattr(ap._state, sub), attr) == value, (
+                f"setting {legacy}={value!r} did not propagate to "
+                f"_state.{sub}.{attr}")
+
+    def test_getter_reads_through_from_sub_object(self):
+        ap._fsm_reset()
+        for legacy, sub, attr, value in self._aliases():
+            setattr(getattr(ap._state, sub), attr, value)
+            assert getattr(ap._state, legacy) == value, (
+                f"setting _state.{sub}.{attr}={value!r} did not "
+                f"surface via legacy {legacy}")
+
+    def test_reset_recreates_sub_objects(self):
+        """``BotState.reset()`` replaces the sub-state objects rather
+        than poking their fields, so adding a new field to a sub-
+        dataclass doesn't leak prior-run state.  Verify by flipping
+        every field then calling reset() and confirming defaults
+        are restored."""
+        for _, sub, attr, value in self._aliases():
+            setattr(getattr(ap._state, sub), attr, value)
+        ap._state.reset()
+        defaults = ap.BotState()
+        for _, sub, attr, _value in self._aliases():
+            assert (getattr(getattr(ap._state, sub), attr)
+                    == getattr(getattr(defaults, sub), attr)), (
+                f"reset() did not restore _state.{sub}.{attr}")
+

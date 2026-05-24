@@ -1344,6 +1344,67 @@ class CraftQueue:
 
 
 @dataclass
+class WarpState:
+    """Post-boss warp + traverse latches.
+
+    Holds the multi-tick state for the boss-killed -> warp_to_wormhole
+    -> warp_traverse -> warp_back_to_main arc.  Originally 13 flat
+    fields on ``BotState`` (``warp_after_boss_done`` etc.); grouped
+    here in the 2026-05-24 PR 5 refactor.  Property aliases on
+    ``BotState`` preserve the legacy flat names so external code
+    (``_state.warp_after_boss_done``) keeps working unchanged.
+    """
+    after_boss_done: bool = False
+    relatched_pending: bool = False
+    traverse_done: bool = False
+    wormhole_arrived_at: float = 0.0
+    wormhole_best_d: float = 0.0
+    wormhole_progress_at: float = 0.0
+    traverse_max_y: float = 0.0
+    traverse_progress_at: float = 0.0
+    traverse_detour_count: int = 0
+    traverse_detour_side: int = 0
+    traverse_detour_commit_y: float = 0.0
+    traverse_progress_committed_y: float = 0.0
+    traverse_arc_started_at: float = 0.0
+
+
+@dataclass
+class GasLingerState:
+    """gas_lingering observer state (PR #152).
+
+    Tracks the tick the bot first entered the current gas cloud
+    plus the shields/hp at that moment so
+    ``_observe_gas_lingering`` can emit a single ``gas_lingering``
+    event per linger episode.  ``entered_at == 0.0`` means "not
+    currently inside any cloud".
+    """
+    entered_at: float = 0.0
+    entry_shields: int = 0
+    entry_hp: int = 0
+    event_fired: bool = False
+
+
+@dataclass
+class BossCombatState:
+    """Per-fight boss-combat tracking.
+
+    Captures the state of the ship + boss at S_ENGAGE_BOSS entry
+    (so the matching ``boss_engage_end`` event can log dwell +
+    HP/shield deltas + outcome), plus the LURE / TURRET-ASSIST
+    latches that gate which kite mode the bot uses, plus the
+    sticky ``was_killed`` latch that arms post-boss warp logic.
+    """
+    engage_started_at: float = 0.0
+    engage_start_hp: int = 0
+    engage_start_shields: int = 0
+    engage_start_boss_hp: int = 0
+    lure_active: bool = False
+    turret_assist_active: bool = False
+    was_killed: bool = False
+
+
+@dataclass
 class BotState:
     fsm: dict = field(default_factory=lambda: {
         "state": S_MINE,
@@ -1509,15 +1570,11 @@ class BotState:
     last_alive_modules: list = field(default_factory=list)
     last_alive_consumable_types: list = field(default_factory=list)
     was_dead: bool = False  # alive->dead edge detector
-    # Gas-lingering telemetry latch (2026-05-19).  Captures the
-    # tick the bot first entered the current gas cloud + the
-    # shields/hp at that moment so ``_observe_gas_lingering`` can
-    # emit a single ``gas_lingering`` event per linger episode.
-    # ``entered_at == 0.0`` means "not currently inside any cloud".
-    gas_linger_entered_at: float = 0.0
-    gas_linger_entry_shields: int = 0
-    gas_linger_entry_hp: int = 0
-    gas_linger_event_fired: bool = False
+    # Gas-lingering telemetry state (PR #152).  Grouped into
+    # ``GasLingerState`` in PR 5; legacy flat names
+    # (``gas_linger_entered_at`` etc.) are preserved via property
+    # aliases below.
+    gas_linger: GasLingerState = field(default_factory=GasLingerState)
     # ``death_recovery_pending`` flips True on the dead->alive edge
     # when the prior loadout contained anything worth recovering.
     # Cleared by the recovery action once the dropped pickups have
@@ -1529,124 +1586,19 @@ class BotState:
     death_recovery_modules: list = field(default_factory=list)
     death_recovery_consumables: list = field(default_factory=list)
     death_recovery_started_at: float = 0.0
-    # Boss combat metrics (PR 2026-05-10): captures the state of the
-    # ship + boss at S_ENGAGE_BOSS entry so the matching exit-time
-    # ``boss_engage_end`` event can log dwell + HP/shield deltas +
-    # outcome (boss_killed / player_died / disengaged).
-    boss_engage_started_at: float = 0.0
-    boss_engage_start_hp: int = 0
-    boss_engage_start_shields: int = 0
-    boss_engage_start_boss_hp: int = 0
-    # Boss LURE latch (2026-05-11): True while the bot is actively
-    # retreating toward the Home Station to drag the boss into the
-    # turret + missile-array DPS zone.  Hysteresis is driven by
-    # BOSS_LURE_SHIELDS_PCT (enter) / BOSS_LURE_EXIT_SHIELDS_PCT
-    # (exit) so the bot doesn't oscillate between kite ring + lure
-    # at the threshold boundary.
-    boss_lure_active: bool = False
-    # Boss TURRET-ASSIST latch (2026-05-12): True while the bot is
-    # orbiting the home station instead of kiting the boss directly
-    # (the boss is close enough to the station that turrets can
-    # solo it).  Set when the boss enters
-    # ``BOSS_TURRET_ASSIST_ENTER_PX`` of the station; cleared when
-    # it leaves ``BOSS_TURRET_ASSIST_EXIT_PX`` (hysteresis so a
-    # boss hovering at the threshold doesn't flap the bot).
-    boss_turret_assist_active: bool = False
-    # Post-boss warp-out latches (2026-05-15).  After the bot has
-    # killed the main-zone boss AND recovered every dropped module
-    # AND has consumables in the quick-use bar, the FSM routes the
-    # bot to the nearest wormhole to warp into one of the warp
-    # zones.  ``boss_was_killed`` latches True on
-    # ``boss_engage_end outcome=boss_killed`` and stays sticky.
-    # ``warp_after_boss_done`` latches True once the zone transition
-    # to a WARP_* zone is observed (zone_id no longer contains
-    # ``MAIN``) so the trigger is one-shot per session.
-    boss_was_killed: bool = False
-    warp_after_boss_done: bool = False
-    # Pending-relatch flag (2026-05-17 follow-up to PR #129):
-    # set True by ``_observe_warp_back_to_main`` when the bot is
-    # observed back in MAIN after a prior warp-out.  Lets the
-    # ``S_WARP_TO_WORMHOLE`` cascade fire WITHOUT the
-    # consumables-in-slots check on the re-warp -- after death the
-    # bot's quick-use slots are wiped and the one-shot consumable
-    # craft phase has already been used.  Without this relaxation
-    # the bot is stranded farming Zone 1 forever (captured
-    # 2026-05-17: bot installed recovered modules then went
-    # straight to GATHER, never warped despite the relatch
-    # clearing ``warp_after_boss_done``).
-    # Cleared once the bot actually transitions out of MAIN.
-    warp_relatched_pending: bool = False
-    # ``warp_traverse_done`` (2026-05-15): latches True once the
-    # bot has crossed to the far side of the warp zone after the
-    # post-boss warp.  Blocks re-routing to S_WARP_TRAVERSE on
-    # subsequent warp-zone visits.
-    warp_traverse_done: bool = False
-    # Lateral-detour trackers (2026-05-17): ``_act_warp_traverse``
-    # by default targets the world centre + top edge.  If a gas
-    # cloud blocks the bot's path through the center column,
-    # gas_repulsion alone isn't always strong enough to deflect a
-    # strong target attraction, and the bot oscillates traverse →
-    # regen → traverse → regen forever at the same y.  These
-    # trackers measure progress and trigger a lateral detour after
-    # WARP_TRAVERSE_DETOUR_TIMEOUT_S seconds of no y advance.
-    # Captured 2026-05-17 bot_io: 590-s session, bot stuck in
-    # WARP_GAS oscillating around y=2400-2670 for the entire run.
-    # Wormhole-arrival pin timer (2026-05-23).  Tracks how long the
-    # bot has been within ``stop_radius`` of its WARP_TO_WORMHOLE
-    # target without the game's auto-warp collision (player within
-    # 100 px of the wormhole) firing.  Captured pathology: 19 stuck
-    # events over 63 s at exactly (3310, 4167) -- bot reached its
-    # wormhole goto target and ``_do_goto`` released all keys, but
-    # the game-side auto-warp never fired.  Stuck-detect + escape
-    # bursts couldn't help because the next ``_act_warp_to_wormhole``
-    # tick re-targeted the same wormhole and re-asserted the stop.
-    # 0.0 == not currently parked at a wormhole.
-    warp_wormhole_arrived_at: float = 0.0
-    # No-progress backstop trackers (2026-05-23 follow-up).  Track
-    # the bot's closest approach to the nearest wormhole this arc;
-    # if the best-d doesn't decrease by
-    # ``WARP_TO_WORMHOLE_PROGRESS_THRESHOLD_PX`` over
-    # ``WARP_TO_WORMHOLE_NO_PROGRESS_TIMEOUT_S`` seconds, abandon.
-    # ``best_d=0.0`` AND ``progress_at=0.0`` means trackers are
-    # uninitialized (just entered WARP_TO_WORMHOLE).
-    warp_wormhole_best_d: float = 0.0
-    warp_wormhole_progress_at: float = 0.0
-    warp_traverse_max_y: float = 0.0
-    warp_traverse_progress_at: float = 0.0
-    warp_traverse_detour_count: int = 0
-    # Detour SIDE -- persistent across ticks (2026-05-17 follow-up
-    # to PR #133).  Without this, the detour target_x set in PR
-    # #133 lasted exactly one tick before the next call read
-    # no_progress_s = ~1 s (just reset) and reverted target_x to
-    # world centre -- so the bot did 1 tick toward the wall, then
-    # 25 s back toward the central gas cloud, then 1 tick toward
-    # the wall again, etc.  Captured log showed x stayed in
-    # 1592-1731 across 30 oscillations.  Now the side persists
-    # in state until the bot clears the obstacle.
-    #   * 0 = centre target
-    #   * +1 = left wall (target_x = WARP_TRAVERSE_MARGIN_PX)
-    #   * -1 = right wall (target_x = world_w - margin)
-    warp_traverse_detour_side: int = 0
-    # py at the moment the detour side was last committed; the
-    # detour expires once py advances WARP_TRAVERSE_DETOUR_CLEAR_PX
-    # past this anchor (signal: the obstacle has been bypassed).
-    warp_traverse_detour_commit_y: float = 0.0
-    # Last y at which the no-progress timer was reset (2026-05-17
-    # follow-up to PRs #133 + #134).  PR #134 reset the timer on
-    # ANY advance of max_y, so a stuck bot crawling forward 3-50 px
-    # per traverse cycle (just enough to clear ``py > max_y``) kept
-    # deferring the detour indefinitely.  Captured log: bot
-    # oscillated WARP_GAS for 5+ minutes, max_y crept from 3547 to
-    # 3633 in ~110 seconds via dozens of <50 px advances, detour
-    # never fired.  Fix: only reset progress_at when py advances
-    # WARP_TRAVERSE_MEANINGFUL_PROGRESS_PX past this committed y.
-    warp_traverse_progress_committed_y: float = 0.0
-    # Monotonic timestamp of arc entry (telemetry only).  Used to
-    # report the total time the bot spent in this warp zone in the
-    # ``warp_traverse_arc_completed`` event so post-hoc analysis can
-    # compare arc durations across sessions / map types and catch
-    # the kind of multi-minute oscillation captured in 2026-05-17.
-    warp_traverse_arc_started_at: float = 0.0
+    # Boss combat tracking (engage start metrics + LURE / TURRET-
+    # ASSIST latches + boss-killed sticky).  Grouped into
+    # ``BossCombatState`` in PR 5; legacy flat names
+    # (``boss_engage_started_at``, ``boss_lure_active``,
+    # ``boss_turret_assist_active``, ``boss_was_killed`` etc.) are
+    # preserved via property aliases below.
+    boss_combat: BossCombatState = field(default_factory=BossCombatState)
+    # Post-boss warp + traverse latches.  Grouped into ``WarpState``
+    # in PR 5; legacy flat names (``warp_after_boss_done``,
+    # ``warp_relatched_pending``, ``warp_traverse_done``,
+    # ``warp_wormhole_*``, ``warp_traverse_*``) are preserved via
+    # property aliases below.
+    warp: WarpState = field(default_factory=WarpState)
 
     def reset(self) -> None:
         """Restore every field to its default.  Mutates dict fields
@@ -1692,35 +1644,77 @@ class BotState:
         self.last_alive_modules = []
         self.last_alive_consumable_types = []
         self.was_dead = False
-        self.gas_linger_entered_at = 0.0
-        self.gas_linger_entry_shields = 0
-        self.gas_linger_entry_hp = 0
-        self.gas_linger_event_fired = False
+        # Sub-state objects -- replace the whole object rather than
+        # poke each field, so adding a new field to one of these
+        # dataclasses doesn't silently leak prior-run state through
+        # reset().
+        self.gas_linger = GasLingerState()
         self.death_recovery_pending = False
         self.death_recovery_pos = (0.0, 0.0)
         self.death_recovery_modules = []
         self.death_recovery_consumables = []
         self.death_recovery_started_at = 0.0
-        self.boss_engage_started_at = 0.0
-        self.boss_engage_start_hp = 0
-        self.boss_engage_start_shields = 0
-        self.boss_engage_start_boss_hp = 0
-        self.boss_lure_active = False
-        self.boss_turret_assist_active = False
-        self.boss_was_killed = False
-        self.warp_after_boss_done = False
-        self.warp_relatched_pending = False
-        self.warp_traverse_done = False
-        self.warp_wormhole_arrived_at = 0.0
-        self.warp_wormhole_best_d = 0.0
-        self.warp_wormhole_progress_at = 0.0
-        self.warp_traverse_max_y = 0.0
-        self.warp_traverse_progress_at = 0.0
-        self.warp_traverse_detour_count = 0
-        self.warp_traverse_detour_side = 0
-        self.warp_traverse_detour_commit_y = 0.0
-        self.warp_traverse_progress_committed_y = 0.0
-        self.warp_traverse_arc_started_at = 0.0
+        self.boss_combat = BossCombatState()
+        self.warp = WarpState()
+
+
+# ── BotState backward-compat property aliases ─────────────────────────────
+#
+# The 2026-05-24 PR 5 refactor grouped 24 flat fields into three
+# sub-dataclasses (``WarpState``, ``GasLingerState``,
+# ``BossCombatState``).  External code still uses the legacy flat
+# names (~430 call sites in production + tests).  These property
+# descriptors delegate get/set to the sub-objects so the flat
+# interface keeps working without churn -- adding a real
+# behavioural callsite that wants the sub-object should reach for
+# ``_state.warp.after_boss_done`` directly; the flat aliases are
+# the compat layer.
+
+def _alias(group: str, attr: str) -> property:
+    """Property descriptor that delegates get/set to a sub-state
+    attribute on ``BotState``."""
+    def _get(self):
+        return getattr(getattr(self, group), attr)
+    def _set(self, value):
+        setattr(getattr(self, group), attr, value)
+    return property(_get, _set)
+
+
+# WarpState aliases.
+BotState.warp_after_boss_done = _alias("warp", "after_boss_done")
+BotState.warp_relatched_pending = _alias("warp", "relatched_pending")
+BotState.warp_traverse_done = _alias("warp", "traverse_done")
+BotState.warp_wormhole_arrived_at = _alias("warp", "wormhole_arrived_at")
+BotState.warp_wormhole_best_d = _alias("warp", "wormhole_best_d")
+BotState.warp_wormhole_progress_at = _alias("warp", "wormhole_progress_at")
+BotState.warp_traverse_max_y = _alias("warp", "traverse_max_y")
+BotState.warp_traverse_progress_at = _alias("warp", "traverse_progress_at")
+BotState.warp_traverse_detour_count = _alias("warp", "traverse_detour_count")
+BotState.warp_traverse_detour_side = _alias("warp", "traverse_detour_side")
+BotState.warp_traverse_detour_commit_y = _alias(
+    "warp", "traverse_detour_commit_y")
+BotState.warp_traverse_progress_committed_y = _alias(
+    "warp", "traverse_progress_committed_y")
+BotState.warp_traverse_arc_started_at = _alias(
+    "warp", "traverse_arc_started_at")
+
+# GasLingerState aliases.
+BotState.gas_linger_entered_at = _alias("gas_linger", "entered_at")
+BotState.gas_linger_entry_shields = _alias("gas_linger", "entry_shields")
+BotState.gas_linger_entry_hp = _alias("gas_linger", "entry_hp")
+BotState.gas_linger_event_fired = _alias("gas_linger", "event_fired")
+
+# BossCombatState aliases.
+BotState.boss_engage_started_at = _alias("boss_combat", "engage_started_at")
+BotState.boss_engage_start_hp = _alias("boss_combat", "engage_start_hp")
+BotState.boss_engage_start_shields = _alias(
+    "boss_combat", "engage_start_shields")
+BotState.boss_engage_start_boss_hp = _alias(
+    "boss_combat", "engage_start_boss_hp")
+BotState.boss_lure_active = _alias("boss_combat", "lure_active")
+BotState.boss_turret_assist_active = _alias(
+    "boss_combat", "turret_assist_active")
+BotState.boss_was_killed = _alias("boss_combat", "was_killed")
 
 
 _state = BotState()
