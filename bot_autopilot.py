@@ -760,6 +760,18 @@ S_WARP_TO_WORMHOLE  = "warp_to_wormhole"
 # the far-side margin so the FSM falls through to the regular
 # cascade afterward.
 S_WARP_TRAVERSE     = "warp_traverse"
+# S_BUILD_NEBULA (2026-05-23): mirror of S_BUILD for ZONE2 / Nebula.
+# Buildings are zone-scoped (each zone stashes its own
+# ``building_list``), so the ``Home Station`` max=1 cap is per-zone
+# -- the bot can legitimately have a MAIN HS + a Nebula HS without
+# conflicting.  Reuses the existing ``/build_starter_base`` endpoint
+# (which places at the player's current position) so the Nebula
+# base lands wherever the bot is when this state fires.  Gated by
+# its own ``nebula_build_done`` latch independently of the MAIN
+# ``build_done`` latch.  Falls below MAIN's S_BUILD in the priority
+# cascade -- if the bot is somehow in ZONE2 without a MAIN base
+# yet, build MAIN first.
+S_BUILD_NEBULA      = "build_nebula"
 # S_FLEE_GAS (2026-05-18): bot is inside a damaging gas cloud --
 # drive out before doing anything else.  Captured pathology: bot
 # in S_ENGAGE at (3823, 3089) in WARP_GAS, shields drained 18 -> 0
@@ -778,7 +790,7 @@ ALL_STATES = (
     S_HUNT, S_IDLE_AT_BASE, S_ENGAGE_BOSS,
     S_EQUIP_CONSUMABLES, S_PRE_BOSS_MINE, S_FORTIFY, S_BUILD_QWI,
     S_RECOVER_LOOT, S_WARP_TO_WORMHOLE, S_WARP_TRAVERSE,
-    S_FLEE_GAS,
+    S_FLEE_GAS, S_BUILD_NEBULA,
 )
 
 # Maximum range at which the bot will commit to chasing an alien
@@ -1318,6 +1330,14 @@ class BotState:
     })
     mining_weapon_pick: str = "Mining Beam"
     build_done: bool = False
+    # Nebula (ZONE2) starter-base latch (2026-05-23).  Separate from
+    # ``build_done`` so the bot can build one base in MAIN AND one
+    # in Nebula.  Latches True on the first attempt OR the first
+    # time the bot sees a Home Station in ZONE2's building_list
+    # (loaded save / manual placement).  Buildings are zone-scoped
+    # via the ZoneState stash mechanism, so the BUILDING_TYPES
+    # max=1 cap on Home Station applies per-zone, not save-wide.
+    nebula_build_done: bool = False
     # Monotonic timestamp of the last successful POST /deposit_to_station.
     # Used as a cooldown so the bot doesn't re-trigger S_DEPOSIT
     # the moment it returns from a mining run.
@@ -1610,6 +1630,7 @@ class BotState:
             d.update(src)
         self.mining_weapon_pick = fresh.mining_weapon_pick
         self.build_done = fresh.build_done
+        self.nebula_build_done = fresh.nebula_build_done
         self.last_deposit_at = fresh.last_deposit_at
         # Replace the queue object so the install/craft lists reset
         # to their full default contents on each FSM reset.
@@ -1949,7 +1970,7 @@ from bot_autopilot_movement import (
 from bot_autopilot_actions_station import (
     _act_build_seek, _act_deposit, _act_craft, _act_install, _act_build,
     _act_at_station, _act_equip_consumables, _act_fortify, _act_build_qwi,
-    _act_recover_loot,
+    _act_recover_loot, _act_build_nebula,
 )
 from bot_autopilot_actions_combat import (
     _act_engage, _act_engage_boss, _act_regen, _maybe_use_consumables,
@@ -2393,6 +2414,8 @@ def _do_auto(state: dict, p: dict) -> None:
         _do_mine_nearest(state, p)
     elif cur == S_BUILD:
         _act_build(state, p)
+    elif cur == S_BUILD_NEBULA:
+        _act_build_nebula(state, p)
     elif cur == S_BUILD_SEEK:
         _act_build_seek(state, p)
     elif cur == S_DEPOSIT:

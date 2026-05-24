@@ -58,6 +58,21 @@ def choose_next_state(state: dict, p: dict, cur: str) -> str:
         _ap._telemetry_log("build_done_short_circuit",
                        reason="home_station_already_exists",
                        **_ap._telemetry_snapshot_fields(state, p))
+    # Mirror short-circuit for the Nebula (ZONE2) starter base.
+    # ``nebula_build_done`` latches True when the bot visits ZONE2
+    # and the zone already has a Home Station (loaded save / prior
+    # session / manual placement).  Restricted to ZONE2 so visits
+    # to other non-MAIN zones (WARP variants, STAR_MAZE) don't
+    # latch on an unrelated HS detection.
+    if not _ap._state.nebula_build_done:
+        zone_id_short = str((state.get("zone") or {}).get("id", ""))
+        if ("ZONE2" in zone_id_short
+                and _ap._find_home_station(state) is not None):
+            _ap._state.nebula_build_done = True
+            _ap._telemetry_log(
+                "nebula_build_done_short_circuit",
+                reason="home_station_already_exists_in_zone2",
+                **_ap._telemetry_snapshot_fields(state, p))
     # Mirror short-circuit for fortify: if the world already has at
     # least _ap.QWI_STAGE_MIN_TURRETS defenders (loaded save / prior
     # session / manual placement), latch ``fortify_done`` so the
@@ -669,6 +684,34 @@ def choose_next_state(state: dict, p: dict, cur: str) -> str:
             and _ap._iron_total(state) >= _ap.BUILD_IRON_THRESHOLD):
         if _ap._build_area_clear(state, px, py):
             return _ap.S_BUILD
+        return _ap.S_BUILD_SEEK
+
+    # 4.5 BUILD_NEBULA — second starter base in ZONE2 (Nebula).
+    #     Buildings are zone-scoped via the ZoneState stash
+    #     mechanism (see ``zones/__init__.py``), so each zone has its
+    #     own ``building_list``.  The ``Home Station`` BUILDING_TYPES
+    #     max=1 cap is enforced against the current zone's list, not
+    #     save-wide -- so the bot can build a MAIN base AND a Nebula
+    #     base without conflict.  Gated by its own ``nebula_build_done``
+    #     latch independently of ``build_done``, and restricted to
+    #     ZONE2 (the only non-MAIN zone with persistent buildings
+    #     where a base makes economic sense; STAR_MAZE is too
+    #     space-constrained, WARP_* are transient).
+    #
+    #     Falls below the MAIN BUILD branch in priority -- if the bot
+    #     somehow lands in ZONE2 without ever having built a MAIN
+    #     base, the MAIN branch can't fire (wrong zone) so this one
+    #     handles things.  But the typical flow is: MAIN built first
+    #     (session 0), Nebula built later when the bot accumulates
+    #     iron in ZONE2.  Same ``BUILD_SEEK`` shared with MAIN for the
+    #     "area not clear, keep walking" sub-state.
+    zone_id_build = str((state.get("zone") or {}).get("id", ""))
+    in_zone2 = "ZONE2" in zone_id_build
+    if (in_zone2
+            and not _ap._state.nebula_build_done
+            and _ap._iron_total(state) >= _ap.BUILD_IRON_THRESHOLD):
+        if _ap._build_area_clear(state, px, py):
+            return _ap.S_BUILD_NEBULA
         return _ap.S_BUILD_SEEK
 
     # 5. DEPOSIT — once a Home Station exists, the bot periodically

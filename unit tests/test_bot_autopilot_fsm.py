@@ -13346,3 +13346,174 @@ class TestOutsideBaseSwarmRegenSuppression:
             "already in REGEN inside ZONE2 -- the broader gate "
             "fires the escape valve regardless of stall timer")
 
+
+# ── Nebula starter base (2026-05-23) ──────────────────────────────────────
+
+
+class TestNebulaStarterBaseBuildGate:
+    """Pin the second starter-base build flow for ZONE2 (Nebula).
+
+    Buildings are zone-scoped via the ZoneState stash mechanism, so
+    the ``Home Station`` BUILDING_TYPES ``max=1`` cap is per-zone.
+    The bot can build a MAIN base AND a Nebula base independently;
+    they don't conflict because each zone has its own
+    ``building_list``.  Gated by a separate ``nebula_build_done``
+    latch + ``S_BUILD_NEBULA`` state so the existing MAIN flow
+    (``build_done`` + ``S_BUILD``) is untouched.
+    """
+
+    def _zone2_state(self, iron=None, **kw):
+        """``_state()`` with the zone_id set to ZONE2."""
+        if iron is None:
+            iron = ap.BUILD_IRON_THRESHOLD
+        s = _state(iron=iron, **kw)
+        s["zone"] = {"world_w": 6400, "world_h": 6400,
+                     "zone_id": "ZoneID.ZONE2",
+                     "id": "ZoneID.ZONE2"}
+        return s
+
+    def setup_method(self):
+        # Fresh latches each test.
+        ap._state.build_done = True   # MAIN already built (typical post-progression)
+        ap._state.nebula_build_done = False
+
+    def test_zone2_with_iron_and_clear_area_enters_build_nebula(
+            self, _clock):
+        s = self._zone2_state()
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_BUILD_NEBULA
+
+    def test_zone2_below_iron_threshold_no_build(self, _clock):
+        s = self._zone2_state(iron=ap.BUILD_IRON_THRESHOLD - 1)
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] != ap.S_BUILD_NEBULA
+
+    def test_zone2_with_iron_but_area_blocked_enters_build_seek(
+            self, _clock):
+        """Asteroid inside the BUILD_CLEAR_RADIUS_PX -- bot enters
+        BUILD_SEEK (shared with MAIN flow) to walk away."""
+        s = self._zone2_state(
+            asteroids=[{"x": 200, "y": 0, "hp": 100}])
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_BUILD_SEEK
+
+    def test_main_zone_does_not_fire_build_nebula(self, _clock):
+        """In MAIN, with iron + clear area + build_done already
+        True, the new branch must NOT fire -- the MAIN base has
+        priority and the Nebula branch is zone-gated."""
+        s = _state(iron=ap.BUILD_IRON_THRESHOLD)   # default zone = MAIN
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] != ap.S_BUILD_NEBULA
+
+    def test_warp_zone_does_not_fire_build_nebula(self, _clock):
+        """Bot in WARP_ENEMY with full iron + clear area.  Warp
+        zones are transient; no base building there."""
+        s = self._zone2_state()
+        s["zone"]["zone_id"] = "ZoneID.WARP_ENEMY"
+        s["zone"]["id"] = "ZoneID.WARP_ENEMY"
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] != ap.S_BUILD_NEBULA
+
+    def test_star_maze_does_not_fire_build_nebula(self, _clock):
+        """STAR_MAZE has persistent buildings via the same stash
+        mechanism but is intentionally excluded -- the maze is
+        too space-constrained to host a starter base.  Future work
+        could extend this gate; current scope is ZONE2-only."""
+        s = self._zone2_state()
+        s["zone"]["zone_id"] = "ZoneID.STAR_MAZE"
+        s["zone"]["id"] = "ZoneID.STAR_MAZE"
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] != ap.S_BUILD_NEBULA
+
+    def test_nebula_build_done_short_circuits_branch(self, _clock):
+        """``nebula_build_done = True`` (e.g. set after a prior
+        attempt) blocks the branch even when conditions are met."""
+        ap._state.nebula_build_done = True
+        s = self._zone2_state()
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] != ap.S_BUILD_NEBULA
+
+    def test_existing_nebula_home_station_short_circuits(self, _clock):
+        """The housekeeping at the top of ``choose_next_state``
+        latches ``nebula_build_done`` when the bot enters ZONE2 and
+        an HS is already in that zone's building list.  Handles
+        loaded-save / manual-placement / prior-session cases."""
+        ap._state.nebula_build_done = False
+        s = self._zone2_state(
+            buildings=[{"x": 3200.0, "y": 3200.0, "hp": 100,
+                        "type": "StationModule",
+                        "building_type": "Home Station"}])
+        ap._do_auto(s, s["player"])
+        assert ap._state.nebula_build_done is True
+        assert ap._fsm["state"] != ap.S_BUILD_NEBULA
+
+    def test_main_zone_home_station_does_not_latch_nebula(
+            self, _clock):
+        """If the bot is in MAIN and sees the MAIN HS, only the
+        MAIN ``build_done`` latch should fire -- ``nebula_build_done``
+        must stay False (Nebula has no HS yet)."""
+        ap._state.build_done = False
+        ap._state.nebula_build_done = False
+        s = _state(
+            buildings=[{"x": 3200.0, "y": 3200.0, "hp": 100,
+                        "type": "StationModule",
+                        "building_type": "Home Station"}])
+        ap._do_auto(s, s["player"])
+        assert ap._state.build_done is True
+        assert ap._state.nebula_build_done is False
+
+
+class TestActBuildNebula:
+    """The action handler mirrors ``_act_build`` (one-shot, guarded
+    by its own latch) and reuses the existing
+    ``/build_starter_base`` endpoint, which places at the player's
+    current position into the zone's ``building_list`` (zone-scoped
+    via the ZoneState stash mechanism)."""
+
+    def setup_method(self):
+        ap._state.nebula_build_done = False
+
+    def test_fires_post_build_starter_base_when_not_done(
+            self, monkeypatch):
+        posts: list = []
+        monkeypatch.setattr(
+            ap, "_post_build_starter_base",
+            lambda: posts.append("call") or {"placed": [{"type": "Home Station"}],
+                                              "failed": []})
+        s = _state(iron=ap.BUILD_IRON_THRESHOLD)
+        ap._act_build_nebula(s, s["player"])
+        assert posts == ["call"]
+        assert ap._state.nebula_build_done is True
+
+    def test_idles_if_already_done(self, monkeypatch):
+        """Guard against duplicate POSTs during MIN_DWELL hold:
+        ``nebula_build_done = True`` short-circuits to idle, no
+        new POST fires."""
+        ap._state.nebula_build_done = True
+        posts: list = []
+        monkeypatch.setattr(
+            ap, "_post_build_starter_base",
+            lambda: posts.append("call"))
+        s = _state(iron=ap.BUILD_IRON_THRESHOLD)
+        ap._act_build_nebula(s, s["player"])
+        assert posts == []
+
+    def test_latches_done_before_post_so_re_entry_idles(
+            self, monkeypatch):
+        """The latch flips BEFORE the POST so a re-entry during the
+        synchronous HTTP round-trip early-returns -- preserves the
+        single-POST guarantee even under MIN_DWELL re-dispatch."""
+        seen_done: list = []
+
+        def fake_post():
+            seen_done.append(ap._state.nebula_build_done)
+            return {"placed": [], "failed": []}
+
+        monkeypatch.setattr(ap, "_post_build_starter_base", fake_post)
+        s = _state(iron=ap.BUILD_IRON_THRESHOLD)
+        ap._act_build_nebula(s, s["player"])
+        assert seen_done == [True], (
+            "nebula_build_done must already be True at the moment "
+            "the POST is dispatched, so a concurrent re-entry "
+            "would short-circuit")
+
