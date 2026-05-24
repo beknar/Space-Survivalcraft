@@ -13986,3 +13986,79 @@ class TestOutsideMainSwarmSuppresses:
         assert fn(s, "ZoneID.WARP_ENEMY", threshold_engage) is True
         assert fn(s, "ZoneID.WARP_ENEMY", threshold_regen) is True
 
+
+# ── _act_regen sub-handler dispatch ───────────────────────────────────────
+
+
+class TestActRegenDispatcher:
+    """Verifies the ``_act_regen`` dispatcher routes to the correct
+    sub-handler based on world state.  The behavioural assertions
+    (cloud-edge target math, HS umbrella interior point, ray-from-
+    boss flee) live in the long-standing ``TestRegenGasCloudEscape``
+    and ``TestRegenFleesBossWhenNoHomeStation`` classes above; these
+    tests only pin the dispatcher's priority order so future routing
+    changes can't silently swap a branch.
+
+    Priority order: gas-escape > drive-to-HS > flee-boss > idle.
+    """
+
+    def _setup_patches(self, monkeypatch):
+        captured: dict = {"calls": []}
+        import bot_autopilot_actions_combat as combat
+
+        def _stub(name):
+            def _fn(*a, **kw):
+                captured["calls"].append(name)
+            return _fn
+
+        monkeypatch.setattr(combat, "_regen_gas_escape",
+                            _stub("gas_escape"))
+        monkeypatch.setattr(combat, "_regen_drive_to_hs",
+                            _stub("drive_to_hs"))
+        monkeypatch.setattr(combat, "_regen_flee_boss",
+                            _stub("flee_boss"))
+        monkeypatch.setattr(ap, "_do_idle",
+                            lambda: captured["calls"].append("idle"))
+        return captured
+
+    def test_gas_cloud_present_routes_to_gas_escape(
+            self, monkeypatch):
+        captured = self._setup_patches(monkeypatch)
+        s = _state(player={"x": 1100.0, "y": 1000.0, "heading": 0.0,
+                           "shields": 30, "max_shields": 150})
+        s["gas_areas"] = [{"x": 1000.0, "y": 1000.0, "radius": 200.0}]
+        # Also put HS + boss in scene -- gas must win regardless.
+        s["buildings"] = [{"x": 1100.0, "y": 1000.0,
+                           "building_type": "Home Station"}]
+        s["boss"] = _boss(x=5000.0, y=1000.0)
+        ap._act_regen(s, s["player"])
+        assert captured["calls"] == ["gas_escape"]
+
+    def test_no_cloud_with_hs_routes_to_drive_to_hs(
+            self, monkeypatch):
+        captured = self._setup_patches(monkeypatch)
+        s = _state(player={"x": 0.0, "y": 0.0, "heading": 0.0,
+                           "shields": 30, "max_shields": 150})
+        s["buildings"] = [{"x": 1000.0, "y": 1000.0,
+                           "building_type": "Home Station"}]
+        # Boss alive -- but HS branch takes priority.
+        s["boss"] = _boss(x=5000.0, y=1000.0)
+        ap._act_regen(s, s["player"])
+        assert captured["calls"] == ["drive_to_hs"]
+
+    def test_no_cloud_no_hs_with_boss_routes_to_flee_boss(
+            self, monkeypatch):
+        captured = self._setup_patches(monkeypatch)
+        s = _state(player={"x": 0.0, "y": 0.0, "heading": 0.0,
+                           "shields": 30, "max_shields": 150})
+        s["boss"] = _boss(x=2000.0, y=0.0)
+        ap._act_regen(s, s["player"])
+        assert captured["calls"] == ["flee_boss"]
+
+    def test_no_cloud_no_hs_no_boss_idles(self, monkeypatch):
+        captured = self._setup_patches(monkeypatch)
+        s = _state(player={"x": 0.0, "y": 0.0, "heading": 0.0,
+                           "shields": 30, "max_shields": 150})
+        ap._act_regen(s, s["player"])
+        assert captured["calls"] == ["idle"]
+

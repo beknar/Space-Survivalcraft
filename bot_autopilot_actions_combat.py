@@ -395,90 +395,64 @@ def _act_engage_boss(state: dict, p: dict) -> None:
     _ap.KeyState.hold("space", bdist < _ap.BOSS_FIRE_RANGE_PX)
 
 
-def _act_regen(state: dict, p: dict) -> None:
-    """REGEN: by default idle (no thrust, no fire -- shields
-    recover passively at the home-station umbrella).  Special
-    cases override the idle:
+def _regen_gas_escape(state: dict, p: dict, px: float, py: float,
+                      cloud) -> None:
+    """Drive on a ray from gas cloud centre out past the edge plus
+    ``REGEN_GAS_ESCAPE_MARGIN_PX`` so the bot ends up clear of the
+    field, not hugging it.  ``gas_repulsion`` in steered_heading
+    further deflects around any clouds en route.
 
-      * **Inside a gas cloud** -- gas does damage every 0.5 s
-        and slows the ship.  Sitting still inside one means
-        shields can't recover faster than gas drains them.
-        Drive out toward open space before idling.  Captured
-        2026-05-15: bot parked at (2986, 5750) in the Nebula
-        for 30+ s with shields stuck at 1-2/120; gas damage
-        exactly matched regen.
-      * **No HS + boss alive** -- boss will close on the parked
-        bot and kill it.  Actively flee away from the boss.
-        Captured 2026-05-14: 12 deaths in 60 s after HS
-        destruction; active flee kept the bot out of range.
+    Captured 2026-05-15: bot parked inside a Nebula cloud for 30+ s
+    with shields stuck at 1-2/120 -- gas damage exactly matched the
+    passive shield regen.
     """
-    # Gas-cloud escape first -- damage from gas compounds faster
-    # than from a kiting boss, and applies even when no boss is
-    # alive (the Nebula has clouds but the Double Star is dead by
-    # the time the bot lands there).  Drive on a ray from the
-    # cloud centre through the bot, out past the cloud edge plus
-    # a safety margin.  ``gas_repulsion`` in steered_heading will
-    # further deflect around any clouds en route.
-    px = float(p.get("x", 0.0))
-    py = float(p.get("y", 0.0))
-    inside_cloud = _gas_cloud_at(state, px, py)
-    if inside_cloud is not None:
-        cx, cy, radius = inside_cloud
-        dx = px - cx
-        dy = py - cy
-        d = math.hypot(dx, dy)
-        if d < 1.0:
-            dx, dy, d = 1.0, 0.0, 1.0
-        ux, uy = dx / d, dy / d
-        # Target past the cloud edge by REGEN_GAS_ESCAPE_MARGIN_PX
-        # so the bot ends up clear of the field, not hugging it.
-        target_dist = radius + _ap.REGEN_GAS_ESCAPE_MARGIN_PX
-        tx = cx + ux * target_dist
-        ty = cy + uy * target_dist
-        zone = state.get("zone") or {}
-        tx, ty, _ = _nav.clamp_to_world(tx, ty, zone)
+    cx, cy, radius = cloud
+    dx, dy = px - cx, py - cy
+    d = math.hypot(dx, dy)
+    if d < 1.0:
+        dx, dy, d = 1.0, 0.0, 1.0
+    ux, uy = dx / d, dy / d
+    target_dist = radius + _ap.REGEN_GAS_ESCAPE_MARGIN_PX
+    tx, ty = cx + ux * target_dist, cy + uy * target_dist
+    zone = state.get("zone") or {}
+    tx, ty, _ = _nav.clamp_to_world(tx, ty, zone)
+    _ap.KeyState.hold("space", False)
+    _ap._do_goto(state, p, tx, ty, stop_radius=80.0)
+
+
+def _regen_drive_to_hs(state: dict, p: dict, px: float, py: float,
+                       hs: dict) -> None:
+    """Drive to within the game's healing umbrella
+    (``REPAIR_RANGE = 300 px``) so ``REPAIR_SHIELD_BOOST`` applies
+    + HP regen activates.
+
+    Hysteresis: trigger at ``REGEN_HS_DRIVE_RADIUS_PX`` (250 px,
+    inside the 300 px umbrella) -- the bot drives to a comfortable
+    interior point and can't be bumped back out by a single tick
+    of repulsion.  Once inside, idle to maximize regen rate (any
+    thrust wastes regen budget while the bot ducks in and out).
+    """
+    hx, hy = float(hs.get("x", 0.0)), float(hs.get("y", 0.0))
+    d_hs = math.hypot(hx - px, hy - py)
+    if d_hs > _ap.REGEN_HS_DRIVE_RADIUS_PX:
         _ap.KeyState.hold("space", False)
-        _ap._do_goto(state, p, tx, ty, stop_radius=80.0)
+        _ap._do_goto(state, p, hx, hy,
+                     stop_radius=_ap.REGEN_HS_DRIVE_STOP_PX)
         return
+    _ap._do_idle()
 
-    # HS drive (2026-05-23): when an HS exists in the current zone,
-    # actively drive the bot to within the game-side healing
-    # umbrella (``REPAIR_RANGE = 300 px``) so shield regen gets the
-    # ``REPAIR_SHIELD_BOOST`` bonus AND HP regen activates -- both
-    # only happen inside the umbrella.  Captured pathology: bot
-    # sat in REGEN for 120 s wherever shields dropped, at the slow
-    # base regen rate.  Driving to HS first then idling is strictly
-    # faster recovery.
-    #
-    # Hysteresis: trigger at REGEN_HS_DRIVE_RADIUS_PX (250) which
-    # is INSIDE the game's REPAIR_RANGE (300) -- the bot drives to
-    # a comfortable interior point and can't be bumped out by a
-    # single tick of repulsion.
-    hs = _ap._find_home_station(state)
-    if hs is not None:
-        hx = float(hs.get("x", 0.0))
-        hy = float(hs.get("y", 0.0))
-        d_hs = math.hypot(hx - px, hy - py)
-        if d_hs > _ap.REGEN_HS_DRIVE_RADIUS_PX:
-            _ap.KeyState.hold("space", False)
-            _ap._do_goto(state, p, hx, hy,
-                         stop_radius=_ap.REGEN_HS_DRIVE_STOP_PX)
-            return
-        # Already inside the umbrella -- idle to maximize regen
-        # rate (any thrust input wastes shield regen budget while
-        # the bot ducks in and out of the field).
-        _ap._do_idle()
-        return
 
-    boss = state.get("boss")
-    if boss is None:
-        _ap._do_idle()
-        return
-    # No HS AND boss alive: actively flee.
-    bx = float(boss.get("x", 0.0))
-    by = float(boss.get("y", 0.0))
-    dx = px - bx
-    dy = py - by
+def _regen_flee_boss(state: dict, p: dict, px: float, py: float,
+                     boss: dict) -> None:
+    """No-HS + boss-alive flee.  Drive along the ray from boss
+    through the bot out to ``BOSS_FLEE_TARGET_PX`` past the bot's
+    current position.
+
+    Captured 2026-05-14: 12 deaths in 60 s after HS destruction
+    while idling; active flee kept the bot out of range.
+    """
+    bx, by = float(boss.get("x", 0.0)), float(boss.get("y", 0.0))
+    dx, dy = px - bx, py - by
     d = math.hypot(dx, dy)
     if d < 1.0:
         # Bot on top of boss (degenerate); pick an arbitrary axis.
@@ -490,6 +464,45 @@ def _act_regen(state: dict, p: dict) -> None:
     tx, ty, _ = _nav.clamp_to_world(tx, ty, zone)
     _ap.KeyState.hold("space", False)
     _ap._do_goto(state, p, tx, ty, stop_radius=120.0)
+
+
+def _act_regen(state: dict, p: dict) -> None:
+    """REGEN: dispatcher over four mutually-exclusive recovery
+    behaviours, in priority order.  Each sub-handler holds its
+    own ray math + telemetry context; this function just picks one.
+
+      1. **Gas cloud escape** (``_regen_gas_escape``) -- bot is
+         inside a damaging gas field.  Damage from gas compounds
+         faster than from a kiting boss, and applies even with no
+         boss alive (Nebula clouds outlive the Double Star).
+      2. **Drive to HS** (``_regen_drive_to_hs``) -- a home station
+         exists in this zone; drive into the healing umbrella so
+         shield + HP regen are both active.
+      3. **Flee boss** (``_regen_flee_boss``) -- no HS available but
+         a boss is alive and will close on a parked bot.  Active
+         flee keeps it out of range.
+      4. **Idle** -- no special case; sit still and recover at the
+         passive regen rate.
+    """
+    px = float(p.get("x", 0.0))
+    py = float(p.get("y", 0.0))
+
+    cloud = _gas_cloud_at(state, px, py)
+    if cloud is not None:
+        _regen_gas_escape(state, p, px, py, cloud)
+        return
+
+    hs = _ap._find_home_station(state)
+    if hs is not None:
+        _regen_drive_to_hs(state, p, px, py, hs)
+        return
+
+    boss = state.get("boss")
+    if boss is not None:
+        _regen_flee_boss(state, p, px, py, boss)
+        return
+
+    _ap._do_idle()
 
 
 def _act_flee_gas(state: dict, p: dict) -> None:
