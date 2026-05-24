@@ -349,6 +349,19 @@ class WarpState:
     # Cleared once the warp-out transition lands (handled by the
     # existing ``warp_after_boss_complete`` gate in choose).
     nebula_recovery_pending: bool = False
+    # Nebula fortify latch (2026-05-24): one-shot per session that
+    # latches True once the Nebula HS has its turret + missile ring
+    # in place, so the FSM doesn't re-fire S_FORTIFY_NEBULA every
+    # tick.  Mirrors the MAIN-zone ``BotState.fortify_done`` field,
+    # but separate so the two rings track independently (the bot
+    # builds MAIN's ring during boss prep and the Nebula ring after
+    # arriving in ZONE2 with an HS).  Cleared by ``BotState.reset``.
+    nebula_fortify_done: bool = False
+    # Nebula AI Pilot ship latch (2026-05-24): True once a parked
+    # ship with the ai_pilot module is sitting near the Nebula HS,
+    # providing cover fire while the bot fights.  One-shot per
+    # session.  Cleared by ``BotState.reset``.
+    nebula_ai_pilot_placed: bool = False
 
 
 @dataclass
@@ -681,6 +694,9 @@ BotState.warp_traverse_arc_started_at = _alias(
     "warp", "traverse_arc_started_at")
 BotState.nebula_recovery_pending = _alias(
     "warp", "nebula_recovery_pending")
+BotState.nebula_fortify_done = _alias("warp", "nebula_fortify_done")
+BotState.nebula_ai_pilot_placed = _alias(
+    "warp", "nebula_ai_pilot_placed")
 
 # GasLingerState aliases.
 BotState.gas_linger_entered_at = _alias("gas_linger", "entered_at")
@@ -955,6 +971,7 @@ from bot_autopilot_http import (
     _post_equip_consumables,
     _post_fortify,
     _post_place_qwi,
+    _post_place_ai_pilot_ship,
     _ensure_game_focused,
 )
 from bot_autopilot_targeting import (
@@ -979,7 +996,8 @@ from bot_autopilot_movement import (
 from bot_autopilot_actions_station import (
     _act_build_seek, _act_deposit, _act_craft, _act_install, _act_build,
     _act_at_station, _act_equip_consumables, _act_fortify, _act_build_qwi,
-    _act_recover_loot, _act_build_nebula,
+    _act_recover_loot, _act_build_nebula, _act_fortify_nebula,
+    _act_place_ai_pilot_nebula,
 )
 from bot_autopilot_actions_combat import (
     _act_engage, _act_engage_boss, _act_regen, _maybe_use_consumables,
@@ -1377,7 +1395,8 @@ def _do_auto(state: dict, p: dict) -> None:
         # safe.
         idle_react = cur == S_IDLE_AT_BASE
         if desired in (S_ENGAGE, S_REGEN, S_ENGAGE_BOSS,
-                       S_EQUIP_CONSUMABLES, S_FORTIFY,
+                       S_EQUIP_CONSUMABLES, S_FORTIFY, S_FORTIFY_NEBULA,
+                       S_PLACE_AI_PILOT_NEBULA,
                        S_BUILD_QWI, S_WARP_TO_WORMHOLE,
                        S_WARP_TRAVERSE, S_FLEE_GAS) or \
                 idle_react or \
@@ -1449,6 +1468,10 @@ def _do_auto(state: dict, p: dict) -> None:
         _do_mine_nearest(state, p)
     elif cur == S_FORTIFY:
         _act_fortify(state, p)
+    elif cur == S_FORTIFY_NEBULA:
+        _act_fortify_nebula(state, p)
+    elif cur == S_PLACE_AI_PILOT_NEBULA:
+        _act_place_ai_pilot_nebula(state, p)
     elif cur == S_BUILD_QWI:
         _act_build_qwi(state, p)
     elif cur == S_RECOVER_LOOT:

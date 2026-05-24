@@ -3353,3 +3353,296 @@ class TestActBuildNebula:
 # ── REGEN drive-to-HS for the healing umbrella (2026-05-23) ────────────────
 
 
+# ── Nebula fortify ring (2026-05-24) ──────────────────────────────────────
+
+
+class TestNebulaFortifyGate:
+    """The S_FORTIFY_NEBULA trigger fires once the Nebula starter
+    base is up, station iron covers FORTIFY_IRON_COST, and the
+    ring hasn't yet been built.  Latches into
+    ``nebula_fortify_done`` to avoid re-firing.  Mirrors the
+    MAIN-zone fortify trigger (which lives inside the QWI prep
+    pipeline); this one is standalone since the Nebula doesn't
+    have a QWI pipeline yet.
+    """
+
+    def _zone2_state(self, *, station_iron=2000, defenders=0,
+                     have_hs=True):
+        s = _state(
+            player={"x": 4000.0, "y": 4000.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            station_inventory_items={"iron": station_iron},
+        )
+        s["zone"]["id"] = "ZoneID.ZONE2"
+        builds = []
+        if have_hs:
+            builds.append({"x": 4000.0, "y": 4000.0,
+                           "building_type": "Home Station"})
+        for i in range(defenders):
+            builds.append({"x": 4100.0 + i * 50.0, "y": 4100.0,
+                           "building_type": "Defense Turret"})
+        s["buildings"] = builds
+        return s
+
+    def test_fires_when_zone2_has_hs_and_iron_and_not_done(
+            self, _clock):
+        ap._state.nebula_build_done = True
+        ap._state.nebula_fortify_done = False
+        ap._state.build_done = True
+        s = self._zone2_state()
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_FORTIFY_NEBULA
+
+    def test_does_not_fire_in_main_zone(self, _clock):
+        ap._state.nebula_build_done = True
+        ap._state.nebula_fortify_done = False
+        ap._state.build_done = True
+        s = self._zone2_state()
+        s["zone"]["id"] = "ZoneID.MAIN"
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] != ap.S_FORTIFY_NEBULA
+
+    def test_does_not_fire_without_nebula_hs(self, _clock):
+        ap._state.nebula_build_done = True
+        ap._state.nebula_fortify_done = False
+        ap._state.build_done = True
+        s = self._zone2_state(have_hs=False)
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] != ap.S_FORTIFY_NEBULA
+
+    def test_does_not_fire_without_iron(self, _clock):
+        ap._state.nebula_build_done = True
+        ap._state.nebula_fortify_done = False
+        ap._state.build_done = True
+        s = self._zone2_state(station_iron=ap.FORTIFY_IRON_COST - 1)
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] != ap.S_FORTIFY_NEBULA
+
+    def test_does_not_fire_when_already_done(self, _clock):
+        ap._state.nebula_build_done = True
+        ap._state.nebula_fortify_done = True
+        ap._state.build_done = True
+        s = self._zone2_state()
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] != ap.S_FORTIFY_NEBULA
+
+    def test_short_circuit_latches_when_ring_already_present(
+            self, _clock):
+        """If the bot enters ZONE2 with the ring already built
+        (loaded save / manual placement), the housekeeping
+        short-circuit latches the flag without re-firing the
+        action."""
+        ap._state.nebula_fortify_done = False
+        ap._state.build_done = True
+        ap._state.nebula_build_done = True
+        s = self._zone2_state(defenders=ap.QWI_STAGE_MIN_TURRETS)
+        ap._do_auto(s, s["player"])
+        assert ap._state.nebula_fortify_done is True
+
+    def test_short_circuit_does_not_fire_outside_zone2(
+            self, _clock):
+        """Defenders visible in MAIN should latch MAIN's
+        ``fortify_done``, not the Nebula one."""
+        ap._state.nebula_fortify_done = False
+        ap._state.fortify_done = False
+        ap._state.build_done = True
+        s = self._zone2_state(defenders=ap.QWI_STAGE_MIN_TURRETS)
+        s["zone"]["id"] = "ZoneID.MAIN"
+        ap._do_auto(s, s["player"])
+        assert ap._state.nebula_fortify_done is False
+
+
+class TestActFortifyNebula:
+    """Mirrors TestActFortify but exercises the Nebula latch."""
+
+    def setup_method(self):
+        ap._state.nebula_fortify_done = False
+
+    def test_fires_post_fortify_and_latches_nebula_done(
+            self, monkeypatch):
+        posts: list = []
+        monkeypatch.setattr(
+            ap, "_post_fortify",
+            lambda timeout_s=10.0: posts.append("call") or {
+                "ok": True, "placed": [{"x": 4100, "y": 4100}],
+                "failed": [], "defenders_now": 4})
+        # Patch driving so the test focuses on the POST gate.
+        monkeypatch.setattr(ap, "_do_goto",
+                            lambda *a, **kw: None)
+        monkeypatch.setattr(ap, "_do_idle", lambda: None)
+        s = _state(
+            player={"x": 4000.0, "y": 4000.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            buildings=[{"x": 4000.0, "y": 4000.0,
+                        "building_type": "Home Station"}])
+        ap._act_fortify_nebula(s, s["player"])
+        assert posts == ["call"]
+        assert ap._state.nebula_fortify_done is True
+        # MAIN latch unaffected.
+        assert ap._state.fortify_done is False
+
+    def test_already_done_short_circuits(self, monkeypatch):
+        ap._state.nebula_fortify_done = True
+        posts: list = []
+        monkeypatch.setattr(
+            ap, "_post_fortify",
+            lambda timeout_s=10.0: posts.append("call"))
+        monkeypatch.setattr(ap, "_do_goto", lambda *a, **kw: None)
+        monkeypatch.setattr(ap, "_do_idle", lambda: None)
+        s = _state(
+            player={"x": 4000.0, "y": 4000.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            buildings=[{"x": 4000.0, "y": 4000.0,
+                        "building_type": "Home Station"}])
+        ap._act_fortify_nebula(s, s["player"])
+        assert posts == []
+
+
+# ── Nebula AI Pilot ship placement (2026-05-24) ──────────────────────────
+
+
+class TestPlaceAiPilotNebulaGate:
+    """``S_PLACE_AI_PILOT_NEBULA`` fires once the Nebula HS is up,
+    the fortify ring is in place, and station inventory has the
+    ai_pilot module + iron / copper to cover the Basic Ship cost.
+    Latches into ``nebula_ai_pilot_placed`` after a successful
+    POST so the FSM doesn't re-fire.
+    """
+
+    def _staged_state(self, *, station_items=None):
+        items = {"iron": ap.AI_PILOT_SHIP_IRON_COST,
+                 "copper": ap.AI_PILOT_SHIP_COPPER_COST,
+                 "ai_pilot": 1}
+        if station_items is not None:
+            items.update(station_items)
+        s = _state(
+            player={"x": 4000.0, "y": 4000.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            station_inventory_items=items,
+            buildings=[{"x": 4000.0, "y": 4000.0,
+                        "building_type": "Home Station"}],
+        )
+        s["zone"]["id"] = "ZoneID.ZONE2"
+        return s
+
+    def _arm_prerequisites(self):
+        ap._state.build_done = True
+        ap._state.nebula_build_done = True
+        ap._state.nebula_fortify_done = True
+        ap._state.nebula_ai_pilot_placed = False
+
+    def test_fires_when_all_prerequisites_met(self, _clock):
+        self._arm_prerequisites()
+        s = self._staged_state()
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_PLACE_AI_PILOT_NEBULA
+
+    def test_defers_until_fortify_done(self, _clock):
+        self._arm_prerequisites()
+        ap._state.nebula_fortify_done = False
+        s = self._staged_state()
+        ap._do_auto(s, s["player"])
+        # Should fire FORTIFY_NEBULA first.
+        assert ap._fsm["state"] == ap.S_FORTIFY_NEBULA
+
+    def test_does_not_fire_without_ai_pilot_module(self, _clock):
+        self._arm_prerequisites()
+        s = self._staged_state(station_items={"ai_pilot": 0})
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] != ap.S_PLACE_AI_PILOT_NEBULA
+
+    def test_does_not_fire_without_iron(self, _clock):
+        self._arm_prerequisites()
+        s = self._staged_state(
+            station_items={"iron": ap.AI_PILOT_SHIP_IRON_COST - 1})
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] != ap.S_PLACE_AI_PILOT_NEBULA
+
+    def test_does_not_fire_without_copper(self, _clock):
+        self._arm_prerequisites()
+        s = self._staged_state(
+            station_items={"copper": ap.AI_PILOT_SHIP_COPPER_COST - 1})
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] != ap.S_PLACE_AI_PILOT_NEBULA
+
+    def test_does_not_fire_when_already_placed(self, _clock):
+        self._arm_prerequisites()
+        ap._state.nebula_ai_pilot_placed = True
+        s = self._staged_state()
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] != ap.S_PLACE_AI_PILOT_NEBULA
+
+    def test_does_not_fire_in_main_zone(self, _clock):
+        self._arm_prerequisites()
+        s = self._staged_state()
+        s["zone"]["id"] = "ZoneID.MAIN"
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] != ap.S_PLACE_AI_PILOT_NEBULA
+
+
+class TestActPlaceAiPilotNebula:
+    """Action-handler tests for the POST + latch behaviour."""
+
+    def setup_method(self):
+        ap._state.nebula_ai_pilot_placed = False
+
+    def test_fires_post_and_latches(self, monkeypatch):
+        posts: list = []
+        monkeypatch.setattr(
+            ap, "_post_place_ai_pilot_ship",
+            lambda timeout_s=10.0: posts.append("call") or {
+                "ok": True, "placed_at": [4000.0, 3850.0]})
+        monkeypatch.setattr(ap, "_do_goto", lambda *a, **kw: None)
+        monkeypatch.setattr(ap, "_do_idle", lambda: None)
+        s = _state(
+            player={"x": 4000.0, "y": 4000.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            buildings=[{"x": 4000.0, "y": 4000.0,
+                        "building_type": "Home Station"}])
+        ap._act_place_ai_pilot_nebula(s, s["player"])
+        assert posts == ["call"]
+        assert ap._state.nebula_ai_pilot_placed is True
+
+    def test_already_nearby_latches_without_posting_twice(
+            self, monkeypatch):
+        """A duplicate-call response (skipped: already nearby)
+        flips the latch via the failure-keyword path so the FSM
+        moves on instead of looping."""
+        posts: list = []
+
+        def fake_post(timeout_s=10.0):
+            posts.append("call")
+            return {
+                "ok": True, "skipped": "ai pilot ship already nearby",
+                "placed_at": [4000.0, 3850.0]}
+
+        monkeypatch.setattr(
+            ap, "_post_place_ai_pilot_ship", fake_post)
+        monkeypatch.setattr(ap, "_do_goto", lambda *a, **kw: None)
+        monkeypatch.setattr(ap, "_do_idle", lambda: None)
+        s = _state(
+            player={"x": 4000.0, "y": 4000.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            buildings=[{"x": 4000.0, "y": 4000.0,
+                        "building_type": "Home Station"}])
+        ap._act_place_ai_pilot_nebula(s, s["player"])
+        # The latch flips immediately (ok=True), even on skip.
+        assert ap._state.nebula_ai_pilot_placed is True
+
+    def test_already_placed_short_circuits_post(self, monkeypatch):
+        ap._state.nebula_ai_pilot_placed = True
+        posts: list = []
+        monkeypatch.setattr(
+            ap, "_post_place_ai_pilot_ship",
+            lambda timeout_s=10.0: posts.append("call"))
+        monkeypatch.setattr(ap, "_do_goto", lambda *a, **kw: None)
+        monkeypatch.setattr(ap, "_do_idle", lambda: None)
+        s = _state(
+            player={"x": 4000.0, "y": 4000.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            buildings=[{"x": 4000.0, "y": 4000.0,
+                        "building_type": "Home Station"}])
+        ap._act_place_ai_pilot_nebula(s, s["player"])
+        assert posts == []
+
+

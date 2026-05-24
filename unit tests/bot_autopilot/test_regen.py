@@ -1619,3 +1619,91 @@ class TestActRegenDispatcher:
         ap._act_regen(s, s["player"])
         assert captured["calls"] == ["idle"]
 
+
+# ── Nebula REGEN thresholds (2026-05-24) ──────────────────────────────────
+
+
+class TestNebulaRegenThresholds:
+    """Mirror of TestRegenBossAliveThresholds: when the bot is in a
+    non-MAIN zone (Nebula / warp-zones / Star Maze) and there's no
+    boss alive, use the elevated REGEN_*_PCT_NEBULA thresholds so
+    the bot recovers further before re-engaging.  Captured 2026-05-24
+    post-PR #184 telemetry: the second of two Nebula deaths was in
+    fsm=regen with shields oscillating around 60 % -- exit was at
+    REGEN_EXIT_PCT (0.60) so any micro-recovery flipped to ENGAGE
+    immediately and the swarm finished the bot off.
+
+    Boss-alive thresholds still take precedence (boss is strictly
+    more dangerous than ambient swarm); these tests cover the
+    non-boss / non-MAIN case.
+    """
+
+    def _nebula_state(self, *, shields_pct=0.5):
+        s = _state(
+            player={"x": 4000.0, "y": 4000.0, "heading": 0.0,
+                    "shields": int(150 * shields_pct),
+                    "max_shields": 150},
+        )
+        s["zone"]["id"] = "ZoneID.ZONE2"
+        return s
+
+    def test_enters_regen_when_shields_just_below_nebula_enter(
+            self, _clock):
+        """Shields just below REGEN_ENTER_PCT_NEBULA (default 0.55)
+        but above the MAIN-zone threshold (0.40) -- in MAIN this
+        wouldn't trigger; in Nebula it does."""
+        s = self._nebula_state(
+            shields_pct=ap.REGEN_ENTER_PCT_NEBULA - 0.01)
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_REGEN
+
+    def test_main_zone_does_not_use_nebula_threshold(self, _clock):
+        """Same shield level but in MAIN -- the default
+        REGEN_ENTER_PCT (0.40) applies, so shields at 0.54 should
+        NOT trigger REGEN."""
+        s = _state(
+            player={"x": 4000.0, "y": 4000.0, "heading": 0.0,
+                    "shields": int(150 * 0.54),
+                    "max_shields": 150},
+        )
+        # zone defaults to MAIN.
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] != ap.S_REGEN
+
+    def test_stays_in_regen_until_nebula_exit_threshold(
+            self, _clock):
+        """Currently in REGEN at 80 % shields -- still below the
+        Nebula exit threshold (0.85), so REGEN holds.  Same
+        situation in MAIN (default exit=0.60) would release."""
+        s = self._nebula_state(shields_pct=0.80)
+        ap._fsm["state"] = ap.S_REGEN
+        ap._fsm["entered_at"] = _clock[0] - 5.0   # past MIN_DWELL
+        ap._state.last_regen_shields = int(150 * 0.80)
+        ap._state.last_regen_progress_at = _clock[0]
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_REGEN
+
+    def test_releases_regen_above_nebula_exit(self, _clock):
+        """Shields above the Nebula exit threshold (default 0.85)
+        with no other priority -- REGEN releases and the cascade
+        picks the normal continuation."""
+        # Use full shields so pct=1.0 > regen_exit regardless of
+        # integer rounding in the shields_pct math.
+        s = self._nebula_state(shields_pct=1.0)
+        ap._fsm["state"] = ap.S_REGEN
+        ap._fsm["entered_at"] = _clock[0] - 5.0
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] != ap.S_REGEN
+
+    def test_boss_alive_thresholds_take_precedence(self, _clock):
+        """Bot in Nebula AND a boss is alive -- boss-alive
+        thresholds win (they're strictly more cautious)."""
+        s = self._nebula_state(shields_pct=0.80)
+        s["boss"] = _boss(x=10000.0, y=10000.0)
+        ap._fsm["state"] = ap.S_REGEN
+        ap._fsm["entered_at"] = _clock[0] - 5.0
+        ap._state.last_regen_shields = int(150 * 0.80)
+        ap._state.last_regen_progress_at = _clock[0]
+        # 0.80 < REGEN_EXIT_PCT_BOSS_ALIVE (0.85) -- still in REGEN.
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_REGEN

@@ -726,3 +726,116 @@ def test_use_quick_use_slot_empty_returns_failure():
     result = bot_builder.use_quick_use_slot(gv, 5)
     assert result["ok"] is False
     assert "empty" in result["reason"]
+
+
+# ── place_ai_pilot_ship_at_home (2026-05-24) ──────────────────────────────
+
+
+def _ai_pilot_gv(*, parked=None, station_items=None, ship_items=None,
+                 has_hs=True):
+    """SimpleNamespace stub gv with the attributes the builder reads.
+    The actual placement deduction routes through ``_place_basic_ship``
+    which we monkey-patch in each test."""
+    if station_items is None:
+        station_items = {"iron": 600, "copper": 300, "ai_pilot": 1}
+    if ship_items is None:
+        ship_items = {}
+    parked_list = parked if parked is not None else []
+    station_inv = SimpleNamespace(
+        items=dict(station_items),
+        count_item=lambda it: station_inv.items.get(it, 0),
+        remove_item=lambda it, n=1: station_inv.items.__setitem__(
+            it, max(0, station_inv.items.get(it, 0) - n)),
+    )
+    ship_inv = SimpleNamespace(
+        items=dict(ship_items),
+        count_item=lambda it: ship_inv.items.get(it, 0),
+    )
+    builds = []
+    if has_hs:
+        builds.append(SimpleNamespace(
+            building_type="Home Station", disabled=False,
+            center_x=4000.0, center_y=4000.0))
+    return SimpleNamespace(
+        building_list=builds,
+        _parked_ships=parked_list,
+        _station_inv=station_inv,
+        inventory=ship_inv,
+        _char_level=1,
+        _faction="rebel",
+        _ship_type="basic",
+    )
+
+
+def test_place_ai_pilot_ship_returns_failure_without_home_station():
+    gv = _ai_pilot_gv(has_hs=False)
+    result = bot_builder.place_ai_pilot_ship_at_home(gv)
+    assert result["ok"] is False
+    assert "no home station" in result["reason"]
+
+
+def test_place_ai_pilot_ship_returns_failure_without_module():
+    gv = _ai_pilot_gv(
+        station_items={"iron": 600, "copper": 300, "ai_pilot": 0})
+    result = bot_builder.place_ai_pilot_ship_at_home(gv)
+    assert result["ok"] is False
+    assert "ai_pilot" in result["reason"]
+
+
+def test_place_ai_pilot_ship_returns_failure_without_iron():
+    gv = _ai_pilot_gv(
+        station_items={"iron": 50, "copper": 300, "ai_pilot": 1})
+    result = bot_builder.place_ai_pilot_ship_at_home(gv)
+    assert result["ok"] is False
+    assert "iron" in result["reason"]
+
+
+def test_place_ai_pilot_ship_returns_failure_without_copper():
+    gv = _ai_pilot_gv(
+        station_items={"iron": 600, "copper": 10, "ai_pilot": 1})
+    result = bot_builder.place_ai_pilot_ship_at_home(gv)
+    assert result["ok"] is False
+    assert "copper" in result["reason"]
+
+
+def test_place_ai_pilot_ship_short_circuits_when_already_nearby():
+    """A parked ship with the ai_pilot module already within 600 px
+    of the Home Station -- the builder skips placement and reports
+    ``ok=True`` with a ``skipped`` field."""
+    ai_ship = SimpleNamespace(
+        center_x=4100.0, center_y=4100.0,
+        module_slots=["ai_pilot"])
+    gv = _ai_pilot_gv(parked=[ai_ship])
+    result = bot_builder.place_ai_pilot_ship_at_home(gv)
+    assert result["ok"] is True
+    assert "already nearby" in result.get("skipped", "")
+
+
+def test_place_ai_pilot_ship_full_success(monkeypatch):
+    """All prerequisites met: builder places the ship + installs
+    AI Pilot + decrements the station ai_pilot count."""
+    gv = _ai_pilot_gv()
+
+    # Monkey-patch _place_basic_ship to avoid touching real sprites
+    # / inventory ops.  Append a stub ParkedShip-like object so the
+    # builder can install the module on it.
+    placed_at: list = []
+
+    def fake_place_basic_ship(g, wx, wy):
+        placed_at.append((wx, wy))
+        g._parked_ships.append(SimpleNamespace(
+            center_x=wx, center_y=wy,
+            module_slots=[]))
+
+    import ship_manager
+    monkeypatch.setattr(
+        ship_manager, "_place_basic_ship", fake_place_basic_ship)
+
+    result = bot_builder.place_ai_pilot_ship_at_home(gv)
+    assert result["ok"] is True
+    assert result["placed_at"] == [4000.0, 3850.0]
+    # New ship has AI Pilot installed.
+    new_ship = gv._parked_ships[-1]
+    assert "ai_pilot" in new_ship.module_slots
+    # Station inv ai_pilot count decremented.
+    assert gv._station_inv.items["ai_pilot"] == 0

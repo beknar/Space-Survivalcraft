@@ -104,6 +104,26 @@ def _housekeeping_short_circuits(state: dict, p: dict) -> None:
             _ap._telemetry_log("fortify_done_short_circuit",
                            reason=f"defenders_{defenders}_meets_min",
                            **_ap._telemetry_snapshot_fields(state, p))
+    # Mirror short-circuit for the Nebula fortify ring.  Zone-gated
+    # so a loaded save / manual placement in Nebula latches
+    # ``nebula_fortify_done`` without affecting the MAIN ``fortify_done``
+    # latch (the bot might be in Nebula visiting a pre-existing
+    # ring while MAIN itself is unfortified).  Buildings are
+    # zone-scoped via the ZoneState stash mechanism so the
+    # building_list this tick is whichever zone the bot is in.
+    if not _ap._state.nebula_fortify_done:
+        _zone_id_fortify = str((state.get("zone") or {}).get("id", ""))
+        if "ZONE2" in _zone_id_fortify:
+            defenders = sum(
+                1 for b in (state.get("buildings") or [])
+                if (b.get("building_type") or "") in (
+                    "Defense Turret", "Turret 2", "Missile Array"))
+            if defenders >= _ap.QWI_STAGE_MIN_TURRETS:
+                _ap._state.nebula_fortify_done = True
+                _ap._telemetry_log(
+                    "nebula_fortify_done_short_circuit",
+                    reason=f"defenders_{defenders}_meets_min_in_zone2",
+                    **_ap._telemetry_snapshot_fields(state, p))
     if not _ap._state.queue.consumable_phase_started:
         sitems = (state.get("station_inventory") or {}).get("items") or {}
         iitems = (state.get("inventory") or {}).get("items") or {}
@@ -226,9 +246,23 @@ def choose_next_state(state: dict, p: dict, cur: str) -> str:
     # fired at shields=54/120 (45 %), one lure trigger later (35 %),
     # then died.  Escape valve still applies, so boss-in-range still
     # gets engaged regardless of threshold.
+    #
+    # Nebula thresholds (2026-05-24, post-PR #184 telemetry): mirror
+    # the boss-alive logic for non-MAIN zones.  Captured: second
+    # death of the post-merge session was in fsm=regen in ZONE2 --
+    # bot tried to recover under fire and lost the damage-vs-regen
+    # trade.  Boss-alive takes precedence (it's strictly more
+    # dangerous); otherwise non-MAIN gets the elevated threshold.
+    _zone_id_for_regen = str((state.get("zone") or {}).get("id", ""))
+    _in_main_for_regen = (
+        "MAIN" in _zone_id_for_regen
+        and "WARP" not in _zone_id_for_regen)
     if boss is not None:
         regen_enter = _ap.REGEN_ENTER_PCT_BOSS_ALIVE
         regen_exit = _ap.REGEN_EXIT_PCT_BOSS_ALIVE
+    elif not _in_main_for_regen and _zone_id_for_regen:
+        regen_enter = _ap.REGEN_ENTER_PCT_NEBULA
+        regen_exit = _ap.REGEN_EXIT_PCT_NEBULA
     else:
         regen_enter = _ap.REGEN_ENTER_PCT
         regen_exit = _ap.REGEN_EXIT_PCT
@@ -774,6 +808,47 @@ def choose_next_state(state: dict, p: dict, cur: str) -> str:
         if _ap._build_area_clear(state, px, py):
             return _ap.S_BUILD_NEBULA
         return _ap.S_BUILD_SEEK
+
+    # 4.6 FORTIFY_NEBULA (2026-05-24) -- after the Nebula HS is up,
+    #     add the same defense-turret + missile-array ring the MAIN
+    #     HS gets in section 5.6.  Captured pathology (PR #184
+    #     telemetry): bot's second Nebula death was in fsm=regen at
+    #     the unfortified Nebula HS umbrella; building defenses
+    #     gives the bot a safe combat anchor analogous to MAIN's.
+    #
+    #     Gates: in ZONE2, Nebula HS already up, fortify not yet
+    #     done, station iron covers FORTIFY_IRON_COST plus a small
+    #     buffer.  ``_act_fortify_nebula`` reuses ``_post_fortify``
+    #     -- the builder anchors on the first Home Station in the
+    #     current zone's building_list (zone-scoped), so calling
+    #     it while the bot is in ZONE2 fortifies the Nebula HS.
+    if (in_zone2
+            and _ap._state.nebula_build_done
+            and not _ap._state.nebula_fortify_done
+            and _ap._find_home_station(state) is not None
+            and _ap._station_iron(state) >= _ap.FORTIFY_IRON_COST):
+        return _ap.S_FORTIFY_NEBULA
+
+    # 4.7 PLACE_AI_PILOT_NEBULA (2026-05-24) -- park a Basic Ship
+    #     with the AI Pilot module installed beside the Nebula HS
+    #     so the bot has friendly-fire-immune cover fire while it
+    #     fights the Nebula swarm.  Gated AFTER fortify (defenses
+    #     first; AI pilot ship is the second-tier buff).  Requires
+    #     a craftable ``ai_pilot`` module in station inventory,
+    #     plus iron + copper to cover the Basic Ship cost.  Falls
+    #     through silently if any prerequisite is missing -- the
+    #     bot keeps fighting solo until the inputs accumulate.
+    if (in_zone2
+            and _ap._state.nebula_fortify_done
+            and not _ap._state.nebula_ai_pilot_placed
+            and _ap._find_home_station(state) is not None):
+        _station_items_now = _ap._station_items(state)
+        if (int(_station_items_now.get("ai_pilot", 0)) >= 1
+                and int(_station_items_now.get("iron", 0))
+                    >= _ap.AI_PILOT_SHIP_IRON_COST
+                and int(_station_items_now.get("copper", 0))
+                    >= _ap.AI_PILOT_SHIP_COPPER_COST):
+            return _ap.S_PLACE_AI_PILOT_NEBULA
 
     # 5. DEPOSIT — once a Home Station exists, the bot periodically
     #    returns to dump everything in the ship inventory (iron,
