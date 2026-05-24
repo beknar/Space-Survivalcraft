@@ -13243,3 +13243,106 @@ class TestWarpSwarmRegenSuppression:
         assert ap._fsm["state"] == ap.S_WARP_TRAVERSE, (
             "fall through to WARP_TRAVERSE so bot keeps moving")
 
+
+class TestOutsideBaseSwarmRegenSuppression:
+    """The 2026-05-23 v2 broadening: REGEN suppression also fires
+    in ZONE2 (Nebula), STAR_MAZE, and any non-MAIN zone where
+    spawners can produce swarm densities.  Captured pathology:
+    29 REGEN deaths in a row at ~(3975, 4250) -- some in
+    WARP_ENEMY but at least some in ZONE2 / STAR_MAZE where
+    PR #162's WARP-only gate didn't fire.  Broader gate covers
+    every zone except MAIN, which is the only zone where the HS
+    umbrella + station shield-regen makes REGEN's idle work."""
+
+    def _state_in_zone(self, zone_name, alien_count=20,
+                       shields=30, max_shields=100,
+                       cur_state=None):
+        zone_id = f"ZoneID.{zone_name}"
+        # Aliens placed far away so the ``threatened`` gate is False
+        # -- the swarm-suppress gate is what's under test.
+        aliens = [{"x": 5000.0 + i * 50.0, "y": 5000.0, "hp": 50}
+                  for i in range(alien_count)]
+        s = _state(
+            player={"x": 0.0, "y": 0.0, "heading": 0.0,
+                    "shields": shields, "max_shields": max_shields},
+            aliens=aliens,
+        )
+        s["zone"] = {"world_w": 6400, "world_h": 6400,
+                     "zone_id": zone_id, "id": zone_id}
+        if cur_state is not None:
+            ap._fsm["state"] = cur_state
+        return s
+
+    def test_zone2_nebula_swarm_suppresses_regen(self, _clock):
+        """ZONE2 (Nebula) with 20 aliens -- bot at low shields,
+        REGEN entry blocked by the new broader gate."""
+        s = self._state_in_zone("ZONE2", alien_count=20, shields=30)
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] != ap.S_REGEN, (
+            "REGEN must be suppressed in ZONE2 swarms too "
+            "(PR #162's WARP-only gate didn't cover this)")
+
+    def test_star_maze_swarm_suppresses_regen(self, _clock):
+        """STAR_MAZE with 20 maze aliens -- same suppression."""
+        s = self._state_in_zone("STAR_MAZE", alien_count=20,
+                                shields=30)
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] != ap.S_REGEN
+
+    def test_nebula_warp_zone_swarm_suppresses_regen(self, _clock):
+        """NEBULA_WARP_ENEMY -- the post-Nebula-boss warp variants
+        also count as non-MAIN."""
+        s = self._state_in_zone(
+            "NEBULA_WARP_ENEMY", alien_count=20, shields=30)
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] != ap.S_REGEN
+
+    def test_main_zone_swarm_still_enters_regen(self, _clock):
+        """MAIN with 20 aliens -- HS umbrella exists here, REGEN
+        is the right action.  Gate must NOT fire."""
+        s = self._state_in_zone("MAIN", alien_count=20, shields=30)
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_REGEN, (
+            "REGEN must still fire in MAIN (HS umbrella means "
+            "idle recovery actually works)")
+
+    def test_main_with_sparse_aliens_still_enters_regen(
+            self, _clock):
+        """MAIN with few aliens: REGEN fires as expected (default
+        behaviour, untouched)."""
+        s = self._state_in_zone("MAIN", alien_count=3, shields=30)
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_REGEN
+
+    def test_zone2_sparse_aliens_still_enters_regen(self, _clock):
+        """ZONE2 with < threshold aliens: no swarm, no suppress.
+        The bot can safely idle there because the encounter is
+        manageable."""
+        s = self._state_in_zone(
+            "ZONE2",
+            alien_count=ap.WARP_SWARM_REGEN_SUPPRESS_ALIENS - 1,
+            shields=30)
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_REGEN
+
+    def test_already_in_regen_choose_releases_under_zone2_swarm(
+            self, _clock):
+        """Hold-side branch: bot in REGEN in ZONE2 with a swarm.
+        ``choose_next_state`` returns something OTHER than REGEN
+        -- the swarm-suppress escape fires regardless of stall
+        timer.  Tests the choose function directly to bypass
+        MIN_DWELL gating in the FSM tick (ZONE2 transitions don't
+        bypass MIN_DWELL the way WARP_TRAVERSE does, so the
+        FSM-level state at one tick would still show REGEN; the
+        choose function's intent is what's pinned here)."""
+        s = self._state_in_zone(
+            "ZONE2", alien_count=20, shields=50)
+        ap._state.last_regen_shields = 50
+        ap._state.last_regen_progress_at = _clock[0]
+        desired = ap._choose_next_state(s, s["player"],
+                                         cur=ap.S_REGEN)
+        assert desired != ap.S_REGEN, (
+            "choose must NOT return S_REGEN for a swarmed bot "
+            "already in REGEN inside ZONE2 -- the broader gate "
+            "fires the escape valve regardless of stall timer")
+
