@@ -177,6 +177,33 @@ def _housekeeping_short_circuits(state: dict, p: dict) -> None:
                 queue_remaining=list(
                     _ap._state.queue.modules_to_craft),
                 **_ap._telemetry_snapshot_fields(state, p))
+    # Advanced (Nebula-tier) module auto-queue (2026-05-24).  When
+    # the bot is in ZONE2 and an advanced module is sitting in the
+    # Nebula station inventory (e.g. from an Advanced Crafter cycle,
+    # a loaded save, or a manual drop), append it to the existing
+    # install queue so the bog-standard CRAFT / INSTALL pipeline
+    # picks it up.  Skips entries already on the ship's module_slots
+    # or already queued.  Restricted to ZONE2 so the bot doesn't
+    # try to install Nebula modules using MAIN station inventory
+    # before the Nebula station is established.
+    _zone_id_adv = str((state.get("zone") or {}).get("id", ""))
+    if "ZONE2" in _zone_id_adv:
+        sitems_adv = (state.get("station_inventory")
+                      or {}).get("items") or {}
+        installed_adv = set(
+            m for m in (state.get("module_slots") or []) if m)
+        queued = set(_ap._state.queue.modules_to_install)
+        queued.update(_ap._state.queue.modules_to_craft)
+        for key in _ap.NEBULA_ADVANCED_MODULES:
+            if key in installed_adv or key in queued:
+                continue
+            if int(sitems_adv.get(f"mod_{key}", 0)) < 1:
+                continue
+            _ap._state.queue.modules_to_install.append(key)
+            _ap._telemetry_log(
+                "nebula_advanced_module_queued",
+                module=key,
+                **_ap._telemetry_snapshot_fields(state, p))
 
 
 def choose_next_state(state: dict, p: dict, cur: str) -> str:

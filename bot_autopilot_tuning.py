@@ -107,6 +107,16 @@ REGEN_EXIT_PCT_NEBULA:  float = 0.85
 # are met before triggering ``S_PLACE_AI_PILOT_NEBULA``.
 AI_PILOT_SHIP_IRON_COST:   int = 600
 AI_PILOT_SHIP_COPPER_COST: int = 300
+# Advanced (Nebula-tier) modules the bot installs on the player
+# ship when they appear in ZONE2 station inventory.  Order is
+# rough installation priority: misty_step first (gas escape is
+# the highest-impact buff), then force_wall (defensive), then
+# death_blossom (offensive utility).  ai_pilot is omitted on
+# purpose -- it belongs on a parked ship via the Nebula AI Pilot
+# pipeline (see ``place_ai_pilot_ship_at_home``), not the player's
+# loadout.
+NEBULA_ADVANCED_MODULES: tuple[str, ...] = (
+    "misty_step", "force_wall", "death_blossom")
 # REGEN escape-valve hysteresis (2026-05-13 fifteenth telemetry pass).
 # The previous escape-valve fired on a SINGLE tick where shields
 # didn't gain (``sh > last_regen_shields`` was False).  Captured in

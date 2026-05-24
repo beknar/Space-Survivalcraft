@@ -77,6 +77,19 @@ MELEE_LOCK_HOLDOVER_S: float = 0.6
 # Indirection so tests can monkey-patch a deterministic RNG.
 _get_random = random.random
 
+# Nebula-tier module-usage thresholds (2026-05-24).  When a module
+# is installed in the player's loadout, the assist fires it on a
+# matching trigger -- gas escape via misty_step, defensive force_wall
+# when shields fall under pressure with a threat behind us, and
+# death_blossom on close-range alien clusters.  All gated on the
+# module's own cooldown + ability/missile budget; the assist only
+# DECIDES to fire, the game-side handlers enforce game rules.
+MISTY_STEP_GAS_MARGIN_PX: float = 30.0   # treat as "inside" cloud
+                                          # past edge + this margin
+FORCE_WALL_SHIELDS_PCT: float = 0.45     # arm threshold
+DEATH_BLOSSOM_CLUSTER_MIN: int = 4       # aliens to consider a swarm
+DEATH_BLOSSOM_CLUSTER_RANGE_PX: float = 350.0   # close-range only
+
 _state: dict[str, Any] = {
     "enabled": True,
     "fired_this_tick": False,
@@ -91,6 +104,10 @@ _state: dict[str, Any] = {
     "melee_engaged": False,
     "_had_threat_last_tick": False,
     "_melee_engaged_until": 0.0,
+    # Module-usage telemetry (read by /state.assist).
+    "misty_step_fires": 0,
+    "force_wall_fires": 0,
+    "death_blossom_fires": 0,
 }
 
 
@@ -175,6 +192,178 @@ def _ensure_weapon(gv, want: str) -> bool:
     return False
 
 
+# ── Nebula-tier module use ────────────────────────────────────────────────
+
+
+def _player_inside_gas_cloud(gv) -> tuple[float, float, float] | None:
+    """Return ``(cx, cy, radius)`` for any gas cloud the player is
+    currently inside (within ``radius + MISTY_STEP_GAS_MARGIN_PX``),
+    or ``None``.  Source is the active zone's ``_clouds`` SpriteList
+    -- only set on the gas warp zone + Nebula / Star-Maze variants.
+    """
+    z = getattr(gv, "_zone", None)
+    if z is None:
+        return None
+    clouds = getattr(z, "_clouds", None)
+    if not clouds:
+        return None
+    p = gv.player
+    px = float(p.center_x)
+    py = float(p.center_y)
+    for c in clouds:
+        try:
+            cx = float(c.center_x)
+            cy = float(c.center_y)
+            r = float(getattr(c, "radius", 80.0))
+            d = math.hypot(px - cx, py - cy)
+            if d < r + MISTY_STEP_GAS_MARGIN_PX:
+                return (cx, cy, r)
+        except Exception:
+            continue
+    return None
+
+
+def _misty_step_escape_key(gv, cloud) -> int | None:
+    """Choose which WASD key best aligns with the escape ray
+    (cloud-centre -> player, normalised) given the player's current
+    heading.  ``misty_step`` interprets W/S as forward/back and A/D
+    as strafe-left/right, so we project the escape ray onto each
+    axis and pick the one with the largest positive component.
+    """
+    import arcade
+    cx, cy, _r = cloud
+    p = gv.player
+    dx = float(p.center_x) - cx
+    dy = float(p.center_y) - cy
+    d = math.hypot(dx, dy)
+    if d < 1.0:
+        # On top of cloud centre -- pick an arbitrary forward escape.
+        return arcade.key.W
+    ux, uy = dx / d, dy / d
+    # Player forward vector in world coords (matches misty_step body).
+    rad = math.radians(p.heading)
+    fwd_x, fwd_y = math.sin(rad), math.cos(rad)
+    right_x, right_y = math.cos(rad), -math.sin(rad)
+    fwd_dot = ux * fwd_x + uy * fwd_y
+    right_dot = ux * right_x + uy * right_y
+    if abs(fwd_dot) >= abs(right_dot):
+        return arcade.key.W if fwd_dot > 0 else arcade.key.S
+    return arcade.key.D if right_dot > 0 else arcade.key.A
+
+
+def _maybe_fire_misty_step_gas(gv) -> bool:
+    """Trigger the misty-step teleport when the player is sitting
+    inside a damaging gas cloud.  Returns True if fired.
+
+    Captured pathology (PR #185 telemetry): even with the Nebula
+    recovery gate + elevated REGEN thresholds + fortify ring,
+    deaths persist when the bot fights inside a gas cloud --
+    drain rate exceeds shield regen.  misty_step out of the cloud
+    cuts the encounter short.
+    """
+    if "misty_step" not in gv._module_slots:
+        return False
+    cloud = _player_inside_gas_cloud(gv)
+    if cloud is None:
+        return False
+    key = _misty_step_escape_key(gv, cloud)
+    if key is None:
+        return False
+    from input_handlers_keys import fire_misty_step
+    if fire_misty_step(gv, key):
+        _state["misty_step_fires"] += 1
+        return True
+    return False
+
+
+def _threat_behind_player(gv, threat) -> bool:
+    """Return True iff ``threat``'s bearing from the player is in
+    the back hemisphere (angle from forward > 90 degrees).  Used
+    to choose force_wall (which deploys 60 px BEHIND the ship)."""
+    if threat is None:
+        return False
+    p = gv.player
+    dx = float(threat.center_x) - float(p.center_x)
+    dy = float(threat.center_y) - float(p.center_y)
+    d = math.hypot(dx, dy)
+    if d < 1.0:
+        return False
+    ux, uy = dx / d, dy / d
+    rad = math.radians(p.heading)
+    fwd_x, fwd_y = math.sin(rad), math.cos(rad)
+    return (ux * fwd_x + uy * fwd_y) < 0.0
+
+
+def _maybe_fire_force_wall(gv, threat, threat_dist) -> bool:
+    """Deploy the force wall when shields drop under
+    ``FORCE_WALL_SHIELDS_PCT`` AND a threat is currently behind
+    the ship (the wall plants 60 px behind the bow, so it only
+    helps against rear pursuers / projectile streams).  Returns
+    True if fired.
+    """
+    if "force_wall" not in gv._module_slots:
+        return False
+    if threat is None or threat_dist > DETECT_RANGE:
+        return False
+    sh = int(getattr(gv.player, "shields", 0))
+    sh_max = max(1, int(getattr(gv.player, "max_shields", 1)))
+    if (sh / sh_max) >= FORCE_WALL_SHIELDS_PCT:
+        return False
+    if not _threat_behind_player(gv, threat):
+        return False
+    # All gates passed.  Delegate to the game-side handler -- it
+    # will re-check cooldown + ability budget and may no-op silently.
+    from input_handlers_keys import _try_force_wall
+    cd_before = getattr(gv, "_force_wall_cd", 0.0)
+    _try_force_wall(gv)
+    cd_after = getattr(gv, "_force_wall_cd", 0.0)
+    if cd_after > cd_before:
+        _state["force_wall_fires"] += 1
+        return True
+    return False
+
+
+def _maybe_fire_death_blossom(gv) -> bool:
+    """Trigger Death Blossom when at least
+    ``DEATH_BLOSSOM_CLUSTER_MIN`` live aliens are inside
+    ``DEATH_BLOSSOM_CLUSTER_RANGE_PX``.  The handler validates
+    missile availability + activation latch internally; this
+    function only decides "is the swarm dense enough to justify
+    burning all our missiles?"
+    """
+    if "death_blossom" not in gv._module_slots:
+        return False
+    if getattr(gv, "_death_blossom_active", False):
+        return False
+    if gv.inventory.count_item("missile") <= 0:
+        return False
+    p = gv.player
+    px = float(p.center_x)
+    py = float(p.center_y)
+    r2 = DEATH_BLOSSOM_CLUSTER_RANGE_PX * DEATH_BLOSSOM_CLUSTER_RANGE_PX
+    close = 0
+    for a in (getattr(gv, "alien_list", None) or ()):
+        try:
+            if getattr(a, "hp", 0) <= 0:
+                continue
+            dx = float(a.center_x) - px
+            dy = float(a.center_y) - py
+            if dx * dx + dy * dy <= r2:
+                close += 1
+                if close >= DEATH_BLOSSOM_CLUSTER_MIN:
+                    break
+        except Exception:
+            continue
+    if close < DEATH_BLOSSOM_CLUSTER_MIN:
+        return False
+    from input_handlers_keys import _try_death_blossom
+    _try_death_blossom(gv)
+    if getattr(gv, "_death_blossom_active", False):
+        _state["death_blossom_fires"] += 1
+        return True
+    return False
+
+
 # ── Per-frame tick ────────────────────────────────────────────────────────
 
 def tick(gv, dt: float, original_fire: bool) -> bool:
@@ -198,7 +387,25 @@ def tick(gv, dt: float, original_fire: bool) -> bool:
     )):
         return original_fire
 
+    # Nebula-tier module use (2026-05-24).  Order matters: gas
+    # escape first because gas damage compounds before combat
+    # decisions can land; force_wall + death_blossom both layer
+    # onto the existing aim/fire logic below and don't preempt it.
+    try:
+        _maybe_fire_misty_step_gas(gv)
+    except Exception as e:
+        print(f"[combat_assist] misty_step error: {e}")
+
     threat, d = _find_nearest_threat(gv)
+    try:
+        _maybe_fire_force_wall(gv, threat, d)
+    except Exception as e:
+        print(f"[combat_assist] force_wall error: {e}")
+    try:
+        _maybe_fire_death_blossom(gv)
+    except Exception as e:
+        print(f"[combat_assist] death_blossom error: {e}")
+
     now = _now(gv)
     if threat is None:
         # No threat this tick.  Drop the melee commitment once the
@@ -316,4 +523,7 @@ def get_state() -> dict:
         "detect_range": DETECT_RANGE,
         "laser_range": LASER_RANGE,
         "melee_range": MELEE_RANGE,
+        "misty_step_fires": _state["misty_step_fires"],
+        "force_wall_fires": _state["force_wall_fires"],
+        "death_blossom_fires": _state["death_blossom_fires"],
     }
