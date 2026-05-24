@@ -13086,29 +13086,33 @@ class TestWarpSwarmEngageSuppression:
         ap._do_auto(s, s["player"])
         assert ap._fsm["state"] == ap.S_WARP_TRAVERSE
 
-    def test_already_in_regen_stays_in_regen_during_swarm(
+    def test_in_regen_with_swarm_no_alt_falls_to_engage(
             self, _clock):
-        """If the bot is already in REGEN when a swarm appears, the
-        REGEN hold branch keeps it there until shields recover or
-        the warp-zone escape valve fires.  Swarm-suppression only
-        affects ENGAGE preemption, not REGEN holding.  Critical
-        because the REGEN entry side is naturally blocked when a
-        threat is close (existing behavior); we want to confirm
-        the HOLD side still works."""
+        """Updated 2026-05-23 v4: bot in REGEN with a swarm in
+        WARP_ENEMY but NO productive alternative (no
+        warp_traverse arc).  The conditional ENGAGE-suppress
+        does NOT fire, so ENGAGE preempts REGEN -- bot defends.
+        Matches the user's explicit preference: "the bot is not
+        attacking back when it is attacked.  this should always
+        be a higher priority than gathering resources."
+
+        Previously this test asserted REGEN holds (PR #168's
+        unconditional suppress blocked ENGAGE).  The new
+        conditional gate only suppresses when there's a real
+        alternative to fall through to."""
         s = self._warp_state(
             alien_count=20,
             cur_state=ap.S_REGEN,
-            shields=50,   # ~42 %, below REGEN_EXIT_PCT (60 %)
+            shields=50,
         )
-        # Stamp the REGEN entry so the escape-valve timer doesn't
-        # fire on tick 1.
         ap._fsm["entered_at"] = _clock[0]
         ap._state.last_regen_shields = 50
         ap._state.last_regen_progress_at = _clock[0]
         ap._do_auto(s, s["player"])
-        assert ap._fsm["state"] == ap.S_REGEN, (
-            "REGEN must hold when bot is already in it, even with "
-            "a swarm in the warp zone")
+        assert ap._fsm["state"] == ap.S_ENGAGE, (
+            "ENGAGE must fire to defend when no productive "
+            "alternative is available -- the unconditional "
+            "suppress that pinned the bot defenseless is gone")
 
 
 # ── Warp-zone swarm REGEN suppression (2026-05-23) ────────────────────────
@@ -13712,7 +13716,8 @@ class TestOutsideBaseSwarmEngageSuppression:
     """
 
     def _state_in_zone(self, zone_name, alien_count=20,
-                       cur_state=None, **player_overrides):
+                       cur_state=None, iron=0,
+                       **player_overrides):
         zone_id = f"ZoneID.{zone_name}"
         # Aliens placed within ENGAGE_ENTER_PX (800) of player so
         # the ENGAGE branch would otherwise fire.
@@ -13723,6 +13728,7 @@ class TestOutsideBaseSwarmEngageSuppression:
                     "shields": 120, "max_shields": 120,
                     **player_overrides},
             aliens=aliens,
+            iron=iron,
         )
         s["zone"] = {"world_w": 6400, "world_h": 8000,
                      "zone_id": zone_id, "id": zone_id}
@@ -13730,26 +13736,58 @@ class TestOutsideBaseSwarmEngageSuppression:
             ap._fsm["state"] = cur_state
         return s
 
-    def test_zone2_nebula_swarm_suppresses_engage(self, _clock):
-        """ZONE2 with 20 aliens close enough to trigger ENGAGE --
-        new broader gate blocks the diversion."""
-        s = self._state_in_zone("ZONE2", alien_count=20)
-        ap._do_auto(s, s["player"])
-        assert ap._fsm["state"] != ap.S_ENGAGE, (
-            "ENGAGE must be suppressed in ZONE2 swarms too "
-            "(captured pathology: bot pinned in kite box for "
-            "500+ s in Nebula)")
+    def test_zone2_nebula_swarm_suppresses_engage_with_build_alt(
+            self, _clock):
+        """ZONE2 with 20 aliens + iron + no Nebula HS -- the
+        productive alternative S_BUILD_NEBULA is viable, so the
+        ENGAGE-swarm-suppress fires and ENGAGE is blocked.
+        Captured pathology: bot warped post-boss to Nebula with
+        48 aliens, no Nebula HS yet -- needed to BUILD, not kite.
 
-    def test_star_maze_swarm_suppresses_engage(self, _clock):
-        s = self._state_in_zone("STAR_MAZE", alien_count=20)
+        Updated 2026-05-23 v4: requires the BUILD_NEBULA
+        productive alternative to be set up (iron + not built)."""
+        s = self._state_in_zone("ZONE2", alien_count=20,
+                                 iron=ap.BUILD_IRON_THRESHOLD)
+        ap._state.nebula_build_done = False
         ap._do_auto(s, s["player"])
         assert ap._fsm["state"] != ap.S_ENGAGE
 
-    def test_nebula_warp_zone_swarm_suppresses_engage(self, _clock):
-        """NEBULA_WARP_ENEMY -- post-Nebula-boss warp variants
-        also count as non-MAIN."""
+    def test_zone2_swarm_without_build_alt_engages(self, _clock):
+        """The 2026-05-23 v4 fix path: bot in ZONE2 with swarm BUT
+        Nebula HS already exists (no build alternative).  Without
+        a productive alternative the bot must DEFEND, not gather
+        defenseless.  Captured pathology: 0 ENGAGE events in 500 s
+        while shields dropped to 1/120 -- bot mining while being
+        rammed because PR #168's unconditional suppress blocked
+        ENGAGE entirely."""
+        s = self._state_in_zone("ZONE2", alien_count=20)
+        # Nebula HS already exists -- no build alternative.
+        ap._state.nebula_build_done = True
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_ENGAGE, (
+            "ENGAGE must fire when no productive alternative is "
+            "available -- otherwise bot defends itself with combat "
+            "assist only while moving toward an asteroid")
+
+    def test_star_maze_swarm_engages_no_productive_alt(
+            self, _clock):
+        """STAR_MAZE has no warp-traverse goal AND no build_nebula
+        path.  Per the conditional gate, ENGAGE fires so the bot
+        defends.  Updated from PR #168 (which unconditionally
+        suppressed)."""
+        s = self._state_in_zone("STAR_MAZE", alien_count=20)
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_ENGAGE
+
+    def test_nebula_warp_zone_swarm_suppresses_engage_with_traverse(
+            self, _clock):
+        """NEBULA_WARP_ENEMY with the warp-traverse arc active --
+        the productive alternative is viable, so ENGAGE is
+        suppressed and the traverse continues."""
         s = self._state_in_zone("NEBULA_WARP_ENEMY",
                                 alien_count=20)
+        ap._state.boss_was_killed = True
+        ap._state.warp_after_boss_done = True
         ap._do_auto(s, s["player"])
         assert ap._fsm["state"] != ap.S_ENGAGE
 
