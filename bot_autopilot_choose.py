@@ -59,46 +59,32 @@ def _outside_main_swarm_suppresses(
     return len(state.get("aliens") or []) >= alien_threshold
 
 
-def choose_next_state(state: dict, p: dict, cur: str) -> str:
-    """Pure function: given the world snapshot and the current FSM
-    state, return what state the bot *wants* to be in this tick.
+def _housekeeping_short_circuits(state: dict, p: dict) -> None:
+    """Section 0: unconditional latches that fire every tick before
+    any priority branch.
 
-    Hysteresis is encoded by branching on ``cur``: the enter
-    threshold and exit threshold differ, so a value drifting around
-    the boundary doesn't oscillate.
+    Each gate handles a "loaded save / prior session / manual
+    placement" edge case where pre-existing world state should mark
+    a one-shot phase as already done -- otherwise the FSM would
+    re-run the phase needlessly:
 
-    REGEN is the **top priority** -- when shields drop below 40 %
-    the bot disengages, sits still, and waits for shields to climb
-    back to 60 % before doing anything else.  Combat assist still
-    aims + fires automatically every frame, so the bot isn't
-    defenseless while regenerating; it just doesn't burn thrust
-    chasing targets while the shield bar is low.
+      * ``build_done`` latches on a Home Station in MAIN.
+      * ``nebula_build_done`` latches on a Home Station in ZONE2.
+      * ``fortify_done`` latches on QWI_STAGE_MIN_TURRETS defenders.
+      * ``queue.consumable_phase_started`` latches when 25 + 25
+        consumables already exist anywhere.
+      * Module-craft queue heads are popped when those modules
+        already sit in station inventory / on the ship.
+
+    Each gate is an independent, idempotent check.  Extracted from
+    ``choose_next_state`` in the 2026-05-24 PR 7 refactor.
     """
-    px, py = p.get("x", 0.0), p.get("y", 0.0)
-
-    # 0. Unconditional housekeeping — runs every tick, before any
-    #    early-return branch.  If the bot just connected to a
-    #    world that already has a Home Station (loaded save,
-    #    prior session, manual placement), permanently mark
-    #    build_done so the BUILD/BUILD_SEEK branch never fires.
-    #    Has to live up here, NOT inside the BUILD branch below,
-    #    because GATHER/ENGAGE/REGEN early-return long before the
-    #    BUILD branch is reached — so if the bot enters GATHER
-    #    on its very first tick (likely when a pickup is
-    #    visible), build_done would stay False forever and the
-    #    BUILD branch would fire as soon as GATHER cleared.
     if (not _ap._state.build_done
             and _ap._find_home_station(state) is not None):
         _ap._state.build_done = True
         _ap._telemetry_log("build_done_short_circuit",
                        reason="home_station_already_exists",
                        **_ap._telemetry_snapshot_fields(state, p))
-    # Mirror short-circuit for the Nebula (ZONE2) starter base.
-    # ``nebula_build_done`` latches True when the bot visits ZONE2
-    # and the zone already has a Home Station (loaded save / prior
-    # session / manual placement).  Restricted to ZONE2 so visits
-    # to other non-MAIN zones (WARP variants, STAR_MAZE) don't
-    # latch on an unrelated HS detection.
     if not _ap._state.nebula_build_done:
         zone_id_short = str((state.get("zone") or {}).get("id", ""))
         if ("ZONE2" in zone_id_short
@@ -108,10 +94,6 @@ def choose_next_state(state: dict, p: dict, cur: str) -> str:
                 "nebula_build_done_short_circuit",
                 reason="home_station_already_exists_in_zone2",
                 **_ap._telemetry_snapshot_fields(state, p))
-    # Mirror short-circuit for fortify: if the world already has at
-    # least _ap.QWI_STAGE_MIN_TURRETS defenders (loaded save / prior
-    # session / manual placement), latch ``fortify_done`` so the
-    # FSM doesn't re-enter _ap.S_FORTIFY for a ring that already exists.
     if not _ap._state.fortify_done:
         defenders = sum(
             1 for b in (state.get("buildings") or [])
@@ -122,20 +104,6 @@ def choose_next_state(state: dict, p: dict, cur: str) -> str:
             _ap._telemetry_log("fortify_done_short_circuit",
                            reason=f"defenders_{defenders}_meets_min",
                            **_ap._telemetry_snapshot_fields(state, p))
-    # Mirror short-circuit for the consumable craft phase.  The QWI
-    # pipeline gate (section 5.6) requires ``_ap._consumable_phase_finished()``,
-    # which only returns True after the bot crafts all
-    # _ap.REPAIR_PACK_CRAFT_BATCHES + _ap.SHIELD_RECHARGE_CRAFT_BATCHES
-    # batches itself — flips the queue's ``consumable_phase_started``
-    # flag along the way.  A loaded save (or pre-existing inventory)
-    # with the 25 + 25 consumables already present skips the craft
-    # phase entirely, leaving ``consumable_phase_started=False``
-    # forever, so the QWI build pipeline never fires even though
-    # everything else is ready.  User report 2026-05-09: "there is
-    # over 2000 iron and there are multiple copies of all the
-    # modules and 25 of each consumable, so why has the bot not
-    # built a QWI?".  Sum across station / ship / quick-use slots
-    # so the latch fires regardless of where the consumables sit.
     if not _ap._state.queue.consumable_phase_started:
         sitems = (state.get("station_inventory") or {}).get("items") or {}
         iitems = (state.get("inventory") or {}).get("items") or {}
@@ -165,18 +133,6 @@ def choose_next_state(state: dict, p: dict, cur: str) -> str:
                 reason=(f"repair_{total_repair}_shield_{total_shield}"
                         f"_meets_{needed_repair}_{needed_shield}"),
                 **_ap._telemetry_snapshot_fields(state, p))
-
-    # Mirror short-circuit for the MODULE craft queue.  Catches the
-    # session-restart case (user complaint 2026-05-10: "the bot
-    # should only build the modules once, and it has built them
-    # multiple times"): a fresh process on an existing save has
-    # CraftQueue.modules_to_craft reset to the full MODULE_CRAFT_QUEUE
-    # even though some / all modules are already crafted (in
-    # station inv as mod_<key>) or installed on the ship.  Pop the
-    # already-done heads up front so the bot doesn't try to re-craft
-    # them.  _next_craft_target also skip-pops at call time, but
-    # latching the started flag here saves the bot from a useless
-    # craft-phase round trip when EVERY module is already done.
     if not _ap._state.queue.module_phase_started \
             and _ap._state.queue.modules_to_craft:
         sitems = (state.get("station_inventory") or {}).get("items") or {}
@@ -193,9 +149,6 @@ def choose_next_state(state: dict, p: dict, cur: str) -> str:
                 continue
             break
         if popped > 0:
-            # If the queue is now empty, also latch
-            # module_phase_started so a stale gate check doesn't
-            # mis-fire next tick.
             if not _ap._state.queue.modules_to_craft:
                 _ap._state.queue.module_phase_started = True
             _ap._telemetry_log(
@@ -204,6 +157,33 @@ def choose_next_state(state: dict, p: dict, cur: str) -> str:
                 queue_remaining=list(
                     _ap._state.queue.modules_to_craft),
                 **_ap._telemetry_snapshot_fields(state, p))
+
+
+def choose_next_state(state: dict, p: dict, cur: str) -> str:
+    """Pure function: given the world snapshot and the current FSM
+    state, return what state the bot *wants* to be in this tick.
+
+    Hysteresis is encoded by branching on ``cur``: the enter
+    threshold and exit threshold differ, so a value drifting around
+    the boundary doesn't oscillate.
+
+    REGEN is the **top priority** -- when shields drop below 40 %
+    the bot disengages, sits still, and waits for shields to climb
+    back to 60 % before doing anything else.  Combat assist still
+    aims + fires automatically every frame, so the bot isn't
+    defenseless while regenerating; it just doesn't burn thrust
+    chasing targets while the shield bar is low.
+    """
+    px, py = p.get("x", 0.0), p.get("y", 0.0)
+
+    # 0. Unconditional housekeeping -- runs every tick, before any
+    #    early-return branch.  See ``_housekeeping_short_circuits``
+    #    for the gate list (build_done / nebula_build_done /
+    #    fortify_done / consumable-phase / module-craft-queue
+    #    pops).  Extracted in PR 7 so the priority cascade below
+    #    stays focused on state selection, not session-restart
+    #    bookkeeping.
+    _housekeeping_short_circuits(state, p)
 
     # 1. REGEN — shields hurt; sit still and recover.  Preempts
     #    ENGAGE/GATHER/MINE so the bot actually idles instead of
