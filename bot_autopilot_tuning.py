@@ -87,6 +87,26 @@ REGEN_EXIT_PCT:  float = 0.60
 # still applies, so boss-in-laser-range still gets engaged.
 REGEN_ENTER_PCT_BOSS_ALIVE: float = 0.70
 REGEN_EXIT_PCT_BOSS_ALIVE:  float = 0.85
+# Nebula REGEN thresholds (2026-05-24, post-PR #184 telemetry).
+# Captured: second death of the post-merge session was in
+# fsm=regen at (5407, 4511) in ZONE2 -- the bot tried to recover
+# under fire in the Nebula and lost the damage-vs-regen trade.
+# Mirrors the boss-alive pattern: when outside the MAIN-zone HS
+# umbrella, regen further before re-engaging so a brief damage
+# spike doesn't kick the bot back out at 60 % shields with the
+# swarm still pressing.  The existing REGEN escape valve (exit
+# when threat < ENGAGE_ENTER_PX after the no-progress timer
+# fires) still applies, so a close threat still gets engaged.
+REGEN_ENTER_PCT_NEBULA: float = 0.55
+REGEN_EXIT_PCT_NEBULA:  float = 0.85
+# Nebula AI Pilot ship cost gate (2026-05-24).  Mirrors the
+# ``BUILDING_TYPES["Basic Ship"]`` cost (500 iron + 250 copper at
+# default character rates) plus a small headroom so the placement
+# POST doesn't drop the station below operating reserves.  The
+# bot waits at the station mining + crafting until both buffers
+# are met before triggering ``S_PLACE_AI_PILOT_NEBULA``.
+AI_PILOT_SHIP_IRON_COST:   int = 600
+AI_PILOT_SHIP_COPPER_COST: int = 300
 # REGEN escape-valve hysteresis (2026-05-13 fifteenth telemetry pass).
 # The previous escape-valve fired on a SINGLE tick where shields
 # didn't gain (``sh > last_regen_shields`` was False).  Captured in
@@ -578,6 +598,22 @@ S_WARP_TRAVERSE     = "warp_traverse"
 # cascade -- if the bot is somehow in ZONE2 without a MAIN base
 # yet, build MAIN first.
 S_BUILD_NEBULA      = "build_nebula"
+# S_FORTIFY_NEBULA (2026-05-24): mirror of S_FORTIFY for the Nebula
+# HS.  Fires once the bot has built the Nebula starter base AND
+# station inventory has enough iron to cover FORTIFY_IRON_COST.
+# Re-uses ``bot_builder.fortify_base_defenses`` (which anchors on
+# the first Home Station in the current zone's ``building_list``,
+# so calling it while the bot is in ZONE2 fortifies the Nebula HS).
+# Latches into ``BotState.nebula_fortify_done`` on success.
+S_FORTIFY_NEBULA    = "fortify_nebula"
+# S_PLACE_AI_PILOT_NEBULA (2026-05-24): place a Basic Ship with the
+# AI Pilot module installed next to the Nebula HS, so the bot has
+# a friendly-fire-immune second DPS source while it fights the
+# swarm.  Same anchor pattern as S_FORTIFY_NEBULA -- fires once
+# the Nebula fortify ring is up + station inventory has the
+# ai_pilot module + iron / copper budget.  Latches into
+# ``BotState.nebula_ai_pilot_placed`` on success.
+S_PLACE_AI_PILOT_NEBULA = "place_ai_pilot_nebula"
 # S_FLEE_GAS (2026-05-18): bot is inside a damaging gas cloud --
 # drive out before doing anything else.  Captured pathology: bot
 # in S_ENGAGE at (3823, 3089) in WARP_GAS, shields drained 18 -> 0
@@ -596,7 +632,8 @@ ALL_STATES = (
     S_HUNT, S_IDLE_AT_BASE, S_ENGAGE_BOSS,
     S_EQUIP_CONSUMABLES, S_PRE_BOSS_MINE, S_FORTIFY, S_BUILD_QWI,
     S_RECOVER_LOOT, S_WARP_TO_WORMHOLE, S_WARP_TRAVERSE,
-    S_FLEE_GAS, S_BUILD_NEBULA,
+    S_FLEE_GAS, S_BUILD_NEBULA, S_FORTIFY_NEBULA,
+    S_PLACE_AI_PILOT_NEBULA,
 )
 
 # Maximum range at which the bot will commit to chasing an alien

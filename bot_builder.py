@@ -546,6 +546,115 @@ def fortify_base_defenses(gv: Any) -> dict:
     }
 
 
+def place_ai_pilot_ship_at_home(gv: Any) -> dict:
+    """Buy a Basic Ship + install AI Pilot on it, parked next to
+    the active Home Station.
+
+    Captured 2026-05-24 PR #184 telemetry: Nebula deaths persisted
+    despite the recovery-gate.  Adding cover fire from an AI-piloted
+    parked ship at the Nebula HS gives the bot a friendly-fire-immune
+    second DPS source while it fights the swarm.  The trigger lives
+    in ``bot_autopilot_choose`` and fires once per zone (Nebula) when
+    iron + copper + ai_pilot module are all in station inventory.
+
+    Requirements:
+      * Active Home Station in the current zone (anchor).
+      * Station inventory has ``Basic Ship`` cost (iron + copper).
+      * Station inventory has a craftable ``ai_pilot`` module.
+
+    On success: deducts the Basic Ship cost (via the existing
+    ``ship_manager._deduct_ship_cost`` helper) AND removes one
+    ``ai_pilot`` from station inventory, spawns a fresh
+    ``ParkedShip`` 150 px south of the HS, appends ``ai_pilot`` to
+    its ``module_slots``.  The zone-side ``update_parked`` loop
+    picks up the install-edge and flips the new ship straight into
+    AI Pilot patrol mode.
+
+    Returns ``{"ok": True, "placed_at": [x, y]}`` on success or
+    ``{"ok": False, "reason": ...}`` on failure.
+    """
+    from constants import BUILDING_TYPES
+    from character_data import build_cost_multiplier
+    from settings import audio
+
+    if not _has_home_station(gv):
+        return {"ok": False, "reason": "no home station"}
+
+    home = None
+    for b in gv.building_list:
+        if getattr(b, "building_type", None) == "Home Station" \
+                and not getattr(b, "disabled", False):
+            home = b
+            break
+    if home is None:
+        return {"ok": False, "reason": "no active home station"}
+
+    # Idempotent: if a parked AI Pilot ship already exists near
+    # this Home Station, skip and let the FSM latch.
+    hx = float(home.center_x)
+    hy = float(home.center_y)
+    for ps in (getattr(gv, "_parked_ships", []) or []):
+        if "ai_pilot" not in getattr(ps, "module_slots", []):
+            continue
+        dx = float(ps.center_x) - hx
+        dy = float(ps.center_y) - hy
+        if dx * dx + dy * dy <= (600.0 * 600.0):
+            return {
+                "ok": True,
+                "skipped": "ai pilot ship already nearby",
+                "placed_at": [float(ps.center_x),
+                              float(ps.center_y)],
+            }
+
+    # Cost check + ai_pilot inventory check.
+    bt_stats = BUILDING_TYPES["Basic Ship"]
+    cost_mult = build_cost_multiplier(
+        audio.character_name, gv._char_level)
+    cost = int(bt_stats["cost"] * cost_mult)
+    copper_cost = int(bt_stats.get("cost_copper", 0) * cost_mult)
+    station = gv._station_inv
+    iron_have = int(station.count_item("iron"))
+    copper_have = int(station.count_item("copper"))
+    ship_iron = int(gv.inventory.count_item("iron"))
+    ship_copper = int(gv.inventory.count_item("copper"))
+    if iron_have + ship_iron < cost:
+        return {"ok": False,
+                "reason": f"insufficient iron {iron_have + ship_iron}/{cost}"}
+    if copper_have + ship_copper < copper_cost:
+        return {"ok": False,
+                "reason": f"insufficient copper "
+                          f"{copper_have + ship_copper}/{copper_cost}"}
+    if int(station.count_item("ai_pilot")) < 1:
+        return {"ok": False,
+                "reason": "no ai_pilot module in station inventory"}
+
+    # Place the ship 150 px south of HS (free_place radius is 300,
+    # so 150 is comfortably inside; "south" is the typical free
+    # direction since the starter-base cluster lays out NW + N + NE).
+    place_x = hx
+    place_y = hy - 150.0
+    from ship_manager import _place_basic_ship
+    _place_basic_ship(gv, place_x, place_y)
+
+    # The newly-placed ship is the last entry in _parked_ships.
+    new_ship = gv._parked_ships[-1]
+    # Resize its module_slots to hold the AI Pilot (basic ships
+    # have 0 default slots; install requires a slot).
+    if not new_ship.module_slots:
+        new_ship.module_slots = [None]
+    new_ship.module_slots[0] = "ai_pilot"
+    # Consume the ai_pilot module from station inventory so the
+    # player can't double-spend it.
+    station.remove_item("ai_pilot", 1)
+
+    return {
+        "ok": True,
+        "placed_at": [place_x, place_y],
+        "iron_remaining": int(station.count_item("iron")),
+        "copper_remaining": int(station.count_item("copper")),
+    }
+
+
 def place_quantum_wave_integrator(gv: Any) -> dict:
     """Place a Quantum Wave Integrator near the Home Station.
 

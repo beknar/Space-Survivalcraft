@@ -218,6 +218,32 @@ def _post_place_qwi(timeout_s: float = 10.0) -> dict | None:
         return None
 
 
+def _post_place_ai_pilot_ship(
+        timeout_s: float = 10.0) -> dict | None:
+    """POST /place_ai_pilot_ship — buy a Basic Ship + install AI
+    Pilot module on it, parked near the current Home Station.
+    Used by the Nebula combat-buff pipeline to give the bot
+    friendly-fire-immune cover fire in ZONE2.
+    """
+    try:
+        import json
+        req = Request(
+            f"{_ap.API_BASE}/place_ai_pilot_ship",
+            data=b"{}",
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urlopen(req, timeout=timeout_s) as r:
+            return json.loads(r.read().decode("utf-8"))
+    except (URLError, TimeoutError, OSError) as e:
+        print(f"[autopilot] place_ai_pilot_ship POST error: {e}")
+        return None
+    except Exception as e:
+        print(f"[autopilot] place_ai_pilot_ship POST unexpected "
+              f"error: {e}")
+        return None
+
+
 def _ensure_game_focused() -> None:
     """Activate the game window so pyautogui keystrokes reach
     it.  No-op on non-Windows or if pygetwindow isn't installed.

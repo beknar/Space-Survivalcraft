@@ -452,6 +452,70 @@ def _act_fortify(state: dict, p: dict) -> None:
     )
 
 
+def _act_fortify_nebula(state: dict, p: dict) -> None:
+    """S_FORTIFY_NEBULA: identical to ``_act_fortify`` but flips
+    the ``nebula_fortify_done`` latch instead of ``fortify_done``.
+    ``bot_builder.fortify_base_defenses`` anchors on the first
+    Home Station in the current zone's ``building_list``, and
+    Nebula buildings are zone-scoped (per the ZoneState stash
+    mechanism), so calling it while the bot is in ZONE2 fortifies
+    the Nebula HS automatically -- no need for a separate builder.
+
+    Captured 2026-05-24 telemetry: post-PR #184, the bot's second
+    Nebula death was in fsm=regen with the swarm pressing the
+    unfortified Nebula HS umbrella.  Building turrets + missile
+    arrays around the Nebula HS gives the bot the same safe combat
+    anchor it has in MAIN.
+    """
+    def _set_latch():
+        _ap._state.nebula_fortify_done = True
+
+    _act_at_station(
+        state, p,
+        label="FORTIFY_NEBULA",
+        post_fn=_ap._post_fortify,
+        on_success_log=lambda r: (
+            f"placed={len(r.get('placed', []))} "
+            f"failed={len(r.get('failed', []))} "
+            f"defenders_now={r.get('defenders_now', '?')}"),
+        latch_setter=_set_latch,
+        latch_failure_keywords=("already complete", "no home",
+                                "no active home"),
+        latch_already_set=lambda: _ap._state.nebula_fortify_done,
+    )
+
+
+def _act_place_ai_pilot_nebula(state: dict, p: dict) -> None:
+    """S_PLACE_AI_PILOT_NEBULA: navigate to the Nebula HS, then POST
+    /place_ai_pilot_ship to buy a Basic Ship + install AI Pilot
+    on it, parked beside the Nebula HS.  Latches into
+    ``nebula_ai_pilot_placed`` on success.
+
+    Captured 2026-05-24 telemetry: even with the post-PR #184
+    recovery gate, Nebula combat is rough -- the swarm density
+    plus gas hazards drain shields faster than passive regen
+    when the bot kites solo.  An AI-piloted parked ship at the
+    Nebula HS provides a friendly-fire-immune second DPS source
+    so the bot effectively fights with help.
+    """
+    def _set_latch():
+        _ap._state.nebula_ai_pilot_placed = True
+
+    _act_at_station(
+        state, p,
+        label="PLACE_AI_PILOT_NEBULA",
+        post_fn=_ap._post_place_ai_pilot_ship,
+        on_success_log=lambda r: (
+            f"placed_at={r.get('placed_at')} "
+            f"skipped={r.get('skipped', '-')}"),
+        latch_setter=_set_latch,
+        latch_failure_keywords=(
+            "already nearby", "no home", "no active home",
+            "no ai_pilot module"),
+        latch_already_set=lambda: _ap._state.nebula_ai_pilot_placed,
+    )
+
+
 def _act_build_qwi(state: dict, p: dict) -> None:
     """S_BUILD_QWI: navigate to the Home Station, then POST
     /place_qwi.  Auto-spawns the Double Star boss on success.  Flips
