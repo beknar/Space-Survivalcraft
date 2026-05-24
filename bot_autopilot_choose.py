@@ -217,28 +217,52 @@ def choose_next_state(state: dict, p: dict, cur: str) -> str:
     else:
         regen_enter = _ap.REGEN_ENTER_PCT
         regen_exit = _ap.REGEN_EXIT_PCT
-    # Outside-base swarm gate for REGEN (2026-05-23 v2; originally
-    # warp-only in PR #162).  Same intent as PR #155's
-    # ENGAGE-swarm-suppress but applied to REGEN: when the bot is
-    # not under the home-station umbrella AND the alien count is
-    # high enough that idling is fatal, suppress REGEN so the
-    # cascade falls through to a movement-capable state (HUNT,
-    # GATHER, MINE, WARP_TRAVERSE, ...).  Combat assist + auto-fired
-    # consumables still provide defense; only the FSM-level
-    # ``_do_idle`` recovery diversion is suppressed.
+    # Outside-base swarm gate for REGEN (PR #162 -> #165 -> 2026-05-24).
     #
-    # Originally gated on ``"WARP" in zone_id`` only.  Captured
-    # 2026-05-23 v2 telemetry caught REGEN deaths in non-WARP zones
-    # too (ZONE2 / Nebula, STAR_MAZE) where MazeSpawner / Nebula
-    # alien spawners can produce comparable swarm density.  Broader
-    # gate: any zone EXCEPT MAIN.  MAIN is the only zone with a
-    # Home Station umbrella + station shield-regen, which is what
-    # makes REGEN's idle recovery actually work.
+    # History:
+    #   * PR #162 introduced REGEN swarm-suppress in WARP zones only,
+    #     so the bot could push through WARP_ENEMY arcs instead of
+    #     idling under fire.
+    #   * PR #165 broadened to all non-MAIN zones to cover the
+    #     ZONE2 / Nebula / STAR_MAZE swarm patterns.
+    #   * 2026-05-24 (this change): mirrored PR #169's ENGAGE
+    #     fix -- the broadening was too aggressive when the bot
+    #     had no productive alternative to fall through to.  With
+    #     ENGAGE conditionally allowed (defend) and REGEN
+    #     unconditionally suppressed, the bot exited REGEN ->
+    #     entered ENGAGE -> ENGAGE preempted REGEN again, leaving
+    #     no path to actual healing once an HS exists.  Now both
+    #     gates condition on the same productive-alternative
+    #     check, so they release together when the bot should
+    #     defend AND hold together when there's a productive
+    #     traverse / build goal.
+    #
+    # If no productive alt is viable, REGEN behaves normally --
+    # the bot idles (or drives to HS per PR #167) for recovery,
+    # combat assist defends reflexively, consumables auto-trigger.
+    # That's the correct behavior in MAIN swarms and in ZONE2 /
+    # STAR_MAZE with HS available.
     zone_id_regen = str((state.get("zone") or {}).get("id", ""))
     in_main_zone_regen = (
         "MAIN" in zone_id_regen and "WARP" not in zone_id_regen)
+    # Same productive-alternative gates as PR #169's ENGAGE
+    # suppression.  Mirror the sections 2.5 (warp_traverse) and
+    # 4.5 (build_nebula) below.
+    _boss_killed_for_regen = (
+        _ap._state.boss_was_killed
+        or bool(state.get("boss_defeated", False)))
+    _warp_traverse_alt_regen = (
+        "WARP" in zone_id_regen
+        and _boss_killed_for_regen
+        and _ap._state.warp_after_boss_done
+        and not _ap._state.warp_traverse_done)
+    _build_nebula_alt_regen = (
+        "ZONE2" in zone_id_regen
+        and not _ap._state.nebula_build_done
+        and _ap._iron_total(state) >= _ap.BUILD_IRON_THRESHOLD)
     in_warp_swarm = (
         not in_main_zone_regen
+        and (_warp_traverse_alt_regen or _build_nebula_alt_regen)
         and len(state.get("aliens") or [])
         >= _ap.WARP_SWARM_REGEN_SUPPRESS_ALIENS)
 

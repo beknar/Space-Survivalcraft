@@ -13086,20 +13086,23 @@ class TestWarpSwarmEngageSuppression:
         ap._do_auto(s, s["player"])
         assert ap._fsm["state"] == ap.S_WARP_TRAVERSE
 
-    def test_in_regen_with_swarm_no_alt_falls_to_engage(
+    def test_in_regen_with_swarm_no_alt_holds_regen(
             self, _clock):
-        """Updated 2026-05-23 v4: bot in REGEN with a swarm in
-        WARP_ENEMY but NO productive alternative (no
-        warp_traverse arc).  The conditional ENGAGE-suppress
-        does NOT fire, so ENGAGE preempts REGEN -- bot defends.
-        Matches the user's explicit preference: "the bot is not
-        attacking back when it is attacked.  this should always
-        be a higher priority than gathering resources."
+        """Updated 2026-05-24: with REGEN suppression also
+        conditioned on a productive alternative (symmetric mirror
+        of PR #169's ENGAGE treatment), an in-REGEN bot with
+        close threats but no alt now HOLDS REGEN on tick 1.
 
-        Previously this test asserted REGEN holds (PR #168's
-        unconditional suppress blocked ENGAGE).  The new
-        conditional gate only suppresses when there's a real
-        alternative to fall through to."""
+        The existing REGEN hold-branch escape valve (PR #141:
+        threatened + shields_stalled, or fast-drop shortcut)
+        still fires after the stall window, so this isn't a
+        regression for the original sustained-damage case --
+        it just removes the one-tick forced exit that the
+        prior unconditional REGEN-suppress imposed.
+
+        Bot defends via combat assist (per-frame auto-aim +
+        fire) while in REGEN; the FSM-level transition to ENGAGE
+        happens once the stall timer fires."""
         s = self._warp_state(
             alien_count=20,
             cur_state=ap.S_REGEN,
@@ -13109,10 +13112,10 @@ class TestWarpSwarmEngageSuppression:
         ap._state.last_regen_shields = 50
         ap._state.last_regen_progress_at = _clock[0]
         ap._do_auto(s, s["player"])
-        assert ap._fsm["state"] == ap.S_ENGAGE, (
-            "ENGAGE must fire to defend when no productive "
-            "alternative is available -- the unconditional "
-            "suppress that pinned the bot defenseless is gone")
+        assert ap._fsm["state"] == ap.S_REGEN, (
+            "REGEN holds on tick 1 -- no productive alt, no "
+            "stall yet.  PR #141's escape valve still fires on "
+            "later ticks if the threat is sustained")
 
 
 # ── Warp-zone swarm REGEN suppression (2026-05-23) ────────────────────────
@@ -13278,7 +13281,7 @@ class TestOutsideBaseSwarmRegenSuppression:
 
     def _state_in_zone(self, zone_name, alien_count=20,
                        shields=30, max_shields=100,
-                       cur_state=None):
+                       cur_state=None, iron=0):
         zone_id = f"ZoneID.{zone_name}"
         # Aliens placed far away so the ``threatened`` gate is False
         # -- the swarm-suppress gate is what's under test.
@@ -13288,6 +13291,7 @@ class TestOutsideBaseSwarmRegenSuppression:
             player={"x": 0.0, "y": 0.0, "heading": 0.0,
                     "shields": shields, "max_shields": max_shields},
             aliens=aliens,
+            iron=iron,
         )
         s["zone"] = {"world_w": 6400, "world_h": 6400,
                      "zone_id": zone_id, "id": zone_id}
@@ -13295,27 +13299,65 @@ class TestOutsideBaseSwarmRegenSuppression:
             ap._fsm["state"] = cur_state
         return s
 
-    def test_zone2_nebula_swarm_suppresses_regen(self, _clock):
-        """ZONE2 (Nebula) with 20 aliens -- bot at low shields,
-        REGEN entry blocked by the new broader gate."""
-        s = self._state_in_zone("ZONE2", alien_count=20, shields=30)
+    def test_zone2_nebula_swarm_suppresses_regen_with_build_alt(
+            self, _clock):
+        """ZONE2 with 20 aliens + iron + no Nebula HS -- the
+        productive alternative S_BUILD_NEBULA is viable, so the
+        REGEN-swarm-suppress fires and REGEN entry is blocked.
+
+        Updated 2026-05-24: requires the BUILD_NEBULA productive
+        alternative to be set up (iron + not built), matching
+        the conditional gate that mirrors PR #169's ENGAGE
+        treatment."""
+        s = self._state_in_zone("ZONE2", alien_count=20,
+                                shields=30,
+                                iron=ap.BUILD_IRON_THRESHOLD)
+        ap._state.nebula_build_done = False
         ap._do_auto(s, s["player"])
         assert ap._fsm["state"] != ap.S_REGEN, (
-            "REGEN must be suppressed in ZONE2 swarms too "
-            "(PR #162's WARP-only gate didn't cover this)")
+            "REGEN must be suppressed when there's a productive "
+            "alternative (BUILD_NEBULA) to fall through to")
 
-    def test_star_maze_swarm_suppresses_regen(self, _clock):
-        """STAR_MAZE with 20 maze aliens -- same suppression."""
+    def test_zone2_swarm_without_build_alt_enters_regen(
+            self, _clock):
+        """The 2026-05-24 fix path: bot in ZONE2 with swarm BUT
+        Nebula HS already exists (no build alternative).  Without
+        a productive alternative the bot stays in REGEN so PR #167's
+        drive-to-HS healing kicks in.
+
+        Matches the user's broader complaint pattern: don't
+        block REGEN unnecessarily.  When the bot has no other
+        useful thing to do, recovering shields under the HS
+        umbrella is the right move."""
+        s = self._state_in_zone("ZONE2", alien_count=20,
+                                shields=30)
+        # Nebula HS already exists -- no build alternative.
+        ap._state.nebula_build_done = True
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_REGEN, (
+            "REGEN must fire when no productive alternative is "
+            "available -- bot needs healing, not blocked")
+
+    def test_star_maze_swarm_enters_regen_no_productive_alt(
+            self, _clock):
+        """STAR_MAZE has no warp-traverse goal AND no build_nebula
+        path.  Per the conditional gate, REGEN fires so the bot
+        recovers.  Combat assist still defends reflexively.
+        Updated from PR #165 (which unconditionally suppressed)."""
         s = self._state_in_zone("STAR_MAZE", alien_count=20,
                                 shields=30)
         ap._do_auto(s, s["player"])
-        assert ap._fsm["state"] != ap.S_REGEN
+        assert ap._fsm["state"] == ap.S_REGEN
 
-    def test_nebula_warp_zone_swarm_suppresses_regen(self, _clock):
-        """NEBULA_WARP_ENEMY -- the post-Nebula-boss warp variants
-        also count as non-MAIN."""
+    def test_nebula_warp_zone_swarm_suppresses_regen_with_traverse(
+            self, _clock):
+        """NEBULA_WARP_ENEMY with the warp-traverse arc active --
+        the productive alternative is viable, so REGEN is
+        suppressed and the traverse continues."""
         s = self._state_in_zone(
             "NEBULA_WARP_ENEMY", alien_count=20, shields=30)
+        ap._state.boss_was_killed = True
+        ap._state.warp_after_boss_done = True
         ap._do_auto(s, s["player"])
         assert ap._fsm["state"] != ap.S_REGEN
 
@@ -13347,26 +13389,30 @@ class TestOutsideBaseSwarmRegenSuppression:
         ap._do_auto(s, s["player"])
         assert ap._fsm["state"] == ap.S_REGEN
 
-    def test_already_in_regen_choose_releases_under_zone2_swarm(
+    def test_already_in_regen_choose_releases_under_zone2_swarm_with_alt(
             self, _clock):
-        """Hold-side branch: bot in REGEN in ZONE2 with a swarm.
+        """Hold-side branch: bot in REGEN in ZONE2 with a swarm
+        AND a productive alternative (BUILD_NEBULA viable).
         ``choose_next_state`` returns something OTHER than REGEN
         -- the swarm-suppress escape fires regardless of stall
-        timer.  Tests the choose function directly to bypass
-        MIN_DWELL gating in the FSM tick (ZONE2 transitions don't
-        bypass MIN_DWELL the way WARP_TRAVERSE does, so the
-        FSM-level state at one tick would still show REGEN; the
-        choose function's intent is what's pinned here)."""
+        timer.
+
+        Updated 2026-05-24: requires the BUILD_NEBULA productive
+        alt to be set up.  When NO alt is available the bot
+        stays in REGEN (tested by
+        ``test_zone2_swarm_without_build_alt_enters_regen``)."""
         s = self._state_in_zone(
-            "ZONE2", alien_count=20, shields=50)
+            "ZONE2", alien_count=20, shields=50,
+            iron=ap.BUILD_IRON_THRESHOLD)
+        ap._state.nebula_build_done = False
         ap._state.last_regen_shields = 50
         ap._state.last_regen_progress_at = _clock[0]
         desired = ap._choose_next_state(s, s["player"],
                                          cur=ap.S_REGEN)
         assert desired != ap.S_REGEN, (
             "choose must NOT return S_REGEN for a swarmed bot "
-            "already in REGEN inside ZONE2 -- the broader gate "
-            "fires the escape valve regardless of stall timer")
+            "in REGEN with a viable build_nebula alt -- the "
+            "escape valve fires regardless of stall timer")
 
 
 # ── Nebula starter base (2026-05-23) ──────────────────────────────────────
