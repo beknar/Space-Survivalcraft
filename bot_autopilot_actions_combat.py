@@ -441,15 +441,37 @@ def _act_regen(state: dict, p: dict) -> None:
         _ap._do_goto(state, p, tx, ty, stop_radius=80.0)
         return
 
-    boss = state.get("boss")
-    if boss is None:
-        _ap._do_idle()
-        return
+    # HS drive (2026-05-23): when an HS exists in the current zone,
+    # actively drive the bot to within the game-side healing
+    # umbrella (``REPAIR_RANGE = 300 px``) so shield regen gets the
+    # ``REPAIR_SHIELD_BOOST`` bonus AND HP regen activates -- both
+    # only happen inside the umbrella.  Captured pathology: bot
+    # sat in REGEN for 120 s wherever shields dropped, at the slow
+    # base regen rate.  Driving to HS first then idling is strictly
+    # faster recovery.
+    #
+    # Hysteresis: trigger at REGEN_HS_DRIVE_RADIUS_PX (250) which
+    # is INSIDE the game's REPAIR_RANGE (300) -- the bot drives to
+    # a comfortable interior point and can't be bumped out by a
+    # single tick of repulsion.
     hs = _ap._find_home_station(state)
     if hs is not None:
-        # HS exists -- standard REGEN parks the bot via its FSM-
-        # level routing (deposit / idle_at_base etc.); the action
-        # handler itself just idles in place.
+        hx = float(hs.get("x", 0.0))
+        hy = float(hs.get("y", 0.0))
+        d_hs = math.hypot(hx - px, hy - py)
+        if d_hs > _ap.REGEN_HS_DRIVE_RADIUS_PX:
+            _ap.KeyState.hold("space", False)
+            _ap._do_goto(state, p, hx, hy,
+                         stop_radius=_ap.REGEN_HS_DRIVE_STOP_PX)
+            return
+        # Already inside the umbrella -- idle to maximize regen
+        # rate (any thrust input wastes shield regen budget while
+        # the bot ducks in and out of the field).
+        _ap._do_idle()
+        return
+
+    boss = state.get("boss")
+    if boss is None:
         _ap._do_idle()
         return
     # No HS AND boss alive: actively flee.

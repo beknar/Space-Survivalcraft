@@ -439,6 +439,25 @@ BOSS_FLEE_TARGET_PX:          float = 2000.0
 # the Nebula for 30+ s with shields stuck at 1-2/120; gas damage
 # matched the regen rate, so passive recovery never completed.
 REGEN_GAS_ESCAPE_MARGIN_PX:   float = 200.0
+# Home-station drive radius for REGEN (2026-05-23).  When REGEN
+# fires and an HS exists in the current zone, drive the bot to
+# within the game-side healing umbrella (``REPAIR_RANGE = 300 px``
+# from constants.py) so shield regen gets the
+# ``REPAIR_SHIELD_BOOST`` bonus AND HP regen activates -- both
+# only happen inside the umbrella.  Captured pathology: bot sat
+# in REGEN for 120 s wherever shields dropped (typically 1000+
+# px from HS), passively regenerating at the slow base rate
+# while the umbrella was a quick drive away.
+#
+# Trigger radius (250) is slightly INSIDE the umbrella radius
+# (300) so the bot drives to a comfortable interior point and
+# can't be bumped out of the umbrella by a single tick of
+# repulsion.  The exit hysteresis (when to start driving again
+# after exiting REGEN) is handled by the regen exit threshold
+# itself -- once shields recover, FSM leaves REGEN and the
+# drive logic doesn't reapply.
+REGEN_HS_DRIVE_RADIUS_PX:     float = 250.0
+REGEN_HS_DRIVE_STOP_PX:       float = 100.0
 # FLEE_GAS exit hysteresis (2026-05-18 follow-up to S_FLEE_GAS).
 # Once the bot enters S_FLEE_GAS we need the choose function to
 # hold the state until the bot is CLEARLY past the cloud edge --

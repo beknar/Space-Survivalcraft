@@ -7664,12 +7664,27 @@ class TestRegenFleesBossWhenNoHomeStation:
             "flee target must be east of bot (away from boss "
             "at x=3000)")
 
-    def test_hs_present_idles_normally(self, monkeypatch):
+    def test_hs_present_drives_to_hs_for_healing(self, monkeypatch):
+        """Updated 2026-05-23: with HS present and bot outside the
+        REGEN_HS_DRIVE_RADIUS_PX, REGEN drives to the HS so the
+        game-side healing umbrella (REPAIR_RANGE = 300 px) kicks
+        in.  Previously the action handler idled in place wherever
+        shields dropped -- captured pathology: 120 s REGEN dwell
+        regenerating slowly at the base rate while the umbrella
+        was a quick drive away.
+
+        Boss-fight + HS path uses the same drive logic (the bot
+        runs toward HS, and the umbrella also has station turrets
+        + station shield protecting it)."""
         captured: dict = {}
         monkeypatch.setattr(
             ap, "_do_goto",
-            lambda *a, **kw: captured.update(fled=True))
-        monkeypatch.setattr(ap, "_do_idle", lambda: captured.update(idled=True))
+            lambda state, p, tx, ty, stop_radius=80.0,
+            brake_on_arrival=True: captured.update(
+                fled=True, tx=tx, ty=ty))
+        monkeypatch.setattr(
+            ap, "_do_idle",
+            lambda: captured.update(idled=True))
         s = _state(
             player={"x": 3300.0, "y": 3000.0, "heading": 0.0,
                     "shields": 30, "max_shields": 150},
@@ -7678,9 +7693,12 @@ class TestRegenFleesBossWhenNoHomeStation:
         )
         s["boss"] = _boss(x=3000.0, y=3000.0)
         ap._act_regen(s, s["player"])
-        assert "idled" in captured and "fled" not in captured, (
-            "with HS present, REGEN still idles (the FSM-level "
-            "routing parks the bot at HS)")
+        # 1220 px from HS -- well outside REGEN_HS_DRIVE_RADIUS_PX
+        # so the bot drives TOWARD the HS, not away from boss.
+        assert "fled" in captured and "idled" not in captured, (
+            "with HS present, REGEN drives toward HS for the "
+            "healing umbrella (no longer idles in place)")
+        assert captured["tx"] == 4000.0 and captured["ty"] == 4000.0
 
     def test_no_boss_idles_normally(self, monkeypatch):
         captured: dict = {}
@@ -13516,4 +13534,161 @@ class TestActBuildNebula:
             "nebula_build_done must already be True at the moment "
             "the POST is dispatched, so a concurrent re-entry "
             "would short-circuit")
+
+
+# ── REGEN drive-to-HS for the healing umbrella (2026-05-23) ────────────────
+
+
+class TestRegenDrivesToHomeStation:
+    """The 2026-05-23 follow-up: when REGEN fires with an HS in
+    the current zone, the action handler drives the bot toward
+    the HS so it lands inside the game's ``REPAIR_RANGE`` (300 px)
+    healing umbrella.  Inside that radius shield regen gets the
+    ``REPAIR_SHIELD_BOOST`` bonus AND HP regen activates -- both
+    only happen near home.
+
+    Captured pathology: bot sat in REGEN for 120 s wherever
+    shields dropped (typically 1000+ px from HS), regenerating
+    at the slow base rate while the umbrella was a quick drive
+    away.  Driving to HS first then idling is strictly faster
+    recovery.
+
+    The drive threshold (REGEN_HS_DRIVE_RADIUS_PX = 250) is
+    INSIDE the game's REPAIR_RANGE (300) so a single tick of
+    repulsion can't bump the bot out of the umbrella mid-heal.
+    """
+
+    def test_far_from_hs_drives_toward_it(self, monkeypatch):
+        captured: dict = {}
+        monkeypatch.setattr(
+            ap, "_do_goto",
+            lambda state, p, tx, ty, stop_radius=80.0,
+            brake_on_arrival=True: captured.update(
+                tx=tx, ty=ty, stop=stop_radius))
+        monkeypatch.setattr(
+            ap, "_do_idle", lambda: captured.update(idled=True))
+        s = _state(
+            player={"x": 1000.0, "y": 1000.0, "heading": 0.0,
+                    "shields": 30, "max_shields": 150},
+            buildings=[{"x": 3000.0, "y": 3000.0,
+                        "building_type": "Home Station"}],
+        )
+        ap._act_regen(s, s["player"])
+        assert captured.get("tx") == 3000.0
+        assert captured.get("ty") == 3000.0
+        assert captured.get("stop") == ap.REGEN_HS_DRIVE_STOP_PX
+        assert "idled" not in captured
+
+    def test_inside_umbrella_idles(self, monkeypatch):
+        """When already within REGEN_HS_DRIVE_RADIUS_PX of HS,
+        idle (don't waste regen ticks on thrust input)."""
+        captured: dict = {}
+        monkeypatch.setattr(
+            ap, "_do_goto",
+            lambda *a, **kw: captured.update(drove=True))
+        monkeypatch.setattr(
+            ap, "_do_idle", lambda: captured.update(idled=True))
+        # 100 px from HS -- well inside the 250 px drive radius.
+        s = _state(
+            player={"x": 3000.0, "y": 3000.0, "heading": 0.0,
+                    "shields": 30, "max_shields": 150},
+            buildings=[{"x": 3100.0, "y": 3000.0,
+                        "building_type": "Home Station"}],
+        )
+        ap._act_regen(s, s["player"])
+        assert captured.get("idled") is True
+        assert "drove" not in captured
+
+    def test_boss_alive_still_drives_to_hs(self, monkeypatch):
+        """The HS-drive path applies regardless of boss state --
+        during a boss fight, driving to HS also brings the bot
+        under the station shield + turret coverage.  Replaces
+        the prior "boss alive + HS = idle in place" behaviour."""
+        captured: dict = {}
+        monkeypatch.setattr(
+            ap, "_do_goto",
+            lambda state, p, tx, ty, stop_radius=80.0,
+            brake_on_arrival=True: captured.update(tx=tx, ty=ty))
+        monkeypatch.setattr(
+            ap, "_do_idle", lambda: captured.update(idled=True))
+        s = _state(
+            player={"x": 1000.0, "y": 1000.0, "heading": 0.0,
+                    "shields": 30, "max_shields": 150},
+            buildings=[{"x": 3000.0, "y": 3000.0,
+                        "building_type": "Home Station"}],
+        )
+        s["boss"] = {"x": 800.0, "y": 1000.0, "hp": 1000,
+                     "phase": 1}
+        ap._act_regen(s, s["player"])
+        assert captured.get("tx") == 3000.0
+        assert captured.get("ty") == 3000.0
+        assert "idled" not in captured
+
+    def test_no_hs_no_boss_still_idles(self, monkeypatch):
+        """Existing behaviour preserved: no HS + no boss = idle
+        in place (early-game fallback, pre-starter-base)."""
+        captured: dict = {}
+        monkeypatch.setattr(
+            ap, "_do_goto",
+            lambda *a, **kw: captured.update(drove=True))
+        monkeypatch.setattr(
+            ap, "_do_idle", lambda: captured.update(idled=True))
+        s = _state(
+            player={"x": 1000.0, "y": 1000.0, "heading": 0.0,
+                    "shields": 30, "max_shields": 150},
+        )
+        ap._act_regen(s, s["player"])
+        assert captured.get("idled") is True
+        assert "drove" not in captured
+
+    def test_no_hs_boss_alive_still_flees(self, monkeypatch):
+        """Existing behaviour preserved: no HS + boss alive =
+        actively flee away from boss (the no-umbrella case)."""
+        captured: dict = {}
+        monkeypatch.setattr(
+            ap, "_do_goto",
+            lambda state, p, tx, ty, stop_radius=80.0,
+            brake_on_arrival=True: captured.update(tx=tx, ty=ty))
+        monkeypatch.setattr(
+            ap, "_do_idle", lambda: captured.update(idled=True))
+        s = _state(
+            player={"x": 3300.0, "y": 3000.0, "heading": 0.0,
+                    "shields": 30, "max_shields": 150},
+        )
+        s["boss"] = {"x": 3000.0, "y": 3000.0, "hp": 1000,
+                     "phase": 1}
+        ap._act_regen(s, s["player"])
+        # Flee target is east of bot (away from boss at x=3000),
+        # not the HS coordinates.
+        assert captured.get("tx", 0.0) > 3300.0
+        assert "idled" not in captured
+
+    def test_gas_cloud_escape_still_takes_priority(
+            self, monkeypatch):
+        """Existing gas-escape branch still fires first (top-of-
+        function priority) -- HS-drive doesn't override it.
+        Captured pathology that motivated the gas-escape branch:
+        bot parked inside a gas cloud in REGEN with shields stuck
+        at 1-2/120."""
+        captured: dict = {}
+        monkeypatch.setattr(
+            ap, "_do_goto",
+            lambda state, p, tx, ty, stop_radius=80.0,
+            brake_on_arrival=True: captured.update(tx=tx, ty=ty))
+        # Bot inside a gas cloud AND far from HS -- gas should win.
+        s = _state(
+            player={"x": 3300.0, "y": 3000.0, "heading": 0.0,
+                    "shields": 30, "max_shields": 150},
+            buildings=[{"x": 1000.0, "y": 1000.0,
+                        "building_type": "Home Station"}],
+        )
+        s["gas_areas"] = [
+            {"x": 3300.0, "y": 3000.0, "radius": 200.0}
+        ]
+        ap._act_regen(s, s["player"])
+        # Gas escape drives AWAY from cloud centre, not toward HS.
+        # Cloud at bot position -- direction depends on the
+        # degenerate-axis fallback (+X by default).
+        assert captured.get("tx") != 1000.0, (
+            "gas escape must take priority over HS drive")
 
