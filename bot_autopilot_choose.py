@@ -24,6 +24,41 @@ import math
 import bot_autopilot as _ap
 
 
+def _outside_main_swarm_suppresses(
+    state: dict, zone_id: str, alien_threshold: int,
+) -> bool:
+    """Productive-alternative gate shared by ENGAGE and REGEN.
+
+    Returns True iff (a) the bot is outside MAIN, (b) a productive
+    non-combat alternative is viable this tick (WARP_TRAVERSE or
+    BUILD_NEBULA), and (c) the on-screen alien count meets
+    ``alien_threshold``.
+
+    Originally inlined twice -- PR #169 introduced it for ENGAGE and
+    PR #170 mirrored it for REGEN, with separate ENGAGE/REGEN alien
+    thresholds.  Hoisted here so future tiers that need the same
+    gate can call one place.
+    """
+    in_main_zone = ("MAIN" in zone_id) and ("WARP" not in zone_id)
+    if in_main_zone:
+        return False
+    boss_killed = (
+        _ap._state.boss_was_killed
+        or bool(state.get("boss_defeated", False)))
+    warp_traverse_alt = (
+        "WARP" in zone_id
+        and boss_killed
+        and _ap._state.warp_after_boss_done
+        and not _ap._state.warp_traverse_done)
+    build_nebula_alt = (
+        "ZONE2" in zone_id
+        and not _ap._state.nebula_build_done
+        and _ap._iron_total(state) >= _ap.BUILD_IRON_THRESHOLD)
+    if not (warp_traverse_alt or build_nebula_alt):
+        return False
+    return len(state.get("aliens") or []) >= alien_threshold
+
+
 def choose_next_state(state: dict, p: dict, cur: str) -> str:
     """Pure function: given the world snapshot and the current FSM
     state, return what state the bot *wants* to be in this tick.
@@ -243,28 +278,10 @@ def choose_next_state(state: dict, p: dict, cur: str) -> str:
     # That's the correct behavior in MAIN swarms and in ZONE2 /
     # STAR_MAZE with HS available.
     zone_id_regen = str((state.get("zone") or {}).get("id", ""))
-    in_main_zone_regen = (
-        "MAIN" in zone_id_regen and "WARP" not in zone_id_regen)
-    # Same productive-alternative gates as PR #169's ENGAGE
-    # suppression.  Mirror the sections 2.5 (warp_traverse) and
-    # 4.5 (build_nebula) below.
-    _boss_killed_for_regen = (
-        _ap._state.boss_was_killed
-        or bool(state.get("boss_defeated", False)))
-    _warp_traverse_alt_regen = (
-        "WARP" in zone_id_regen
-        and _boss_killed_for_regen
-        and _ap._state.warp_after_boss_done
-        and not _ap._state.warp_traverse_done)
-    _build_nebula_alt_regen = (
-        "ZONE2" in zone_id_regen
-        and not _ap._state.nebula_build_done
-        and _ap._iron_total(state) >= _ap.BUILD_IRON_THRESHOLD)
-    in_warp_swarm = (
-        not in_main_zone_regen
-        and (_warp_traverse_alt_regen or _build_nebula_alt_regen)
-        and len(state.get("aliens") or [])
-        >= _ap.WARP_SWARM_REGEN_SUPPRESS_ALIENS)
+    # Productive-alternative gate shared with section 2 (ENGAGE);
+    # see ``_outside_main_swarm_suppresses`` for the predicate.
+    in_warp_swarm = _outside_main_swarm_suppresses(
+        state, zone_id_regen, _ap.WARP_SWARM_REGEN_SUPPRESS_ALIENS)
 
     if cur == _ap.S_REGEN:
         if pct < regen_exit:
@@ -664,28 +681,10 @@ def choose_next_state(state: dict, p: dict, cur: str) -> str:
     # runs.  Otherwise let ENGAGE fire so the bot defends itself
     # instead of falling through to MINE / GATHER while being
     # attacked.
-    in_main_zone_engage = (
-        "MAIN" in zone_id and "WARP" not in zone_id)
-    # Productive non-combat goals that would benefit from
-    # uninterrupted movement.  Mirror the gates from sections
-    # 2.5 (warp_traverse) and 4.5 (build_nebula) below.
-    _boss_killed_for_engage = (
-        _ap._state.boss_was_killed
-        or bool(state.get("boss_defeated", False)))
-    _warp_traverse_alt = (
-        "WARP" in zone_id
-        and _boss_killed_for_engage
-        and _ap._state.warp_after_boss_done
-        and not _ap._state.warp_traverse_done)
-    _build_nebula_alt = (
-        "ZONE2" in zone_id
-        and not _ap._state.nebula_build_done
-        and _ap._iron_total(state) >= _ap.BUILD_IRON_THRESHOLD)
-    suppress_engage_warp_swarm = (
-        not in_main_zone_engage
-        and (_warp_traverse_alt or _build_nebula_alt)
-        and len(state.get("aliens") or [])
-        >= _ap.WARP_SWARM_ENGAGE_SUPPRESS_ALIENS)
+    # Productive-alternative gate shared with section 1 (REGEN);
+    # see ``_outside_main_swarm_suppresses`` for the predicate.
+    suppress_engage_warp_swarm = _outside_main_swarm_suppresses(
+        state, zone_id, _ap.WARP_SWARM_ENGAGE_SUPPRESS_ALIENS)
     if not suppress_engage_no_hs and not suppress_engage_warp_swarm:
         if cur == _ap.S_ENGAGE:
             if threat is not None and td < _ap.ENGAGE_EXIT_PX:
