@@ -614,29 +614,52 @@ def choose_next_state(state: dict, p: dict, cur: str) -> str:
         and threat is state.get("boss"))
     suppress_engage_no_hs = (
         boss_is_threat and hs_pri145 is None)
-    # Outside-base swarm suppression (2026-05-19; broadened
-    # 2026-05-23 v3 from warp-only to all non-MAIN zones).
-    # WARP_ENEMY's 4 spawners + ZONE2 (Nebula) + STAR_MAZE all
-    # produce swarm densities where ENGAGE's kite-one-while-rest-
-    # shred-you pattern is a death sentence.  Original PR #155
-    # captured 4 ENGAGE deaths in WARP_ENEMY (shields 120 -> 0 in
-    # 5-7 s each); the 2026-05-23 v3 cycle captured the same
-    # pattern in ZONE2 -- bot warped post-boss to Nebula with 48
-    # aliens, no Nebula HS yet, got pinned in a 870x800 px kite
-    # box for 500+ s, burned 23 repair packs to stay alive at
-    # ~35 HP.  Broadened gate ("not MAIN" instead of "is WARP")
-    # mirrors PR #165's REGEN suppression -- MAIN is the only
-    # zone where ENGAGE's diversion is safe (HS umbrella +
-    # station shield + fortify turrets layer on top of the bot's
-    # kite).  Outside MAIN, falling through to MINE / GATHER /
-    # BUILD_NEBULA / WARP_TRAVERSE is strictly safer; combat
-    # assist keeps firing every frame so the bot still defends
-    # itself.  Sparse warp zones (METEOR, LIGHTNING, GAS) have
-    # no aliens -- gate naturally never fires.
+    # Outside-base swarm suppression (PR #155, broadened in #168,
+    # then conditioned in 2026-05-23 v4).
+    #
+    # The original intent (#155) was: in a WARP_ENEMY swarm with
+    # an active warp-traverse goal, suppress ENGAGE so the bot
+    # keeps driving toward the exit instead of kiting one alien
+    # while ~20 others shred it.  PR #168 broadened to all non-MAIN
+    # zones to cover the ZONE2-post-boss kite-trap (48 aliens, no
+    # Nebula HS yet -- bot needed to BUILD_NEBULA instead of
+    # ENGAGE).
+    #
+    # But PR #168 was too broad: it suppressed ENGAGE in ZONE2
+    # even when the bot HAD a Nebula HS and no productive
+    # alternative -- the bot ended up mining/gathering defenseless
+    # while aliens drained shields to 1/120.  User complaint:
+    # "bot is not attacking back when it is attacked.  this should
+    # always be a higher priority than gathering resources."
+    #
+    # Resolution: condition the suppression on a productive
+    # alternative actually being viable this tick.  If WARP_TRAVERSE
+    # would fire (post-boss arc not yet complete in a warp zone)
+    # OR BUILD_NEBULA would fire (in ZONE2, no Nebula HS yet, iron
+    # over threshold), suppress ENGAGE so that alternative goal
+    # runs.  Otherwise let ENGAGE fire so the bot defends itself
+    # instead of falling through to MINE / GATHER while being
+    # attacked.
     in_main_zone_engage = (
         "MAIN" in zone_id and "WARP" not in zone_id)
+    # Productive non-combat goals that would benefit from
+    # uninterrupted movement.  Mirror the gates from sections
+    # 2.5 (warp_traverse) and 4.5 (build_nebula) below.
+    _boss_killed_for_engage = (
+        _ap._state.boss_was_killed
+        or bool(state.get("boss_defeated", False)))
+    _warp_traverse_alt = (
+        "WARP" in zone_id
+        and _boss_killed_for_engage
+        and _ap._state.warp_after_boss_done
+        and not _ap._state.warp_traverse_done)
+    _build_nebula_alt = (
+        "ZONE2" in zone_id
+        and not _ap._state.nebula_build_done
+        and _ap._iron_total(state) >= _ap.BUILD_IRON_THRESHOLD)
     suppress_engage_warp_swarm = (
         not in_main_zone_engage
+        and (_warp_traverse_alt or _build_nebula_alt)
         and len(state.get("aliens") or [])
         >= _ap.WARP_SWARM_ENGAGE_SUPPRESS_ALIENS)
     if not suppress_engage_no_hs and not suppress_engage_warp_swarm:
