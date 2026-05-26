@@ -757,6 +757,18 @@ def _next_craft_target(state: dict) -> str | None:
     # but not-yet-installed module isn't re-crafted either.
     while q.modules_to_craft:
         head = q.modules_to_craft[0]
+        # Advanced consumables (homing_missile / mining_drone /
+        # combat_drone) produce ``item_key`` items in station
+        # inventory, NOT ``mod_<head>``, so the basic-module guard
+        # below would spin forever on them.  Pop the head once
+        # station-inv stock of the produced item meets its target.
+        adv_target = _ap.NEBULA_ADV_CONSUMABLE_TARGETS.get(head)
+        if adv_target is not None:
+            item_key, target_count = adv_target
+            if items.get(item_key, 0) >= target_count:
+                q.modules_to_craft.pop(0)
+                continue
+            break
         already_in_station = items.get(f"mod_{head}", 0) >= 1
         already_installed = _module_already_installed(state, head)
         if already_in_station or already_installed:

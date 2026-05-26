@@ -3996,3 +3996,154 @@ class TestNebulaAdvancedModuleCraftQueue:
         ap._do_auto(s, s["player"])
         for k in ("misty_step", "force_wall", "death_blossom"):
             assert k in ap._state.queue.modules_to_craft
+
+
+# ── Nebula advanced-consumable auto-queue (2026-05-26) ────────────────────
+
+
+class TestNebulaAdvancedConsumableCraftQueue:
+    """Advanced consumables (homing_missile / mining_drone /
+    combat_drone) get queued for crafting when:
+      * bot is in ZONE2,
+      * an Advanced Crafter exists (latch OR world inspection),
+      * the matching blueprint is deposited,
+      * station-inv count of the produced item is below the
+        target stockpile.
+
+    The auto-pop guard in ``_next_craft_target`` removes the head
+    once the stockpile target is met, so the bot crafts ONE batch
+    per recipe per fill cycle.
+    """
+
+    def _zone2_state(self, *, station_items=None,
+                     buildings_extra=()):
+        items = dict(station_items or {})
+        builds = [{"x": 4000.0, "y": 4000.0,
+                   "building_type": "Home Station"}]
+        builds.extend(buildings_extra)
+        s = _state(
+            player={"x": 4000.0, "y": 4000.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            station_inventory_items=items,
+            buildings=builds,
+        )
+        s["zone"]["id"] = "ZoneID.ZONE2"
+        return s
+
+    def test_queues_homing_missile_when_blueprint_present(
+            self, _clock):
+        ap._state.queue.modules_to_install.clear()
+        ap._state.queue.modules_to_craft.clear()
+        ap._state.nebula_advanced_crafter_done = True
+        s = self._zone2_state(station_items={"bp_homing_missile": 1})
+        ap._do_auto(s, s["player"])
+        assert "homing_missile" in ap._state.queue.modules_to_craft
+
+    def test_queues_all_three_consumables(self, _clock):
+        ap._state.queue.modules_to_install.clear()
+        ap._state.queue.modules_to_craft.clear()
+        ap._state.nebula_advanced_crafter_done = True
+        s = self._zone2_state(station_items={
+            "bp_homing_missile": 1,
+            "bp_mining_drone": 1,
+            "bp_combat_drone": 1,
+        })
+        ap._do_auto(s, s["player"])
+        for k in ("homing_missile", "mining_drone", "combat_drone"):
+            assert k in ap._state.queue.modules_to_craft
+
+    def test_does_not_queue_without_advanced_crafter(self, _clock):
+        ap._state.queue.modules_to_install.clear()
+        ap._state.queue.modules_to_craft.clear()
+        ap._state.nebula_advanced_crafter_done = False
+        s = self._zone2_state(station_items={"bp_homing_missile": 1})
+        ap._do_auto(s, s["player"])
+        assert "homing_missile" not in ap._state.queue.modules_to_craft
+
+    def test_skips_when_stockpile_at_target(self, _clock):
+        """20 missiles already in station -- don't queue another
+        homing_missile craft."""
+        ap._state.queue.modules_to_install.clear()
+        ap._state.queue.modules_to_craft.clear()
+        ap._state.nebula_advanced_crafter_done = True
+        s = self._zone2_state(station_items={
+            "bp_homing_missile": 1,
+            "missile": ap.NEBULA_ADV_CONSUMABLE_TARGETS[
+                "homing_missile"][1],
+        })
+        ap._do_auto(s, s["player"])
+        assert "homing_missile" not in ap._state.queue.modules_to_craft
+
+    def test_queues_below_target(self, _clock):
+        """10 missiles, target 20 -- still queue."""
+        ap._state.queue.modules_to_install.clear()
+        ap._state.queue.modules_to_craft.clear()
+        ap._state.nebula_advanced_crafter_done = True
+        s = self._zone2_state(station_items={
+            "bp_homing_missile": 1,
+            "missile": 10,
+        })
+        ap._do_auto(s, s["player"])
+        assert "homing_missile" in ap._state.queue.modules_to_craft
+
+    def test_does_not_double_queue(self, _clock):
+        """If already queued, don't re-append."""
+        ap._state.queue.modules_to_install.clear()
+        ap._state.queue.modules_to_craft.clear()
+        ap._state.queue.modules_to_craft.append("homing_missile")
+        ap._state.nebula_advanced_crafter_done = True
+        s = self._zone2_state(station_items={"bp_homing_missile": 1})
+        ap._do_auto(s, s["player"])
+        assert ap._state.queue.modules_to_craft.count(
+            "homing_missile") == 1
+
+
+class TestNextCraftTargetConsumableAutoPop:
+    """``_next_craft_target``'s auto-pop guard handles consumable
+    heads via the produced-item-key stockpile check.  Without this
+    the bot would re-craft homing_missile forever (the existing
+    ``mod_<key>`` guard never triggers because the craft produces
+    "missile" items, not "mod_homing_missile")."""
+
+    def test_pops_homing_missile_when_stock_at_target(self):
+        ap._state.queue.modules_to_craft.clear()
+        ap._state.queue.modules_to_craft.append("homing_missile")
+        s = _state(station_inventory_items={
+            "bp_homing_missile": 1,
+            "missile": 20,
+        })
+        target = ap._next_craft_target(s)
+        assert "homing_missile" not in ap._state.queue.modules_to_craft
+        assert target != "homing_missile"
+
+    def test_does_not_pop_when_stock_below_target(self):
+        ap._state.queue.modules_to_craft.clear()
+        ap._state.queue.modules_to_craft.append("homing_missile")
+        s = _state(station_inventory_items={
+            "bp_homing_missile": 1,
+            "missile": 10,
+            "iron": 200,
+        })
+        # Auto-pop check should NOT remove the head.
+        ap._next_craft_target(s)
+        assert "homing_missile" in ap._state.queue.modules_to_craft
+
+    def test_pops_mining_drone_when_stock_at_target(self):
+        ap._state.queue.modules_to_craft.clear()
+        ap._state.queue.modules_to_craft.append("mining_drone")
+        s = _state(station_inventory_items={
+            "bp_mining_drone": 1,
+            "mining_drone": 5,
+        })
+        ap._next_craft_target(s)
+        assert "mining_drone" not in ap._state.queue.modules_to_craft
+
+    def test_pops_combat_drone_when_stock_at_target(self):
+        ap._state.queue.modules_to_craft.clear()
+        ap._state.queue.modules_to_craft.append("combat_drone")
+        s = _state(station_inventory_items={
+            "bp_combat_drone": 1,
+            "combat_drone": 5,
+        })
+        ap._next_craft_target(s)
+        assert "combat_drone" not in ap._state.queue.modules_to_craft
