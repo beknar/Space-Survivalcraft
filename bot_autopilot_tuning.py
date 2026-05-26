@@ -1085,6 +1085,27 @@ DEATH_RECOVERY_STOP_RADIUS_PX: float = 200.0
 # than locking the FSM forever.  60 s is comfortably longer than
 # the bot's longest cross-world traversal (~30 s @ MAX_SPEED).
 DEATH_RECOVERY_TIMEOUT_S: float = 60.0
+# Non-MAIN-zone recovery-loadout gate (2026-05-26).  When the bot
+# dies in a Nebula / warp / star-maze zone, ``S_RECOVER_LOOT``
+# previously fired immediately on respawn -- the bot then drove
+# toward its death pile with cold weapons (per the action handler)
+# and an empty loadout, got swarmed before reaching the loot, and
+# died again.  The 2026-05-25 20:43 telemetry captured 4 deaths
+# in 77 min with one death IN ``fsm=recover_loot``.
+#
+# Fix: in non-MAIN zones, require the bot to be at the recovery
+# percentages AND have consumables in slots before initiating
+# the trip.  Falls through to IDLE_AT_BASE / REGEN until the
+# loadout is rebuilt.  MAIN is exempt -- the HS umbrella + turret
+# ring make recovery there safe even with a stripped ship.
+#
+# Item lifetime is 600 s (10 min) so the bot has plenty of
+# headroom to heal first; the existing ``DEATH_RECOVERY_TIMEOUT_S``
+# (60 s) is bumped to 180 s in non-MAIN to give the bot a
+# realistic window to heal + travel.
+RECOVER_LOOT_HP_PCT:        float = 0.85
+RECOVER_LOOT_SHIELDS_PCT:   float = 0.85
+DEATH_RECOVERY_TIMEOUT_NEBULA_S: float = 180.0
 # Sequence of modules the bot crafts after the starter base + all
 # blueprints have been deposited.  In the user's wording the fifth
 # entry was "damage enhancer" — the in-game module key for that is

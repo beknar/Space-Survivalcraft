@@ -573,6 +573,19 @@ def choose_next_state(state: dict, p: dict, cur: str) -> str:
                 < _ap.RECOVER_LOOT_BOSS_DANGER_PX)
             no_hs = _ap._find_home_station(state) is None
             recovery_blocked = boss_at_death_pos or no_hs
+        # Non-MAIN loadout gate (2026-05-26).  Captured 2026-05-25
+        # pathology: the bot died during ``S_RECOVER_LOOT`` 53 s
+        # after a Nebula death because it drove toward the death
+        # pile naked + with cold weapons + no consumables in slots.
+        # Defer recovery until shields / HP / consumables are
+        # rebuilt; the bumped ``DEATH_RECOVERY_TIMEOUT_NEBULA_S``
+        # gives the bot 180 s of headroom before it accepts the
+        # loss.  MAIN-zone recoveries skip this -- the HS umbrella
+        # + turret ring make recovery safe even with a stripped
+        # ship.
+        if not recovery_blocked \
+                and not _ap._recovery_loadout_ready(state):
+            recovery_blocked = True
         if not recovery_blocked:
             return _ap.S_RECOVER_LOOT
 

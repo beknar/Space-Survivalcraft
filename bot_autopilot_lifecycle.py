@@ -212,10 +212,30 @@ def _maybe_clear_death_recovery(state: dict, p: dict, now: float) -> None:
     """
     if not _ap._state.death_recovery_pending:
         return
-    if now - _ap._state.death_recovery_started_at >= _ap.DEATH_RECOVERY_TIMEOUT_S:
+    # Bumped timeout for non-MAIN zones (2026-05-26).  In Nebula
+    # / warp zones the bot may need to idle at the HS umbrella
+    # for tens of seconds to heal + re-equip consumables before
+    # the recovery-loadout gate releases, so the standard 60 s
+    # window isn't enough.  Item lifetime is 600 s so 180 s is
+    # comfortable headroom.
+    zone_id_recovery = str((state.get("zone") or {}).get("id", ""))
+    # Only treat the recovery as "in danger zone" when zone_id
+    # explicitly identifies one.  Empty / unknown zone_id defaults
+    # to MAIN's 60 s timeout so test stubs that don't set the
+    # field retain the pre-2026-05-26 behaviour.
+    in_danger_zone_recovery = (
+        "ZONE2" in zone_id_recovery
+        or "WARP" in zone_id_recovery
+        or "STAR_MAZE" in zone_id_recovery)
+    timeout_s = (
+        _ap.DEATH_RECOVERY_TIMEOUT_NEBULA_S
+        if in_danger_zone_recovery
+        else _ap.DEATH_RECOVERY_TIMEOUT_S)
+    if now - _ap._state.death_recovery_started_at >= timeout_s:
         _ap._telemetry_log(
             "death_recovery_timeout",
             elapsed_s=round(now - _ap._state.death_recovery_started_at, 1),
+            timeout_s=timeout_s,
             **_ap._telemetry_snapshot_fields(state, p))
         _ap._state.death_recovery_pending = False
         return
