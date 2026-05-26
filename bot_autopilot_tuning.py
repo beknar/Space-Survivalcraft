@@ -107,6 +107,15 @@ REGEN_EXIT_PCT_NEBULA:  float = 0.85
 # are met before triggering ``S_PLACE_AI_PILOT_NEBULA``.
 AI_PILOT_SHIP_IRON_COST:   int = 600
 AI_PILOT_SHIP_COPPER_COST: int = 300
+# Advanced Crafter cost gate (2026-05-25).  Mirrors
+# ``BUILDING_TYPES["Advanced Crafter"]`` (1000 iron + 500 copper at
+# default character rates).  The trigger waits until the station
+# can cover this AND the ``advanced_crafter`` blueprint has been
+# deposited.  Without the blueprint the building menu rejects the
+# placement, so the choose-cascade short-circuits early to keep
+# the bot from looping S_BUILD_ADV_CRAFTER -> idle.
+ADVANCED_CRAFTER_IRON_COST:   int = 1000
+ADVANCED_CRAFTER_COPPER_COST: int = 500
 # Advanced (Nebula-tier) modules the bot installs on the player
 # ship when they appear in ZONE2 station inventory.  Order is
 # rough installation priority: misty_step first (gas escape is
@@ -624,6 +633,15 @@ S_FORTIFY_NEBULA    = "fortify_nebula"
 # ai_pilot module + iron / copper budget.  Latches into
 # ``BotState.nebula_ai_pilot_placed`` on success.
 S_PLACE_AI_PILOT_NEBULA = "place_ai_pilot_nebula"
+# S_BUILD_ADV_CRAFTER (2026-05-25): place an Advanced Crafter near
+# the Nebula HS so the bot can craft Nebula-tier modules
+# (misty_step / force_wall / death_blossom) locally instead of
+# warping back to MAIN for every craft.  Latches into
+# ``BotState.nebula_advanced_crafter_done`` on success.  Fires
+# after the Nebula fortify ring + AI pilot ship are in place,
+# gated on the ``advanced_crafter`` blueprint sitting in station
+# inventory + 1000 iron / 500 copper budget.
+S_BUILD_ADV_CRAFTER = "build_adv_crafter"
 # S_FLEE_GAS (2026-05-18): bot is inside a damaging gas cloud --
 # drive out before doing anything else.  Captured pathology: bot
 # in S_ENGAGE at (3823, 3089) in WARP_GAS, shields drained 18 -> 0
@@ -643,7 +661,7 @@ ALL_STATES = (
     S_EQUIP_CONSUMABLES, S_PRE_BOSS_MINE, S_FORTIFY, S_BUILD_QWI,
     S_RECOVER_LOOT, S_WARP_TO_WORMHOLE, S_WARP_TRAVERSE,
     S_FLEE_GAS, S_BUILD_NEBULA, S_FORTIFY_NEBULA,
-    S_PLACE_AI_PILOT_NEBULA,
+    S_PLACE_AI_PILOT_NEBULA, S_BUILD_ADV_CRAFTER,
 )
 
 # Maximum range at which the bot will commit to chasing an alien

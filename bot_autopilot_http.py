@@ -218,6 +218,31 @@ def _post_place_qwi(timeout_s: float = 10.0) -> dict | None:
         return None
 
 
+def _post_place_advanced_crafter(
+        timeout_s: float = 10.0) -> dict | None:
+    """POST /place_advanced_crafter -- place an Advanced Crafter
+    near the active Home Station so the bot can craft Nebula-tier
+    modules (misty_step / force_wall / death_blossom / etc.).
+    """
+    try:
+        import json
+        req = Request(
+            f"{_ap.API_BASE}/place_advanced_crafter",
+            data=b"{}",
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urlopen(req, timeout=timeout_s) as r:
+            return json.loads(r.read().decode("utf-8"))
+    except (URLError, TimeoutError, OSError) as e:
+        print(f"[autopilot] place_advanced_crafter POST error: {e}")
+        return None
+    except Exception as e:
+        print(f"[autopilot] place_advanced_crafter POST "
+              f"unexpected error: {e}")
+        return None
+
+
 def _post_place_ai_pilot_ship(
         timeout_s: float = 10.0) -> dict | None:
     """POST /place_ai_pilot_ship — buy a Basic Ship + install AI

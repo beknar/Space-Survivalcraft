@@ -3732,3 +3732,230 @@ class TestNebulaAdvancedModuleAutoQueue:
         # Empty station -> nothing to queue.
         for k in ("misty_step", "force_wall", "death_blossom"):
             assert k not in ap._state.queue.modules_to_install
+
+
+# ── Nebula Advanced Crafter (2026-05-25) ──────────────────────────────────
+
+
+class TestNebulaAdvancedCrafterGate:
+    """``S_BUILD_ADV_CRAFTER`` fires once the Nebula HS + fortify
+    ring are in place, the ``advanced_crafter`` blueprint is in
+    station inventory, and the station has 1000 iron + 500 copper
+    to cover the build.  Latches into
+    ``nebula_advanced_crafter_done`` after a successful POST so
+    the FSM doesn't re-fire.
+    """
+
+    def _staged_state(self, *, station_items=None,
+                      advanced_crafter_present=False):
+        items = {
+            "iron": ap.ADVANCED_CRAFTER_IRON_COST,
+            "copper": ap.ADVANCED_CRAFTER_COPPER_COST,
+            "advanced_crafter": 1,
+        }
+        if station_items is not None:
+            items.update(station_items)
+        builds = [{"x": 4000.0, "y": 4000.0,
+                   "building_type": "Home Station"}]
+        if advanced_crafter_present:
+            builds.append({"x": 4120.0, "y": 3940.0,
+                           "building_type": "Advanced Crafter"})
+        s = _state(
+            player={"x": 4000.0, "y": 4000.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            station_inventory_items=items,
+            buildings=builds,
+        )
+        s["zone"]["id"] = "ZoneID.ZONE2"
+        return s
+
+    def _arm_prerequisites(self):
+        ap._state.build_done = True
+        ap._state.nebula_build_done = True
+        ap._state.nebula_fortify_done = True
+        ap._state.nebula_ai_pilot_placed = True
+        ap._state.nebula_advanced_crafter_done = False
+
+    def test_fires_when_all_prerequisites_met(self, _clock):
+        self._arm_prerequisites()
+        s = self._staged_state()
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_BUILD_ADV_CRAFTER
+
+    def test_does_not_fire_without_fortify(self, _clock):
+        self._arm_prerequisites()
+        ap._state.nebula_fortify_done = False
+        s = self._staged_state()
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] != ap.S_BUILD_ADV_CRAFTER
+
+    def test_does_not_fire_without_blueprint(self, _clock):
+        self._arm_prerequisites()
+        s = self._staged_state(station_items={"advanced_crafter": 0})
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] != ap.S_BUILD_ADV_CRAFTER
+
+    def test_does_not_fire_without_iron(self, _clock):
+        self._arm_prerequisites()
+        s = self._staged_state(
+            station_items={"iron": ap.ADVANCED_CRAFTER_IRON_COST - 1})
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] != ap.S_BUILD_ADV_CRAFTER
+
+    def test_does_not_fire_without_copper(self, _clock):
+        self._arm_prerequisites()
+        s = self._staged_state(
+            station_items={"copper": ap.ADVANCED_CRAFTER_COPPER_COST - 1})
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] != ap.S_BUILD_ADV_CRAFTER
+
+    def test_does_not_fire_when_already_done_latch(self, _clock):
+        self._arm_prerequisites()
+        ap._state.nebula_advanced_crafter_done = True
+        s = self._staged_state()
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] != ap.S_BUILD_ADV_CRAFTER
+
+    def test_does_not_fire_when_already_built_in_world(
+            self, _clock):
+        """Even with the latch False (loaded save / manual placement),
+        seeing an Advanced Crafter in the zone short-circuits the
+        trigger."""
+        self._arm_prerequisites()
+        s = self._staged_state(advanced_crafter_present=True)
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] != ap.S_BUILD_ADV_CRAFTER
+
+    def test_does_not_fire_in_main_zone(self, _clock):
+        self._arm_prerequisites()
+        s = self._staged_state()
+        s["zone"]["id"] = "ZoneID.MAIN"
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] != ap.S_BUILD_ADV_CRAFTER
+
+
+class TestActBuildAdvancedCrafter:
+    def setup_method(self):
+        ap._state.nebula_advanced_crafter_done = False
+
+    def test_fires_post_and_latches(self, monkeypatch):
+        posts: list = []
+        monkeypatch.setattr(
+            ap, "_post_place_advanced_crafter",
+            lambda timeout_s=10.0: posts.append("call") or {
+                "ok": True, "placed_at": [4120.0, 3940.0]})
+        monkeypatch.setattr(ap, "_do_goto", lambda *a, **kw: None)
+        monkeypatch.setattr(ap, "_do_idle", lambda: None)
+        s = _state(
+            player={"x": 4000.0, "y": 4000.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            buildings=[{"x": 4000.0, "y": 4000.0,
+                        "building_type": "Home Station"}])
+        ap._act_build_advanced_crafter(s, s["player"])
+        assert posts == ["call"]
+        assert ap._state.nebula_advanced_crafter_done is True
+
+    def test_already_done_short_circuits(self, monkeypatch):
+        ap._state.nebula_advanced_crafter_done = True
+        posts: list = []
+        monkeypatch.setattr(
+            ap, "_post_place_advanced_crafter",
+            lambda timeout_s=10.0: posts.append("call"))
+        monkeypatch.setattr(ap, "_do_goto", lambda *a, **kw: None)
+        monkeypatch.setattr(ap, "_do_idle", lambda: None)
+        s = _state(
+            player={"x": 4000.0, "y": 4000.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            buildings=[{"x": 4000.0, "y": 4000.0,
+                        "building_type": "Home Station"}])
+        ap._act_build_advanced_crafter(s, s["player"])
+        assert posts == []
+
+
+class TestNebulaAdvancedModuleCraftQueue:
+    """When the bot is in ZONE2 with an Advanced Crafter built AND
+    the blueprint (``bp_<key>``) is deposited, the housekeeping
+    observer appends the module key to ``modules_to_craft`` so the
+    existing CRAFT pipeline picks it up.
+    """
+
+    def _zone2_state(self, *, station_items=None,
+                     buildings_extra=()):
+        items = dict(station_items or {})
+        builds = [{"x": 4000.0, "y": 4000.0,
+                   "building_type": "Home Station"}]
+        builds.extend(buildings_extra)
+        s = _state(
+            player={"x": 4000.0, "y": 4000.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            station_inventory_items=items,
+            buildings=builds,
+        )
+        s["zone"]["id"] = "ZoneID.ZONE2"
+        return s
+
+    def test_queues_for_craft_when_blueprint_present_and_crafter_exists(
+            self, _clock):
+        ap._state.queue.modules_to_install.clear()
+        ap._state.queue.modules_to_craft.clear()
+        ap._state.nebula_advanced_crafter_done = True
+        s = self._zone2_state(
+            station_items={"bp_misty_step": 1})
+        ap._do_auto(s, s["player"])
+        assert "misty_step" in ap._state.queue.modules_to_craft
+        # Should NOT also be in install queue.
+        assert "misty_step" not in ap._state.queue.modules_to_install
+
+    def test_does_not_queue_for_craft_without_crafter(self, _clock):
+        ap._state.queue.modules_to_install.clear()
+        ap._state.queue.modules_to_craft.clear()
+        ap._state.nebula_advanced_crafter_done = False
+        s = self._zone2_state(
+            station_items={"bp_misty_step": 1})
+        ap._do_auto(s, s["player"])
+        assert "misty_step" not in ap._state.queue.modules_to_craft
+
+    def test_install_path_takes_priority_when_already_crafted(
+            self, _clock):
+        """If the module is already crafted (mod_<key> in station),
+        the install path fires INSTEAD of re-queuing for craft."""
+        ap._state.queue.modules_to_install.clear()
+        ap._state.queue.modules_to_craft.clear()
+        ap._state.nebula_advanced_crafter_done = True
+        s = self._zone2_state(
+            station_items={
+                "mod_misty_step": 1,
+                "bp_misty_step": 1,
+            })
+        ap._do_auto(s, s["player"])
+        assert "misty_step" in ap._state.queue.modules_to_install
+        assert "misty_step" not in ap._state.queue.modules_to_craft
+
+    def test_world_inspection_satisfies_crafter_gate(self, _clock):
+        """Latch is False but an Advanced Crafter is in the world
+        (loaded save / manual placement) -- the auto-queue should
+        still fire."""
+        ap._state.queue.modules_to_install.clear()
+        ap._state.queue.modules_to_craft.clear()
+        ap._state.nebula_advanced_crafter_done = False
+        s = self._zone2_state(
+            station_items={"bp_misty_step": 1},
+            buildings_extra=[{
+                "x": 4120.0, "y": 3940.0,
+                "building_type": "Advanced Crafter"}])
+        ap._do_auto(s, s["player"])
+        assert "misty_step" in ap._state.queue.modules_to_craft
+
+    def test_queues_all_three_when_all_blueprints_present(
+            self, _clock):
+        ap._state.queue.modules_to_install.clear()
+        ap._state.queue.modules_to_craft.clear()
+        ap._state.nebula_advanced_crafter_done = True
+        s = self._zone2_state(station_items={
+            "bp_misty_step": 1,
+            "bp_force_wall": 1,
+            "bp_death_blossom": 1,
+        })
+        ap._do_auto(s, s["player"])
+        for k in ("misty_step", "force_wall", "death_blossom"):
+            assert k in ap._state.queue.modules_to_craft

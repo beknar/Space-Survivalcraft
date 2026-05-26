@@ -177,15 +177,24 @@ def _housekeeping_short_circuits(state: dict, p: dict) -> None:
                 queue_remaining=list(
                     _ap._state.queue.modules_to_craft),
                 **_ap._telemetry_snapshot_fields(state, p))
-    # Advanced (Nebula-tier) module auto-queue (2026-05-24).  When
-    # the bot is in ZONE2 and an advanced module is sitting in the
-    # Nebula station inventory (e.g. from an Advanced Crafter cycle,
-    # a loaded save, or a manual drop), append it to the existing
-    # install queue so the bog-standard CRAFT / INSTALL pipeline
-    # picks it up.  Skips entries already on the ship's module_slots
-    # or already queued.  Restricted to ZONE2 so the bot doesn't
-    # try to install Nebula modules using MAIN station inventory
-    # before the Nebula station is established.
+    # Advanced (Nebula-tier) module auto-queue (2026-05-24,
+    # extended 2026-05-25).  When the bot is in ZONE2:
+    #
+    #   * If the module is already crafted (``mod_<key>`` in
+    #     station inventory) and not yet on the ship, append to
+    #     ``modules_to_install`` -- the existing INSTALL pipeline
+    #     picks it up.
+    #   * If the module's blueprint (``bp_<key>``) is in station
+    #     inventory but the module itself isn't yet crafted, and
+    #     an Advanced Crafter exists in the zone (latched flag OR
+    #     building list inspection), append to
+    #     ``modules_to_craft`` -- the existing CRAFT pipeline
+    #     picks it up.
+    #
+    # Restricted to ZONE2 so the bot doesn't try to use MAIN
+    # station inventory for Nebula modules before the Nebula
+    # station is established.  Skips entries already in either
+    # queue to avoid double-appends.
     _zone_id_adv = str((state.get("zone") or {}).get("id", ""))
     if "ZONE2" in _zone_id_adv:
         sitems_adv = (state.get("station_inventory")
@@ -194,16 +203,29 @@ def _housekeeping_short_circuits(state: dict, p: dict) -> None:
             m for m in (state.get("module_slots") or []) if m)
         queued = set(_ap._state.queue.modules_to_install)
         queued.update(_ap._state.queue.modules_to_craft)
+        adv_crafter_present = (
+            _ap._state.nebula_advanced_crafter_done
+            or _ap._advanced_crafter_already_built(state))
         for key in _ap.NEBULA_ADVANCED_MODULES:
             if key in installed_adv or key in queued:
                 continue
-            if int(sitems_adv.get(f"mod_{key}", 0)) < 1:
+            # Path A -- already crafted, just install.
+            if int(sitems_adv.get(f"mod_{key}", 0)) >= 1:
+                _ap._state.queue.modules_to_install.append(key)
+                _ap._telemetry_log(
+                    "nebula_advanced_module_queued",
+                    module=key, phase="install",
+                    **_ap._telemetry_snapshot_fields(state, p))
                 continue
-            _ap._state.queue.modules_to_install.append(key)
-            _ap._telemetry_log(
-                "nebula_advanced_module_queued",
-                module=key,
-                **_ap._telemetry_snapshot_fields(state, p))
+            # Path B -- blueprint present + Advanced Crafter exists,
+            # queue for crafting.
+            if (adv_crafter_present
+                    and int(sitems_adv.get(f"bp_{key}", 0)) >= 1):
+                _ap._state.queue.modules_to_craft.append(key)
+                _ap._telemetry_log(
+                    "nebula_advanced_module_queued",
+                    module=key, phase="craft",
+                    **_ap._telemetry_snapshot_fields(state, p))
 
 
 def choose_next_state(state: dict, p: dict, cur: str) -> str:
@@ -876,6 +898,31 @@ def choose_next_state(state: dict, p: dict, cur: str) -> str:
                 and int(_station_items_now.get("copper", 0))
                     >= _ap.AI_PILOT_SHIP_COPPER_COST):
             return _ap.S_PLACE_AI_PILOT_NEBULA
+
+    # 4.8 BUILD_ADV_CRAFTER (2026-05-25) -- place an Advanced
+    #     Crafter beside the Nebula HS so the bot can craft Nebula-
+    #     tier modules (misty_step / force_wall / death_blossom)
+    #     locally instead of having to warp back to MAIN for every
+    #     craft.  Once present, the existing CRAFT pipeline drives
+    #     it transparently -- both BasicCrafter and AdvancedCrafter
+    #     register as ``BasicCrafter`` instances internally, so
+    #     ``_find_idle_basic_crafter`` returns whichever is idle.
+    #     Gated AFTER ai-pilot ship (defenses then cover fire then
+    #     advanced crafting -- the tier-up chain).  Requires the
+    #     ``advanced_crafter`` blueprint deposited + 1000 iron +
+    #     500 copper.
+    if (in_zone2
+            and _ap._state.nebula_fortify_done
+            and not _ap._state.nebula_advanced_crafter_done
+            and _ap._find_home_station(state) is not None
+            and not _ap._advanced_crafter_already_built(state)):
+        _station_items_adv = _ap._station_items(state)
+        if (int(_station_items_adv.get("advanced_crafter", 0)) >= 1
+                and int(_station_items_adv.get("iron", 0))
+                    >= _ap.ADVANCED_CRAFTER_IRON_COST
+                and int(_station_items_adv.get("copper", 0))
+                    >= _ap.ADVANCED_CRAFTER_COPPER_COST):
+            return _ap.S_BUILD_ADV_CRAFTER
 
     # 5. DEPOSIT — once a Home Station exists, the bot periodically
     #    returns to dump everything in the ship inventory (iron,

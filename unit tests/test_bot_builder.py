@@ -839,3 +839,102 @@ def test_place_ai_pilot_ship_full_success(monkeypatch):
     assert "ai_pilot" in new_ship.module_slots
     # Station inv ai_pilot count decremented.
     assert gv._station_inv.items["ai_pilot"] == 0
+
+
+# ── place_advanced_crafter (2026-05-25) ──────────────────────────────────
+
+
+def _adv_crafter_gv(*, station_items=None, has_hs=True,
+                     existing_adv_crafters=()):
+    """SimpleNamespace stub gv for ``place_advanced_crafter`` tests.
+    ``building_manager.place_building`` is monkey-patched in each
+    test to avoid touching real sprites / textures."""
+    if station_items is None:
+        station_items = {"iron": 1000, "copper": 500,
+                         "advanced_crafter": 1}
+    station_inv = SimpleNamespace(
+        items=dict(station_items),
+        count_item=lambda it: station_inv.items.get(it, 0),
+        remove_item=lambda it, n=1: station_inv.items.__setitem__(
+            it, max(0, station_inv.items.get(it, 0) - n)),
+    )
+    builds = []
+    if has_hs:
+        builds.append(SimpleNamespace(
+            building_type="Home Station", disabled=False,
+            center_x=4000.0, center_y=4000.0))
+    for cx, cy in existing_adv_crafters:
+        builds.append(SimpleNamespace(
+            building_type="Advanced Crafter", disabled=False,
+            center_x=cx, center_y=cy))
+    return SimpleNamespace(
+        building_list=builds,
+        _station_inv=station_inv,
+        player=SimpleNamespace(center_x=4000.0, center_y=4000.0),
+    )
+
+
+def test_place_advanced_crafter_fails_without_home_station():
+    gv = _adv_crafter_gv(has_hs=False)
+    result = bot_builder.place_advanced_crafter(gv)
+    assert result["ok"] is False
+    assert "no home station" in result["reason"]
+
+
+def test_place_advanced_crafter_fails_without_blueprint():
+    gv = _adv_crafter_gv(
+        station_items={"iron": 1000, "copper": 500,
+                       "advanced_crafter": 0})
+    result = bot_builder.place_advanced_crafter(gv)
+    assert result["ok"] is False
+    assert "blueprint" in result["reason"]
+
+
+def test_place_advanced_crafter_fails_without_iron():
+    gv = _adv_crafter_gv(
+        station_items={"iron": 100, "copper": 500,
+                       "advanced_crafter": 1})
+    result = bot_builder.place_advanced_crafter(gv)
+    assert result["ok"] is False
+    assert "iron" in result["reason"]
+
+
+def test_place_advanced_crafter_fails_without_copper():
+    gv = _adv_crafter_gv(
+        station_items={"iron": 1000, "copper": 10,
+                       "advanced_crafter": 1})
+    result = bot_builder.place_advanced_crafter(gv)
+    assert result["ok"] is False
+    assert "copper" in result["reason"]
+
+
+def test_place_advanced_crafter_short_circuits_when_already_built():
+    """Existing Advanced Crafter within 600 px of HS short-circuits
+    without re-placing."""
+    gv = _adv_crafter_gv(
+        existing_adv_crafters=[(4120.0, 3940.0)])
+    result = bot_builder.place_advanced_crafter(gv)
+    assert result["ok"] is True
+    assert "already nearby" in result.get("skipped", "")
+
+
+def test_place_advanced_crafter_full_success(monkeypatch):
+    gv = _adv_crafter_gv()
+    placed_at: list = []
+
+    def fake_enter(g, bt):
+        pass
+
+    def fake_place(g, wx, wy):
+        placed_at.append((wx, wy))
+        g.building_list.append(SimpleNamespace(
+            building_type="Advanced Crafter", disabled=False,
+            center_x=wx, center_y=wy))
+
+    import building_manager
+    monkeypatch.setattr(
+        building_manager, "enter_placement_mode", fake_enter)
+    monkeypatch.setattr(building_manager, "place_building", fake_place)
+    result = bot_builder.place_advanced_crafter(gv)
+    assert result["ok"] is True
+    assert tuple(result["placed_at"]) == placed_at[0]

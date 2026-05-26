@@ -657,6 +657,17 @@ def _qwi_already_built(state: dict) -> bool:
     return False
 
 
+def _advanced_crafter_already_built(state: dict) -> bool:
+    """True when an Advanced Crafter is already in the building
+    list (placed by the bot earlier, loaded from save, or manually
+    placed).  Used to short-circuit the BUILD_ADV_CRAFTER trigger
+    without churning the latch each tick the bot sees one."""
+    for b in state.get("buildings") or []:
+        if b.get("building_type") == "Advanced Crafter":
+            return True
+    return False
+
+
 def _qwi_ready_to_build(state: dict) -> tuple[bool, str]:
     """Predicate gate for Choice 1 — pre-trigger boss staging.
 
