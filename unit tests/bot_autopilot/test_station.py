@@ -3833,6 +3833,43 @@ class TestNebulaAdvancedCrafterGate:
         ap._do_auto(s, s["player"])
         assert ap._fsm["state"] != ap.S_BUILD_ADV_CRAFTER
 
+    def test_startup_short_circuit_latches_when_already_present(
+            self, _clock):
+        """If the bot enters ZONE2 with an Advanced Crafter already
+        in the building list (loaded save / manual placement),
+        the housekeeping short-circuit latches
+        ``nebula_advanced_crafter_done`` so the trigger never fires
+        and the latch stays consistent with the world."""
+        ap._state.nebula_advanced_crafter_done = False
+        self._arm_prerequisites()
+        ap._state.nebula_advanced_crafter_done = False
+        s = self._staged_state(advanced_crafter_present=True)
+        ap._do_auto(s, s["player"])
+        assert ap._state.nebula_advanced_crafter_done is True
+
+    def test_startup_short_circuit_does_not_fire_outside_zone2(
+            self, _clock):
+        """An Advanced Crafter visible in MAIN's building_list
+        (unusual, but possible via a stash bug) should NOT latch
+        the Nebula-specific flag."""
+        ap._state.nebula_advanced_crafter_done = False
+        self._arm_prerequisites()
+        ap._state.nebula_advanced_crafter_done = False
+        s = self._staged_state(advanced_crafter_present=True)
+        s["zone"]["id"] = "ZoneID.MAIN"
+        ap._do_auto(s, s["player"])
+        assert ap._state.nebula_advanced_crafter_done is False
+
+    def test_startup_short_circuit_no_op_when_absent(self, _clock):
+        """Bot in ZONE2 without an Advanced Crafter visible -- the
+        latch stays False so the FSM can still build one."""
+        ap._state.nebula_advanced_crafter_done = False
+        self._arm_prerequisites()
+        ap._state.nebula_advanced_crafter_done = False
+        s = self._staged_state(advanced_crafter_present=False)
+        ap._do_auto(s, s["player"])
+        assert ap._state.nebula_advanced_crafter_done is False
+
 
 class TestActBuildAdvancedCrafter:
     def setup_method(self):

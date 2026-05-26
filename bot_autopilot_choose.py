@@ -124,6 +124,22 @@ def _housekeeping_short_circuits(state: dict, p: dict) -> None:
                     "nebula_fortify_done_short_circuit",
                     reason=f"defenders_{defenders}_meets_min_in_zone2",
                     **_ap._telemetry_snapshot_fields(state, p))
+    # Mirror short-circuit for the Nebula Advanced Crafter.  Zone-
+    # gated like the fortify-ring one: if the current zone is ZONE2
+    # AND the building_list already contains an Advanced Crafter
+    # (loaded save / manual placement / a prior session that placed
+    # one before the latch was persisted), latch the flag so
+    # ``S_BUILD_ADV_CRAFTER`` never re-fires and the advanced-module
+    # auto-queue stays consistent with the world state.
+    if not _ap._state.nebula_advanced_crafter_done:
+        _zone_id_adv = str((state.get("zone") or {}).get("id", ""))
+        if ("ZONE2" in _zone_id_adv
+                and _ap._advanced_crafter_already_built(state)):
+            _ap._state.nebula_advanced_crafter_done = True
+            _ap._telemetry_log(
+                "nebula_advanced_crafter_done_short_circuit",
+                reason="advanced_crafter_already_in_zone2",
+                **_ap._telemetry_snapshot_fields(state, p))
     if not _ap._state.queue.consumable_phase_started:
         sitems = (state.get("station_inventory") or {}).get("items") or {}
         iitems = (state.get("inventory") or {}).get("items") or {}
