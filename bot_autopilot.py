@@ -362,6 +362,12 @@ class WarpState:
     # providing cover fire while the bot fights.  One-shot per
     # session.  Cleared by ``BotState.reset``.
     nebula_ai_pilot_placed: bool = False
+    # Nebula Advanced Crafter latch (2026-05-25): True once an
+    # Advanced Crafter sits next to the Nebula HS.  Gates the
+    # advanced-module craft queue (misty_step / force_wall /
+    # death_blossom).  One-shot per session.  Cleared by
+    # ``BotState.reset``.
+    nebula_advanced_crafter_done: bool = False
 
 
 @dataclass
@@ -697,6 +703,8 @@ BotState.nebula_recovery_pending = _alias(
 BotState.nebula_fortify_done = _alias("warp", "nebula_fortify_done")
 BotState.nebula_ai_pilot_placed = _alias(
     "warp", "nebula_ai_pilot_placed")
+BotState.nebula_advanced_crafter_done = _alias(
+    "warp", "nebula_advanced_crafter_done")
 
 # GasLingerState aliases.
 BotState.gas_linger_entered_at = _alias("gas_linger", "entered_at")
@@ -972,6 +980,7 @@ from bot_autopilot_http import (
     _post_fortify,
     _post_place_qwi,
     _post_place_ai_pilot_ship,
+    _post_place_advanced_crafter,
     _ensure_game_focused,
 )
 from bot_autopilot_targeting import (
@@ -985,7 +994,8 @@ from bot_autopilot_targeting import (
     _all_blueprints_deposited, _module_already_installed,
     _build_area_clear, _build_seek_direction,
     _consumable_phase_finished, _consumables_in_station_inv,
-    _qwi_already_built, _qwi_ready_to_build, _find_quick_use_slot,
+    _qwi_already_built, _advanced_crafter_already_built,
+    _qwi_ready_to_build, _find_quick_use_slot,
     _next_craft_target, _next_install_target,
 )
 from bot_autopilot_movement import (
@@ -997,7 +1007,7 @@ from bot_autopilot_actions_station import (
     _act_build_seek, _act_deposit, _act_craft, _act_install, _act_build,
     _act_at_station, _act_equip_consumables, _act_fortify, _act_build_qwi,
     _act_recover_loot, _act_build_nebula, _act_fortify_nebula,
-    _act_place_ai_pilot_nebula,
+    _act_place_ai_pilot_nebula, _act_build_advanced_crafter,
 )
 from bot_autopilot_actions_combat import (
     _act_engage, _act_engage_boss, _act_regen, _maybe_use_consumables,
@@ -1396,7 +1406,7 @@ def _do_auto(state: dict, p: dict) -> None:
         idle_react = cur == S_IDLE_AT_BASE
         if desired in (S_ENGAGE, S_REGEN, S_ENGAGE_BOSS,
                        S_EQUIP_CONSUMABLES, S_FORTIFY, S_FORTIFY_NEBULA,
-                       S_PLACE_AI_PILOT_NEBULA,
+                       S_PLACE_AI_PILOT_NEBULA, S_BUILD_ADV_CRAFTER,
                        S_BUILD_QWI, S_WARP_TO_WORMHOLE,
                        S_WARP_TRAVERSE, S_FLEE_GAS) or \
                 idle_react or \
@@ -1472,6 +1482,8 @@ def _do_auto(state: dict, p: dict) -> None:
         _act_fortify_nebula(state, p)
     elif cur == S_PLACE_AI_PILOT_NEBULA:
         _act_place_ai_pilot_nebula(state, p)
+    elif cur == S_BUILD_ADV_CRAFTER:
+        _act_build_advanced_crafter(state, p)
     elif cur == S_BUILD_QWI:
         _act_build_qwi(state, p)
     elif cur == S_RECOVER_LOOT:

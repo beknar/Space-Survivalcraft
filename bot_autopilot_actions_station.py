@@ -485,6 +485,37 @@ def _act_fortify_nebula(state: dict, p: dict) -> None:
     )
 
 
+def _act_build_advanced_crafter(state: dict, p: dict) -> None:
+    """S_BUILD_ADV_CRAFTER: navigate to the active Home Station,
+    then POST /place_advanced_crafter.  Latches into
+    ``nebula_advanced_crafter_done`` on success so the FSM cascade
+    doesn't re-fire.
+
+    The Advanced Crafter unlocks the misty_step / force_wall /
+    death_blossom craft recipes the bot needs to fight effectively
+    in Nebula.  Captured 2026-05-25 telemetry: post-PR #186 the
+    advanced-module use code is dormant because the modules aren't
+    in station inventory -- the bot needs a local Advanced Crafter
+    to fix that without warping back to MAIN every craft cycle.
+    """
+    def _set_latch():
+        _ap._state.nebula_advanced_crafter_done = True
+
+    _act_at_station(
+        state, p,
+        label="BUILD_ADV_CRAFTER",
+        post_fn=_ap._post_place_advanced_crafter,
+        on_success_log=lambda r: (
+            f"placed_at={r.get('placed_at')} "
+            f"skipped={r.get('skipped', '-')}"),
+        latch_setter=_set_latch,
+        latch_failure_keywords=(
+            "already nearby", "no home", "no active home",
+            "blueprint not", "insufficient"),
+        latch_already_set=lambda: _ap._state.nebula_advanced_crafter_done,
+    )
+
+
 def _act_place_ai_pilot_nebula(state: dict, p: dict) -> None:
     """S_PLACE_AI_PILOT_NEBULA: navigate to the Nebula HS, then POST
     /place_ai_pilot_ship to buy a Basic Ship + install AI Pilot

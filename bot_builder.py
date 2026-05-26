@@ -655,6 +655,122 @@ def place_ai_pilot_ship_at_home(gv: Any) -> dict:
     }
 
 
+def place_advanced_crafter(gv: Any) -> dict:
+    """Place an Advanced Crafter near the active Home Station.
+
+    The Advanced Crafter is the ZONE2 (Nebula) tier-up: it gates
+    crafting of misty_step / force_wall / death_blossom / ai_pilot
+    / homing_missile / mining_drone / combat_drone modules.
+    Building one in the Nebula HS cluster gives the bot a path to
+    those modules without needing to return to MAIN.
+
+    Requirements:
+      * Active Home Station in the current zone (anchor).
+      * Station inventory has the ``advanced_crafter`` blueprint
+        (``BUILDING_TYPES["Advanced Crafter"]["requires_blueprint"]``).
+      * Station inventory has the Advanced Crafter cost
+        (1000 iron + 500 copper at default character rates).
+
+    Idempotent: if an Advanced Crafter already exists within 600 px
+    of the Home Station, the function short-circuits with ``ok=True``
+    + a ``skipped`` field so the FSM latches without re-placing.
+
+    Returns ``{"ok": True, "placed_at": [x, y]}`` on success or
+    ``{"ok": False, "reason": ...}`` on failure.
+    """
+    from constants import BUILDING_TYPES
+    import building_manager as bm
+
+    if BUILDING_TYPES.get("Advanced Crafter") is None:
+        return {"ok": False,
+                "reason": "Advanced Crafter not in BUILDING_TYPES"}
+    if not _has_home_station(gv):
+        return {"ok": False, "reason": "no home station"}
+
+    home = None
+    for b in gv.building_list:
+        if getattr(b, "building_type", None) == "Home Station" \
+                and not getattr(b, "disabled", False):
+            home = b
+            break
+    if home is None:
+        return {"ok": False, "reason": "no active home station"}
+
+    hx = float(home.center_x)
+    hy = float(home.center_y)
+
+    # Idempotent: already-built short-circuit.
+    for b in gv.building_list:
+        if getattr(b, "building_type", None) != "Advanced Crafter":
+            continue
+        if getattr(b, "disabled", False):
+            continue
+        dx = float(b.center_x) - hx
+        dy = float(b.center_y) - hy
+        if dx * dx + dy * dy <= (600.0 * 600.0):
+            return {
+                "ok": True,
+                "skipped": "advanced crafter already nearby",
+                "placed_at": [float(b.center_x), float(b.center_y)],
+            }
+
+    # Resource + blueprint gate.  Mirrors the build-menu rule for
+    # Advanced Crafter: needs the unlocked ``advanced_crafter``
+    # blueprint sitting in station inventory, plus iron + copper to
+    # cover the cost.  The build_menu reads the same fields via
+    # ``unlocked_blueprints``; the bot can't navigate UI so we
+    # inspect station inventory directly.
+    bt_stats = BUILDING_TYPES["Advanced Crafter"]
+    cost = int(bt_stats.get("cost", 1000))
+    copper_cost = int(bt_stats.get("cost_copper", 500))
+    station = gv._station_inv
+    if int(station.count_item("advanced_crafter")) < 1:
+        return {"ok": False,
+                "reason": "advanced_crafter blueprint not in station inventory"}
+    iron_have = int(station.count_item("iron"))
+    copper_have = int(station.count_item("copper"))
+    if iron_have < cost:
+        return {"ok": False,
+                "reason": f"insufficient iron {iron_have}/{cost}"}
+    if copper_have < copper_cost:
+        return {"ok": False,
+                "reason": f"insufficient copper {copper_have}/{copper_cost}"}
+
+    # Placement candidates: south-east of HS first (the standard
+    # starter cluster's east chain ends at Basic Crafter at (+120,
+    # +60), so SE at (+120, -60) snaps to the Repair Module's S
+    # port without crowding the existing layout).  Falls back to
+    # other quadrants if the primary spot is blocked.
+    candidates = [
+        (hx + 120.0, hy -  60.0),
+        (hx +   0.0, hy - 200.0),
+        (hx - 120.0, hy -  60.0),
+        (hx - 200.0, hy +  60.0),
+        (hx + 200.0, hy +  60.0),
+    ]
+    last_reason = "all candidates rejected"
+    for wx, wy in candidates:
+        before = len(gv.building_list)
+        try:
+            bm.enter_placement_mode(gv, "Advanced Crafter")
+            bm.place_building(gv, wx, wy)
+        except Exception as e:
+            try:
+                bm.cancel_placement(gv)
+            except Exception:
+                pass
+            last_reason = f"placement raised: {e}"
+            continue
+        if len(gv.building_list) > before:
+            return {
+                "ok": True,
+                "placed_at": [wx, wy],
+                "iron_remaining": int(station.count_item("iron")),
+                "copper_remaining": int(station.count_item("copper")),
+            }
+    return {"ok": False, "reason": last_reason}
+
+
 def place_quantum_wave_integrator(gv: Any) -> dict:
     """Place a Quantum Wave Integrator near the Home Station.
 
