@@ -668,6 +668,52 @@ def _advanced_crafter_already_built(state: dict) -> bool:
     return False
 
 
+def _recovery_loadout_ready(state: dict) -> bool:
+    """True iff the bot is fit to drive into the non-MAIN
+    death-recovery danger zone.  Used by the choose-cascade gate
+    at section 1.4 to defer ``S_RECOVER_LOOT`` until the bot has
+    healed + re-equipped.
+
+    Requirements (in non-MAIN zones):
+      * shields and hp at or above ``RECOVER_LOOT_*_PCT`` of their
+        respective max,
+      * at least one repair pack AND one shield recharge bound to
+        a quick-use slot.
+
+    MAIN-zone recoveries skip the gate entirely -- the HS umbrella
+    + turret ring make recovery safe even with a stripped ship.
+    """
+    zone_id = str((state.get("zone") or {}).get("id", ""))
+    # Only gate explicitly-known non-MAIN zones.  Empty / unknown
+    # zone_id defaults to "assume MAIN" so test stubs that don't
+    # bother setting zone_id retain the pre-2026-05-26 behaviour.
+    in_danger_zone = (
+        "ZONE2" in zone_id
+        or "WARP" in zone_id
+        or "STAR_MAZE" in zone_id)
+    if not in_danger_zone:
+        return True
+    player = state.get("player") or {}
+    hp = int(player.get("hp", 0))
+    hp_max = max(1, int(player.get("max_hp", 1)))
+    sh = int(player.get("shields", 0))
+    sh_max = max(1, int(player.get("max_shields", 1)))
+    if (hp / hp_max) < _ap.RECOVER_LOOT_HP_PCT:
+        return False
+    if (sh / sh_max) < _ap.RECOVER_LOOT_SHIELDS_PCT:
+        return False
+    slots = state.get("quick_use_slots") or []
+    have_repair = any(
+        (s.get("item_type") == "repair_pack"
+         and int(s.get("count", 0)) > 0)
+        for s in slots)
+    have_shield = any(
+        (s.get("item_type") == "shield_recharge"
+         and int(s.get("count", 0)) > 0)
+        for s in slots)
+    return have_repair and have_shield
+
+
 def _qwi_ready_to_build(state: dict) -> tuple[bool, str]:
     """Predicate gate for Choice 1 — pre-trigger boss staging.
 

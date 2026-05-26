@@ -995,6 +995,7 @@ from bot_autopilot_targeting import (
     _build_area_clear, _build_seek_direction,
     _consumable_phase_finished, _consumables_in_station_inv,
     _qwi_already_built, _advanced_crafter_already_built,
+    _recovery_loadout_ready,
     _qwi_ready_to_build, _find_quick_use_slot,
     _next_craft_target, _next_install_target,
 )

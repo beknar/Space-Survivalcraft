@@ -1103,6 +1103,163 @@ class TestRecoverLootBossProximityGate:
         assert ap._fsm["state"] == ap.S_RECOVER_LOOT
 
 
+# ── Non-MAIN recovery-loadout gate (2026-05-26) ───────────────────────────
+
+
+class TestRecoverLootLoadoutGate:
+    """When the bot dies in ZONE2 / a warp zone / star-maze and
+    respawns, ``S_RECOVER_LOOT`` should defer until the bot has
+    healed + re-equipped consumables.  Captured pathology
+    (2026-05-25 20:43 telemetry): bot died at t+2962s in Nebula
+    with full kit, drove toward the death pile naked + with cold
+    weapons, died again 53 s later in ``fsm=recover_loot``.
+
+    MAIN-zone deaths are exempt -- the HS umbrella + turret ring
+    make recovery safe even with a stripped ship.
+    """
+
+    @staticmethod
+    def _ready_player(*, hp=200, max_hp=200,
+                       shields=150, max_shields=150):
+        return {"x": 4000.0, "y": 4000.0, "heading": 0.0,
+                "hp": hp, "max_hp": max_hp,
+                "shields": shields, "max_shields": max_shields,
+                "is_dead": False}
+
+    def _zone2_state(self, *, player=None, with_consumables=True):
+        s = _state(player=player or self._ready_player())
+        s["zone"]["id"] = "ZoneID.ZONE2"
+        s["iron_pickups"] = [
+            {"x": 4500.0, "y": 4500.0, "amount": 10,
+             "item_type": "iron"}]
+        slots = []
+        if with_consumables:
+            slots = [
+                {"item_type": "repair_pack", "count": 5},
+                {"item_type": "shield_recharge", "count": 5},
+            ]
+        s["quick_use_slots"] = slots
+        return s
+
+    def _arm_recovery(self, _clock):
+        ap._state.death_recovery_pending = True
+        ap._state.death_recovery_pos = (4500.0, 4500.0)
+        ap._state.death_recovery_started_at = _clock[0]
+
+    def test_recovery_fires_in_nebula_when_loadout_ready(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        monkeypatch.setattr(ap, "_act_recover_loot",
+                            lambda s, p: None)
+        self._arm_recovery(_clock)
+        s = self._zone2_state()
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_RECOVER_LOOT
+
+    def test_recovery_blocked_in_nebula_without_consumables(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        monkeypatch.setattr(ap, "_act_recover_loot",
+                            lambda s, p: None)
+        self._arm_recovery(_clock)
+        s = self._zone2_state(with_consumables=False)
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] != ap.S_RECOVER_LOOT
+
+    def test_recovery_blocked_in_nebula_with_low_hp(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        monkeypatch.setattr(ap, "_act_recover_loot",
+                            lambda s, p: None)
+        self._arm_recovery(_clock)
+        s = self._zone2_state(
+            player=self._ready_player(hp=50, max_hp=200))
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] != ap.S_RECOVER_LOOT
+
+    def test_recovery_blocked_in_nebula_with_low_shields(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        monkeypatch.setattr(ap, "_act_recover_loot",
+                            lambda s, p: None)
+        self._arm_recovery(_clock)
+        s = self._zone2_state(
+            player=self._ready_player(shields=20, max_shields=150))
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] != ap.S_RECOVER_LOOT
+
+    def test_recovery_fires_in_main_even_with_naked_loadout(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """MAIN exempt -- HS umbrella makes recovery safe."""
+        monkeypatch.setattr(ap, "_act_recover_loot",
+                            lambda s, p: None)
+        self._arm_recovery(_clock)
+        s = self._zone2_state(with_consumables=False)
+        s["zone"]["id"] = "ZoneID.MAIN"
+        # Low HP too -- gate must NOT fire in MAIN.
+        s["player"]["hp"] = 50
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_RECOVER_LOOT
+
+    def test_recovery_blocked_in_warp_zone_without_loadout(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """Warp zones also count as danger zones."""
+        monkeypatch.setattr(ap, "_act_recover_loot",
+                            lambda s, p: None)
+        self._arm_recovery(_clock)
+        s = self._zone2_state(with_consumables=False)
+        s["zone"]["id"] = "ZoneID.WARP_ENEMY"
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] != ap.S_RECOVER_LOOT
+
+
+class TestRecoveryTimeoutBumpedInDangerZone:
+    """The bumped DEATH_RECOVERY_TIMEOUT_NEBULA_S applies to
+    ``_maybe_clear_death_recovery`` when the bot is in a non-MAIN
+    zone -- giving the heal + re-equip cycle realistic headroom."""
+
+    def test_main_zone_uses_60s_timeout(
+            self, _clock, _fresh_bot_state):
+        ap._state.death_recovery_pending = True
+        ap._state.death_recovery_pos = (2000.0, 3000.0)
+        ap._state.death_recovery_started_at = _clock[0]
+        s = _state(player={"x": 3500.0, "y": 3500.0,
+                           "heading": 0.0,
+                           "shields": 150, "max_shields": 150})
+        s["zone"]["id"] = "ZoneID.MAIN"
+        s["iron_pickups"] = [
+            {"x": 2000.0, "y": 3000.0, "amount": 10}]
+        _clock[0] += ap.DEATH_RECOVERY_TIMEOUT_S + 1.0
+        ap._maybe_clear_death_recovery(s, s["player"], _clock[0])
+        assert ap._state.death_recovery_pending is False
+
+    def test_nebula_zone_uses_extended_timeout(
+            self, _clock, _fresh_bot_state):
+        """In ZONE2 the timeout extends to NEBULA_S -- the
+        60 s mark does NOT clear the latch."""
+        ap._state.death_recovery_pending = True
+        ap._state.death_recovery_pos = (2000.0, 3000.0)
+        ap._state.death_recovery_started_at = _clock[0]
+        s = _state(player={"x": 3500.0, "y": 3500.0,
+                           "heading": 0.0,
+                           "shields": 150, "max_shields": 150})
+        s["zone"]["id"] = "ZoneID.ZONE2"
+        s["iron_pickups"] = [
+            {"x": 2000.0, "y": 3000.0, "amount": 10}]
+        _clock[0] += ap.DEATH_RECOVERY_TIMEOUT_S + 1.0
+        ap._maybe_clear_death_recovery(s, s["player"], _clock[0])
+        assert ap._state.death_recovery_pending is True
+
+    def test_nebula_zone_timeout_fires_at_extended_window(
+            self, _clock, _fresh_bot_state):
+        ap._state.death_recovery_pending = True
+        ap._state.death_recovery_pos = (2000.0, 3000.0)
+        ap._state.death_recovery_started_at = _clock[0]
+        s = _state(player={"x": 3500.0, "y": 3500.0,
+                           "heading": 0.0,
+                           "shields": 150, "max_shields": 150})
+        s["zone"]["id"] = "ZoneID.ZONE2"
+        s["iron_pickups"] = [
+            {"x": 2000.0, "y": 3000.0, "amount": 10}]
+        _clock[0] += ap.DEATH_RECOVERY_TIMEOUT_NEBULA_S + 1.0
+        ap._maybe_clear_death_recovery(s, s["player"], _clock[0])
+        assert ap._state.death_recovery_pending is False
 
 
 class TestPostBossWarpToWormholeTrigger:
