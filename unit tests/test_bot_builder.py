@@ -530,6 +530,91 @@ def test_equip_consumables_returns_failure_when_station_empty():
     assert hud.calls == []
 
 
+def test_equip_consumables_binds_missiles_to_slot_2():
+    """Nebula-tier homing_missile craft produces ``missile`` items;
+    the bot binds them to quick-use slot 2 so Death Blossom (PR
+    #186) can consume them."""
+    ship, _ = _stub_inv_with_items({})
+    station, _ = _stub_inv_with_items({"missile": 40})
+    hud = _StubHud()
+    gv = SimpleNamespace(
+        inventory=ship, _station_inv=station, _hud=hud,
+        building_list=[],
+    )
+    result = bot_builder.equip_consumables_to_quick_use(gv)
+    assert result["ok"] is True
+    assert result["missile"] == 25  # capped at max_each
+    assert ship.count_item("missile") == 25
+    assert station.count_item("missile") == 15
+    assert (2, "missile", 25) in hud.calls
+
+
+def test_equip_consumables_binds_mining_drone_to_slot_3():
+    ship, _ = _stub_inv_with_items({})
+    station, _ = _stub_inv_with_items({"mining_drone": 5})
+    hud = _StubHud()
+    gv = SimpleNamespace(
+        inventory=ship, _station_inv=station, _hud=hud,
+        building_list=[],
+    )
+    result = bot_builder.equip_consumables_to_quick_use(gv)
+    assert result["ok"] is True
+    assert result["mining_drone"] == 5
+    assert (3, "mining_drone", 5) in hud.calls
+
+
+def test_equip_consumables_binds_combat_drone_to_slot_4():
+    ship, _ = _stub_inv_with_items({})
+    station, _ = _stub_inv_with_items({"combat_drone": 5})
+    hud = _StubHud()
+    gv = SimpleNamespace(
+        inventory=ship, _station_inv=station, _hud=hud,
+        building_list=[],
+    )
+    result = bot_builder.equip_consumables_to_quick_use(gv)
+    assert result["ok"] is True
+    assert result["combat_drone"] == 5
+    assert (4, "combat_drone", 5) in hud.calls
+
+
+def test_equip_consumables_binds_all_five_when_all_present():
+    """All five consumable types in station -- all five slots get
+    bound in their canonical positions."""
+    ship, _ = _stub_inv_with_items({})
+    station, _ = _stub_inv_with_items({
+        "repair_pack": 25, "shield_recharge": 25,
+        "missile": 20, "mining_drone": 5, "combat_drone": 5,
+    })
+    hud = _StubHud()
+    gv = SimpleNamespace(
+        inventory=ship, _station_inv=station, _hud=hud,
+        building_list=[],
+    )
+    result = bot_builder.equip_consumables_to_quick_use(gv)
+    assert result["ok"] is True
+    bound_slots = {(slot, item) for slot, item, _c in hud.calls}
+    assert (0, "repair_pack") in bound_slots
+    assert (1, "shield_recharge") in bound_slots
+    assert (2, "missile") in bound_slots
+    assert (3, "mining_drone") in bound_slots
+    assert (4, "combat_drone") in bound_slots
+
+
+def test_equip_consumables_skips_unfilled_slots():
+    """Only repair packs in station -- shield / missile / drone
+    slots get no bind calls."""
+    ship, _ = _stub_inv_with_items({})
+    station, _ = _stub_inv_with_items({"repair_pack": 25})
+    hud = _StubHud()
+    gv = SimpleNamespace(
+        inventory=ship, _station_inv=station, _hud=hud,
+        building_list=[],
+    )
+    bot_builder.equip_consumables_to_quick_use(gv)
+    bound_items = {item for _slot, item, _c in hud.calls}
+    assert bound_items == {"repair_pack"}
+
+
 # ── Quantum Wave Integrator placement ─────────────────────────────────────
 
 

@@ -422,64 +422,92 @@ def equip_consumables_to_quick_use(
         gv: Any,
         repair_slot: int = 0,
         shield_slot: int = 1,
+        missile_slot: int = 2,
+        mining_drone_slot: int = 3,
+        combat_drone_slot: int = 4,
         max_each: int = 25) -> dict:
-    """Withdraw repair packs + shield recharges from station inventory
-    into ship inventory, then bind them to ship quick-use slots.
+    """Withdraw consumables from station inventory into ship
+    inventory, then bind them to ship quick-use slots.
 
-    Mirrors the player flow: drag repair_pack out of the station
-    inventory grid into the ship inventory grid, then drag onto a
-    quick-use slot.  Bot does it in one main-thread call.
+    Mirrors the player flow: drag the consumable out of the
+    station inventory grid into the ship inventory grid, then
+    drag onto a quick-use slot.  Bot does it in one main-thread
+    call.
+
+    Covers the basic two consumables (repair packs + shield
+    recharges) and the Nebula-tier three (missiles + mining
+    drones + combat drones).  Each consumable is bound only if
+    station inventory actually has any -- the bot can call this
+    repeatedly without churning empty slots.
 
     Args:
-      repair_slot: quick-use slot index (0-9) for repair packs.
-      shield_slot: quick-use slot index (0-9) for shield recharges.
+      repair_slot: quick-use slot for repair packs.
+      shield_slot: quick-use slot for shield recharges.
+      missile_slot: quick-use slot for missiles (homing_missile
+                    crafts produce ``missile`` items).
+      mining_drone_slot: quick-use slot for mining drones.
+      combat_drone_slot: quick-use slot for combat drones.
       max_each: cap on the number of each consumable to withdraw.
                 Defaults to 25 (the post-craft batch total).
 
-    Returns ``{"ok": True, "repair_pack": N, "shield_recharge": M,
-    "repair_slot": i, "shield_slot": j}``.  If neither item is in
-    station inventory, ``ok`` is False with reason.
+    Returns ``{"ok": True, "repair_pack": N, ...}`` with per-item
+    counts.  If no consumables are in station inventory, ``ok``
+    is False with reason.
     """
-    rp_avail = int(gv._station_inv.count_item("repair_pack"))
-    sr_avail = int(gv._station_inv.count_item("shield_recharge"))
-    if rp_avail <= 0 and sr_avail <= 0:
+    # ``slot_assignments``: (item_key, quick_use_slot) pairs in
+    # binding order.  Repair pack + shield recharge keep the
+    # 0/1 slots they've always used; missiles + drones land in
+    # the 2/3/4 slots so they don't clobber the heal binds.
+    slot_assignments = (
+        ("repair_pack",     int(repair_slot)),
+        ("shield_recharge", int(shield_slot)),
+        ("missile",         int(missile_slot)),
+        ("mining_drone",    int(mining_drone_slot)),
+        ("combat_drone",    int(combat_drone_slot)),
+    )
+
+    avail = {
+        item: int(gv._station_inv.count_item(item))
+        for item, _slot in slot_assignments
+    }
+    if all(c <= 0 for c in avail.values()):
         return {
             "ok": False,
             "reason": "no consumables in station inventory",
         }
 
-    rp_take = min(rp_avail, int(max_each))
-    sr_take = min(sr_avail, int(max_each))
+    taken: dict[str, int] = {}
+    for item, _slot in slot_assignments:
+        n = min(avail[item], int(max_each))
+        taken[item] = n
+        if n > 0:
+            gv._station_inv.remove_item(item, n)
+            gv.inventory.add_item(item, n)
 
-    if rp_take > 0:
-        gv._station_inv.remove_item("repair_pack", rp_take)
-        gv.inventory.add_item("repair_pack", rp_take)
-    if sr_take > 0:
-        gv._station_inv.remove_item("shield_recharge", sr_take)
-        gv.inventory.add_item("shield_recharge", sr_take)
-
-    # Bind to quick-use slots — uses the running total in the ship
+    # Bind to quick-use slots -- uses the running total in the ship
     # inventory (any prior leftover counts get included).
-    rp_total = int(gv.inventory.count_item("repair_pack"))
-    sr_total = int(gv.inventory.count_item("shield_recharge"))
     try:
-        if rp_total > 0:
-            gv._hud.set_quick_use(int(repair_slot),
-                                  "repair_pack", rp_total)
-        if sr_total > 0:
-            gv._hud.set_quick_use(int(shield_slot),
-                                  "shield_recharge", sr_total)
+        for item, slot in slot_assignments:
+            total = int(gv.inventory.count_item(item))
+            if total > 0:
+                gv._hud.set_quick_use(slot, item, total)
     except Exception as e:
         return {"ok": False, "reason": f"hud bind failed: {e}"}
 
     return {
         "ok": True,
-        "repair_pack": rp_take,
-        "shield_recharge": sr_take,
+        "repair_pack": taken["repair_pack"],
+        "shield_recharge": taken["shield_recharge"],
+        "missile": taken["missile"],
+        "mining_drone": taken["mining_drone"],
+        "combat_drone": taken["combat_drone"],
         "repair_slot": int(repair_slot),
         "shield_slot": int(shield_slot),
-        "ship_repair_total": rp_total,
-        "ship_shield_total": sr_total,
+        "missile_slot": int(missile_slot),
+        "mining_drone_slot": int(mining_drone_slot),
+        "combat_drone_slot": int(combat_drone_slot),
+        "ship_repair_total": int(gv.inventory.count_item("repair_pack")),
+        "ship_shield_total": int(gv.inventory.count_item("shield_recharge")),
     }
 
 

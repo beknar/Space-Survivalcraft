@@ -126,6 +126,21 @@ ADVANCED_CRAFTER_COPPER_COST: int = 500
 # loadout.
 NEBULA_ADVANCED_MODULES: tuple[str, ...] = (
     "misty_step", "force_wall", "death_blossom")
+# Advanced (Nebula-tier) consumable craft targets.  Each entry
+# maps the MODULE_TYPES craft key (what gets queued in
+# ``modules_to_craft``) to a (item_key, target_stockpile) tuple,
+# where ``item_key`` is the produced item that lands in station
+# inventory and ``target_stockpile`` is how many of that item the
+# bot tries to keep on hand.  When station-inv count of item_key
+# meets the target, the queue head pops (so a single craft cycle
+# doesn't spin forever on a consumable that doesn't produce
+# ``mod_<key>``).  Used by the housekeeping auto-queue observer
+# and by ``_next_craft_target``'s auto-pop guard.
+NEBULA_ADV_CONSUMABLE_TARGETS: dict[str, tuple[str, int]] = {
+    "homing_missile": ("missile", 20),
+    "mining_drone":   ("mining_drone", 5),
+    "combat_drone":   ("combat_drone", 5),
+}
 # REGEN escape-valve hysteresis (2026-05-13 fifteenth telemetry pass).
 # The previous escape-valve fired on a SINGLE tick where shields
 # didn't gain (``sh > last_regen_shields`` was False).  Captured in

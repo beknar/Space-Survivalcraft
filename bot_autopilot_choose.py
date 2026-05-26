@@ -242,6 +242,32 @@ def _housekeeping_short_circuits(state: dict, p: dict) -> None:
                     "nebula_advanced_module_queued",
                     module=key, phase="craft",
                     **_ap._telemetry_snapshot_fields(state, p))
+        # Advanced (Nebula-tier) consumable auto-queue (2026-05-26).
+        # When the bot is in ZONE2 with an Advanced Crafter built,
+        # the matching blueprint deposited, and the produced item
+        # stock below its target, queue the recipe for crafting.
+        # The auto-pop guard in ``_next_craft_target`` removes the
+        # entry once stock meets the target.  Currently covers
+        # homing_missile / mining_drone / combat_drone; the bot
+        # uses missiles via Death Blossom (PR #186) and drones via
+        # the in-game "R" dispatch.
+        if adv_crafter_present:
+            for craft_key, (item_key, target_count) \
+                    in _ap.NEBULA_ADV_CONSUMABLE_TARGETS.items():
+                if craft_key in queued:
+                    continue
+                if int(sitems_adv.get(f"bp_{craft_key}", 0)) < 1:
+                    continue
+                if int(sitems_adv.get(item_key, 0)) >= target_count:
+                    continue
+                _ap._state.queue.modules_to_craft.append(craft_key)
+                queued.add(craft_key)
+                _ap._telemetry_log(
+                    "nebula_advanced_consumable_queued",
+                    recipe=craft_key, item_key=item_key,
+                    target=target_count,
+                    have=int(sitems_adv.get(item_key, 0)),
+                    **_ap._telemetry_snapshot_fields(state, p))
 
 
 def choose_next_state(state: dict, p: dict, cur: str) -> str:
