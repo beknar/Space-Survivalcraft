@@ -500,6 +500,21 @@ def _observe_gas_lingering(state: dict, p: dict, now: float) -> None:
         _ap._state.gas_linger_entry_shields = sh
         _ap._state.gas_linger_entry_hp = hp
         _ap._state.gas_linger_event_fired = False
+        # Edge-entry telemetry (2026-05-27): one event per cloud
+        # crossing so the operator can see *if* the bot enters a
+        # cloud at all -- the existing gas_lingering signal only
+        # fires after GAS_LINGER_DETECT_S of dwell.  Useful to
+        # validate the gas-cloud routing tuning across cycles.
+        cx, cy, radius = cloud
+        _ap._telemetry_log(
+            "gas_cloud_entered",
+            cloud_x=round(cx, 1),
+            cloud_y=round(cy, 1),
+            cloud_radius=round(radius, 1),
+            fsm_state=_ap._fsm["state"],
+            entry_shields=sh,
+            entry_hp=hp,
+            **_ap._telemetry_snapshot_fields(state, p))
         return
 
     if _ap._state.gas_linger_event_fired:

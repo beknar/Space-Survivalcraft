@@ -591,6 +591,85 @@ class TestObserveGasLingering:
         assert gl == []
 
 
+class TestGasCloudEnteredTelemetry:
+    """2026-05-27: edge-entry event so the operator sees every
+    cloud crossing in the log, independent of the dwell-based
+    ``gas_lingering`` signal.  Useful to validate that the
+    strengthened gas-cloud routing tuning is keeping the bot
+    out of clouds at all.
+    """
+
+    def _make_state(self, px=100.0, py=0.0,
+                    gas_at=(0.0, 0.0, 200.0)):
+        s = _state(player={"x": px, "y": py, "heading": 0.0,
+                           "hp": 120, "max_hp": 120,
+                           "shields": 120, "max_shields": 120})
+        if gas_at is not None:
+            cx, cy, r = gas_at
+            s["gas_areas"] = [{"x": cx, "y": cy, "radius": r}]
+        return s
+
+    def _capture(self, monkeypatch):
+        events: list = []
+        monkeypatch.setattr(
+            ap, "_telemetry_log",
+            lambda evt, **kw: events.append((evt, kw)))
+        return events
+
+    def test_fires_on_first_tick_inside_cloud(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        events = self._capture(monkeypatch)
+        s = self._make_state()
+        ap._observe_gas_lingering(s, s["player"], _clock[0])
+        entered = [(e, kw) for (e, kw) in events
+                   if e == "gas_cloud_entered"]
+        assert len(entered) == 1
+        kw = entered[0][1]
+        assert kw["cloud_x"] == 0.0
+        assert kw["cloud_y"] == 0.0
+        assert kw["cloud_radius"] == 200.0
+        assert kw["entry_shields"] == 120
+        assert kw["entry_hp"] == 120
+
+    def test_does_not_fire_outside_any_cloud(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        events = self._capture(monkeypatch)
+        s = self._make_state(px=10000.0, gas_at=(0.0, 0.0, 200.0))
+        ap._observe_gas_lingering(s, s["player"], _clock[0])
+        entered = [e for (e, _) in events
+                   if e == "gas_cloud_entered"]
+        assert entered == []
+
+    def test_fires_once_per_episode(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """Continuous stay inside the cloud only emits one
+        entered event -- subsequent ticks are no-ops on the
+        entered path."""
+        events = self._capture(monkeypatch)
+        s = self._make_state()
+        ap._observe_gas_lingering(s, s["player"], _clock[0])
+        _clock[0] += 1.0
+        ap._observe_gas_lingering(s, s["player"], _clock[0])
+        entered = [e for (e, _) in events
+                   if e == "gas_cloud_entered"]
+        assert len(entered) == 1
+
+    def test_fires_again_on_exit_then_reenter(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        events = self._capture(monkeypatch)
+        s = self._make_state()
+        ap._observe_gas_lingering(s, s["player"], _clock[0])
+        # Exit cloud.
+        s["player"]["x"] = 10000.0
+        ap._observe_gas_lingering(s, s["player"], _clock[0] + 1.0)
+        # Re-enter.
+        s["player"]["x"] = 100.0
+        ap._observe_gas_lingering(s, s["player"], _clock[0] + 2.0)
+        entered = [e for (e, _) in events
+                   if e == "gas_cloud_entered"]
+        assert len(entered) == 2
+
+
 # ── Warp-zone swarm engage suppression (2026-05-19) ───────────────────────
 
 

@@ -159,8 +159,8 @@ REPULSION_TARGET_SUPPRESS_PX: float = 100.0
 # gain is intentionally aggressive -- gas damage compounds fast.
 # Wider range than buildings so the deflection starts earlier and
 # the bot routes around the cloud rather than hugging its edge.
-GAS_REPULSION_RANGE_PX: float = 200.0
-GAS_REPULSION_GAIN:     float = 1.0
+GAS_REPULSION_RANGE_PX: float = 320.0
+GAS_REPULSION_GAIN:     float = 1.6
 # Suppress repulsion for clouds within this radius of the goto
 # target.  Without this gate a target that happens to sit inside
 # a moving gas cloud (e.g. a pickup spawned on top of a drifting

@@ -132,9 +132,9 @@ ASTAR_SOFT_COST_MAX: float = 8.0
 # (one of the WARP_GAS giants) that ``_act_flee_gas`` couldn't
 # escape in a single 600 px goto.  Proactive A* routing around the
 # cloud avoids the reactive flee-bounce entirely.
-ASTAR_GAS_HARD_BLOCK_MARGIN_PX: float = 30.0
-ASTAR_GAS_SOFT_COST_RADIUS_PX: float = 150.0
-ASTAR_GAS_SOFT_COST_MAX: float = 8.0
+ASTAR_GAS_HARD_BLOCK_MARGIN_PX: float = 60.0
+ASTAR_GAS_SOFT_COST_RADIUS_PX: float = 240.0
+ASTAR_GAS_SOFT_COST_MAX: float = 20.0
 
 
 # ── Grid construction ──────────────────────────────────────────────────
