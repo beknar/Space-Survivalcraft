@@ -587,6 +587,15 @@ class BotState:
     death_recovery_modules: list = field(default_factory=list)
     death_recovery_consumables: list = field(default_factory=list)
     death_recovery_started_at: float = 0.0
+    # Zone the death happened in (2026-05-28).  Captured at the
+    # alive -> dead edge so the recovery flow can detect a
+    # cross-zone case: if the bot respawns in MAIN but its loot
+    # is in Nebula coordinates, the recorded position is
+    # unreachable from MAIN.  ``_maybe_clear_death_recovery``
+    # short-circuits the latch + the 60 s window when the bot's
+    # current zone differs from the death zone.  Empty string =
+    # uncaptured (legacy save / first session before this PR).
+    death_recovery_zone: str = ""
     # Boss combat tracking (engage start metrics + LURE / TURRET-
     # ASSIST latches + boss-killed sticky).  Grouped into
     # ``BossCombatState`` in PR 5; legacy flat names
@@ -655,6 +664,7 @@ class BotState:
         self.death_recovery_modules = []
         self.death_recovery_consumables = []
         self.death_recovery_started_at = 0.0
+        self.death_recovery_zone = ""
         self.boss_combat = BossCombatState()
         self.warp = WarpState()
 

@@ -1209,6 +1209,104 @@ class TestRecoverLootLoadoutGate:
         assert ap._fsm["state"] != ap.S_RECOVER_LOOT
 
 
+class TestCrossZoneRecoveryAbandon:
+    """2026-05-28: when the bot dies in one zone (e.g. Nebula)
+    and respawns in another (e.g. MAIN), the recorded
+    ``death_recovery_pos`` is meaningless in the current zone --
+    different world.  ``_maybe_clear_death_recovery`` short-
+    circuits the latch immediately instead of burning the 60 s
+    timeout pretending to look for it.
+
+    Captured 2026-05-28 telemetry: bot died in ZONE2 at +1108s,
+    respawned in MAIN, recovery timed out at +1170s after 60 s
+    of pointless navigation toward the Nebula coordinates.
+    """
+
+    def _make_state(self, *, current_zone="ZoneID.MAIN"):
+        s = _state(player={"x": 3500.0, "y": 3500.0,
+                           "heading": 0.0,
+                           "shields": 150, "max_shields": 150})
+        s["zone"]["id"] = current_zone
+        s["iron_pickups"] = [
+            {"x": 2000.0, "y": 3000.0, "amount": 10}]
+        return s
+
+    def _arm(self, _clock, *, death_zone="ZoneID.ZONE2"):
+        ap._state.death_recovery_pending = True
+        ap._state.death_recovery_pos = (2000.0, 3000.0)
+        ap._state.death_recovery_started_at = _clock[0]
+        ap._state.death_recovery_zone = death_zone
+
+    def test_abandons_when_current_zone_differs(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        events: list = []
+        monkeypatch.setattr(
+            ap, "_telemetry_log",
+            lambda evt, **kw: events.append((evt, kw)))
+        self._arm(_clock, death_zone="ZoneID.ZONE2")
+        s = self._make_state(current_zone="ZoneID.MAIN")
+        ap._maybe_clear_death_recovery(s, s["player"], _clock[0])
+        assert ap._state.death_recovery_pending is False
+        abandon = [(e, kw) for (e, kw) in events
+                   if e == "death_recovery_cross_zone_abandon"]
+        assert len(abandon) == 1
+        kw = abandon[0][1]
+        assert kw["death_zone"] == "ZoneID.ZONE2"
+        assert kw["current_zone"] == "ZoneID.MAIN"
+
+    def test_does_not_abandon_when_zones_match(
+            self, _clock, _fresh_bot_state):
+        """Bot died in ZONE2, respawned in ZONE2 -- recovery runs
+        normally (uses the bumped 180 s timeout)."""
+        self._arm(_clock, death_zone="ZoneID.ZONE2")
+        s = self._make_state(current_zone="ZoneID.ZONE2")
+        ap._maybe_clear_death_recovery(s, s["player"], _clock[0])
+        assert ap._state.death_recovery_pending is True
+
+    def test_does_not_abandon_when_death_zone_unset(
+            self, _clock, _fresh_bot_state):
+        """Legacy save with empty ``death_recovery_zone`` -- the
+        guard skips, and the pre-2026-05-28 timeout-only behaviour
+        applies.  Preserves backward compat."""
+        self._arm(_clock, death_zone="")
+        s = self._make_state(current_zone="ZoneID.MAIN")
+        ap._maybe_clear_death_recovery(s, s["player"], _clock[0])
+        assert ap._state.death_recovery_pending is True
+
+    def test_does_not_abandon_when_current_zone_unset(
+            self, _clock, _fresh_bot_state):
+        """If the current snapshot lacks zone info, don't fire the
+        guard -- safer to fall through to the existing timeout."""
+        self._arm(_clock, death_zone="ZoneID.ZONE2")
+        s = self._make_state(current_zone="ZoneID.ZONE2")
+        s["zone"]["id"] = ""
+        ap._maybe_clear_death_recovery(s, s["player"], _clock[0])
+        assert ap._state.death_recovery_pending is True
+
+
+class TestDeathObserverCapturesZone:
+    """Sanity: the alive -> dead edge writes the current zone_id
+    into ``death_recovery_zone`` so the cross-zone abandon guard
+    has the data it needs."""
+
+    @staticmethod
+    def _alive(**override):
+        d = {"x": 1000.0, "y": 1000.0, "heading": 0.0,
+             "shields": 150, "max_shields": 150,
+             "hp": 200, "max_hp": 200, "is_dead": False}
+        d.update(override)
+        return d
+
+    def test_captures_zone_id_on_death(
+            self, _clock, _fresh_bot_state):
+        ap._state.was_dead = False
+        ap._state.last_alive_pos = (4000.0, 4000.0)
+        s = _state(player=self._alive(is_dead=True))
+        s["zone"]["id"] = "ZoneID.ZONE2"
+        ap._observe_death_edges(s, s["player"], _clock[0])
+        assert ap._state.death_recovery_zone == "ZoneID.ZONE2"
+
+
 class TestRecoveryTimeoutBumpedInDangerZone:
     """The bumped DEATH_RECOVERY_TIMEOUT_NEBULA_S applies to
     ``_maybe_clear_death_recovery`` when the bot is in a non-MAIN
