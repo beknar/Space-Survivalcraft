@@ -104,6 +104,14 @@ def _observe_death_edges(state: dict, p: dict, now: float) -> None:
             _ap._state.last_alive_modules)
         _ap._state.death_recovery_consumables = list(
             _ap._state.last_alive_consumable_types)
+        # Cross-zone recovery guard (2026-05-28).  Capture the
+        # zone at the moment of death so ``_maybe_clear_death_recovery``
+        # can detect the bot-respawned-in-different-zone case
+        # (death in Nebula, respawn at MAIN) and abandon the
+        # latch immediately instead of burning the 60 s timeout
+        # navigating toward unreachable coordinates.
+        _ap._state.death_recovery_zone = str(
+            (state.get("zone") or {}).get("id", ""))
         # Nebula-death recovery latch (2026-05-24).  Captured
         # pathology: 22 deaths in 35 min, 20 in ZONE2 or the warp
         # zones en-route; the bot looped warp -> die -> warp without
@@ -212,13 +220,35 @@ def _maybe_clear_death_recovery(state: dict, p: dict, now: float) -> None:
     """
     if not _ap._state.death_recovery_pending:
         return
+    # Cross-zone abandon (2026-05-28).  If the bot's current zone
+    # differs from the zone the death happened in, the recorded
+    # ``death_recovery_pos`` is meaningless in the current zone
+    # (different world).  This happens when the bot dies in
+    # Nebula but respawns in MAIN (Nebula HS destroyed, or any
+    # other game-side respawn fallback).  Drop the latch
+    # immediately instead of burning the timeout window
+    # navigating toward an unreachable position.
+    #
+    # Only triggers when BOTH zone fields are populated -- legacy
+    # saves with empty ``death_recovery_zone`` retain the prior
+    # behaviour (timeout-only abandonment).
+    current_zone = str((state.get("zone") or {}).get("id", ""))
+    death_zone = _ap._state.death_recovery_zone
+    if death_zone and current_zone and current_zone != death_zone:
+        _ap._telemetry_log(
+            "death_recovery_cross_zone_abandon",
+            death_zone=death_zone,
+            current_zone=current_zone,
+            **_ap._telemetry_snapshot_fields(state, p))
+        _ap._state.death_recovery_pending = False
+        return
     # Bumped timeout for non-MAIN zones (2026-05-26).  In Nebula
     # / warp zones the bot may need to idle at the HS umbrella
     # for tens of seconds to heal + re-equip consumables before
     # the recovery-loadout gate releases, so the standard 60 s
     # window isn't enough.  Item lifetime is 600 s so 180 s is
     # comfortable headroom.
-    zone_id_recovery = str((state.get("zone") or {}).get("id", ""))
+    zone_id_recovery = current_zone
     # Only treat the recovery as "in danger zone" when zone_id
     # explicitly identifies one.  Empty / unknown zone_id defaults
     # to MAIN's 60 s timeout so test stubs that don't set the
