@@ -32,9 +32,14 @@ class TestGatherHysteresis:
         assert ap._fsm["state"] == ap.S_GATHER
 
     def test_pickup_outside_exit_band_releases_gather(self, _clock):
+        # Asteroid sits OUT of chase range (> MAX_ASTEROID_CHASE_PX)
+        # so the 2026-05-30 mining-hysteresis gate doesn't keep the
+        # bot in MINE: with a reachable asteroid the bot now (rightly)
+        # prefers mining over a 1400 px pickup.  Here it's only a
+        # fallback target for after GATHER releases.
         s = _state(iron_pickups=[
             {"x": 1400, "y": 0, "amount": 10, "item_type": "iron"}],
-            asteroids=[{"x": 100, "y": 0, "hp": 100}])
+            asteroids=[{"x": 2500, "y": 0, "hp": 100}])
         ap._do_auto(s, s["player"])
         assert ap._fsm["state"] == ap.S_GATHER
         # Pickup somehow drifted past the exit band.
@@ -459,6 +464,45 @@ class TestStuckEscape:
         out2 = capsys.readouterr().out
         # Within throttle window: must NOT log again.
         assert "STUCK at edge" not in out2
+
+
+class TestEdgePinEscapeUnderThreat:
+    """2026-05-30 edge-pin override.  REGEN / IDLE_AT_BASE are in
+    the stuck-detect skip set (they idle on purpose), but a genuine
+    world-edge pin while a threat is adjacent is lethal -- the
+    captured telemetry had two Nebula deaths in fsm=regen, wall-
+    pinned near the map edge, shields collapsing while the watchdog
+    stayed silent.  The override lets the escape burst fire in those
+    states when (and only when) the bot is edge-pinned AND a threat
+    sits within ENGAGE_ENTER_PX."""
+
+    def _pin_in_regen(self, _clock, *, with_threat):
+        # Pin against the south edge of a 6400x6400 world (y=50).
+        # No buildings, so _wall_pin_trap_active stays False and the
+        # only thing that can arm escape is the position watchdog.
+        for _ in range(20):
+            aliens = ([{"x": 3200.0, "y": 100.0, "hp": 50}]
+                      if with_threat else [])
+            s = _state(
+                player={"x": 3200.0, "y": 50.0, "heading": 0.0,
+                        "shields": 60, "max_shields": 150},
+                aliens=aliens,
+            )
+            ap._fsm["state"] = ap.S_REGEN
+            ap._do_auto(s, s["player"])
+            _clock[0] += 0.1
+
+    def test_edge_pin_in_regen_with_threat_arms_escape(self, _clock):
+        self._pin_in_regen(_clock, with_threat=True)
+        assert ap._stuck_state["escape_until"] > 0.0, (
+            "edge pin + adjacent threat must arm escape even in REGEN")
+
+    def test_edge_pin_in_regen_without_threat_stays_parked(
+            self, _clock):
+        self._pin_in_regen(_clock, with_threat=False)
+        assert ap._stuck_state["escape_until"] == 0.0, (
+            "REGEN with no threat keeps its stuck-detect exemption -- "
+            "the bot is intentionally idling to recover shields")
 
 
 

@@ -75,6 +75,17 @@ WARP_SWARM_ENGAGE_SUPPRESS_ALIENS: int = 8
 WARP_SWARM_REGEN_SUPPRESS_ALIENS: int = 8
 GATHER_ENTER_PX: float = 1500.0
 GATHER_EXIT_PX:  float = 1700.0
+# Tighter GATHER-preempts-MINE threshold (2026-05-30).  GATHER sits
+# above MINE in the cascade, so any pickup within GATHER_ENTER_PX
+# (1500) yanks the bot off an asteroid it is actively mining.  The
+# 2026-05-30 telemetry logged 254 mine<->gather flips (105 under
+# 3 s) -- mine an asteroid, it drops iron, divert to gather, the
+# next chunk drops, flip back.  When already mining, require the
+# pickup to be genuinely close before abandoning the asteroid; the
+# loot stays on the field and gets gathered once the asteroid is
+# spent.  Open-state (non-MINE) entry still uses the wide 1500 px
+# gate so the bot doesn't ignore reachable loot while idle.
+GATHER_ENTER_WHILE_MINING_PX: float = 600.0
 REGEN_ENTER_PCT: float = 0.40
 REGEN_EXIT_PCT:  float = 0.60
 # Boss-alive REGEN thresholds (2026-05-13 fourteenth telemetry pass).
@@ -99,6 +110,27 @@ REGEN_EXIT_PCT_BOSS_ALIVE:  float = 0.85
 # fires) still applies, so a close threat still gets engaged.
 REGEN_ENTER_PCT_NEBULA: float = 0.55
 REGEN_EXIT_PCT_NEBULA:  float = 0.85
+# S_RETREAT thresholds (2026-05-30).  The defensive flee fires in a
+# non-MAIN zone when shields fall to RETREAT_ENTER_SHIELD_PCT of max
+# AND at least RETREAT_SWARM_ALIEN_COUNT aliens sit within
+# RETREAT_SWARM_RANGE_PX AND the bot has no shield_recharge in its
+# quick-use slots (so the armed heal latch can't actually fire).
+# Hysteresis: once retreating, hold until shields climb back above
+# RETREAT_EXIT_SHIELD_PCT so a brief regen tick under fire doesn't
+# kick the bot straight back into the swarm.  The enter threshold is
+# higher than the Nebula REGEN enter (0.55) on purpose -- when the
+# bot is defenceless (no consumables) it should peel off earlier,
+# before the swarm grinds it into the fatal sub-20 % band the
+# telemetry captured.  Range matches the consumable swarm radius so
+# the two density gates agree on what "surrounded" means.
+RETREAT_ENTER_SHIELD_PCT: float = 0.60
+RETREAT_EXIT_SHIELD_PCT:  float = 0.85
+RETREAT_SWARM_ALIEN_COUNT: int   = 6
+RETREAT_SWARM_RANGE_PX:    float = 1200.0
+# How far past the bot (along the swarm-centroid -> bot ray) the
+# no-HS retreat target sits.  Large enough to clear the swarm's
+# engage band in one goto; clamped to the world rect by the handler.
+RETREAT_FLEE_TARGET_PX:    float = 1400.0
 # Nebula AI Pilot ship cost gate (2026-05-24).  Mirrors the
 # ``BUILDING_TYPES["Basic Ship"]`` cost (500 iron + 250 copper at
 # default character rates) plus a small headroom so the placement
@@ -505,7 +537,22 @@ QWI_BUILD_IRON_TARGET:        int   = 2000   # station-iron buffer before placin
 # wastes a consumable charge less often on small dips that the
 # station-tether kite + shield regen handle on their own.
 CONSUMABLE_USE_HP_PCT:        float = 0.30   # use repair pack at <= 30 % HP
-CONSUMABLE_USE_SHIELD_PCT:    float = 0.20   # use shield recharge at <= 20 % shields
+# Shield-heal arm threshold.  Bumped 0.20 -> 0.35 after the
+# 2026-05-30 telemetry: three Nebula deaths where the shield heal
+# armed at <= 20 % (sh=18/12 of 120) but the bot died within ~1 s --
+# at the ~37 sh/s drain a 50/60-alien swarm inflicts, 20 % is only
+# ~0.65 s of buffer, too little for the 1 s autopilot tick + 100 ms
+# heal-land latency to matter.  35 % gives ~1.9 s of headroom.
+CONSUMABLE_USE_SHIELD_PCT:    float = 0.35   # use shield recharge at <= 35 % shields
+# Swarm-elevated shield-heal arm threshold (2026-05-30).  When the
+# bot is surrounded (>= CONSUMABLE_SWARM_ALIEN_COUNT aliens within
+# CONSUMABLE_SWARM_RANGE_PX) the incoming DPS is high enough that
+# even 35 % drains before the heal lands, so arm the latch earlier.
+# Still below the 0.70 disarm band so a single charge from this
+# threshold lands in a safe state without a double-spend.
+CONSUMABLE_USE_SHIELD_SWARM_PCT: float = 0.55
+CONSUMABLE_SWARM_ALIEN_COUNT:    int   = 6
+CONSUMABLE_SWARM_RANGE_PX:       float = 1200.0
 # Disarm thresholds (2026-05-19): one consumable lifts the bar by
 # 50 % of max, so a single use from the 20-30 % arm threshold lands
 # at 70-80 % -- already a safe band.  Pre-fix the latches disarmed
@@ -668,6 +715,23 @@ S_BUILD_ADV_CRAFTER = "build_adv_crafter"
 # but defers to S_REGEN, which already has its own gas-escape
 # branch and is the more urgent shield-collapse signal.
 S_FLEE_GAS          = "flee_gas"
+# S_RETREAT (2026-05-30): defensive flee for the under-equipped
+# Nebula swarm.  Captured pathology: three ZONE2 deaths in the first
+# 1457 s of the 2026-05-30 session, each in fsm=regen or engage while
+# 50-60 aliens drained shields from full to zero in ~10 s.  The root
+# cause was a death spiral -- death drops the heal consumables, the
+# consumable craft phase resets, and the bot re-engages the swarm
+# with no shield_recharge in its quick-use slots, so the armed heal
+# latch never fires.  S_RETREAT fires only in that exact situation
+# (in ZONE2 + low shields + dense nearby swarm + no ready shield
+# consumable) and drives the bot to the in-zone Home Station umbrella
+# (or away from the swarm centroid if none exists) instead of sitting
+# in REGEN taking fire.  It outranks REGEN / ENGAGE so the bot
+# disengages rather than trading blows it cannot win; once a shield
+# consumable is available again the gate releases and normal REGEN /
+# ENGAGE resume.  Warp zones are excluded -- S_WARP_TRAVERSE already
+# keeps the bot moving toward the exit there.
+S_RETREAT           = "retreat"
 
 ALL_STATES = (
     S_ENGAGE, S_GATHER, S_REGEN, S_MINE, S_SEARCH,
@@ -676,7 +740,7 @@ ALL_STATES = (
     S_EQUIP_CONSUMABLES, S_PRE_BOSS_MINE, S_FORTIFY, S_BUILD_QWI,
     S_RECOVER_LOOT, S_WARP_TO_WORMHOLE, S_WARP_TRAVERSE,
     S_FLEE_GAS, S_BUILD_NEBULA, S_FORTIFY_NEBULA,
-    S_PLACE_AI_PILOT_NEBULA, S_BUILD_ADV_CRAFTER,
+    S_PLACE_AI_PILOT_NEBULA, S_BUILD_ADV_CRAFTER, S_RETREAT,
 )
 
 # Maximum range at which the bot will commit to chasing an alien
