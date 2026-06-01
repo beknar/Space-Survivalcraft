@@ -59,6 +59,64 @@ def _outside_main_swarm_suppresses(
     return len(state.get("aliens") or []) >= alien_threshold
 
 
+def _bot_has_ready_shield_consumable(state: dict) -> bool:
+    """True iff a shield_recharge sits in a quick-use slot with a
+    positive count.  This is the Fix-1 readiness gate: when it's
+    False the armed shield-heal latch in ``_maybe_use_consumables``
+    can never actually fire, so fighting the swarm is a pure loss.
+    """
+    for s in (state.get("quick_use_slots") or []):
+        if (s and s.get("item_type") == "shield_recharge"
+                and int(s.get("count", 0)) > 0):
+            return True
+    return False
+
+
+def _retreat_active(state: dict, p: dict, cur: str) -> bool:
+    """Section-0.5 predicate: should the bot drop into S_RETREAT?
+
+    True when ALL hold:
+      * the bot is in ZONE2 (the Nebula) -- the persistent-swarm
+        zone where the captured death spiral happened.  Warp zones
+        are deliberately excluded: there the bot is mid-traverse and
+        ``S_WARP_TRAVERSE`` + the warp-swarm suppression already keep
+        it MOVING toward the exit, which is its own form of retreat;
+        layering RETREAT on top would fight that drive.  MAIN is
+        excluded too (the fortified HS umbrella makes defending the
+        right call there),
+      * it has no ready shield_recharge consumable (so the armed
+        heal latch can't fire -- the death-spiral signature),
+      * a dense swarm (>= RETREAT_SWARM_ALIEN_COUNT aliens within
+        RETREAT_SWARM_RANGE_PX) is on top of it,
+      * shields are below the enter threshold (or, with hysteresis,
+        below the exit threshold while already retreating).
+
+    Gated this tightly so it only triggers the exact under-equipped
+    pathology the 2026-05-30 telemetry captured and never interferes
+    with a properly-kitted bot's normal REGEN / ENGAGE behaviour.
+    """
+    zone_id = str((state.get("zone") or {}).get("id", ""))
+    if "ZONE2" not in zone_id:
+        return False
+    if _bot_has_ready_shield_consumable(state):
+        return False
+    px, py = p.get("x", 0.0), p.get("y", 0.0)
+    swarm = sum(
+        1 for a in (state.get("aliens") or [])
+        if math.hypot(float(a.get("x", 0.0)) - px,
+                      float(a.get("y", 0.0)) - py)
+        <= _ap.RETREAT_SWARM_RANGE_PX)
+    if swarm < _ap.RETREAT_SWARM_ALIEN_COUNT:
+        return False
+    sh = int(p.get("shields", 0))
+    sh_max = max(1, int(p.get("max_shields", 1)))
+    pct = sh / sh_max
+    threshold = (_ap.RETREAT_EXIT_SHIELD_PCT
+                 if cur == _ap.S_RETREAT
+                 else _ap.RETREAT_ENTER_SHIELD_PCT)
+    return pct < threshold
+
+
 def _housekeeping_short_circuits(state: dict, p: dict) -> None:
     """Section 0: unconditional latches that fire every tick before
     any priority branch.
@@ -295,6 +353,29 @@ def choose_next_state(state: dict, p: dict, cur: str) -> str:
     #    stays focused on state selection, not session-restart
     #    bookkeeping.
     _housekeeping_short_circuits(state, p)
+
+    # 0.5 RETREAT — under-equipped defensive flee (2026-05-30).  Top
+    #     of the cascade so it outranks REGEN and ENGAGE: when the
+    #     bot is in ZONE2 (Nebula), shields are low, a dense swarm
+    #     is on top of it, AND it has no shield_recharge in its
+    #     quick-use slots, sitting in REGEN or trading blows in
+    #     ENGAGE is a loss -- the captured death spiral.  Peel off to
+    #     the Home Station umbrella (or away from the swarm) instead.
+    #
+    #     Tightly gated so it never interferes with normal combat:
+    #       * ZONE2 only (MAIN swarms have the fortified HS umbrella +
+    #         turret ring so the bot should defend there; warp zones
+    #         already drive the bot out via S_WARP_TRAVERSE),
+    #       * no ready shield consumable -- the moment one is
+    #         available the bot reverts to REGEN/ENGAGE + auto-heal,
+    #       * dense swarm within range (a lone kiter isn't a retreat
+    #         trigger),
+    #       * shield hysteresis (enter low, hold until recovered).
+    #     The escape valve below mirrors REGEN's: if the bot is being
+    #     actively run down with nowhere safe, RETREAT still drives
+    #     toward the HS / open space rather than freezing.
+    if _retreat_active(state, p, cur):
+        return _ap.S_RETREAT
 
     # 1. REGEN — shields hurt; sit still and recover.  Preempts
     #    ENGAGE/GATHER/MINE so the bot actually idles instead of
@@ -858,12 +939,32 @@ def choose_next_state(state: dict, p: dict, cur: str) -> str:
         return _ap.S_WARP_TRAVERSE
 
     # 3. GATHER — loot pickup within reach.
+    #    Hysteresis (2026-05-30): when the bot is actively mining a
+    #    reachable asteroid, only a genuinely-close pickup
+    #    (GATHER_ENTER_WHILE_MINING_PX) preempts it -- the wide
+    #    1500 px enter gate caused 254 mine<->gather flips in the
+    #    captured session.  The tighter gate applies ONLY when there
+    #    is actually an asteroid in chase range to mine; a stale
+    #    S_MINE with nothing to mine still uses the wide gate so the
+    #    bot doesn't ignore reachable loot.  GATHER's own exit gate is
+    #    unchanged so an in-progress gather still runs to completion.
     pickup, pd = _ap._nearest_pickup(state, px, py)
     if cur == _ap.S_GATHER:
         if pickup is not None and pd < _ap.GATHER_EXIT_PX:
             return _ap.S_GATHER
     else:
-        if pickup is not None and pd < _ap.GATHER_ENTER_PX:
+        mining_real_asteroid = False
+        if cur == _ap.S_MINE:
+            _gather_ast, _gather_ast_d = _ap._nearest_asteroid(
+                state, px, py)
+            mining_real_asteroid = (
+                _gather_ast is not None
+                and _gather_ast_d < _ap.MAX_ASTEROID_CHASE_PX)
+        gather_enter = (
+            _ap.GATHER_ENTER_WHILE_MINING_PX
+            if mining_real_asteroid
+            else _ap.GATHER_ENTER_PX)
+        if pickup is not None and pd < gather_enter:
             return _ap.S_GATHER
 
     # 4. BUILD — one-shot starter base when iron + clear area

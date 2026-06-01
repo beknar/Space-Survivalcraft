@@ -505,6 +505,62 @@ def _act_regen(state: dict, p: dict) -> None:
     _ap._do_idle()
 
 
+def _act_retreat(state: dict, p: dict) -> None:
+    """RETREAT: under-equipped defensive flee (2026-05-30).
+
+    Routed here by ``choose_next_state``'s section-0.5 gate when the
+    bot is in a non-MAIN swarm with low shields and no shield
+    consumable to spend.  Two behaviours:
+
+      1. **Drive to the in-zone Home Station umbrella** -- if a Home
+         Station exists in the current zone, head into its healing
+         field exactly like ``_act_regen`` does.  Shield + HP regen
+         and (eventually) the turret ring make this the safest spot
+         to wait out the gate; the bot stays here until shields
+         recover past ``RETREAT_EXIT_SHIELD_PCT`` or it picks up a
+         shield consumable, at which point the gate releases.
+      2. **Flee the swarm centroid** -- with no in-zone station,
+         drive along the ray from the mean position of the nearby
+         aliens through the bot, out past the swarm by
+         ``RETREAT_FLEE_TARGET_PX`` (clamped to the world rect), so
+         the bot breaks contact instead of bleeding out in place.
+    """
+    px = float(p.get("x", 0.0))
+    py = float(p.get("y", 0.0))
+
+    hs = _ap._find_home_station(state)
+    if hs is not None:
+        _regen_drive_to_hs(state, p, px, py, hs)
+        return
+
+    # No in-zone station -- flee the swarm centroid.
+    aliens = [
+        a for a in (state.get("aliens") or [])
+        if math.hypot(float(a.get("x", 0.0)) - px,
+                      float(a.get("y", 0.0)) - py)
+        <= _ap.RETREAT_SWARM_RANGE_PX]
+    if aliens:
+        cx = sum(float(a.get("x", 0.0)) for a in aliens) / len(aliens)
+        cy = sum(float(a.get("y", 0.0)) for a in aliens) / len(aliens)
+    else:
+        # Defensive: choose only routes here with a dense swarm, but
+        # if it emptied between tick and dispatch just idle one tick.
+        _ap._do_idle()
+        return
+    dx, dy = px - cx, py - cy
+    d = math.hypot(dx, dy)
+    if d < 1.0:
+        # Bot sitting on the centroid (surrounded); pick an axis.
+        dx, dy, d = 1.0, 0.0, 1.0
+    ux, uy = dx / d, dy / d
+    tx = px + ux * _ap.RETREAT_FLEE_TARGET_PX
+    ty = py + uy * _ap.RETREAT_FLEE_TARGET_PX
+    zone = state.get("zone") or {}
+    tx, ty, _ = _nav.clamp_to_world(tx, ty, zone)
+    _ap.KeyState.hold("space", False)
+    _ap._do_goto(state, p, tx, ty, stop_radius=120.0)
+
+
 def _act_flee_gas(state: dict, p: dict) -> None:
     """FLEE_GAS: drive out of the damaging gas cloud the bot is
     currently inside.  Same ray-out math as ``_act_regen``'s gas
@@ -998,11 +1054,29 @@ def _maybe_use_consumables(state: dict, p: dict) -> None:
         _ap._state.heal_hp_active = False
         _ap._telemetry_log("heal_hp_disarm",
                        hp=hp, max_hp=max_hp)
-    if not _ap._state.heal_shield_active and sh_frac <= _ap.CONSUMABLE_USE_SHIELD_PCT:
+    # Density-aware shield arm threshold (2026-05-30): under a dense
+    # swarm the incoming DPS drains faster than the heal can land, so
+    # arm earlier (CONSUMABLE_USE_SHIELD_SWARM_PCT) when the bot is
+    # surrounded.  In open space fall back to the base threshold so a
+    # single kiting alien doesn't trigger an early heal spend.
+    px = float(p.get("x", 0.0))
+    py = float(p.get("y", 0.0))
+    nearby_aliens = sum(
+        1 for a in (state.get("aliens") or [])
+        if math.hypot(float(a.get("x", 0.0)) - px,
+                      float(a.get("y", 0.0)) - py)
+        <= _ap.CONSUMABLE_SWARM_RANGE_PX)
+    shield_arm_pct = (
+        _ap.CONSUMABLE_USE_SHIELD_SWARM_PCT
+        if nearby_aliens >= _ap.CONSUMABLE_SWARM_ALIEN_COUNT
+        else _ap.CONSUMABLE_USE_SHIELD_PCT)
+    if not _ap._state.heal_shield_active and sh_frac <= shield_arm_pct:
         _ap._state.heal_shield_active = True
         _ap._telemetry_log("heal_shield_arm",
                        shields=sh, max_shields=max_sh,
-                       sh_frac=round(sh_frac, 3))
+                       sh_frac=round(sh_frac, 3),
+                       nearby_aliens=nearby_aliens,
+                       arm_pct=shield_arm_pct)
     if _ap._state.heal_shield_active and sh_frac >= _ap.CONSUMABLE_DISARM_SHIELD_PCT:
         _ap._state.heal_shield_active = False
         _ap._telemetry_log("heal_shield_disarm",

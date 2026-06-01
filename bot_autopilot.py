@@ -1023,7 +1023,7 @@ from bot_autopilot_actions_station import (
 from bot_autopilot_actions_combat import (
     _act_engage, _act_engage_boss, _act_regen, _maybe_use_consumables,
     _act_gather, _act_idle_at_base, _act_warp_to_wormhole,
-    _act_warp_traverse, _act_flee_gas, _gas_cloud_at,
+    _act_warp_traverse, _act_flee_gas, _act_retreat, _gas_cloud_at,
 )
 
 
@@ -1251,8 +1251,30 @@ def _do_auto(state: dict, p: dict) -> None:
     # stuck-detect protection — those states call _do_goto with
     # brake_on_arrival=True against single chase targets, so a
     # real pin cleanly fires the watchdog.
-    if (_detect_stuck()
-            and _fsm["state"] not in (S_SEARCH, S_IDLE_AT_BASE, S_REGEN)):
+    # Edge-pin override (2026-05-30): the skip set above keeps the
+    # escape burst from firing during intentional idle / spiral /
+    # regen parking.  But a GENUINE world-edge pin (ship inside the
+    # edge margin, not a spiral-coast false positive) while a threat
+    # is adjacent is lethal even in those states -- the 2026-05-30
+    # telemetry captured two Nebula deaths in fsm=regen wall-pinned
+    # near the map edge, shields collapsing while the watchdog stayed
+    # silent because REGEN was in the skip set.  Let the escape fire
+    # in REGEN / IDLE_AT_BASE / RETREAT when both conditions hold so
+    # the bot peels off the wall instead of bleeding out against it.
+    # S_SEARCH stays excluded (its small-radius spiral coast routinely
+    # trips the position watchdog in open space, edge or not).
+    _edge_pinned = not _ship_clear_of_edges(p, zone)
+    _stuck_threat, _stuck_threat_d = nearest(
+        state.get("aliens") or [],
+        float(p.get("x", 0.0)), float(p.get("y", 0.0)))
+    _threatened_pin = (_stuck_threat is not None
+                       and _stuck_threat_d < ENGAGE_ENTER_PX)
+    _escape_skip_states = (S_SEARCH, S_IDLE_AT_BASE, S_REGEN, S_RETREAT)
+    _escape_skipped = _fsm["state"] in _escape_skip_states
+    if (_escape_skipped and _edge_pinned and _threatened_pin
+            and _fsm["state"] != S_SEARCH):
+        _escape_skipped = False
+    if _detect_stuck() and not _escape_skipped:
         _stuck_state["escape_until"] = now + STUCK_ESCAPE_MIN_DURATION_S
         # Blacklist whichever target the bot was trying to reach —
         # if we got stuck WHILE in S_GATHER, the pickup is
@@ -1419,7 +1441,7 @@ def _do_auto(state: dict, p: dict) -> None:
                        S_EQUIP_CONSUMABLES, S_FORTIFY, S_FORTIFY_NEBULA,
                        S_PLACE_AI_PILOT_NEBULA, S_BUILD_ADV_CRAFTER,
                        S_BUILD_QWI, S_WARP_TO_WORMHOLE,
-                       S_WARP_TRAVERSE, S_FLEE_GAS) or \
+                       S_WARP_TRAVERSE, S_FLEE_GAS, S_RETREAT) or \
                 idle_react or \
                 dwell >= MIN_DWELL_S:
             _fsm["state"] = desired
@@ -1505,6 +1527,8 @@ def _do_auto(state: dict, p: dict) -> None:
         _act_warp_traverse(state, p)
     elif cur == S_FLEE_GAS:
         _act_flee_gas(state, p)
+    elif cur == S_RETREAT:
+        _act_retreat(state, p)
     else:  # S_SEARCH
         _do_spiral_search(state, p)
 

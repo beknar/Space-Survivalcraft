@@ -2775,9 +2775,11 @@ class TestMaybeUseConsumables:
 
     def test_shields_above_last_resort_threshold_does_not_fire(
             self, _clock, _fresh_bot_state, monkeypatch):
-        """Shields at 33 % -- above the 20 % last-resort threshold.
-        Bot should rely on kite + lure to manage this, not burn a
-        shield-recharge charge."""
+        """Shields at 40 % -- above the 35 % last-resort threshold
+        (raised from 20 % in the 2026-05-30 tuning pass).  Bot should
+        rely on kite + lure to manage this, not burn a shield-recharge
+        charge.  No aliens nearby so the base (non-swarm) threshold
+        applies."""
         captured: list = []
         monkeypatch.setattr(
             ap, "_post_use_quick_use",
@@ -2785,7 +2787,7 @@ class TestMaybeUseConsumables:
         s = _state(
             player={"x": 0.0, "y": 0.0, "heading": 0.0,
                     "hp": 100, "max_hp": 100,
-                    "shields": 50, "max_shields": 150},  # 33 %
+                    "shields": 60, "max_shields": 150},  # 40 %
         )
         s["quick_use_slots"] = [
             {"item_type": "repair_pack", "count": 25},
@@ -2865,6 +2867,82 @@ class TestMaybeUseConsumables:
         _clock[0] += ap.CONSUMABLE_USE_COOLDOWN_S * 1.5
         ap._maybe_use_consumables(s, s["player"])
         assert captured == [0, 0]
+
+    def test_shield_heal_swarm_threshold_fires_earlier(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """2026-05-30 density-aware arm threshold.  Shields at 50 %
+        is below the swarm threshold (55 %) but above the base
+        threshold (35 %).  With a dense swarm on top of the bot the
+        heal should fire; with no swarm it should NOT (kite + lure
+        manage the smaller dip).  Captured pathology: 50-60 alien
+        swarms drained shields ~37 px/s, so 35 % was too late."""
+        # Surrounded: CONSUMABLE_SWARM_ALIEN_COUNT aliens inside
+        # CONSUMABLE_SWARM_RANGE_PX of the bot.
+        aliens = [{"x": 100.0 * i, "y": 0.0, "hp": 50}
+                  for i in range(ap.CONSUMABLE_SWARM_ALIEN_COUNT)]
+        captured: list = []
+        monkeypatch.setattr(
+            ap, "_post_use_quick_use",
+            lambda slot: captured.append(slot) or {"ok": True})
+        s = _state(
+            player={"x": 0.0, "y": 0.0, "heading": 0.0,
+                    "hp": 100, "max_hp": 100,
+                    "shields": 60, "max_shields": 120},  # 50 %
+            aliens=aliens,
+        )
+        s["quick_use_slots"] = [
+            {"item_type": "repair_pack", "count": 25},
+            {"item_type": "shield_recharge", "count": 25},
+        ]
+        ap._maybe_use_consumables(s, s["player"])
+        assert captured == [1], "swarm threshold should fire at 50 %"
+
+    def test_shield_heal_no_swarm_holds_at_50pct(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """Same 50 % shields but only a single alien nearby -- below
+        the swarm count, so the base 35 % threshold applies and the
+        heal must NOT fire."""
+        captured: list = []
+        monkeypatch.setattr(
+            ap, "_post_use_quick_use",
+            lambda slot: captured.append(slot) or {"ok": True})
+        s = _state(
+            player={"x": 0.0, "y": 0.0, "heading": 0.0,
+                    "hp": 100, "max_hp": 100,
+                    "shields": 60, "max_shields": 120},  # 50 %
+            aliens=[{"x": 100.0, "y": 0.0, "hp": 50}],
+        )
+        s["quick_use_slots"] = [
+            {"item_type": "repair_pack", "count": 25},
+            {"item_type": "shield_recharge", "count": 25},
+        ]
+        ap._maybe_use_consumables(s, s["player"])
+        assert captured == [], "base threshold must not fire at 50 %"
+
+    def test_shield_heal_swarm_threshold_ignores_distant_aliens(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """Many aliens but all OUTSIDE CONSUMABLE_SWARM_RANGE_PX --
+        the bot isn't actually surrounded, so the base threshold
+        applies and the 50 % dip does not fire a heal."""
+        far = ap.CONSUMABLE_SWARM_RANGE_PX + 500.0
+        aliens = [{"x": far + 50.0 * i, "y": 0.0, "hp": 50}
+                  for i in range(ap.CONSUMABLE_SWARM_ALIEN_COUNT + 2)]
+        captured: list = []
+        monkeypatch.setattr(
+            ap, "_post_use_quick_use",
+            lambda slot: captured.append(slot) or {"ok": True})
+        s = _state(
+            player={"x": 0.0, "y": 0.0, "heading": 0.0,
+                    "hp": 100, "max_hp": 100,
+                    "shields": 60, "max_shields": 120},  # 50 %
+            aliens=aliens,
+        )
+        s["quick_use_slots"] = [
+            {"item_type": "repair_pack", "count": 25},
+            {"item_type": "shield_recharge", "count": 25},
+        ]
+        ap._maybe_use_consumables(s, s["player"])
+        assert captured == [], "distant aliens don't count as a swarm"
 
 
 
