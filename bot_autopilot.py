@@ -1111,69 +1111,26 @@ def _on_enter(new_state: str) -> None:
         _state.mine_progress_check_at = 0.0
 
 
-def _do_auto(state: dict, p: dict) -> None:
-    """Step the FSM one tick, then dispatch the action for the
-    current state.  ENGAGE preempts dwell; everything else waits
-    out ``MIN_DWELL_S`` before transitioning.
+def _run_stuck_escape(state: dict, p: dict, now: float) -> bool:
+    """Stuck-watchdog + escape-burst machine, run once per tick before
+    the FSM dispatch.  Returns True when an escape burst was dispatched
+    this tick and ``_do_auto`` must return immediately; False to fall
+    through into normal state selection.
 
-    The first tick after ``_fsm_reset()`` (entered_at sentinel
-    None) always stamps the timer and is allowed to transition
-    freely -- otherwise a fresh process couldn't react to its
-    initial observation."""
-    _telemetry_init()
-    now = _get_now()
-    # Periodic snapshot so the JSONL stream still has context
-    # during long stable stretches (no transitions = no other
-    # events).  Cheap: ~1 line per 5 s.
-    global _telemetry_last_snapshot_at
-    if now - _telemetry_last_snapshot_at >= TELEMETRY_SNAPSHOT_INTERVAL_S:
-        _telemetry_last_snapshot_at = now
-        _telemetry_log("snapshot",
-                       fsm_state=_fsm["state"],
-                       **_telemetry_snapshot_fields(state, p))
-
-    # Auto-use consumables BEFORE the FSM dispatch so a low HP /
-    # shield read this tick fires a heal regardless of which state
-    # the bot is in (combat / mining / boss fight all benefit).
-    # The HP threshold + cooldown live in
-    # ``_maybe_use_consumables`` — see its docstring.
-    _maybe_use_consumables(state, p)
-
-    # Death edge detection + loadout snapshot (PR 2026-05-10).
-    # Tracks the alive->dead transition so the bot can drive a
-    # recovery action after respawn that picks up the dropped
-    # modules + consumables.  See ``_observe_death_edges`` for the
-    # full state machine.
-    _observe_death_edges(state, p, now)
-
-    # Gas-lingering detector (2026-05-19).  Pure telemetry --
-    # fires a ``gas_lingering`` event when the bot has been
-    # stuck in a damaging gas cloud for too long.  See
-    # ``_observe_gas_lingering`` for thresholds + rationale.
-    _observe_gas_lingering(state, p, now)
-
-    # Re-arm the post-boss warp cascade if the bot is observed back
-    # in MAIN after warp_after_boss_done was already True.  Captured
-    # 2026-05-16: bot warped to a warp zone, traversed to Nebula,
-    # then wandered into Nebula's central return wormhole and ended
-    # up back in MAIN with the latch sticky -- no path out.  See
-    # ``_observe_warp_back_to_main`` for the full rationale.
-    _observe_warp_back_to_main(state, p, now)
-
-    # Emit warp_traverse_arc_completed when the FSM exits S_WARP_TRAVERSE
-    # without the action-handler arrival-band branch having fired
-    # it (game's auto-zone-transition can preempt the action handler).
-    # Captured 2026-05-17: bot crossed WARP_GAS to y=6352, FSM
-    # transitioned warp_traverse -> search via zone change, no
-    # arc_completed event ever fired.  See
-    # ``_observe_warp_traverse_arc_complete`` for the rationale.
-    _observe_warp_traverse_arc_complete(state, p, now)
-
-    # Stuck watchdog: if the ship has been pinned against either
-    # the world boundary OR a station building cluster, override
-    # the FSM and head along the local repulsion vector toward
-    # open space.  Has to run BEFORE the FSM dispatch so it
-    # preempts whatever was driving the ship into the obstacle.
+    If the ship has been pinned against either the world boundary OR a
+    station building cluster, this overrides the FSM and heads along the
+    local repulsion vector toward open space -- it has to run BEFORE the
+    FSM dispatch so it preempts whatever was driving the ship into the
+    obstacle.  It records the position sample, runs the wall-pin
+    force-escape, then:
+      * if an escape burst is already active, keeps driving it until the
+        ship clears the edges + buildings, then re-anchors the SEARCH
+        spiral at the clear-space landing position;
+      * otherwise runs the position/rotation stuck detector (with the
+        2026-05-30 edge-pin override for the REGEN / IDLE / RETREAT skip
+        states) and, on a fresh stuck, arms the burst, blacklists the
+        unreachable target, records the pin-zone anchor, and logs.
+    """
     _record_position(p)
     zone = state.get("zone") or {}
     # Wall+cluster trap force-escape (2026-05-06 follow-up #7): the
@@ -1204,7 +1161,7 @@ def _do_auto(state: dict, p: dict) -> None:
                 or not _ship_clear_of_edges(p, zone)
                 or not _ship_clear_of_buildings(p, state)):
             _do_escape_edge(state, p)
-            return
+            return True
         # Exit condition met — clear the override and fall through.
         _stuck_state["escape_until"] = 0.0
         # Re-anchor the SEARCH spiral at the bot's CURRENT
@@ -1392,6 +1349,76 @@ def _do_auto(state: dict, p: dict) -> None:
                   "repulsion vector + re-anchoring spiral")
             _stuck_state["last_log"] = now
         _do_escape_edge(state, p)
+        return True
+    return False
+
+
+def _do_auto(state: dict, p: dict) -> None:
+    """Step the FSM one tick, then dispatch the action for the
+    current state.  ENGAGE preempts dwell; everything else waits
+    out ``MIN_DWELL_S`` before transitioning.
+
+    The first tick after ``_fsm_reset()`` (entered_at sentinel
+    None) always stamps the timer and is allowed to transition
+    freely -- otherwise a fresh process couldn't react to its
+    initial observation."""
+    _telemetry_init()
+    now = _get_now()
+    # Periodic snapshot so the JSONL stream still has context
+    # during long stable stretches (no transitions = no other
+    # events).  Cheap: ~1 line per 5 s.
+    global _telemetry_last_snapshot_at
+    if now - _telemetry_last_snapshot_at >= TELEMETRY_SNAPSHOT_INTERVAL_S:
+        _telemetry_last_snapshot_at = now
+        _telemetry_log("snapshot",
+                       fsm_state=_fsm["state"],
+                       **_telemetry_snapshot_fields(state, p))
+
+    # Auto-use consumables BEFORE the FSM dispatch so a low HP /
+    # shield read this tick fires a heal regardless of which state
+    # the bot is in (combat / mining / boss fight all benefit).
+    # The HP threshold + cooldown live in
+    # ``_maybe_use_consumables`` — see its docstring.
+    _maybe_use_consumables(state, p)
+
+    # Death edge detection + loadout snapshot (PR 2026-05-10).
+    # Tracks the alive->dead transition so the bot can drive a
+    # recovery action after respawn that picks up the dropped
+    # modules + consumables.  See ``_observe_death_edges`` for the
+    # full state machine.
+    _observe_death_edges(state, p, now)
+
+    # Gas-lingering detector (2026-05-19).  Pure telemetry --
+    # fires a ``gas_lingering`` event when the bot has been
+    # stuck in a damaging gas cloud for too long.  See
+    # ``_observe_gas_lingering`` for thresholds + rationale.
+    _observe_gas_lingering(state, p, now)
+
+    # Re-arm the post-boss warp cascade if the bot is observed back
+    # in MAIN after warp_after_boss_done was already True.  Captured
+    # 2026-05-16: bot warped to a warp zone, traversed to Nebula,
+    # then wandered into Nebula's central return wormhole and ended
+    # up back in MAIN with the latch sticky -- no path out.  See
+    # ``_observe_warp_back_to_main`` for the full rationale.
+    _observe_warp_back_to_main(state, p, now)
+
+    # Emit warp_traverse_arc_completed when the FSM exits S_WARP_TRAVERSE
+    # without the action-handler arrival-band branch having fired
+    # it (game's auto-zone-transition can preempt the action handler).
+    # Captured 2026-05-17: bot crossed WARP_GAS to y=6352, FSM
+    # transitioned warp_traverse -> search via zone change, no
+    # arc_completed event ever fired.  See
+    # ``_observe_warp_traverse_arc_complete`` for the rationale.
+    _observe_warp_traverse_arc_complete(state, p, now)
+
+    # Stuck watchdog: if the ship has been pinned against either the
+    # world boundary OR a station building cluster, override the FSM
+    # and head along the local repulsion vector toward open space.
+    # Runs (and may dispatch an escape burst) BEFORE the FSM dispatch so
+    # it preempts whatever was driving the ship into the obstacle.  Full
+    # machine -- active-escape drive, edge-pin override, blacklisting,
+    # pin-zone anchoring -- lives in ``_run_stuck_escape``.
+    if _run_stuck_escape(state, p, now):
         return
 
     cur = _fsm["state"]

@@ -3945,3 +3945,67 @@ class TestBotStateGroupingAliases:
                     == getattr(getattr(defaults, sub), attr)), (
                 f"reset() did not restore _state.{sub}.{attr}")
 
+
+# ── _run_stuck_escape extracted-helper contract ───────────────────────────
+
+
+class TestRunStuckEscapeContract:
+    """Direct contract for ``_run_stuck_escape`` (extracted from
+    ``_do_auto``).  Returns True -- and dispatches an escape burst --
+    when the caller must skip the FSM dispatch this tick; False to fall
+    through into normal state selection.  The behavioural coverage lives
+    in ``TestStuckEscape`` (which drives it through ``_do_auto``); these
+    just pin the return value the orchestrator now branches on."""
+
+    def test_active_escape_returns_true_and_dispatches(
+            self, _clock, monkeypatch):
+        now = _clock[0]
+        # Arm a burst still inside its min-duration window so the
+        # active-escape branch keeps driving it.
+        ap._stuck_state["escape_until"] = now + 999.0
+        dispatched = []
+        monkeypatch.setattr(ap, "_do_escape_edge",
+                            lambda s, p: dispatched.append((s, p)))
+        s = _state(player={"x": 100.0, "y": 100.0, "heading": 0.0,
+                           "shields": 150, "max_shields": 150})
+        assert ap._run_stuck_escape(s, s["player"], now) is True
+        assert len(dispatched) == 1
+
+    def test_not_stuck_returns_false(self, _clock):
+        now = _clock[0]
+        # Fresh state, no burst armed, single tick -> the detector has
+        # only one position sample, so it cannot flag a no-movement
+        # window and the helper falls through.
+        s = _state(player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                           "shields": 150, "max_shields": 150})
+        assert ap._run_stuck_escape(s, s["player"], now) is False
+        assert ap._stuck_state["escape_until"] == 0.0
+
+    def test_fresh_stuck_arms_burst_and_returns_true(
+            self, _clock, monkeypatch):
+        now = _clock[0]
+        # Feed the detector a full window of identical (pinned)
+        # positions in S_MINE (a stuck-detect-participating state), then
+        # the next call must flag stuck, arm the burst, and return True.
+        ap._fsm["state"] = ap.S_MINE
+        dispatched = []
+        monkeypatch.setattr(ap, "_do_escape_edge",
+                            lambda s, p: dispatched.append((s, p)))
+        s = _state(
+            player={"x": 100.0, "y": 100.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            asteroids=[{"x": 300.0, "y": 100.0, "hp": 50}],
+        )
+        result = False
+        for _ in range(25):
+            # Advance the patched clock each tick so the detector's
+            # no-movement window actually elapses (it reads _get_now()).
+            cur_now = _clock[0]
+            result = ap._run_stuck_escape(s, s["player"], cur_now)
+            if result:
+                break
+            _clock[0] += 0.1
+        assert result is True
+        assert ap._stuck_state["escape_until"] > 0.0
+        assert len(dispatched) >= 1
+
