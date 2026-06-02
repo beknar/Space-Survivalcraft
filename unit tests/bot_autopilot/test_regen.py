@@ -1707,3 +1707,61 @@ class TestNebulaRegenThresholds:
         # 0.80 < REGEN_EXIT_PCT_BOSS_ALIVE (0.85) -- still in REGEN.
         ap._do_auto(s, s["player"])
         assert ap._fsm["state"] == ap.S_REGEN
+
+
+# ── _regen_decision extracted-predicate contract ──────────────────────────
+
+
+class TestRegenDecisionContract:
+    """Direct tests for ``bot_autopilot_choose._regen_decision`` -- the
+    Section-1 predicate hoisted out of ``choose_next_state``.  Returns
+    ``S_REGEN`` to enter/stay in REGEN, or ``None`` to fall through.  The
+    full behavioural coverage drives the FSM through ``_do_auto``; these
+    pin the state-or-None contract the cascade now branches on so future
+    moves of the call site don't drift.  MAIN-zone thresholds:
+    REGEN_ENTER_PCT 0.40, REGEN_EXIT_PCT 0.60.
+    """
+
+    @staticmethod
+    def _import():
+        import bot_autopilot_choose as choose
+        return choose._regen_decision
+
+    def _p(self, sh, sh_max=120):
+        return {"x": 3200.0, "y": 3200.0,
+                "shields": sh, "max_shields": sh_max}
+
+    def _main_state(self):
+        return {"zone": {"id": "ZoneID.MAIN"}, "aliens": [], "boss": None}
+
+    def test_enters_regen_when_low_and_unthreatened(self):
+        fn = self._import()
+        # 30/120 = 0.25 < 0.40 enter; no threat.
+        assert fn(self._main_state(), self._p(30),
+                  ap.S_SEARCH, None, 1e9) == ap.S_REGEN
+
+    def test_no_regen_when_shields_above_enter(self):
+        fn = self._import()
+        # 100/120 = 0.83 > 0.40 enter.
+        assert fn(self._main_state(), self._p(100),
+                  ap.S_SEARCH, None, 1e9) is None
+
+    def test_entry_blocked_by_close_threat(self):
+        fn = self._import()
+        threat = {"x": 3200.0, "y": 3200.0, "hp": 10}
+        # Low shields but a threat inside ENGAGE_ENTER_PX -> fall
+        # through so ENGAGE can fire instead of idling under fire.
+        assert fn(self._main_state(), self._p(30),
+                  ap.S_SEARCH, threat, 100.0) is None
+
+    def test_stays_in_regen_below_exit_when_unthreatened(self, _clock):
+        fn = self._import()
+        # 50/120 = 0.41: below 0.60 exit, above 0.40 enter, no threat.
+        assert fn(self._main_state(), self._p(50),
+                  ap.S_REGEN, None, 1e9) == ap.S_REGEN
+
+    def test_leaves_regen_when_recovered_past_exit(self):
+        fn = self._import()
+        # 80/120 = 0.67 >= 0.60 exit -> clean exit, returns None.
+        assert fn(self._main_state(), self._p(80),
+                  ap.S_REGEN, None, 1e9) is None

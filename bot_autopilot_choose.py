@@ -328,90 +328,31 @@ def _housekeeping_short_circuits(state: dict, p: dict) -> None:
                     **_ap._telemetry_snapshot_fields(state, p))
 
 
-def choose_next_state(state: dict, p: dict, cur: str) -> str:
-    """Pure function: given the world snapshot and the current FSM
-    state, return what state the bot *wants* to be in this tick.
+def _regen_decision(state: dict, p: dict, cur: str,
+                    threat, td: float) -> str | None:
+    """Section 1 (REGEN): shields hurt -- sit still and recover.
+    Returns ``_ap.S_REGEN`` to enter or stay in REGEN, or ``None`` to
+    fall through to the rest of the cascade.  ``threat`` / ``td`` are the
+    nearest-threat signals computed once in ``choose_next_state`` (with
+    the boss injected) and reused by the ENGAGE tier.
 
-    Hysteresis is encoded by branching on ``cur``: the enter
-    threshold and exit threshold differ, so a value drifting around
-    the boundary doesn't oscillate.
+    REGEN preempts ENGAGE/GATHER/MINE so the bot actually idles instead
+    of burning thrust while shields are low.
 
-    REGEN is the **top priority** -- when shields drop below 40 %
-    the bot disengages, sits still, and waits for shields to climb
-    back to 60 % before doing anything else.  Combat assist still
-    aims + fires automatically every frame, so the bot isn't
-    defenseless while regenerating; it just doesn't burn thrust
-    chasing targets while the shield bar is low.
+    REGEN escape valve (added 2026-05-04): the original "always return
+    REGEN while shields < REGEN_EXIT_PCT" rule deadlocks when the bot
+    starts already low on shields with nearby aliens still firing -- the
+    bot sits idle, takes damage, can never reach the exit threshold, and
+    dies.  Telemetry caught this clearly: 78 s session, 23 stuck_detected
+    events all in REGEN with shields=0, 0 iron collected.  Fix: if a
+    threat is within ENGAGE_ENTER_PX AND shields are NOT recovering
+    between ticks, fall through and let ENGAGE (or other priorities) take
+    over -- better to fight back at low HP than die idling.
     """
-    px, py = p.get("x", 0.0), p.get("y", 0.0)
-
-    # 0. Unconditional housekeeping -- runs every tick, before any
-    #    early-return branch.  See ``_housekeeping_short_circuits``
-    #    for the gate list (build_done / nebula_build_done /
-    #    fortify_done / consumable-phase / module-craft-queue
-    #    pops).  Extracted in PR 7 so the priority cascade below
-    #    stays focused on state selection, not session-restart
-    #    bookkeeping.
-    _housekeeping_short_circuits(state, p)
-
-    # 0.5 RETREAT — under-equipped defensive flee (2026-05-30).  Top
-    #     of the cascade so it outranks REGEN and ENGAGE: when the
-    #     bot is in ZONE2 (Nebula), shields are low, a dense swarm
-    #     is on top of it, AND it has no shield_recharge in its
-    #     quick-use slots, sitting in REGEN or trading blows in
-    #     ENGAGE is a loss -- the captured death spiral.  Peel off to
-    #     the Home Station umbrella (or away from the swarm) instead.
-    #
-    #     Tightly gated so it never interferes with normal combat:
-    #       * ZONE2 only (MAIN swarms have the fortified HS umbrella +
-    #         turret ring so the bot should defend there; warp zones
-    #         already drive the bot out via S_WARP_TRAVERSE),
-    #       * no ready shield consumable -- the moment one is
-    #         available the bot reverts to REGEN/ENGAGE + auto-heal,
-    #       * dense swarm within range (a lone kiter isn't a retreat
-    #         trigger),
-    #       * shield hysteresis (enter low, hold until recovered).
-    #     The escape valve below mirrors REGEN's: if the bot is being
-    #     actively run down with nowhere safe, RETREAT still drives
-    #     toward the HS / open space rather than freezing.
-    if _retreat_active(state, p, cur):
-        return _ap.S_RETREAT
-
-    # 1. REGEN — shields hurt; sit still and recover.  Preempts
-    #    ENGAGE/GATHER/MINE so the bot actually idles instead of
-    #    burning thrust while shields are low.
-    #
-    #    REGEN escape valve (added 2026-05-04): the original "always
-    #    return REGEN while shields < _ap.REGEN_EXIT_PCT" rule deadlocks
-    #    when the bot starts already low on shields with nearby
-    #    aliens still firing — the bot sits idle, takes damage, can
-    #    never reach the exit threshold, and dies.  Telemetry caught
-    #    this clearly: 78 s session, 23 stuck_detected events all in
-    #    REGEN with shields=0, 0 iron collected.
-    #    Fix: if a threat is within _ap.ENGAGE_ENTER_PX AND shields are
-    #    NOT recovering between ticks, fall through and let ENGAGE
-    #    (or other priorities) take over — better to fight back at
-    #    low HP than die idling.
     sh = int(p.get("shields", 0))
     sh_max = max(1, int(p.get("max_shields", 1)))
     pct = sh / sh_max
-    aliens = state.get("aliens") or []
-    threat, td = _ap.nearest(aliens, px, py)
-    # Treat the boss as a threat for REGEN escape-valve purposes
-    # (2026-05-11 telemetry): without this the bot sat in REGEN at
-    # point-blank cannon range -- ``nearest(aliens, ...)`` returned
-    # None, the escape-valve threat check evaluated False, and the
-    # bot idled while the boss drained 86 shields over 28 s, then
-    # died.  Boss is at most one entity, so a single distance check
-    # is cheaper than rebuilding the alien list with the boss
-    # appended.  ENGAGE_ENTER_PX (800) matches BOSS_DETECT_RANGE so
-    # the threat band lines up with the boss's own aggro distance.
     boss = state.get("boss")
-    if boss is not None:
-        bd = math.hypot(float(boss.get("x", 0.0)) - px,
-                        float(boss.get("y", 0.0)) - py)
-        if bd < _ap.ENGAGE_ENTER_PX and (threat is None or bd < td):
-            threat, td = boss, bd
     # Boss-alive thresholds (2026-05-13 fourteenth telemetry pass):
     # when a boss is alive, regen further before re-engaging.  Death-
     # loop captured in the log was: post-recovery install → engage_boss
@@ -574,6 +515,149 @@ def choose_next_state(state: dict, p: dict, cur: str) -> str:
                 _ap._state.last_regen_shields = sh
                 _ap._state.last_regen_progress_at = _ap._get_now()
                 return _ap.S_REGEN
+    return None
+
+
+def _engage_decision(state: dict, cur: str, threat, td: float,
+                     hs_pri145, zone_id: str) -> str | None:
+    """Section 2 (ENGAGE): an alien (or the injected boss) is within the
+    engage band -- preempts GATHER/MINE/etc.  Returns ``_ap.S_ENGAGE`` to
+    engage or ``None`` to fall through.  ``threat`` / ``td`` are the
+    shared signals from ``choose_next_state`` (boss injected, so they
+    don't get re-walked here); ``hs_pri145`` is the home-station lookup
+    and ``zone_id`` the current zone, both already computed in the
+    cascade.
+
+    No-home-station suppression on boss-as-threat (2026-05-14 eighteenth
+    pass): when the boss is the chosen threat AND there is no home
+    station, charging into ENGAGE range = death.  The seventeenth-pass
+    HS-loss fix already blocked ``engage_boss``, but the regular ENGAGE
+    path still picked the boss up via the threat injection above (REGEN
+    escape valve check) and routed to S_ENGAGE.  Captured as 5
+    back-to-back ENGAGE deaths at sh=0-2 in 12 s.  Cascade falls through
+    to GATHER / MINE / SEARCH which navigate by resource, not boss aggro.
+    """
+    boss_is_threat = (
+        threat is not None
+        and state.get("boss") is not None
+        and threat is state.get("boss"))
+    suppress_engage_no_hs = (
+        boss_is_threat and hs_pri145 is None)
+    # Outside-base swarm suppression (PR #155, broadened in #168,
+    # then conditioned in 2026-05-23 v4).
+    #
+    # The original intent (#155) was: in a WARP_ENEMY swarm with
+    # an active warp-traverse goal, suppress ENGAGE so the bot
+    # keeps driving toward the exit instead of kiting one alien
+    # while ~20 others shred it.  PR #168 broadened to all non-MAIN
+    # zones to cover the ZONE2-post-boss kite-trap (48 aliens, no
+    # Nebula HS yet -- bot needed to BUILD_NEBULA instead of
+    # ENGAGE).
+    #
+    # But PR #168 was too broad: it suppressed ENGAGE in ZONE2
+    # even when the bot HAD a Nebula HS and no productive
+    # alternative -- the bot ended up mining/gathering defenseless
+    # while aliens drained shields to 1/120.  User complaint:
+    # "bot is not attacking back when it is attacked.  this should
+    # always be a higher priority than gathering resources."
+    #
+    # Resolution: condition the suppression on a productive
+    # alternative actually being viable this tick.  If WARP_TRAVERSE
+    # would fire (post-boss arc not yet complete in a warp zone)
+    # OR BUILD_NEBULA would fire (in ZONE2, no Nebula HS yet, iron
+    # over threshold), suppress ENGAGE so that alternative goal
+    # runs.  Otherwise let ENGAGE fire so the bot defends itself
+    # instead of falling through to MINE / GATHER while being
+    # attacked.
+    # Productive-alternative gate shared with section 1 (REGEN);
+    # see ``_outside_main_swarm_suppresses`` for the predicate.
+    suppress_engage_warp_swarm = _outside_main_swarm_suppresses(
+        state, zone_id, _ap.WARP_SWARM_ENGAGE_SUPPRESS_ALIENS)
+    if not suppress_engage_no_hs and not suppress_engage_warp_swarm:
+        if cur == _ap.S_ENGAGE:
+            if threat is not None and td < _ap.ENGAGE_EXIT_PX:
+                return _ap.S_ENGAGE
+        else:
+            if threat is not None and td < _ap.ENGAGE_ENTER_PX:
+                return _ap.S_ENGAGE
+    return None
+
+
+def choose_next_state(state: dict, p: dict, cur: str) -> str:
+    """Pure function: given the world snapshot and the current FSM
+    state, return what state the bot *wants* to be in this tick.
+
+    Hysteresis is encoded by branching on ``cur``: the enter
+    threshold and exit threshold differ, so a value drifting around
+    the boundary doesn't oscillate.
+
+    REGEN is the **top priority** -- when shields drop below 40 %
+    the bot disengages, sits still, and waits for shields to climb
+    back to 60 % before doing anything else.  Combat assist still
+    aims + fires automatically every frame, so the bot isn't
+    defenseless while regenerating; it just doesn't burn thrust
+    chasing targets while the shield bar is low.
+    """
+    px, py = p.get("x", 0.0), p.get("y", 0.0)
+
+    # 0. Unconditional housekeeping -- runs every tick, before any
+    #    early-return branch.  See ``_housekeeping_short_circuits``
+    #    for the gate list (build_done / nebula_build_done /
+    #    fortify_done / consumable-phase / module-craft-queue
+    #    pops).  Extracted in PR 7 so the priority cascade below
+    #    stays focused on state selection, not session-restart
+    #    bookkeeping.
+    _housekeeping_short_circuits(state, p)
+
+    # 0.5 RETREAT — under-equipped defensive flee (2026-05-30).  Top
+    #     of the cascade so it outranks REGEN and ENGAGE: when the
+    #     bot is in ZONE2 (Nebula), shields are low, a dense swarm
+    #     is on top of it, AND it has no shield_recharge in its
+    #     quick-use slots, sitting in REGEN or trading blows in
+    #     ENGAGE is a loss -- the captured death spiral.  Peel off to
+    #     the Home Station umbrella (or away from the swarm) instead.
+    #
+    #     Tightly gated so it never interferes with normal combat:
+    #       * ZONE2 only (MAIN swarms have the fortified HS umbrella +
+    #         turret ring so the bot should defend there; warp zones
+    #         already drive the bot out via S_WARP_TRAVERSE),
+    #       * no ready shield consumable -- the moment one is
+    #         available the bot reverts to REGEN/ENGAGE + auto-heal,
+    #       * dense swarm within range (a lone kiter isn't a retreat
+    #         trigger),
+    #       * shield hysteresis (enter low, hold until recovered).
+    #     The escape valve below mirrors REGEN's: if the bot is being
+    #     actively run down with nowhere safe, RETREAT still drives
+    #     toward the HS / open space rather than freezing.
+    if _retreat_active(state, p, cur):
+        return _ap.S_RETREAT
+
+    # 1. REGEN — shields hurt; sit still and recover.  Compute the
+    #    shared (threat, td) combat signals here -- with the boss
+    #    injected -- because the ENGAGE tier (section 2) reuses them,
+    #    then defer the full enter/exit + escape-valve decision to
+    #    ``_regen_decision`` (returns S_REGEN to park, None to fall
+    #    through).
+    aliens = state.get("aliens") or []
+    threat, td = _ap.nearest(aliens, px, py)
+    # Treat the boss as a threat for REGEN escape-valve purposes
+    # (2026-05-11 telemetry): without this the bot sat in REGEN at
+    # point-blank cannon range -- ``nearest(aliens, ...)`` returned
+    # None, the escape-valve threat check evaluated False, and the
+    # bot idled while the boss drained 86 shields over 28 s, then
+    # died.  Boss is at most one entity, so a single distance check
+    # is cheaper than rebuilding the alien list with the boss
+    # appended.  ENGAGE_ENTER_PX (800) matches BOSS_DETECT_RANGE so
+    # the threat band lines up with the boss's own aggro distance.
+    boss = state.get("boss")
+    if boss is not None:
+        bd = math.hypot(float(boss.get("x", 0.0)) - px,
+                        float(boss.get("y", 0.0)) - py)
+        if bd < _ap.ENGAGE_ENTER_PX and (threat is None or bd < td):
+            threat, td = boss, bd
+    regen_state = _regen_decision(state, p, cur, threat, td)
+    if regen_state is not None:
+        return regen_state
 
     # 1.1 FLEE_GAS (2026-05-18) — bot is sitting inside a damaging
     #     gas cloud.  Captured pathology: in S_ENGAGE at (3823, 3089)
@@ -860,63 +944,15 @@ def choose_next_state(state: dict, p: dict, cur: str) -> str:
         elif (have_repair and have_shield) or warp_best_effort:
             return _ap.S_WARP_TO_WORMHOLE
 
-    # 2. ENGAGE — alien within band.  Preempts the rest.
-    # ``threat, td`` already loaded above for the REGEN escape
-    # valve so we don't re-walk the alien list here.
-    #
-    # No-home-station suppression on boss-as-threat (2026-05-14
-    # eighteenth pass): when the boss is the chosen threat AND
-    # there is no home station, charging into ENGAGE range = death.
-    # The seventeenth-pass HS-loss fix already blocked
-    # ``engage_boss``, but the regular ENGAGE path still picked
-    # the boss up via the threat injection above (REGEN escape
-    # valve check) and routed to S_ENGAGE.  Captured in this
-    # log as 5 back-to-back ENGAGE deaths at sh=0-2 in 12 s.
-    # Cascade falls through to GATHER / MINE / SEARCH which
-    # navigate by resource, not boss aggro.
-    boss_is_threat = (
-        threat is not None
-        and state.get("boss") is not None
-        and threat is state.get("boss"))
-    suppress_engage_no_hs = (
-        boss_is_threat and hs_pri145 is None)
-    # Outside-base swarm suppression (PR #155, broadened in #168,
-    # then conditioned in 2026-05-23 v4).
-    #
-    # The original intent (#155) was: in a WARP_ENEMY swarm with
-    # an active warp-traverse goal, suppress ENGAGE so the bot
-    # keeps driving toward the exit instead of kiting one alien
-    # while ~20 others shred it.  PR #168 broadened to all non-MAIN
-    # zones to cover the ZONE2-post-boss kite-trap (48 aliens, no
-    # Nebula HS yet -- bot needed to BUILD_NEBULA instead of
-    # ENGAGE).
-    #
-    # But PR #168 was too broad: it suppressed ENGAGE in ZONE2
-    # even when the bot HAD a Nebula HS and no productive
-    # alternative -- the bot ended up mining/gathering defenseless
-    # while aliens drained shields to 1/120.  User complaint:
-    # "bot is not attacking back when it is attacked.  this should
-    # always be a higher priority than gathering resources."
-    #
-    # Resolution: condition the suppression on a productive
-    # alternative actually being viable this tick.  If WARP_TRAVERSE
-    # would fire (post-boss arc not yet complete in a warp zone)
-    # OR BUILD_NEBULA would fire (in ZONE2, no Nebula HS yet, iron
-    # over threshold), suppress ENGAGE so that alternative goal
-    # runs.  Otherwise let ENGAGE fire so the bot defends itself
-    # instead of falling through to MINE / GATHER while being
-    # attacked.
-    # Productive-alternative gate shared with section 1 (REGEN);
-    # see ``_outside_main_swarm_suppresses`` for the predicate.
-    suppress_engage_warp_swarm = _outside_main_swarm_suppresses(
-        state, zone_id, _ap.WARP_SWARM_ENGAGE_SUPPRESS_ALIENS)
-    if not suppress_engage_no_hs and not suppress_engage_warp_swarm:
-        if cur == _ap.S_ENGAGE:
-            if threat is not None and td < _ap.ENGAGE_EXIT_PX:
-                return _ap.S_ENGAGE
-        else:
-            if threat is not None and td < _ap.ENGAGE_ENTER_PX:
-                return _ap.S_ENGAGE
+    # 2. ENGAGE — alien within band.  Preempts the rest.  ``threat, td``
+    #    were loaded above for the REGEN escape valve and are reused
+    #    here (no re-walk of the alien list); the no-HS-boss + outside-
+    #    base-swarm suppression and the enter/exit band live in
+    #    ``_engage_decision``.
+    engage_state = _engage_decision(state, cur, threat, td,
+                                    hs_pri145, zone_id)
+    if engage_state is not None:
+        return engage_state
 
     # 2.5 WARP_TRAVERSE (2026-05-15).  Once the bot has landed in
     #     a warp zone after the post-boss warp, drive to the far
