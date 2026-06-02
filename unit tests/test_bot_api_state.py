@@ -616,3 +616,169 @@ class TestZoneAwareAsteroidsNebula:
         # No _zone attr.
         out = bot_api._zone_aware_asteroids(gv)
         assert list(out) == ["a1"]
+
+
+# ── POST dispatch helpers ─────────────────────────────────────────────────
+#
+# ``do_POST`` was collapsed onto three shared helpers (``_read_json_body``
+# / ``_require_gv`` / ``_dispatch_main``).  These tests pin the 400 / 503 /
+# 504 / 500 / 200 translation that every main-thread endpoint now routes
+# through -- behaviour that had no direct coverage before the refactor.
+
+
+class _RecordingHandler(bot_api._Handler):
+    """``_Handler`` instance that skips ``BaseHTTPRequestHandler.__init__``
+    (which would do real socket I/O) and records ``_send_json`` calls."""
+
+    def __init__(self):  # noqa: D401 - deliberately no super().__init__
+        self.sent: list[tuple[int, dict]] = []
+
+    def _send_json(self, status: int, body: dict) -> None:
+        self.sent.append((status, body))
+
+
+class _FakeRfile:
+    def __init__(self, data: bytes):
+        self._data = data
+
+    def read(self, n: int) -> bytes:
+        return self._data[:n]
+
+
+class _NeverDone:
+    """Stand-in for the submit_to_main_thread done-event that never
+    fires, so ``done.wait(timeout)`` returns False immediately."""
+
+    def wait(self, timeout=None) -> bool:
+        return False
+
+
+def _make_handler(body: bytes = b"", headers: dict | None = None):
+    h = _RecordingHandler()
+    h.headers = headers if headers is not None else {
+        "Content-Length": str(len(body))}
+    h.rfile = _FakeRfile(body)
+    return h
+
+
+class TestReadJsonBody:
+    def test_valid_json_parses(self):
+        h = _make_handler(b'{"a": 1}')
+        body, ok = h._read_json_body()
+        assert ok is True and body == {"a": 1}
+        assert h.sent == []
+
+    def test_empty_body_defaults_to_empty_dict(self):
+        h = _make_handler(b"", {"Content-Length": "0"})
+        body, ok = h._read_json_body()
+        assert ok is True and body == {}
+        assert h.sent == []
+
+    def test_bad_json_sends_400_and_signals_not_ok(self):
+        h = _make_handler(b"{not json")
+        body, ok = h._read_json_body()
+        assert ok is False and body is None
+        assert len(h.sent) == 1
+        status, payload = h.sent[0]
+        assert status == 400 and "bad JSON" in payload["error"]
+
+
+class TestRequireGv:
+    def test_returns_false_and_sends_503_when_unset(self, monkeypatch):
+        monkeypatch.setattr(bot_api, "_gv_ref", None)
+        h = _RecordingHandler()
+        assert h._require_gv() is False
+        assert h.sent == [(503, {"error": "game not ready"})]
+
+    def test_returns_true_silently_when_set(self, monkeypatch):
+        monkeypatch.setattr(bot_api, "_gv_ref", object())
+        h = _RecordingHandler()
+        assert h._require_gv() is True
+        assert h.sent == []
+
+
+class TestDispatchMain:
+    def _patch_result(self, monkeypatch, *, value, error, done=None):
+        import threading
+        ev = done if done is not None else threading.Event()
+        if done is None:
+            ev.set()
+        monkeypatch.setattr(
+            bot_api, "submit_to_main_thread",
+            lambda fn: (ev, {"value": value, "error": error}))
+
+    def test_success_sends_value_verbatim(self, monkeypatch):
+        self._patch_result(monkeypatch,
+                           value={"crafted": "repair_pack"}, error=None)
+        h = _RecordingHandler()
+        h._dispatch_main(lambda gv: None, timeout=1.0,
+                         err_label="craft failed")
+        assert h.sent == [(200, {"crafted": "repair_pack"})]
+
+    def test_success_wrap_ok_merges_ok_true(self, monkeypatch):
+        self._patch_result(monkeypatch,
+                           value={"buildings_now": 3}, error=None)
+        h = _RecordingHandler()
+        h._dispatch_main(lambda gv: None, timeout=1.0,
+                         err_label="build failed", wrap_ok=True)
+        assert h.sent == [(200, {"ok": True, "buildings_now": 3})]
+
+    def test_error_sends_500_with_labelled_message(self, monkeypatch):
+        self._patch_result(monkeypatch, value=None,
+                           error=RuntimeError("boom"))
+        h = _RecordingHandler()
+        h._dispatch_main(lambda gv: None, timeout=1.0,
+                         err_label="craft failed")
+        assert h.sent == [(500, {"error": "craft failed: boom"})]
+
+    def test_timeout_sends_504(self, monkeypatch):
+        self._patch_result(monkeypatch, value=None, error=None,
+                           done=_NeverDone())
+        h = _RecordingHandler()
+        h._dispatch_main(lambda gv: None, timeout=0.01,
+                         err_label="build failed")
+        assert h.sent == [
+            (504, {"error": "timeout waiting for main thread"})]
+
+
+class TestDoPostWiring:
+    """End-to-end through ``do_POST`` for the validation / routing the
+    helpers don't cover on their own."""
+
+    def test_unknown_path_404(self):
+        h = _make_handler(b"")
+        h.path = "/nope"
+        h.do_POST()
+        assert h.sent == [(404, {"error": "unknown path"})]
+
+    def test_craft_rejects_blank_target_after_gv_ok(self, monkeypatch):
+        monkeypatch.setattr(bot_api, "_gv_ref", object())
+        h = _make_handler(b'{"target": ""}')
+        h.path = "/craft"
+        h.do_POST()
+        assert h.sent == [(400, {"error": "missing or invalid 'target'"})]
+
+    def test_fortify_requires_gv(self, monkeypatch):
+        monkeypatch.setattr(bot_api, "_gv_ref", None)
+        h = _make_handler(b"")
+        h.path = "/fortify"
+        h.do_POST()
+        assert h.sent == [(503, {"error": "game not ready"})]
+
+    def test_build_dispatches_and_wraps_ok(self, monkeypatch):
+        monkeypatch.setattr(bot_api, "_gv_ref", object())
+        captured = {}
+
+        def _fake_submit(fn):
+            import threading
+            ev = threading.Event()
+            ev.set()
+            captured["fn"] = fn
+            return ev, {"value": {"buildings_now": 1}, "error": None}
+
+        monkeypatch.setattr(bot_api, "submit_to_main_thread", _fake_submit)
+        h = _make_handler(b'{"type": "Home Station", "offset": 200}')
+        h.path = "/build"
+        h.do_POST()
+        assert h.sent == [(200, {"ok": True, "buildings_now": 1})]
+        assert callable(captured["fn"])

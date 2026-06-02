@@ -521,6 +521,60 @@ class _Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    # ── POST dispatch helpers ─────────────────────────────────────────
+    # Every main-thread POST endpoint repeated the same three boilerplate
+    # blocks: parse the JSON body (400 on failure), check the game is
+    # ready (503), then submit the work to the GL thread and translate
+    # the result into 504 / 500 / 200.  These helpers hold that shared
+    # shape so each endpoint is just "parse -> validate -> dispatch".
+
+    def _read_json_body(self) -> tuple[dict | None, bool]:
+        """Read + JSON-decode the request body.
+
+        Returns ``(body, True)`` on success.  On a decode failure it has
+        ALREADY sent the 400 response and returns ``(None, False)`` so
+        the caller can simply ``return``.
+        """
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+            raw = self.rfile.read(length) if length else b""
+            return json.loads(raw.decode("utf-8") or "{}"), True
+        except Exception as e:
+            self._send_json(400, {"error": f"bad JSON: {e}"})
+            return None, False
+
+    def _require_gv(self) -> bool:
+        """True if the game view is wired up.  On failure it sends the
+        503 "game not ready" response and returns False so the caller
+        can ``return``.  Kept as a separate call (rather than folded into
+        ``_dispatch_main``) so the 503 fires in the same order as before:
+        after body parsing but before any body-field 400 validation."""
+        if _gv_ref is None:
+            self._send_json(503, {"error": "game not ready"})
+            return False
+        return True
+
+    def _dispatch_main(self, fn, *, timeout: float, err_label: str,
+                       wrap_ok: bool = False) -> None:
+        """Run ``fn`` on the main (GL) thread and emit the standard
+        responses: 504 on timeout, 500 (``"{err_label}: {error}"``) on a
+        captured exception, else 200.  With ``wrap_ok`` the success value
+        is sent as ``{"ok": True, **value}``; otherwise it is sent
+        verbatim.  Assumes ``_require_gv`` already passed."""
+        done, result = submit_to_main_thread(fn)
+        if not done.wait(timeout=timeout):
+            self._send_json(
+                504, {"error": "timeout waiting for main thread"})
+            return
+        if result["error"] is not None:
+            self._send_json(
+                500, {"error": f"{err_label}: {result['error']}"})
+            return
+        if wrap_ok:
+            self._send_json(200, {"ok": True, **result["value"]})
+        else:
+            self._send_json(200, result["value"])
+
     def do_GET(self):
         if self.path == "/" or self.path == "/health":
             self._send_json(200, {
@@ -543,12 +597,8 @@ class _Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         if self.path == "/intent":
-            try:
-                length = int(self.headers.get("Content-Length", "0"))
-                raw = self.rfile.read(length) if length else b""
-                body = json.loads(raw.decode("utf-8") or "{}")
-            except Exception as e:
-                self._send_json(400, {"error": f"bad JSON: {e}"})
+            body, ok = self._read_json_body()
+            if not ok:
                 return
             if not isinstance(body, dict) or "type" not in body:
                 self._send_json(400, {"error": "intent must be a dict with 'type'"})
@@ -559,15 +609,10 @@ class _Handler(BaseHTTPRequestHandler):
             self._send_json(200, {"ok": True, "intent": body})
             return
         if self.path == "/build":
-            try:
-                length = int(self.headers.get("Content-Length", "0"))
-                raw = self.rfile.read(length) if length else b""
-                body = json.loads(raw.decode("utf-8") or "{}")
-            except Exception as e:
-                self._send_json(400, {"error": f"bad JSON: {e}"})
+            body, ok = self._read_json_body()
+            if not ok:
                 return
-            if _gv_ref is None:
-                self._send_json(503, {"error": "game not ready"})
+            if not self._require_gv():
                 return
             bt = body.get("type", "Home Station")
             offset = float(body.get("offset", 200.0))
@@ -587,63 +632,30 @@ class _Handler(BaseHTTPRequestHandler):
                     "buildings_now": len(gv.building_list),
                 }
 
-            done, result = submit_to_main_thread(_do_build)
-            if not done.wait(timeout=10.0):
-                self._send_json(
-                    504, {"error": "timeout waiting for main thread"})
-                return
-            if result["error"] is not None:
-                self._send_json(
-                    500, {"error": f"build failed: {result['error']}"})
-                return
-            self._send_json(200, {"ok": True, **result["value"]})
+            self._dispatch_main(_do_build, timeout=10.0,
+                                err_label="build failed", wrap_ok=True)
             return
         if self.path == "/build_starter_base":
-            if _gv_ref is None:
-                self._send_json(503, {"error": "game not ready"})
+            if not self._require_gv():
                 return
             import bot_builder
-            done, result = submit_to_main_thread(
-                bot_builder.build_starter_base)
-            if not done.wait(timeout=10.0):
-                self._send_json(
-                    504, {"error": "timeout waiting for main thread"})
-                return
-            if result["error"] is not None:
-                self._send_json(
-                    500, {"error":
-                          f"starter base build failed: {result['error']}"})
-                return
-            self._send_json(200, {"ok": True, **result["value"]})
+            self._dispatch_main(
+                bot_builder.build_starter_base, timeout=10.0,
+                err_label="starter base build failed", wrap_ok=True)
             return
         if self.path == "/deposit_to_station":
-            if _gv_ref is None:
-                self._send_json(503, {"error": "game not ready"})
+            if not self._require_gv():
                 return
             import bot_builder
-            done, result = submit_to_main_thread(
-                bot_builder.deposit_ship_resources_to_station)
-            if not done.wait(timeout=5.0):
-                self._send_json(
-                    504, {"error": "timeout waiting for main thread"})
-                return
-            if result["error"] is not None:
-                self._send_json(
-                    500, {"error":
-                          f"deposit failed: {result['error']}"})
-                return
-            self._send_json(200, {"ok": True, **result["value"]})
+            self._dispatch_main(
+                bot_builder.deposit_ship_resources_to_station, timeout=5.0,
+                err_label="deposit failed", wrap_ok=True)
             return
         if self.path == "/craft":
-            try:
-                length = int(self.headers.get("Content-Length", "0"))
-                raw = self.rfile.read(length) if length else b""
-                body = json.loads(raw.decode("utf-8") or "{}")
-            except Exception as e:
-                self._send_json(400, {"error": f"bad JSON: {e}"})
+            body, ok = self._read_json_body()
+            if not ok:
                 return
-            if _gv_ref is None:
-                self._send_json(503, {"error": "game not ready"})
+            if not self._require_gv():
                 return
             target = body.get("target", "repair_pack")
             if not isinstance(target, str) or not target:
@@ -651,28 +663,15 @@ class _Handler(BaseHTTPRequestHandler):
                     400, {"error": "missing or invalid 'target'"})
                 return
             import bot_builder
-            done, result = submit_to_main_thread(
-                lambda gv: bot_builder.start_craft(gv, target))
-            if not done.wait(timeout=5.0):
-                self._send_json(
-                    504, {"error": "timeout waiting for main thread"})
-                return
-            if result["error"] is not None:
-                self._send_json(
-                    500, {"error": f"craft failed: {result['error']}"})
-                return
-            self._send_json(200, result["value"])
+            self._dispatch_main(
+                lambda gv: bot_builder.start_craft(gv, target),
+                timeout=5.0, err_label="craft failed")
             return
         if self.path == "/install_module":
-            try:
-                length = int(self.headers.get("Content-Length", "0"))
-                raw = self.rfile.read(length) if length else b""
-                body = json.loads(raw.decode("utf-8") or "{}")
-            except Exception as e:
-                self._send_json(400, {"error": f"bad JSON: {e}"})
+            body, ok = self._read_json_body()
+            if not ok:
                 return
-            if _gv_ref is None:
-                self._send_json(503, {"error": "game not ready"})
+            if not self._require_gv():
                 return
             mod_key = body.get("mod_key", "")
             if not isinstance(mod_key, str) or not mod_key:
@@ -680,150 +679,74 @@ class _Handler(BaseHTTPRequestHandler):
                     400, {"error": "missing or invalid 'mod_key'"})
                 return
             import bot_builder
-            done, result = submit_to_main_thread(
-                lambda gv: bot_builder.install_module(gv, mod_key))
-            if not done.wait(timeout=5.0):
-                self._send_json(
-                    504, {"error": "timeout waiting for main thread"})
-                return
-            if result["error"] is not None:
-                self._send_json(
-                    500, {"error": f"install failed: {result['error']}"})
-                return
-            self._send_json(200, result["value"])
+            self._dispatch_main(
+                lambda gv: bot_builder.install_module(gv, mod_key),
+                timeout=5.0, err_label="install failed")
             return
         if self.path == "/equip_consumables":
-            try:
-                length = int(self.headers.get("Content-Length", "0"))
-                raw = self.rfile.read(length) if length else b""
-                body = json.loads(raw.decode("utf-8") or "{}")
-            except Exception as e:
-                self._send_json(400, {"error": f"bad JSON: {e}"})
+            body, ok = self._read_json_body()
+            if not ok:
                 return
-            if _gv_ref is None:
-                self._send_json(503, {"error": "game not ready"})
+            if not self._require_gv():
                 return
             repair_slot = int(body.get("repair_slot", 0))
             shield_slot = int(body.get("shield_slot", 1))
             max_each = int(body.get("max_each", 25))
             import bot_builder
-            done, result = submit_to_main_thread(
+            self._dispatch_main(
                 lambda gv: bot_builder.equip_consumables_to_quick_use(
                     gv, repair_slot=repair_slot,
                     shield_slot=shield_slot,
-                    max_each=max_each))
-            if not done.wait(timeout=5.0):
-                self._send_json(
-                    504, {"error": "timeout waiting for main thread"})
-                return
-            if result["error"] is not None:
-                self._send_json(
-                    500, {"error": f"equip failed: {result['error']}"})
-                return
-            self._send_json(200, result["value"])
+                    max_each=max_each),
+                timeout=5.0, err_label="equip failed")
             return
         if self.path == "/use_quick_use":
-            try:
-                length = int(self.headers.get("Content-Length", "0"))
-                raw = self.rfile.read(length) if length else b""
-                body = json.loads(raw.decode("utf-8") or "{}")
-            except Exception as e:
-                self._send_json(400, {"error": f"bad JSON: {e}"})
+            body, ok = self._read_json_body()
+            if not ok:
                 return
-            if _gv_ref is None:
-                self._send_json(503, {"error": "game not ready"})
+            if not self._require_gv():
                 return
             slot = int(body.get("slot", 0))
             import bot_builder
-            done, result = submit_to_main_thread(
-                lambda gv: bot_builder.use_quick_use_slot(gv, slot))
-            if not done.wait(timeout=5.0):
-                self._send_json(
-                    504, {"error": "timeout waiting for main thread"})
-                return
-            if result["error"] is not None:
-                self._send_json(
-                    500, {"error": f"use failed: {result['error']}"})
-                return
-            self._send_json(200, result["value"])
+            self._dispatch_main(
+                lambda gv: bot_builder.use_quick_use_slot(gv, slot),
+                timeout=5.0, err_label="use failed")
             return
         if self.path == "/fortify":
-            if _gv_ref is None:
-                self._send_json(503, {"error": "game not ready"})
+            if not self._require_gv():
                 return
             import bot_builder
-            done, result = submit_to_main_thread(
-                bot_builder.fortify_base_defenses)
-            if not done.wait(timeout=10.0):
-                self._send_json(
-                    504, {"error": "timeout waiting for main thread"})
-                return
-            if result["error"] is not None:
-                self._send_json(
-                    500, {"error": f"fortify failed: {result['error']}"})
-                return
-            self._send_json(200, result["value"])
+            self._dispatch_main(
+                bot_builder.fortify_base_defenses, timeout=10.0,
+                err_label="fortify failed")
             return
         if self.path == "/place_qwi":
-            if _gv_ref is None:
-                self._send_json(503, {"error": "game not ready"})
+            if not self._require_gv():
                 return
             import bot_builder
-            done, result = submit_to_main_thread(
-                bot_builder.place_quantum_wave_integrator)
-            if not done.wait(timeout=10.0):
-                self._send_json(
-                    504, {"error": "timeout waiting for main thread"})
-                return
-            if result["error"] is not None:
-                self._send_json(
-                    500, {"error": f"qwi placement failed: {result['error']}"})
-                return
-            self._send_json(200, result["value"])
+            self._dispatch_main(
+                bot_builder.place_quantum_wave_integrator, timeout=10.0,
+                err_label="qwi placement failed")
             return
         if self.path == "/place_advanced_crafter":
-            if _gv_ref is None:
-                self._send_json(503, {"error": "game not ready"})
+            if not self._require_gv():
                 return
             import bot_builder
-            done, result = submit_to_main_thread(
-                bot_builder.place_advanced_crafter)
-            if not done.wait(timeout=10.0):
-                self._send_json(
-                    504, {"error": "timeout waiting for main thread"})
-                return
-            if result["error"] is not None:
-                self._send_json(
-                    500, {"error": f"advanced crafter placement "
-                                   f"failed: {result['error']}"})
-                return
-            self._send_json(200, result["value"])
+            self._dispatch_main(
+                bot_builder.place_advanced_crafter, timeout=10.0,
+                err_label="advanced crafter placement failed")
             return
         if self.path == "/place_ai_pilot_ship":
-            if _gv_ref is None:
-                self._send_json(503, {"error": "game not ready"})
+            if not self._require_gv():
                 return
             import bot_builder
-            done, result = submit_to_main_thread(
-                bot_builder.place_ai_pilot_ship_at_home)
-            if not done.wait(timeout=10.0):
-                self._send_json(
-                    504, {"error": "timeout waiting for main thread"})
-                return
-            if result["error"] is not None:
-                self._send_json(
-                    500, {"error": f"ai_pilot ship placement "
-                                   f"failed: {result['error']}"})
-                return
-            self._send_json(200, result["value"])
+            self._dispatch_main(
+                bot_builder.place_ai_pilot_ship_at_home, timeout=10.0,
+                err_label="ai_pilot ship placement failed")
             return
         if self.path == "/assist":
-            try:
-                length = int(self.headers.get("Content-Length", "0"))
-                raw = self.rfile.read(length) if length else b""
-                body = json.loads(raw.decode("utf-8") or "{}")
-            except Exception as e:
-                self._send_json(400, {"error": f"bad JSON: {e}"})
+            body, ok = self._read_json_body()
+            if not ok:
                 return
             try:
                 import bot_combat_assist
