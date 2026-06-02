@@ -3152,6 +3152,73 @@ class TestOutsideBaseSwarmEngageSuppression:
             f"expected S_BUILD_NEBULA, got {ap._fsm['state']}")
 
 
+# ── _engage_decision extracted-predicate contract ─────────────────────────
+
+
+class TestEngageDecisionContract:
+    """Direct tests for ``bot_autopilot_choose._engage_decision`` -- the
+    Section-2 predicate hoisted out of ``choose_next_state``.  Returns
+    ``S_ENGAGE`` to engage, or ``None`` to fall through.  The full
+    behavioural coverage drives the FSM through ``_do_auto``; these pin
+    the state-or-None contract the cascade now branches on.  Bands:
+    ENGAGE_ENTER_PX 800, ENGAGE_EXIT_PX 1000.
+    """
+
+    @staticmethod
+    def _import():
+        import bot_autopilot_choose as choose
+        return choose._engage_decision
+
+    def test_engages_threat_in_enter_band(self):
+        fn = self._import()
+        threat = {"x": 0.0, "y": 0.0, "hp": 10}
+        s = {"boss": None}
+        assert fn(s, ap.S_SEARCH, threat, 100.0,
+                  object(), "ZoneID.MAIN") == ap.S_ENGAGE
+
+    def test_no_engage_when_threat_outside_enter_band(self):
+        fn = self._import()
+        threat = {"x": 0.0, "y": 0.0, "hp": 10}
+        # td above ENGAGE_ENTER_PX (800) -> don't enter.
+        s = {"boss": None}
+        assert fn(s, ap.S_SEARCH, threat, 900.0,
+                  object(), "ZoneID.MAIN") is None
+
+    def test_no_engage_without_threat(self):
+        fn = self._import()
+        s = {"boss": None}
+        assert fn(s, ap.S_SEARCH, None, 1e9,
+                  object(), "ZoneID.MAIN") is None
+
+    def test_hysteresis_holds_engage_in_exit_band(self):
+        fn = self._import()
+        threat = {"x": 0.0, "y": 0.0, "hp": 10}
+        # Between enter (800) and exit (1000): already engaging holds,
+        # not-yet-engaging does not enter.
+        td = (ap.ENGAGE_ENTER_PX + ap.ENGAGE_EXIT_PX) / 2
+        s = {"boss": None}
+        assert fn(s, ap.S_ENGAGE, threat, td,
+                  object(), "ZoneID.MAIN") == ap.S_ENGAGE
+        assert fn(s, ap.S_SEARCH, threat, td,
+                  object(), "ZoneID.MAIN") is None
+
+    def test_boss_threat_without_home_station_suppressed(self):
+        fn = self._import()
+        boss = {"x": 0.0, "y": 0.0, "hp": 500}
+        # The boss is the chosen threat AND no HS -> charging in = death,
+        # so suppress ENGAGE and let the cascade fall through.
+        s = {"boss": boss}
+        assert fn(s, ap.S_SEARCH, boss, 100.0,
+                  None, "ZoneID.MAIN") is None
+
+    def test_boss_threat_with_home_station_still_engages(self):
+        fn = self._import()
+        boss = {"x": 0.0, "y": 0.0, "hp": 500}
+        s = {"boss": boss}
+        assert fn(s, ap.S_SEARCH, boss, 100.0,
+                  object(), "ZoneID.MAIN") == ap.S_ENGAGE
+
+
 # ── Swarm-suppress productive-alt helper ──────────────────────────────────
 
 
