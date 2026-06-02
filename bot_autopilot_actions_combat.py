@@ -513,27 +513,40 @@ def _act_retreat(state: dict, p: dict) -> None:
     consumable to spend.  Two behaviours:
 
       1. **Drive to the in-zone Home Station umbrella** -- if a Home
-         Station exists in the current zone, head into its healing
-         field exactly like ``_act_regen`` does.  Shield + HP regen
-         and (eventually) the turret ring make this the safest spot
-         to wait out the gate; the bot stays here until shields
-         recover past ``RETREAT_EXIT_SHIELD_PCT`` or it picks up a
-         shield consumable, at which point the gate releases.
-      2. **Flee the swarm centroid** -- with no in-zone station,
-         drive along the ray from the mean position of the nearby
-         aliens through the bot, out past the swarm by
-         ``RETREAT_FLEE_TARGET_PX`` (clamped to the world rect), so
-         the bot breaks contact instead of bleeding out in place.
+         Station exists in the current zone AND it is within
+         ``RETREAT_HS_MAX_DIST_PX``, head into its healing field
+         exactly like ``_act_regen`` does.  Shield + HP regen and
+         (eventually) the turret ring make this the safest spot to
+         wait out the gate; the bot stays here until shields recover
+         past ``RETREAT_EXIT_SHIELD_PCT`` or it picks up a shield
+         consumable, at which point the gate releases.
+      2. **Flee the swarm centroid** -- with no in-zone station OR an
+         HS too far to reach through the swarm, drive along the ray
+         from the mean position of the nearby aliens through the bot,
+         out past the swarm by ``RETREAT_FLEE_TARGET_PX`` (clamped to
+         the world rect), so the bot breaks contact instead of bleeding
+         out in place.
+
+    Far-HS guard (2026-06-01): pre-fix this drove to ANY in-zone HS
+    regardless of distance.  Telemetry caught the bot marching toward an
+    HS 4200 px away across a 46-alien swarm -- it never reached the
+    umbrella and thrashed engage<->retreat at 0-5/120 shields until it
+    died.  When the HS is beyond ``RETREAT_HS_MAX_DIST_PX`` the umbrella
+    is unreachable through the swarm, so fall through to the centroid
+    flee and actually break contact.
     """
     px = float(p.get("x", 0.0))
     py = float(p.get("y", 0.0))
 
     hs = _ap._find_home_station(state)
     if hs is not None:
-        _regen_drive_to_hs(state, p, px, py, hs)
-        return
+        hs_dist = math.hypot(float(hs.get("x", 0.0)) - px,
+                             float(hs.get("y", 0.0)) - py)
+        if hs_dist <= _ap.RETREAT_HS_MAX_DIST_PX:
+            _regen_drive_to_hs(state, p, px, py, hs)
+            return
 
-    # No in-zone station -- flee the swarm centroid.
+    # No reachable in-zone station -- flee the swarm centroid.
     aliens = [
         a for a in (state.get("aliens") or [])
         if math.hypot(float(a.get("x", 0.0)) - px,

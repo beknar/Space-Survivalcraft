@@ -131,6 +131,24 @@ RETREAT_SWARM_RANGE_PX:    float = 1200.0
 # no-HS retreat target sits.  Large enough to clear the swarm's
 # engage band in one goto; clamped to the world rect by the handler.
 RETREAT_FLEE_TARGET_PX:    float = 1400.0
+# Max home-station distance at which RETREAT marches to the HS umbrella
+# instead of fleeing the swarm centroid (2026-06-01).  Captured: the
+# bot in ZONE2 retreating toward an HS 4200 px away across a 46-alien
+# swarm -- it never reached the umbrella and thrashed engage<->retreat
+# at 0-5/120 shields until it died.  Beyond this distance the umbrella
+# is unreachable through the swarm, so breaking contact (centroid flee)
+# is the only survivable move; within it the umbrella's shield + HP
+# regen + turret ring is worth the drive.
+RETREAT_HS_MAX_DIST_PX:    float = 2200.0
+# Critical-shield floor (2026-06-01).  Normally a ready shield_recharge
+# consumable suppresses RETREAT (the bot can fight + heal instead of
+# fleeing).  But the 2026-06-01 telemetry showed a flickering consumable
+# releasing RETREAT into a fatal re-engage at near-zero shields under a
+# 46-alien swarm.  Below this floor RETREAT fires regardless of
+# consumable: a single heal can't outpace swarm DPS at ~0 shields, so
+# breaking contact wins.  Well under RETREAT_ENTER_SHIELD_PCT (0.60) so
+# a properly-kitted bot still fights + heals in the normal band.
+RETREAT_CRITICAL_SHIELD_PCT: float = 0.25
 # Nebula AI Pilot ship cost gate (2026-05-24).  Mirrors the
 # ``BUILDING_TYPES["Basic Ship"]`` cost (500 iron + 250 copper at
 # default character rates) plus a small headroom so the placement
