@@ -1023,3 +1023,54 @@ def test_place_advanced_crafter_full_success(monkeypatch):
     result = bot_builder.place_advanced_crafter(gv)
     assert result["ok"] is True
     assert tuple(result["placed_at"]) == placed_at[0]
+
+
+# ── Module uninstall (swap support) ───────────────────────────────────────
+
+
+def _module_gv(module_slots, station_counts=None):
+    """Minimal gv stub for install/uninstall: module slots, a recording
+    station inventory, and the apply_modules / HUD sync hooks."""
+    counts = dict(station_counts or {})
+
+    def _add(k, n=1):
+        counts[k] = counts.get(k, 0) + n
+
+    def _remove(k, n=1):
+        counts[k] = counts.get(k, 0) - n
+
+    inv = SimpleNamespace(
+        count_item=lambda k: counts.get(k, 0),
+        add_item=_add,
+        remove_item=_remove,
+    )
+    gv = SimpleNamespace(
+        _module_slots=list(module_slots),
+        _station_inv=inv,
+        player=SimpleNamespace(apply_modules=lambda slots: None),
+        _hud=SimpleNamespace(_mod_slots=list(module_slots)),
+    )
+    return gv, counts
+
+
+def test_uninstall_removes_from_slot_and_returns_to_station():
+    gv, counts = _module_gv(
+        ["broadside", "shield_booster", "shield_enhancer", "armor_plate"])
+    res = bot_builder.uninstall_module(gv, "shield_booster")
+    assert res["ok"] is True
+    assert res["slot"] == 1 and res["uninstalled"] == "shield_booster"
+    # Slot freed and the module returned to STATION inventory (not ship),
+    # so the install pipeline can pick it up again later.
+    assert gv._module_slots[1] is None
+    assert counts.get("mod_shield_booster") == 1
+    assert gv._hud._mod_slots[1] is None
+
+
+def test_uninstall_rejects_module_not_installed():
+    gv, counts = _module_gv(["broadside", None, None, None])
+    res = bot_builder.uninstall_module(gv, "misty_step")
+    assert res["ok"] is False
+    assert "not installed" in res["reason"]
+    # Nothing mutated.
+    assert gv._module_slots == ["broadside", None, None, None]
+    assert counts.get("mod_misty_step", 0) == 0

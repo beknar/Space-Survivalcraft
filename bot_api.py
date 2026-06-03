@@ -683,6 +683,22 @@ class _Handler(BaseHTTPRequestHandler):
                 lambda gv: bot_builder.install_module(gv, mod_key),
                 timeout=5.0, err_label="install failed")
             return
+        if self.path == "/uninstall_module":
+            body, ok = self._read_json_body()
+            if not ok:
+                return
+            if not self._require_gv():
+                return
+            mod_key = body.get("mod_key", "")
+            if not isinstance(mod_key, str) or not mod_key:
+                self._send_json(
+                    400, {"error": "missing or invalid 'mod_key'"})
+                return
+            import bot_builder
+            self._dispatch_main(
+                lambda gv: bot_builder.uninstall_module(gv, mod_key),
+                timeout=5.0, err_label="uninstall failed")
+            return
         if self.path == "/equip_consumables":
             body, ok = self._read_json_body()
             if not ok:

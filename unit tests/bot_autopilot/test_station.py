@@ -1243,6 +1243,78 @@ class TestInstallAction:
             "under the widened INSTALL_INTERACT_RANGE_PX.")
 
 
+class TestModuleSwap:
+    """2026-06-02: the ship's 4 slots fill with the MAIN loadout, so the
+    three Nebula modules (misty_step / force_wall / death_blossom) could
+    never be installed -- a crafting dead-end.  ``_module_swap_plan``
+    frees a slot by uninstalling a non-target module, and ``_act_install``
+    posts the uninstall before the install."""
+
+    _FULL_MAIN = ["broadside", "shield_booster",
+                  "shield_enhancer", "armor_plate"]
+
+    def test_swap_plan_drops_non_target_when_slots_full(self, _clock):
+        s = _state(module_slots=list(self._FULL_MAIN))
+        ap._state.queue.modules_to_install = ["death_blossom"]
+        # First installed module not in NEBULA_TARGET_LOADOUT.
+        assert ap._module_swap_plan(s) == "shield_booster"
+
+    def test_swap_plan_keeps_target_modules(self, _clock):
+        # broadside IS in the target loadout, so it's never the drop.
+        s = _state(module_slots=["broadside", "death_blossom",
+                                  "force_wall", "armor_plate"])
+        ap._state.queue.modules_to_install = ["misty_step"]
+        assert ap._module_swap_plan(s) == "armor_plate"
+
+    def test_swap_plan_none_when_free_slot(self, _clock):
+        s = _state(module_slots=["broadside", None, None, None])
+        ap._state.queue.modules_to_install = ["death_blossom"]
+        assert ap._module_swap_plan(s) is None
+
+    def test_swap_plan_none_for_non_target_head(self, _clock):
+        # The queued module isn't in the target loadout -> never swap a
+        # slot out for it.
+        s = _state(module_slots=list(self._FULL_MAIN))
+        ap._state.queue.modules_to_install = ["engine_booster"]
+        assert ap._module_swap_plan(s) is None
+
+    def test_swap_plan_none_when_head_already_installed(self, _clock):
+        s = _state(module_slots=["broadside", "death_blossom",
+                                  "shield_enhancer", "armor_plate"])
+        ap._state.queue.modules_to_install = ["death_blossom"]
+        assert ap._module_swap_plan(s) is None
+
+    def test_act_install_posts_uninstall_to_make_room(
+            self, _clock, monkeypatch):
+        install_calls: list = []
+        uninstall_calls: list = []
+        monkeypatch.setattr(
+            ap, "_post_install_module",
+            lambda mod_key, timeout_s=5.0: (install_calls.append(mod_key)
+                                            or {"ok": True, "slot": 0}))
+        monkeypatch.setattr(
+            ap, "_post_uninstall_module",
+            lambda mod_key, timeout_s=5.0: (uninstall_calls.append(mod_key)
+                                            or {"ok": True, "slot": 1}))
+        s = _state(
+            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            buildings=[_hs_building(x=3200.0, y=3200.0),
+                       _crafter_building()],
+            station_inventory_items={"mod_death_blossom": 1},
+            module_slots=list(self._FULL_MAIN),
+        )
+        ap._state.queue.modules_to_craft.clear()
+        ap._state.queue.modules_to_install = ["death_blossom"]
+        ap._do_auto(s, s["player"])
+        # Slot is full, so the swap fires FIRST: uninstall a non-target
+        # module; the install is deferred to the next tick.
+        assert uninstall_calls == ["shield_booster"]
+        assert install_calls == []
+        # Install queue untouched -- death_blossom still pending.
+        assert ap._state.queue.modules_to_install[0] == "death_blossom"
+
+
 
 
 class TestCraftQueueDefaults:

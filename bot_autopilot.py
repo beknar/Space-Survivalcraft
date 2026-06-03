@@ -984,6 +984,7 @@ from bot_autopilot_http import (
     _post_build_starter_base,
     _post_craft,
     _post_install_module,
+    _post_uninstall_module,
     _post_deposit_to_station,
     _post_use_quick_use,
     _post_equip_consumables,
@@ -1007,7 +1008,7 @@ from bot_autopilot_targeting import (
     _qwi_already_built, _advanced_crafter_already_built,
     _recovery_loadout_ready,
     _qwi_ready_to_build, _find_quick_use_slot,
-    _next_craft_target, _next_install_target,
+    _next_craft_target, _next_install_target, _module_swap_plan,
 )
 from bot_autopilot_movement import (
     _do_idle, _do_goto, _do_hold_distance, _do_spiral_search,
