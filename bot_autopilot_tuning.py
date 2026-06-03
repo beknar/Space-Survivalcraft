@@ -86,6 +86,15 @@ GATHER_EXIT_PX:  float = 1700.0
 # spent.  Open-state (non-MINE) entry still uses the wide 1500 px
 # gate so the bot doesn't ignore reachable loot while idle.
 GATHER_ENTER_WHILE_MINING_PX: float = 600.0
+# Symmetric MINE-preempts-GATHER threshold (2026-06-02).  The mirror of
+# GATHER_ENTER_WHILE_MINING_PX: while the bot is actively GATHERing,
+# only an asteroid within this radius preempts to MINE, instead of the
+# full MAX_ASTEROID_CHASE_PX (2000) cap.  The 2026-06-02 telemetry
+# logged 287 dwell-suppressed gather->mine transitions -- finishing a
+# gather darted the bot to a mid-range asteroid, which then dropped iron
+# and pulled it back.  Other states keep the full chase cap so an idle
+# bot still commits to a reachable asteroid.
+MINE_ENTER_WHILE_GATHERING_PX: float = 600.0
 REGEN_ENTER_PCT: float = 0.40
 REGEN_EXIT_PCT:  float = 0.60
 # Boss-alive REGEN thresholds (2026-05-13 fourteenth telemetry pass).
@@ -149,6 +158,24 @@ RETREAT_HS_MAX_DIST_PX:    float = 2200.0
 # breaking contact wins.  Well under RETREAT_ENTER_SHIELD_PCT (0.60) so
 # a properly-kitted bot still fights + heals in the normal band.
 RETREAT_CRITICAL_SHIELD_PCT: float = 0.25
+# Widened swarm-detect radius for RETREAT (2026-06-02).  The base
+# RETREAT_SWARM_RANGE_PX (1200) gate released RETREAT the moment the
+# bot drifted just past the swarm -- captured an engage<->regen thrash
+# at 0/120 shields with the swarm strung out at ~1300-1800 px (so <6
+# within 1200) that ended in death.  Use this wider radius when ALREADY
+# retreating (hysteresis -- stay committed until genuinely clear) OR
+# when shields are critical (commit to the flee even if the swarm has
+# drifted out, because at near-zero shields it WILL re-converge).
+RETREAT_SWARM_RANGE_EXIT_PX: float = 1800.0
+# ZONE2 swarm tether (2026-06-02).  When the bot is in ZONE2 farther
+# than this from its Home Station AND a dense swarm is adjacent, stop
+# seeking resources / aliens deeper and head home instead.  Captured: 20
+# edge-stucks while ENGAGE + 2 deaths fighting 55-60 aliens 2500-4600 px
+# from the HS -- the bot roamed deep into a persistent swarm chasing
+# loot/asteroids/aliens with no win condition.  Set beyond
+# RETREAT_HS_MAX_DIST_PX (2200) so the bot still operates in a generous
+# radius around base; the tether only fires far out AND under a swarm.
+ZONE2_TETHER_DIST_PX:       float = 2800.0
 # Nebula AI Pilot ship cost gate (2026-05-24).  Mirrors the
 # ``BUILDING_TYPES["Basic Ship"]`` cost (500 iron + 250 copper at
 # default character rates) plus a small headroom so the placement

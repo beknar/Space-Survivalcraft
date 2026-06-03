@@ -99,13 +99,6 @@ def _retreat_active(state: dict, p: dict, cur: str) -> bool:
     if "ZONE2" not in zone_id:
         return False
     px, py = p.get("x", 0.0), p.get("y", 0.0)
-    swarm = sum(
-        1 for a in (state.get("aliens") or [])
-        if math.hypot(float(a.get("x", 0.0)) - px,
-                      float(a.get("y", 0.0)) - py)
-        <= _ap.RETREAT_SWARM_RANGE_PX)
-    if swarm < _ap.RETREAT_SWARM_ALIEN_COUNT:
-        return False
     sh = int(p.get("shields", 0))
     sh_max = max(1, int(p.get("max_shields", 1)))
     pct = sh / sh_max
@@ -113,6 +106,24 @@ def _retreat_active(state: dict, p: dict, cur: str) -> bool:
                  if cur == _ap.S_RETREAT
                  else _ap.RETREAT_ENTER_SHIELD_PCT)
     if pct >= threshold:
+        return False
+    # Swarm-detect radius (2026-06-02): the base RETREAT_SWARM_RANGE_PX
+    # gate released RETREAT the moment the bot drifted just past the
+    # swarm, producing the engage<->regen 0-shield thrash that ended in
+    # death.  Widen the radius once we're committed to retreating
+    # (hysteresis -- stay until genuinely clear) OR when shields are
+    # critical (commit to the flee even if the swarm has strung out, it
+    # WILL re-converge at near-zero shields).
+    swarm_range = (
+        _ap.RETREAT_SWARM_RANGE_EXIT_PX
+        if (cur == _ap.S_RETREAT or pct < _ap.RETREAT_CRITICAL_SHIELD_PCT)
+        else _ap.RETREAT_SWARM_RANGE_PX)
+    swarm = sum(
+        1 for a in (state.get("aliens") or [])
+        if math.hypot(float(a.get("x", 0.0)) - px,
+                      float(a.get("y", 0.0)) - py)
+        <= swarm_range)
+    if swarm < _ap.RETREAT_SWARM_ALIEN_COUNT:
         return False
     # Consumable gate: a ready shield_recharge normally means "fight +
     # heal instead of fleeing", so RETREAT stays suppressed.  BUT the
@@ -126,6 +137,45 @@ def _retreat_active(state: dict, p: dict, cur: str) -> bool:
             and _bot_has_ready_shield_consumable(state)):
         return False
     return True
+
+
+def _zone2_far_swarm_tether(state: dict, p: dict, hs) -> bool:
+    """Section-2.6 predicate: should the bot stop seeking resources /
+    aliens deeper into a ZONE2 swarm and head home instead?
+
+    True when ALL hold:
+      * the bot is in ZONE2 (the persistent-swarm Nebula),
+      * a Home Station exists to tether to (``hs`` not None) -- with no
+        base there is nothing to retreat toward, so the bot keeps
+        roaming to build one,
+      * the bot is farther than ``ZONE2_TETHER_DIST_PX`` from that HS,
+      * a dense swarm (>= RETREAT_SWARM_ALIEN_COUNT within
+        RETREAT_SWARM_RANGE_PX) is adjacent.
+
+    Captured 2026-06-02: 20 edge-stucks while ENGAGE + 2 deaths fighting
+    55-60 aliens 2500-4600 px from the HS -- the bot chased
+    loot / asteroids / aliens deep into a swarm with no win condition.
+    This sits BELOW ENGAGE (so the bot still defends a close threat) and
+    below RETREAT / REGEN (so a hurt bot still flees / heals first), but
+    ABOVE GATHER / MINE / HUNT -- when it fires the caller returns
+    S_IDLE_AT_BASE, whose handler drives the bot back to the HS ring.
+    """
+    if hs is None:
+        return False
+    zone_id = str((state.get("zone") or {}).get("id", ""))
+    if "ZONE2" not in zone_id:
+        return False
+    px, py = p.get("x", 0.0), p.get("y", 0.0)
+    hs_dist = math.hypot(float(hs.get("x", 0.0)) - px,
+                         float(hs.get("y", 0.0)) - py)
+    if hs_dist <= _ap.ZONE2_TETHER_DIST_PX:
+        return False
+    swarm = sum(
+        1 for a in (state.get("aliens") or [])
+        if math.hypot(float(a.get("x", 0.0)) - px,
+                      float(a.get("y", 0.0)) - py)
+        <= _ap.RETREAT_SWARM_RANGE_PX)
+    return swarm >= _ap.RETREAT_SWARM_ALIEN_COUNT
 
 
 def _housekeeping_short_circuits(state: dict, p: dict) -> None:
@@ -965,6 +1015,18 @@ def choose_next_state(state: dict, p: dict, cur: str) -> str:
     if engage_state is not None:
         return engage_state
 
+    # 2.6 ZONE2 swarm tether (2026-06-02).  When the bot is deep in a
+    #     ZONE2 swarm far from its Home Station, stop seeking resources /
+    #     aliens deeper and head home -- the captured pathology was 20
+    #     edge-stucks while ENGAGE + 2 deaths fighting 55-60 aliens
+    #     2500-4600 px from base with no win condition.  Sits below
+    #     ENGAGE (defend a close threat first) and below RETREAT / REGEN
+    #     (a hurt bot flees / heals first), but above GATHER / MINE /
+    #     HUNT so resource-seeking can't pull the bot deeper.
+    #     S_IDLE_AT_BASE's handler drives the bot back to the HS ring.
+    if _zone2_far_swarm_tether(state, p, hs_pri145):
+        return _ap.S_IDLE_AT_BASE
+
     # 2.5 WARP_TRAVERSE (2026-05-15).  Once the bot has landed in
     #     a warp zone after the post-boss warp, drive to the far
     #     side of the map (the game enters at ``entry_side="bottom"``
@@ -1299,13 +1361,25 @@ def choose_next_state(state: dict, p: dict, cur: str) -> str:
     nearest_ast, ast_d = _ap._nearest_asteroid(state, px, py)
     if nearest_ast is not None:
         in_chase_range = ast_d < _ap.MAX_ASTEROID_CHASE_PX
+        # Gather->mine hysteresis (2026-06-02): the mirror of the
+        # mine->gather guard in section 3.  While actively GATHERing,
+        # only a genuinely-close asteroid (MINE_ENTER_WHILE_GATHERING_PX)
+        # preempts to MINE -- finishing a gather used to dart the bot to
+        # a mid-range asteroid (287 dwell-suppressed gather->mine flips),
+        # which then dropped iron and pulled it back.  The full chase cap
+        # still drives the commit / giveup machinery below, so a far
+        # asteroid keeps its SEARCH / IDLE_AT_BASE giveup escape hatch.
+        gather_holds_mine = (
+            cur == _ap.S_GATHER
+            and ast_d >= _ap.MINE_ENTER_WHILE_GATHERING_PX)
         if in_chase_range:
             # Reached (or approached) a chase-range asteroid —
             # clear any prior commitment so future SEARCH /
             # IDLE_AT_BASE episodes get the normal cap-protected
             # behaviour.
             _ap._state.chase_committed = False
-            return _ap.S_MINE
+            if not gather_holds_mine:
+                return _ap.S_MINE
         # Out of chase range.  Either we're already committed
         # to a far chase, or we've been waiting (in SEARCH or
         # IDLE_AT_BASE) long enough to commit now.  IDLE_AT_BASE
