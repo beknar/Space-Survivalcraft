@@ -1005,6 +1005,27 @@ def choose_next_state(state: dict, p: dict, cur: str) -> str:
         elif (have_repair and have_shield) or warp_best_effort:
             return _ap.S_WARP_TO_WORMHOLE
 
+    # 1.9 ZONE2 swarm tether (2026-06-02; promoted above ENGAGE
+    #     2026-06-02 follow-up).  When the bot is deep in a ZONE2 swarm
+    #     far from its Home Station, head home instead of fighting --
+    #     the captured pathology was 2 deaths at hs_dist 4100-4573 in a
+    #     57-60 alien swarm with shields crashing full->0.
+    #
+    #     Priority: this sits ABOVE ENGAGE.  The first cut (2026-06-02)
+    #     placed the tether BELOW ENGAGE, but in a 57-alien swarm there
+    #     is always an alien inside the 800 px engage band, so ENGAGE
+    #     fired every tick and the tether never did -- the bot stayed
+    #     pinned in combat 4000+ px from base until it died.  Promoting
+    #     it above ENGAGE makes the bot commit to the return trip while
+    #     it still has shields to survive the gauntlet; combat assist
+    #     still fires reflexively en route, and RETREAT / REGEN (above
+    #     this) still own the hurt-bot break-contact / heal cases.  Only
+    #     fires far from base (> ZONE2_TETHER_DIST_PX) under a dense
+    #     swarm, so close-to-base ZONE2 combat is unaffected.
+    #     S_IDLE_AT_BASE's handler drives the bot back to the HS ring.
+    if _zone2_far_swarm_tether(state, p, hs_pri145):
+        return _ap.S_IDLE_AT_BASE
+
     # 2. ENGAGE — alien within band.  Preempts the rest.  ``threat, td``
     #    were loaded above for the REGEN escape valve and are reused
     #    here (no re-walk of the alien list); the no-HS-boss + outside-
@@ -1014,18 +1035,6 @@ def choose_next_state(state: dict, p: dict, cur: str) -> str:
                                     hs_pri145, zone_id)
     if engage_state is not None:
         return engage_state
-
-    # 2.6 ZONE2 swarm tether (2026-06-02).  When the bot is deep in a
-    #     ZONE2 swarm far from its Home Station, stop seeking resources /
-    #     aliens deeper and head home -- the captured pathology was 20
-    #     edge-stucks while ENGAGE + 2 deaths fighting 55-60 aliens
-    #     2500-4600 px from base with no win condition.  Sits below
-    #     ENGAGE (defend a close threat first) and below RETREAT / REGEN
-    #     (a hurt bot flees / heals first), but above GATHER / MINE /
-    #     HUNT so resource-seeking can't pull the bot deeper.
-    #     S_IDLE_AT_BASE's handler drives the bot back to the HS ring.
-    if _zone2_far_swarm_tether(state, p, hs_pri145):
-        return _ap.S_IDLE_AT_BASE
 
     # 2.5 WARP_TRAVERSE (2026-05-15).  Once the bot has landed in
     #     a warp zone after the post-boss warp, drive to the far

@@ -300,10 +300,21 @@ class TestZone2SwarmTether:
         assert ap._choose_next_state(
             s, s["player"], ap.S_MINE) != ap.S_IDLE_AT_BASE
 
-    def test_close_threat_engages_over_tether(
+    def test_tether_outranks_engage_when_far(
             self, _clock, _fresh_bot_state):
-        # Alien inside the 800 px engage band -> ENGAGE (defend) outranks
-        # the tether, which sits below ENGAGE.
+        # 2026-06-02 follow-up: the tether now sits ABOVE ENGAGE.  Even
+        # with an alien inside the 800 px engage band, a bot far from base
+        # in a dense swarm heads home (IDLE_AT_BASE) rather than getting
+        # pinned in combat 4000+ px out until its shields crash.
         s = self._far_swarm_state(alien_dist=500.0)
+        assert ap._choose_next_state(
+            s, s["player"], ap.S_MINE) == ap.S_IDLE_AT_BASE
+
+    def test_close_threat_engages_when_near_base(
+            self, _clock, _fresh_bot_state):
+        # Within the tether distance the tether does NOT fire, so a close
+        # threat is engaged as normal -- close-to-base ZONE2 combat is
+        # unaffected by the promotion.
+        s = self._far_swarm_state(hs_dist=1500.0, alien_dist=500.0)
         assert ap._choose_next_state(
             s, s["player"], ap.S_MINE) == ap.S_ENGAGE
