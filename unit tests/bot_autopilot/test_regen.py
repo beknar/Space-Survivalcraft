@@ -842,6 +842,71 @@ class TestRegenFleesBossWhenNoHomeStation:
         assert "idled" in captured and "fled" not in captured
 
 
+class TestRegenFarHsBreakContact:
+    """2026-06-02: REGEN drove toward ANY in-zone HS regardless of
+    distance.  Captured a 16 s REGEN drive toward a 3500 px HS at 0/120
+    shields with 49 aliens that ended in death -- the bot bled out en
+    route to an umbrella it could not reach.  When the HS is beyond
+    RETREAT_HS_MAX_DIST_PX AND a dense swarm is adjacent, REGEN now flees
+    the swarm centroid instead (mirrors S_RETREAT's far-HS handling).
+    """
+
+    def _goto_spy(self, monkeypatch):
+        captured: dict = {}
+        monkeypatch.setattr(
+            ap, "_do_goto",
+            lambda state, p, tx, ty, stop_radius=80.0,
+            brake_on_arrival=True: captured.update(tx=tx, ty=ty))
+        monkeypatch.setattr(ap, "_do_idle",
+                            lambda: captured.update(idled=True))
+        return captured
+
+    def test_far_hs_with_swarm_flees_centroid(self, monkeypatch):
+        captured = self._goto_spy(monkeypatch)
+        # HS 3000 px away (> 2200), dense swarm clustered to +x.
+        s = _state(
+            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 5, "max_shields": 120},
+            buildings=[{"x": 3200.0, "y": 200.0,
+                        "building_type": "Home Station"}],
+            aliens=[{"x": 3700.0, "y": 3200.0, "hp": 50}
+                    for _ in range(ap.RETREAT_SWARM_ALIEN_COUNT)],
+        )
+        s["zone"]["id"] = "ZoneID.ZONE2"
+        ap._act_regen(s, s["player"])
+        # Flee -x (away from the swarm), NOT toward the far HS at y=200.
+        assert captured.get("tx") == 3200.0 - ap.RETREAT_FLEE_TARGET_PX
+        assert captured.get("ty") == 3200.0
+
+    def test_far_hs_without_swarm_still_drives_to_hs(self, monkeypatch):
+        """The override only fires under a swarm -- a far HS with no
+        aliens is still the recovery target (no break-contact urgency)."""
+        captured = self._goto_spy(monkeypatch)
+        s = _state(
+            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 30, "max_shields": 120},
+            buildings=[{"x": 3200.0, "y": 200.0,
+                        "building_type": "Home Station"}],
+        )
+        s["zone"]["id"] = "ZoneID.ZONE2"
+        ap._act_regen(s, s["player"])
+        assert captured.get("tx") == 3200.0 and captured.get("ty") == 200.0
+
+    def test_near_hs_with_swarm_still_drives_to_hs(self, monkeypatch):
+        """HS within RETREAT_HS_MAX_DIST_PX is reachable even under a
+        swarm -- the umbrella's regen + turret ring beats fleeing."""
+        captured = self._goto_spy(monkeypatch)
+        s = _state(
+            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 5, "max_shields": 120},
+            buildings=[{"x": 4000.0, "y": 3200.0,   # 800 px < 2200
+                        "building_type": "Home Station"}],
+            aliens=[{"x": 2700.0, "y": 3200.0, "hp": 50}
+                    for _ in range(ap.RETREAT_SWARM_ALIEN_COUNT)],
+        )
+        s["zone"]["id"] = "ZoneID.ZONE2"
+        ap._act_regen(s, s["player"])
+        assert captured.get("tx") == 4000.0 and captured.get("ty") == 3200.0
 
 
 class TestRegenGasCloudEscape:
