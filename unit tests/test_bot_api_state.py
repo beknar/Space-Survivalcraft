@@ -765,6 +765,33 @@ class TestDoPostWiring:
         h.do_POST()
         assert h.sent == [(503, {"error": "game not ready"})]
 
+    def test_uninstall_rejects_blank_mod_key(self, monkeypatch):
+        monkeypatch.setattr(bot_api, "_gv_ref", object())
+        h = _make_handler(b'{"mod_key": ""}')
+        h.path = "/uninstall_module"
+        h.do_POST()
+        assert h.sent == [(400, {"error": "missing or invalid 'mod_key'"})]
+
+    def test_uninstall_dispatches_to_builder(self, monkeypatch):
+        monkeypatch.setattr(bot_api, "_gv_ref", object())
+        captured = {}
+
+        def _fake_submit(fn):
+            import threading
+            ev = threading.Event()
+            ev.set()
+            captured["fn"] = fn
+            return ev, {"value": {"ok": True, "uninstalled": "shield_booster",
+                                  "slot": 1}, "error": None}
+
+        monkeypatch.setattr(bot_api, "submit_to_main_thread", _fake_submit)
+        h = _make_handler(b'{"mod_key": "shield_booster"}')
+        h.path = "/uninstall_module"
+        h.do_POST()
+        assert h.sent == [(200, {"ok": True, "uninstalled": "shield_booster",
+                                 "slot": 1})]
+        assert callable(captured["fn"])
+
     def test_build_dispatches_and_wraps_ok(self, monkeypatch):
         monkeypatch.setattr(bot_api, "_gv_ref", object())
         captured = {}

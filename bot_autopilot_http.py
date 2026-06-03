@@ -103,6 +103,30 @@ def _post_install_module(mod_key: str,
         return None
 
 
+def _post_uninstall_module(mod_key: str,
+                           timeout_s: float = 5.0) -> dict | None:
+    """POST /uninstall_module to remove ``mod_key`` from its ship slot
+    and return ``mod_<mod_key>`` to station inventory, freeing the slot
+    for a swap.  Returns the parsed response dict or ``None`` on
+    transport failure."""
+    try:
+        import json
+        req = Request(
+            f"{_ap.API_BASE}/uninstall_module",
+            data=json.dumps({"mod_key": mod_key}).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urlopen(req, timeout=timeout_s) as r:
+            return json.loads(r.read().decode("utf-8"))
+    except (URLError, TimeoutError, OSError) as e:
+        print(f"[autopilot] uninstall POST error: {e}")
+        return None
+    except Exception as e:
+        print(f"[autopilot] uninstall POST unexpected error: {e}")
+        return None
+
+
 def _post_deposit_to_station(timeout_s: float = 5.0) -> dict | None:
     """POST /deposit_to_station on the in-game HTTP API.  Returns
     the parsed JSON response, or ``None`` on transport failure.

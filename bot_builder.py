@@ -418,6 +418,39 @@ def install_module(gv: Any, mod_key: str) -> dict:
     return {"ok": True, "installed": mod_key, "slot": free_slot}
 
 
+def uninstall_module(gv: Any, mod_key: str) -> dict:
+    """Remove ``mod_key`` from its ship slot and return it to STATION
+    inventory (``mod_<mod_key>``), freeing the slot for a swap.
+
+    The player flow (``input_handlers_dragdrop`` drag-out of a slot)
+    drops the module back to the *ship* inventory, but the bot installs
+    FROM station inventory, so we return it there instead -- otherwise a
+    swapped-out module couldn't be re-installed later and would be
+    stranded in ship cargo.  Mirrors ``install_module`` in reverse.
+
+    Returns ``{"ok": True, "slot": i, "uninstalled": mod_key}`` on
+    success, ``{"ok": False, "reason": ...}`` otherwise.
+    """
+    slot_idx = None
+    for i, slot in enumerate(gv._module_slots):
+        if slot == mod_key:
+            slot_idx = i
+            break
+    if slot_idx is None:
+        return {
+            "ok": False,
+            "reason": f"{mod_key} not installed in any ship slot",
+        }
+    gv._module_slots[slot_idx] = None
+    gv._station_inv.add_item(f"mod_{mod_key}", 1)
+    gv.player.apply_modules(gv._module_slots)
+    try:
+        gv._hud._mod_slots = list(gv._module_slots)
+    except Exception:
+        pass
+    return {"ok": True, "uninstalled": mod_key, "slot": slot_idx}
+
+
 def equip_consumables_to_quick_use(
         gv: Any,
         repair_slot: int = 0,

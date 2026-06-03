@@ -902,3 +902,36 @@ def _next_install_target(state: dict) -> str | None:
     if items.get(f"mod_{head}", 0) < 1:
         return None
     return head
+
+
+def _module_swap_plan(state: dict) -> str | None:
+    """Return an installed module to UNINSTALL so the queued install
+    target can take its slot, or None if no swap is needed/possible.
+
+    The ship's MODULE_SLOT_COUNT (4) slots fill with the MAIN loadout,
+    leaving no room for the Nebula modules.  When the install-queue head
+    is a NEBULA_TARGET_LOADOUT module and every slot is full, free a slot
+    by uninstalling an installed module that is NOT in the target
+    loadout (e.g. shield_booster / shield_enhancer / armor_plate),
+    keeping the target modules (the three advanced ones + broadside).
+
+    Returns None when: the queue is empty, the head isn't a target
+    module (don't swap to install a non-target module), a free slot
+    already exists, the head is already installed, or every installed
+    module is itself a target module (nothing safe to drop).
+    """
+    q = _ap._state.queue
+    if not q.modules_to_install:
+        return None
+    head = q.modules_to_install[0]
+    if head not in _ap.NEBULA_TARGET_LOADOUT:
+        return None
+    slots = list(state.get("module_slots") or [])
+    if any(s is None for s in slots):
+        return None          # a free slot exists -- plain install works
+    if head in slots:
+        return None          # already installed
+    for s in slots:
+        if s and s not in _ap.NEBULA_TARGET_LOADOUT:
+            return s         # drop the first non-target module
+    return None              # all slots hold target modules already

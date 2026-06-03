@@ -203,6 +203,19 @@ ADVANCED_CRAFTER_COPPER_COST: int = 500
 # loadout.
 NEBULA_ADVANCED_MODULES: tuple[str, ...] = (
     "misty_step", "force_wall", "death_blossom")
+# Target ship loadout once an Advanced Crafter exists (2026-06-02).  The
+# ship has only MODULE_SLOT_COUNT (4) slots and the MAIN loadout
+# (MODULE_INSTALL_QUEUE) fills all four, so the three Nebula modules
+# could never be installed -- a crafting dead-end (no uninstall path).
+# This is the preferred 4-slot set in the Nebula: the three advanced
+# modules plus ``broadside`` for kill throughput against the swarm.  The
+# swap planner (``_module_swap_plan``) uninstalls any installed module
+# NOT in this set to make room for a queued advanced module, and never
+# uninstalls a module that IS in this set.  Retune freely -- e.g. swap
+# ``broadside`` for ``shield_booster`` / ``armor_plate`` to favour
+# survivability over offense.
+NEBULA_TARGET_LOADOUT: tuple[str, ...] = (
+    "death_blossom", "force_wall", "misty_step", "broadside")
 # Advanced (Nebula-tier) consumable craft targets.  Each entry
 # maps the MODULE_TYPES craft key (what gets queued in
 # ``modules_to_craft``) to a (item_key, target_stockpile) tuple,

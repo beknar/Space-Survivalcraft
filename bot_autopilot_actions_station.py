@@ -206,6 +206,24 @@ def _act_install(state: dict, p: dict) -> None:
         _ap._do_idle()
         return
     _ap.KeyState.release_all()
+    # Module swap (2026-06-02): the ship's 4 slots fill with the MAIN
+    # loadout, leaving no room for the Nebula modules -- a crafting
+    # dead-end.  If the queued target is a NEBULA_TARGET_LOADOUT module
+    # and every slot is full, free a slot first by uninstalling a
+    # non-target module; the install then fires next tick now that a
+    # slot is open.  ``install_module`` would otherwise reject the
+    # target with "no free module slot on ship" forever.
+    swap_out = _ap._module_swap_plan(state)
+    if swap_out is not None:
+        swap_res = _ap._post_uninstall_module(swap_out)
+        if swap_res is not None and swap_res.get("ok", False):
+            print(f"[autopilot] SWAP: uninstalled {swap_out!r} to make "
+                  f"room for {target!r}")
+        else:
+            reason = (swap_res or {}).get("reason", "transport failure")
+            print(f"[autopilot] SWAP: uninstall {swap_out!r} "
+                  f"rejected ({reason})")
+        return
     result = _ap._post_install_module(target)
     q = _ap._state.queue
     if result is None or not result.get("ok", False):
