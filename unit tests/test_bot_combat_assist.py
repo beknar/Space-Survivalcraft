@@ -94,6 +94,7 @@ def _reset_assist_state(monkeypatch):
         "misty_step_fires": 0,
         "force_wall_fires": 0,
         "death_blossom_fires": 0,
+        "drone_deploys": 0,
     })
     monkeypatch.setattr(ca, "_get_random", lambda: 0.99)  # ranged
     yield
@@ -645,3 +646,105 @@ class TestMaybeFireDeathBlossom:
             modules=["death_blossom"], missiles=20, aliens=aliens)
         assert ca._maybe_fire_death_blossom(gv) is False
 
+
+
+# ── Drone dispatch ────────────────────────────────────────────────────────
+
+
+def _drone_gv(*, active_drone=None, mining=False,
+              combat_drones=0, mining_drones=0, aliens=(),
+              px=0.0, py=0.0):
+    """gv stub for ``_maybe_deploy_drone``: active drone, active weapon
+    (mines_rock decides the variant), ship inventory counts, and the
+    alien list for the combat-drone cluster test."""
+    weapon = SimpleNamespace(
+        name="Mining Beam" if mining else "Basic Laser",
+        mines_rock=mining)
+    items = {}
+    if combat_drones:
+        items["combat_drone"] = combat_drones
+    if mining_drones:
+        items["mining_drone"] = mining_drones
+
+    class _Inv:
+        def __init__(self, it):
+            self._items = dict(it)
+
+        def count_item(self, k):
+            return self._items.get(k, 0)
+
+    return SimpleNamespace(
+        _active_drone=active_drone,
+        _active_weapon=weapon,
+        inventory=_Inv(items),
+        player=SimpleNamespace(center_x=px, center_y=py),
+        alien_list=list(aliens),
+    )
+
+
+def _patch_deploy(monkeypatch):
+    """Replace the heavy ``combat_helpers.deploy_drone`` (real sprite
+    spawn) with a stub that just consumes a charge + sets _active_drone,
+    so we test the GATING in _maybe_deploy_drone, not the sprite path."""
+    import combat_helpers
+    calls: list = []
+
+    def _stub(gv):
+        calls.append(gv)
+        w = gv._active_weapon
+        key = ("mining_drone" if getattr(w, "mines_rock", False)
+               else "combat_drone")
+        if gv.inventory.count_item(key) > 0:
+            gv.inventory._items[key] -= 1
+            gv._active_drone = SimpleNamespace(_kind=key)
+    monkeypatch.setattr(combat_helpers, "deploy_drone", _stub)
+    return calls
+
+
+class TestMaybeDeployDrone:
+    def test_deploys_combat_drone_under_cluster(self, monkeypatch):
+        calls = _patch_deploy(monkeypatch)
+        aliens = [_alien(100.0 * i, 0.0) for i in range(3)]  # 3 within range
+        gv = _drone_gv(combat_drones=5, aliens=aliens)
+        assert ca._maybe_deploy_drone(gv) is True
+        assert len(calls) == 1
+        assert ca._state["drone_deploys"] == 1
+        assert gv._active_drone is not None
+
+    def test_no_combat_drone_without_cluster(self, monkeypatch):
+        calls = _patch_deploy(monkeypatch)
+        gv = _drone_gv(combat_drones=5, aliens=[_alien(50.0, 0.0)])  # 1 alien
+        assert ca._maybe_deploy_drone(gv) is False
+        assert calls == []
+
+    def test_no_deploy_when_drone_already_active(self, monkeypatch):
+        calls = _patch_deploy(monkeypatch)
+        aliens = [_alien(100.0 * i, 0.0) for i in range(5)]
+        gv = _drone_gv(active_drone=SimpleNamespace(_kind="combat_drone"),
+                       combat_drones=5, aliens=aliens)
+        assert ca._maybe_deploy_drone(gv) is False
+        assert calls == []
+
+    def test_no_deploy_without_inventory(self, monkeypatch):
+        calls = _patch_deploy(monkeypatch)
+        aliens = [_alien(100.0 * i, 0.0) for i in range(5)]
+        gv = _drone_gv(combat_drones=0, aliens=aliens)
+        assert ca._maybe_deploy_drone(gv) is False
+        assert calls == []
+
+    def test_deploys_mining_drone_without_threat_gate(self, monkeypatch):
+        # Mining weapon active, no aliens -> mining drone still deploys
+        # (it speeds up mining; no cluster requirement).
+        calls = _patch_deploy(monkeypatch)
+        gv = _drone_gv(mining=True, mining_drones=5, aliens=())
+        assert ca._maybe_deploy_drone(gv) is True
+        assert len(calls) == 1
+        assert gv._active_drone._kind == "mining_drone"
+
+    def test_far_aliens_do_not_count_as_cluster(self, monkeypatch):
+        calls = _patch_deploy(monkeypatch)
+        far = ca.DRONE_DEPLOY_RANGE_PX + 500.0
+        aliens = [_alien(far, 100.0 * i) for i in range(5)]  # all out of range
+        gv = _drone_gv(combat_drones=5, aliens=aliens)
+        assert ca._maybe_deploy_drone(gv) is False
+        assert calls == []
