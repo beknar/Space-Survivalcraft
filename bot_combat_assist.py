@@ -89,6 +89,13 @@ MISTY_STEP_GAS_MARGIN_PX: float = 30.0   # treat as "inside" cloud
 FORCE_WALL_SHIELDS_PCT: float = 0.45     # arm threshold
 DEATH_BLOSSOM_CLUSTER_MIN: int = 4       # aliens to consider a swarm
 DEATH_BLOSSOM_CLUSTER_RANGE_PX: float = 350.0   # close-range only
+# Drone dispatch (2026-06-02).  The bot crafts + equips combat / mining
+# drones but never deployed them (the in-game "R" key was player-only),
+# so they were a crafting dead-end.  Mining drone deploys freely while
+# the mining weapon is active; the combat drone only when a cluster of
+# aliens is near (don't spend the single drone charge on a lone kiter).
+DRONE_DEPLOY_CLUSTER_MIN: int = 3        # aliens to justify a combat drone
+DRONE_DEPLOY_RANGE_PX: float = 900.0     # threat range for the cluster test
 
 _state: dict[str, Any] = {
     "enabled": True,
@@ -108,6 +115,7 @@ _state: dict[str, Any] = {
     "misty_step_fires": 0,
     "force_wall_fires": 0,
     "death_blossom_fires": 0,
+    "drone_deploys": 0,
 }
 
 
@@ -364,6 +372,70 @@ def _maybe_fire_death_blossom(gv) -> bool:
     return False
 
 
+def _maybe_deploy_drone(gv) -> bool:
+    """Deploy a companion drone when one would help and none is out.
+
+    The drone variant follows the active weapon -- exactly how
+    ``combat_helpers.deploy_drone`` decides: a mining weapon
+    (``mines_rock``) deploys a MiningDrone, anything else a CombatDrone.
+    Since the bot runs the mining weapon while in S_MINE and a laser in
+    combat, that coupling lands the right drone for the situation for
+    free.
+
+    The engine caps active drones at one (``gv._active_drone``), so we
+    only deploy when there is no drone out -- otherwise ``deploy_drone``
+    would no-op (and flash a message) on a same-variant press, or swap
+    (refund + reconsume) on a different-variant press mid-combat.
+
+      * Mining drone -- deploy whenever the mining weapon is active and
+        one is in ship inventory (it speeds up mining; no threat gate).
+      * Combat drone -- deploy only when at least
+        ``DRONE_DEPLOY_CLUSTER_MIN`` live aliens are within
+        ``DRONE_DEPLOY_RANGE_PX`` (don't spend the single charge on a
+        lone kiter).
+
+    Drone items reach ship inventory via
+    ``bot_builder.equip_consumables_to_quick_use`` (slots 3/4), which
+    ``deploy_drone`` consumes from.
+    """
+    if getattr(gv, "_active_drone", None) is not None:
+        return False
+    weapon = getattr(gv, "_active_weapon", None)
+    is_mining = bool(getattr(weapon, "mines_rock", False))
+    item_key = "mining_drone" if is_mining else "combat_drone"
+    try:
+        if gv.inventory.count_item(item_key) <= 0:
+            return False
+    except Exception:
+        return False
+    if not is_mining:
+        p = gv.player
+        px = float(p.center_x)
+        py = float(p.center_y)
+        r2 = DRONE_DEPLOY_RANGE_PX * DRONE_DEPLOY_RANGE_PX
+        close = 0
+        for a in (getattr(gv, "alien_list", None) or ()):
+            try:
+                if getattr(a, "hp", 0) <= 0:
+                    continue
+                dx = float(a.center_x) - px
+                dy = float(a.center_y) - py
+                if dx * dx + dy * dy <= r2:
+                    close += 1
+                    if close >= DRONE_DEPLOY_CLUSTER_MIN:
+                        break
+            except Exception:
+                continue
+        if close < DRONE_DEPLOY_CLUSTER_MIN:
+            return False
+    from combat_helpers import deploy_drone
+    deploy_drone(gv)
+    if getattr(gv, "_active_drone", None) is not None:
+        _state["drone_deploys"] += 1
+        return True
+    return False
+
+
 # ── Per-frame tick ────────────────────────────────────────────────────────
 
 def tick(gv, dt: float, original_fire: bool) -> bool:
@@ -405,6 +477,10 @@ def tick(gv, dt: float, original_fire: bool) -> bool:
         _maybe_fire_death_blossom(gv)
     except Exception as e:
         print(f"[combat_assist] death_blossom error: {e}")
+    try:
+        _maybe_deploy_drone(gv)
+    except Exception as e:
+        print(f"[combat_assist] drone deploy error: {e}")
 
     now = _now(gv)
     if threat is None:
@@ -526,4 +602,5 @@ def get_state() -> dict:
         "misty_step_fires": _state["misty_step_fires"],
         "force_wall_fires": _state["force_wall_fires"],
         "death_blossom_fires": _state["death_blossom_fires"],
+        "drone_deploys": _state["drone_deploys"],
     }
