@@ -60,6 +60,31 @@ class TestRetreatGate:
         assert ap._choose_next_state(
             s, s["player"], ap.S_MINE) == ap.S_RETREAT
 
+    def test_fires_below_critical_even_with_consumable(
+            self, _clock, _fresh_bot_state):
+        """Below RETREAT_CRITICAL_SHIELD_PCT a ready shield_recharge no
+        longer suppresses retreat: at near-zero shields under a swarm a
+        single heal can't outpace DPS, so break contact instead of
+        thrashing engage<->retreat (2026-06-01)."""
+        # 24/120 = 0.20 < 0.25 critical floor.
+        s = _zone2_swarm_state(
+            shields=24,
+            quick_use=[{"item_type": "shield_recharge", "count": 5}])
+        assert ap._choose_next_state(
+            s, s["player"], ap.S_MINE) == ap.S_RETREAT
+
+    def test_consumable_still_suppresses_above_critical(
+            self, _clock, _fresh_bot_state):
+        """Just above the critical floor a ready consumable still means
+        fight + heal, not flee -- the critical override must not widen
+        the normal suppression band."""
+        # 36/120 = 0.30 > 0.25 critical, < 0.60 enter.
+        s = _zone2_swarm_state(
+            shields=36,
+            quick_use=[{"item_type": "shield_recharge", "count": 5}])
+        assert ap._choose_next_state(
+            s, s["player"], ap.S_MINE) != ap.S_RETREAT
+
     def test_suppressed_when_swarm_too_sparse(
             self, _clock, _fresh_bot_state):
         s = _zone2_swarm_state(
@@ -120,13 +145,40 @@ class TestActRetreat:
                  brake_on_arrival=True):
             captured["tx"], captured["ty"] = tx, ty
         monkeypatch.setattr(ap, "_do_goto", _spy)
+        # HS within RETREAT_HS_MAX_DIST_PX (1500 < 2200) -- reachable
+        # umbrella, so retreat drives toward the station.
         s = _zone2_swarm_state(
-            shields=50, buildings=[_hs_building(x=3200.0, y=3200.0)])
-        # Bot is at the origin, far from the HS umbrella, so retreat
-        # drives toward the station.
+            shields=50, buildings=[_hs_building(x=1500.0, y=0.0)])
         ap._act_retreat(s, s["player"])
-        assert captured.get("tx") == 3200.0
-        assert captured.get("ty") == 3200.0
+        assert captured.get("tx") == 1500.0
+        assert captured.get("ty") == 0.0
+
+    def test_flees_centroid_when_hs_too_far(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """An in-zone HS beyond RETREAT_HS_MAX_DIST_PX is unreachable
+        through the swarm, so retreat ignores it and flees the centroid
+        (2026-06-01 fix -- pre-fix it marched toward the distant HS and
+        thrashed engage<->retreat at ~0 shields until it died)."""
+        captured: dict = {}
+
+        def _spy(state, p, tx, ty, stop_radius=80.0,
+                 brake_on_arrival=True):
+            captured["tx"], captured["ty"] = tx, ty
+        monkeypatch.setattr(ap, "_do_goto", _spy)
+        # Bot at world centre, swarm to +x, HS 3100 px away (> 2200).
+        s = _state(
+            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                    "hp": 100, "max_hp": 100,
+                    "shields": 50, "max_shields": 120},
+            aliens=[{"x": 3700.0, "y": 3200.0, "hp": 50}
+                    for _ in range(6)],
+            buildings=[_hs_building(x=3200.0, y=100.0)],
+        )
+        s["zone"]["id"] = "ZoneID.ZONE2"
+        ap._act_retreat(s, s["player"])
+        # Centroid flee (pure -x), NOT toward the far HS.
+        assert captured["tx"] == 3200.0 - ap.RETREAT_FLEE_TARGET_PX
+        assert captured["ty"] == 3200.0
 
     def test_flees_swarm_centroid_with_no_station(
             self, _clock, _fresh_bot_state, monkeypatch):

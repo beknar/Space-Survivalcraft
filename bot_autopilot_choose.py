@@ -98,8 +98,6 @@ def _retreat_active(state: dict, p: dict, cur: str) -> bool:
     zone_id = str((state.get("zone") or {}).get("id", ""))
     if "ZONE2" not in zone_id:
         return False
-    if _bot_has_ready_shield_consumable(state):
-        return False
     px, py = p.get("x", 0.0), p.get("y", 0.0)
     swarm = sum(
         1 for a in (state.get("aliens") or [])
@@ -114,7 +112,20 @@ def _retreat_active(state: dict, p: dict, cur: str) -> bool:
     threshold = (_ap.RETREAT_EXIT_SHIELD_PCT
                  if cur == _ap.S_RETREAT
                  else _ap.RETREAT_ENTER_SHIELD_PCT)
-    return pct < threshold
+    if pct >= threshold:
+        return False
+    # Consumable gate: a ready shield_recharge normally means "fight +
+    # heal instead of fleeing", so RETREAT stays suppressed.  BUT the
+    # 2026-06-01 telemetry caught the bot thrashing engage<->retreat ~18
+    # times in 38 s at 0-5/120 shields under a 46-alien swarm because a
+    # flickering consumable kept releasing RETREAT back into a fatal
+    # re-engage.  Below RETREAT_CRITICAL_SHIELD_PCT a single heal can't
+    # outpace swarm DPS, so retreat regardless of the consumable --
+    # breaking contact is the only survivable move at near-zero shields.
+    if (pct >= _ap.RETREAT_CRITICAL_SHIELD_PCT
+            and _bot_has_ready_shield_consumable(state)):
+        return False
+    return True
 
 
 def _housekeeping_short_circuits(state: dict, p: dict) -> None:
