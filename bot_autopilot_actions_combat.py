@@ -494,6 +494,20 @@ def _act_regen(state: dict, p: dict) -> None:
 
     hs = _ap._find_home_station(state)
     if hs is not None:
+        # Far-HS swarm break-contact (2026-06-02): driving toward a
+        # distant HS at low shields under a swarm is fatal.  Captured: a
+        # 16 s REGEN drive toward a 3500 px HS at 0/120 shields with 49
+        # aliens that ended in death -- the bot bled out en route to an
+        # umbrella it could not reach.  When the HS is beyond
+        # RETREAT_HS_MAX_DIST_PX AND a dense swarm is adjacent, peel away
+        # from the swarm instead (mirrors S_RETREAT's far-HS handling);
+        # within range, the umbrella is worth the drive as before.
+        hs_dist = math.hypot(float(hs.get("x", 0.0)) - px,
+                             float(hs.get("y", 0.0)) - py)
+        if (hs_dist > _ap.RETREAT_HS_MAX_DIST_PX
+                and _dense_swarm_adjacent(state, px, py)):
+            _flee_swarm_centroid(state, p, px, py)
+            return
         _regen_drive_to_hs(state, p, px, py, hs)
         return
 
@@ -503,6 +517,21 @@ def _act_regen(state: dict, p: dict) -> None:
         return
 
     _ap._do_idle()
+
+
+def _dense_swarm_adjacent(state: dict, px: float, py: float) -> bool:
+    """True iff at least ``RETREAT_SWARM_ALIEN_COUNT`` aliens sit within
+    ``RETREAT_SWARM_RANGE_PX`` of the bot -- the same "surrounded"
+    predicate the RETREAT gate uses, reused here so REGEN's far-HS
+    break-contact only fires under a genuine swarm."""
+    n = 0
+    for a in (state.get("aliens") or []):
+        if math.hypot(float(a.get("x", 0.0)) - px,
+                      float(a.get("y", 0.0)) - py) <= _ap.RETREAT_SWARM_RANGE_PX:
+            n += 1
+            if n >= _ap.RETREAT_SWARM_ALIEN_COUNT:
+                return True
+    return False
 
 
 def _act_retreat(state: dict, p: dict) -> None:
@@ -546,7 +575,22 @@ def _act_retreat(state: dict, p: dict) -> None:
             _regen_drive_to_hs(state, p, px, py, hs)
             return
 
-    # No reachable in-zone station -- flee the swarm centroid.
+    # No reachable in-zone station -- break contact with the swarm.
+    _flee_swarm_centroid(state, p, px, py)
+
+
+def _flee_swarm_centroid(state: dict, p: dict, px: float,
+                         py: float) -> None:
+    """Drive along the ray from the mean position of the nearby aliens
+    through the bot, out past the swarm by ``RETREAT_FLEE_TARGET_PX``
+    (clamped to the world rect), so the bot breaks contact instead of
+    bleeding out in place.  Idles for one tick if the swarm emptied
+    between the choose tick and dispatch.
+
+    Shared by RETREAT (no / unreachable HS) and REGEN (far HS under a
+    swarm) -- both need to peel away from the swarm rather than march
+    toward a distant umbrella at low shields.
+    """
     aliens = [
         a for a in (state.get("aliens") or [])
         if math.hypot(float(a.get("x", 0.0)) - px,
@@ -556,8 +600,8 @@ def _act_retreat(state: dict, p: dict) -> None:
         cx = sum(float(a.get("x", 0.0)) for a in aliens) / len(aliens)
         cy = sum(float(a.get("y", 0.0)) for a in aliens) / len(aliens)
     else:
-        # Defensive: choose only routes here with a dense swarm, but
-        # if it emptied between tick and dispatch just idle one tick.
+        # Defensive: callers route here with a dense swarm, but if it
+        # emptied between tick and dispatch just idle one tick.
         _ap._do_idle()
         return
     dx, dy = px - cx, py - cy
