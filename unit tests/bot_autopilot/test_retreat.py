@@ -202,3 +202,108 @@ class TestActRetreat:
         ap._act_retreat(s, s["player"])
         assert captured["tx"] == 3200.0 - ap.RETREAT_FLEE_TARGET_PX
         assert captured["ty"] == 3200.0
+
+
+class TestRetreatSwarmRadiusHysteresis:
+    """2026-06-02: the swarm-detect radius widens to
+    RETREAT_SWARM_RANGE_EXIT_PX when already retreating OR at critical
+    shields, so RETREAT doesn't release the moment the swarm drifts just
+    past RETREAT_SWARM_RANGE_PX -- the engage<->regen 0-shield thrash
+    that ended in death (death 2, 2026-06-02)."""
+
+    def _swarm_at(self, *, shields, dist, max_shields=120, n=None):
+        n = ap.RETREAT_SWARM_ALIEN_COUNT if n is None else n
+        s = _state(
+            player={"x": 0.0, "y": 0.0, "heading": 0.0,
+                    "shields": shields, "max_shields": max_shields},
+            aliens=[{"x": float(dist), "y": 0.0, "hp": 50}
+                    for _ in range(n)],
+        )
+        s["zone"]["id"] = "ZoneID.ZONE2"
+        return s
+
+    def test_midband_swarm_no_retreat_at_normal_shields(
+            self, _clock, _fresh_bot_state):
+        # Swarm at 1500 px: > RETREAT_SWARM_RANGE_PX (1200), <
+        # RETREAT_SWARM_RANGE_EXIT_PX (1800).  Shields 50/120 (0.42,
+        # above critical): base radius applies -> swarm out of range ->
+        # no retreat.
+        s = self._swarm_at(shields=50, dist=1500.0)
+        assert ap._choose_next_state(
+            s, s["player"], ap.S_MINE) != ap.S_RETREAT
+
+    def test_midband_swarm_retreats_at_critical_shields(
+            self, _clock, _fresh_bot_state):
+        # Same 1500 px swarm, shields 24/120 (0.20 < critical 0.25):
+        # widened radius catches the swarm -> RETREAT commits.
+        s = self._swarm_at(shields=24, dist=1500.0)
+        assert ap._choose_next_state(
+            s, s["player"], ap.S_MINE) == ap.S_RETREAT
+
+    def test_midband_swarm_holds_while_already_retreating(
+            self, _clock, _fresh_bot_state):
+        # Already retreating, 1500 px swarm, shields 50 (below exit
+        # 0.85): widened radius holds RETREAT instead of releasing it
+        # into the thrash.
+        s = self._swarm_at(shields=50, dist=1500.0)
+        assert ap._choose_next_state(
+            s, s["player"], ap.S_RETREAT) == ap.S_RETREAT
+
+
+class TestZone2SwarmTether:
+    """2026-06-02: deep in a ZONE2 swarm far from the HS, the bot heads
+    home (S_IDLE_AT_BASE) instead of seeking resources/aliens deeper --
+    the captured pathology was 20 edge-stucks while ENGAGE + 2 deaths
+    fighting 55-60 aliens 2500-4600 px from base."""
+
+    def _far_swarm_state(self, *, shields=120, hs_dist=3000.0,
+                         alien_dist=1000.0, n=None, hs=True):
+        n = ap.RETREAT_SWARM_ALIEN_COUNT if n is None else n
+        buildings = [_hs_building(x=hs_dist, y=0.0)] if hs else []
+        s = _state(
+            player={"x": 0.0, "y": 0.0, "heading": 0.0,
+                    "shields": shields, "max_shields": 120},
+            aliens=[{"x": float(alien_dist), "y": 0.0, "hp": 50}
+                    for _ in range(n)],
+            buildings=buildings,
+        )
+        s["zone"]["id"] = "ZoneID.ZONE2"
+        return s
+
+    def test_far_hs_dense_swarm_heads_home(
+            self, _clock, _fresh_bot_state):
+        # HS 3000 px (> 2800 tether), 6 aliens at 1000 px (within the
+        # 1200 swarm range, outside the 800 engage band), full shields.
+        s = self._far_swarm_state()
+        assert ap._choose_next_state(
+            s, s["player"], ap.S_MINE) == ap.S_IDLE_AT_BASE
+
+    def test_near_hs_does_not_tether(self, _clock, _fresh_bot_state):
+        # HS within the tether distance -> normal cascade (mines).
+        s = self._far_swarm_state(hs_dist=1500.0)
+        s["asteroids"] = [{"x": 300.0, "y": 0.0, "hp": 100}]
+        assert ap._choose_next_state(
+            s, s["player"], ap.S_MINE) != ap.S_IDLE_AT_BASE
+
+    def test_far_hs_no_swarm_does_not_tether(
+            self, _clock, _fresh_bot_state):
+        # Far HS but only one alien in range -> no tether.
+        s = self._far_swarm_state(n=1)
+        s["asteroids"] = [{"x": 300.0, "y": 0.0, "hp": 100}]
+        assert ap._choose_next_state(
+            s, s["player"], ap.S_MINE) != ap.S_IDLE_AT_BASE
+
+    def test_no_home_station_does_not_tether(
+            self, _clock, _fresh_bot_state):
+        # No HS to tether to (early game) -> keep roaming.
+        s = self._far_swarm_state(hs=False)
+        assert ap._choose_next_state(
+            s, s["player"], ap.S_MINE) != ap.S_IDLE_AT_BASE
+
+    def test_close_threat_engages_over_tether(
+            self, _clock, _fresh_bot_state):
+        # Alien inside the 800 px engage band -> ENGAGE (defend) outranks
+        # the tether, which sits below ENGAGE.
+        s = self._far_swarm_state(alien_dist=500.0)
+        assert ap._choose_next_state(
+            s, s["player"], ap.S_MINE) == ap.S_ENGAGE

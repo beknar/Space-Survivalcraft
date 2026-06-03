@@ -52,6 +52,39 @@ class TestGatherHysteresis:
 # ── MIN_DWELL gating ──────────────────────────────────────────────────────
 
 
+class TestGatherToMineHysteresis:
+    """2026-06-02: while actively GATHERing, only an asteroid within
+    MINE_ENTER_WHILE_GATHERING_PX preempts to MINE (the mirror of the
+    mine->gather guard).  Cuts the 287 dwell-suppressed gather->mine
+    flips -- finishing a gather used to dart the bot to a mid-range
+    asteroid that then dropped iron and pulled it back."""
+
+    def _ast_state(self, dist):
+        return _state(
+            player={"x": 0.0, "y": 0.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            asteroids=[{"x": float(dist), "y": 0.0, "hp": 100}],
+        )
+
+    def test_gather_holds_against_midrange_asteroid(self, _clock):
+        # 1000 px: > MINE_ENTER_WHILE_GATHERING_PX (600), <
+        # MAX_ASTEROID_CHASE_PX (2000) -> GATHER does NOT flip to MINE.
+        s = self._ast_state(1000.0)
+        assert ap._choose_next_state(
+            s, s["player"], ap.S_GATHER) != ap.S_MINE
+
+    def test_gather_yields_to_close_asteroid(self, _clock):
+        # 400 px (< 600) -> genuinely close, MINE preempts even GATHER.
+        s = self._ast_state(400.0)
+        assert ap._choose_next_state(
+            s, s["player"], ap.S_GATHER) == ap.S_MINE
+
+    def test_non_gather_uses_full_chase_cap(self, _clock):
+        # From SEARCH the 1000 px asteroid is within the full chase cap,
+        # so the tighter gather gate must NOT apply -> MINE.
+        s = self._ast_state(1000.0)
+        assert ap._choose_next_state(
+            s, s["player"], ap.S_SEARCH) == ap.S_MINE
 
 
 # ── MIN_DWELL gating ──────────────────────────────────────────────────────
