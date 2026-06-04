@@ -127,6 +127,19 @@ def make_snapshot_fields(
         "modules_to_install_left": len(bot_state.queue.modules_to_install),
         "module_phase_started": bot_state.queue.module_phase_started,
         "consumable_phase_started": bot_state.queue.consumable_phase_started,
+        # Consumable supply diagnostics (added 2026-06-03).  The
+        # shield-heal latch fires only when a shield_recharge sits in a
+        # quick-use slot; a 9-death session logged heal_shield_fire = 0
+        # and the snapshot couldn't show WHY (station vs ship vs slot).
+        # These three make the gap visible: is the heal unequipped
+        # (``shield_recharge_equipped`` False) while stock exists in the
+        # station / ship?
+        "shield_recharge_equipped": any(
+            s and s.get("item_type") == "shield_recharge"
+            and int(s.get("count", 0)) > 0
+            for s in (state.get("quick_use_slots") or [])),
+        "station_shield_recharge": int(sitems.get("shield_recharge", 0)),
+        "ship_shield_recharge": int(items.get("shield_recharge", 0)),
         # Blacklist sizes (added 2026-05-09): when the targeting
         # helpers return None despite visible asteroids/pickups,
         # the post-hoc analyst needs to know whether the cause is
