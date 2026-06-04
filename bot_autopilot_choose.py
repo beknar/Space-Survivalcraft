@@ -470,6 +470,11 @@ def _regen_decision(state: dict, p: dict, cur: str,
     # see ``_outside_main_swarm_suppresses`` for the predicate.
     in_warp_swarm = _outside_main_swarm_suppresses(
         state, zone_id_regen, _ap.WARP_SWARM_REGEN_SUPPRESS_ALIENS)
+    # Warp zones inflict ENVIRONMENTAL damage (meteors / gas / bolts)
+    # and have no Home Station to heal at, so REGEN's idle just bleeds
+    # the bot out -- it must keep MOVING (WARP_TRAVERSE) toward the exit.
+    # Used to suppress both REGEN entry AND stay below.
+    in_warp_zone = "WARP" in zone_id_regen
 
     if cur == _ap.S_REGEN:
         if pct < regen_exit:
@@ -514,8 +519,8 @@ def _regen_decision(state: dict, p: dict, cur: str,
             # Exit REGEN regardless of threat when shields are
             # stalled in a warp zone so the cascade re-routes to
             # S_WARP_TRAVERSE and the bot keeps driving north
-            # toward the arrival band.
-            in_warp_zone = "WARP" in zone_id_regen
+            # toward the arrival band.  (``in_warp_zone`` computed once
+            # above, before the entry/stay split.)
             if (threatened or in_warp_zone) and shields_stalled:
                 # Escape valve — sustained no-progress under threat
                 # OR in a warp zone with environmental damage means
@@ -569,6 +574,21 @@ def _regen_decision(state: dict, p: dict, cur: str,
                 # bot keeps moving toward the exit; combat assist +
                 # auto-fired consumables handle defense.  Mirrors the
                 # ``suppress_engage_warp_swarm`` gate from PR #155.
+                pass
+            elif in_warp_zone:
+                # Warp-zone entry suppression (2026-06-03): don't ENTER
+                # REGEN in a warp zone at all.  The stay-side escape
+                # valve above already kicks the bot out once shields
+                # stall, but it kept RE-ENTERING on the next tick -- the
+                # 2026-06-03 telemetry logged 100 regen<->warp_traverse
+                # flips across 4 WARP_METEOR deaths, the bot idling in
+                # the meteor field instead of committing to the
+                # crossing.  Warp zones have no HS to heal at and
+                # inflict environmental damage, so REGEN's idle is
+                # always a loss here.  Stay in WARP_TRAVERSE so the bot
+                # drives through fast (less time in the field = less
+                # cumulative damage); combat assist + auto-heal
+                # consumables handle defense en route.
                 pass
             else:
                 # Entering REGEN — initialize the trend baseline

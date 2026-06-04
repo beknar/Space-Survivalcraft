@@ -1098,15 +1098,17 @@ class TestWarpSwarmRegenSuppression:
         assert ap._fsm["state"] != ap.S_REGEN, (
             "REGEN must be suppressed for swarms in warp zones")
 
-    def test_threshold_boundary_just_below_suppresses_nothing(
+    def test_warp_zone_suppresses_regen_below_swarm_threshold(
             self, _clock):
-        """One alien below the threshold: normal REGEN entry
-        applies."""
+        """2026-06-03: even one alien below the swarm threshold, a WARP
+        zone suppresses REGEN entry -- the warp-zone entry gate dominates
+        the swarm-count boundary (REGEN's idle is always a loss in a
+        warp zone: environmental damage, no HS to heal at)."""
         s = self._warp_state(
             alien_count=ap.WARP_SWARM_REGEN_SUPPRESS_ALIENS - 1,
             shields=30, alien_close=False)
         ap._do_auto(s, s["player"])
-        assert ap._fsm["state"] == ap.S_REGEN
+        assert ap._fsm["state"] != ap.S_REGEN
 
     def test_threshold_boundary_at_threshold_suppresses(
             self, _clock):
@@ -1130,15 +1132,18 @@ class TestWarpSwarmRegenSuppression:
         ap._do_auto(s, s["player"])
         assert ap._fsm["state"] == ap.S_REGEN
 
-    def test_warp_zone_with_few_aliens_still_enters_regen(
+    def test_warp_zone_with_few_aliens_suppresses_regen(
             self, _clock):
-        """Sparse warp zone (METEOR, GAS, LIGHTNING) doesn't trip
-        the gate; the existing in-warp-zone escape valve continues
-        to handle environmental damage cases as before."""
+        """2026-06-03: a sparse warp zone (METEOR / GAS / LIGHTNING --
+        environmental damage, no swarm) now suppresses REGEN ENTRY, not
+        just exit.  Captured: 100 regen<->warp_traverse flips across 4
+        WARP_METEOR deaths, the bot idling in the meteor field instead
+        of committing to the crossing.  The bot must keep moving
+        (WARP_TRAVERSE); auto-heal consumables handle defense en route."""
         s = self._warp_state(
             alien_count=3, shields=30, alien_close=False)
         ap._do_auto(s, s["player"])
-        assert ap._fsm["state"] == ap.S_REGEN
+        assert ap._fsm["state"] != ap.S_REGEN
 
     def test_already_in_regen_exits_under_warp_swarm(self, _clock):
         """The hold-side branch: bot already in REGEN, swarm
