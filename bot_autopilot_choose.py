@@ -1302,22 +1302,28 @@ def choose_next_state(state: dict, p: dict, cur: str) -> str:
     #           placed: navigate to the Home Station and POST
     #           /place_qwi.  The QWI auto-spawns the Double Star
     #           boss; from there _ap.S_ENGAGE_BOSS takes over.
-    if hs is not None and _ap._consumable_phase_finished():
-        # EQUIP gate (2026-05-11 fifth pass): self-heal by checking
-        # the actual quick-use slot state, not just the
-        # ``consumables_equipped`` latch.  The latch alone misses
-        # the post-death case the user reported: bot picks up the
-        # dropped consumables and deposits them, but the latch was
-        # set True at session start and never re-armed because the
-        # dead->alive edge only resets it when the bot's prior
-        # loadout snapshot included consumables (which on deaths
-        # 2-4 of a multi-death cycle, it doesn't).  Checking the
-        # actual quick-use slot contents makes the gate fire
-        # whenever the slot needs a consumable AND station has one
-        # to give -- so a fresh session, a post-death pickup, or
-        # any other quick-use-empty state all route through EQUIP.
-        # The latch is still useful as the one-tick MIN_DWELL-skip
-        # helper inside ``_act_at_station``.
+    # EQUIP CONSUMABLES — decoupled from the full consumable phase
+    # (2026-06-03).  Bind any available repair_pack / shield_recharge to
+    # the quick-use slots whenever a slot lacks one AND the station has
+    # one to give -- WITHOUT waiting for the entire 25 + 25 batch phase
+    # to finish.  Captured: a 55-min, 9-death session logged
+    # heal_shield_fire = 0 (armed 13x, never fired) because no
+    # shield_recharge was ever in a quick-use slot.  The bot crafted
+    # shield_recharge into the station, but the old gate
+    # (``_consumable_phase_finished()``) refused to equip until ALL 50
+    # batches completed -- and repeated deaths kept resetting the module/
+    # consumable grind, so the phase never finished and the bot fought
+    # with no shield heal.  Binding partial stock immediately gives the
+    # bot a working heal while it finishes crafting the rest.
+    #
+    # Self-heal by checking the actual quick-use slot state, not just the
+    # ``consumables_equipped`` latch (2026-05-11 fifth pass): the latch
+    # alone misses the post-death case where the bot deposits recovered
+    # consumables but the latch stayed True from session start.  Checking
+    # the live slot contents makes the gate fire whenever a slot needs a
+    # consumable AND station has one.  The latch is still the one-tick
+    # MIN_DWELL-skip helper inside ``_act_at_station``.
+    if hs is not None:
         quick_use = state.get("quick_use_slots") or []
         has_consumable_equipped = any(
             s and s.get("item_type") in ("repair_pack", "shield_recharge")
@@ -1331,6 +1337,12 @@ def choose_next_state(state: dict, p: dict, cur: str) -> str:
             # would otherwise make the action ``_do_idle`` forever.
             _ap._state.consumables_equipped = False
             return _ap.S_EQUIP_CONSUMABLES
+
+    # Boss-prep staging (PRE_BOSS_MINE / FORTIFY / BUILD_QWI) still waits
+    # for the FULL consumable phase to finish so the bot faces the Double
+    # Star boss fully stocked (25 repair + 25 shield), not on partial
+    # supply.  The equip-to-quick-use above is independent of this.
+    if hs is not None and _ap._consumable_phase_finished():
         if not _ap._state.qwi_placed \
                 and not _ap._qwi_already_built(state):
             station_iron = _ap._station_iron(state)
