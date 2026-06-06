@@ -401,6 +401,71 @@ def _observe_warp_back_to_main(state: dict, p: dict, now: float) -> None:
         **_ap._telemetry_snapshot_fields(state, p))
 
 
+def _observe_consumable_restock(state: dict, p: dict, now: float) -> None:
+    """Re-arm the consumable craft queue when the bot has run its stock
+    dry WHILE OPERATING -- not just on the warp-back-to-MAIN edge.
+
+    The existing depleted-recraft lives inside
+    ``_observe_warp_back_to_main`` and only fires when the bot crosses a
+    wormhole back into MAIN.  Captured 2026-06-05: the bot burned ~19
+    shield heals in ~12 min of ZONE2 combat, then fought the final ~13
+    min with shield supply = 0 -- it never crossed a warp-back edge, so
+    the queue stayed at 0 ("phase done") and it never crafted more.
+
+    Each tick, if the craft queue is idle (no batches pending) and the
+    bot's total shield_recharge OR repair_pack supply (station + ship +
+    quick-use) has fallen to ``CONSUMABLE_RESTOCK_FLOOR`` or below,
+    re-arm the WARP_RECRAFT batches + reset the consumable-phase /
+    equip latches so the CRAFT + EQUIP cascade refills and re-binds at
+    the next crafter the bot reaches.  A crafter is NOT required here --
+    re-arming while the queue is pending is harmless (S_CRAFT only fires
+    when a crafter is actually reachable), and it means the bot is ready
+    to craft the moment it returns to one.
+    """
+    # Only after the boss is down (2026-06-06).  The captured depletion
+    # is a post-boss phenomenon -- the bot burns its stock fighting the
+    # ZONE2 swarm after warping out.  Before the boss, the initial 25+25
+    # consumable phase + the warp-back recraft already cover stocking,
+    # and re-arming here would un-finish ``_consumable_phase_finished()``
+    # and block the pre-boss QWI / FORTIFY / EQUIP staging that gate on
+    # it.  ``boss_was_killed`` is a clean "past initial setup" proxy.
+    if not _ap._state.boss_was_killed:
+        return
+    queue = _ap._state.queue
+    # Already crafting a batch -- don't duplicate (and this short-circuit
+    # makes the observer fire once per depletion episode, not every tick).
+    if (queue.repair_packs_remaining > 0
+            or queue.shield_recharges_remaining > 0):
+        return
+    sitems = _ap._station_items(state)
+    items = (state.get("inventory") or {}).get("items") or {}
+    quick_use = state.get("quick_use_slots") or []
+
+    def _total(item_type: str) -> int:
+        n = int(sitems.get(item_type, 0)) + int(items.get(item_type, 0))
+        for s in quick_use:
+            if s and s.get("item_type") == item_type:
+                n += int(s.get("count", 0))
+        return n
+
+    shield_total = _total("shield_recharge")
+    repair_total = _total("repair_pack")
+    if (shield_total > _ap.CONSUMABLE_RESTOCK_FLOOR
+            and repair_total > _ap.CONSUMABLE_RESTOCK_FLOOR):
+        return
+    queue.repair_packs_remaining = _ap.WARP_RECRAFT_REPAIR_BATCHES
+    queue.shield_recharges_remaining = _ap.WARP_RECRAFT_SHIELD_BATCHES
+    # Re-arm the phase so the CRAFT cascade re-evaluates against the
+    # fresh queue, and force a re-equip after the crafts land.
+    queue.consumable_phase_started = False
+    _ap._state.consumables_equipped = False
+    _ap._telemetry_log(
+        "consumable_restock_armed",
+        shield_total=shield_total,
+        repair_total=repair_total,
+        **_ap._telemetry_snapshot_fields(state, p))
+
+
 def _observe_warp_traverse_arc_complete(state: dict, p: dict,
                                         now: float) -> None:
     """Emit ``warp_traverse_arc_completed`` when the FSM exits the
