@@ -140,6 +140,14 @@ def make_snapshot_fields(
             for s in (state.get("quick_use_slots") or [])),
         "station_shield_recharge": int(sitems.get("shield_recharge", 0)),
         "ship_shield_recharge": int(items.get("shield_recharge", 0)),
+        # Nebula-tier progression diagnostics (added 2026-06-06).  The
+        # Advanced Crafter gate needs 500 copper + the advanced_crafter
+        # blueprint in station; the bot never built it (the module/drone
+        # tier stayed dormant) and the snapshot couldn't show whether
+        # copper or the blueprint was the blocker.
+        "station_copper": int(sitems.get("copper", 0)),
+        "has_advanced_crafter_bp": int(
+            sitems.get("advanced_crafter", 0)) >= 1,
         # Blacklist sizes (added 2026-05-09): when the targeting
         # helpers return None despite visible asteroids/pickups,
         # the post-hoc analyst needs to know whether the cause is

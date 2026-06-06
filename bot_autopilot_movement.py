@@ -291,6 +291,21 @@ def _do_mine_nearest(state: dict, p: dict) -> None:
             _ap._state.mine_progress_check_at = (
                 now + _ap.MINE_NO_PROGRESS_S)
     target, dist = _ap._nearest_asteroid(state, px, py)
+    # Copper-priority (2026-06-06): when the bot needs copper for the
+    # Nebula AI-pilot / advanced-crafter builds, prefer a reachable
+    # copper asteroid over the plain nearest one.  The standard selector
+    # ignores resource type, so the bot never accumulated the 500 copper
+    # the Advanced Crafter gate requires and the whole Nebula
+    # module/drone tier stayed dormant.  Capped at MAX_ASTEROID_CHASE_PX
+    # so the copper preference can't lure the bot deep into the swarm
+    # (the same cap the choose-cascade MINE gate uses); falls back to the
+    # nearest asteroid when no copper is reachable within the cap.
+    if _ap._copper_priority_active(state):
+        copper_target, copper_d = _ap._nearest_copper_asteroid(
+            state, px, py)
+        if (copper_target is not None
+                and copper_d < _ap.MAX_ASTEROID_CHASE_PX):
+            target, dist = copper_target, copper_d
     if target is None:
         _ap._do_idle()
         return
