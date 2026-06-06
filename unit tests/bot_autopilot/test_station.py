@@ -4387,3 +4387,84 @@ class TestNextCraftTargetConsumableAutoPop:
         })
         ap._next_craft_target(s)
         assert "combat_drone" not in ap._state.queue.modules_to_craft
+
+
+# ── Consumable depleted-restock (2026-06-05 telemetry) ────────────────
+
+
+class TestConsumableRestock:
+    """``_observe_consumable_restock`` re-arms the consumable craft
+    queue when the bot runs its stock dry WHILE OPERATING -- not just on
+    the warp-back-to-MAIN edge.  Captured 2026-06-05: the bot fought the
+    final ~13 min of a session with shield supply = 0 because the only
+    restock trigger fired on the warp edge."""
+
+    def test_rearms_when_shield_depleted(self, _clock, _fresh_bot_state):
+        ap._state.boss_was_killed = True   # restock is post-boss only
+        ap._state.queue.repair_packs_remaining = 0
+        ap._state.queue.shield_recharges_remaining = 0
+        ap._state.queue.consumable_phase_started = True
+        ap._state.consumables_equipped = True
+        s = _state(
+            buildings=[_hs_building()],
+            # shield depleted (2 <= floor 5); repair plentiful.
+            station_inventory_items={"shield_recharge": 2,
+                                     "repair_pack": 20},
+        )
+        ap._observe_consumable_restock(s, s["player"], 0.0)
+        assert (ap._state.queue.shield_recharges_remaining
+                == ap.WARP_RECRAFT_SHIELD_BATCHES)
+        assert (ap._state.queue.repair_packs_remaining
+                == ap.WARP_RECRAFT_REPAIR_BATCHES)
+        # Latches reset so CRAFT re-evaluates + the bot re-equips.
+        assert ap._state.queue.consumable_phase_started is False
+        assert ap._state.consumables_equipped is False
+
+    def test_no_rearm_when_supply_above_floor(
+            self, _clock, _fresh_bot_state):
+        ap._state.boss_was_killed = True
+        ap._state.queue.repair_packs_remaining = 0
+        ap._state.queue.shield_recharges_remaining = 0
+        s = _state(
+            buildings=[_hs_building()],
+            station_inventory_items={"shield_recharge": 20,
+                                     "repair_pack": 20},
+        )
+        ap._observe_consumable_restock(s, s["player"], 0.0)
+        assert ap._state.queue.shield_recharges_remaining == 0
+        assert ap._state.queue.repair_packs_remaining == 0
+
+    def test_no_rearm_when_queue_already_armed(
+            self, _clock, _fresh_bot_state):
+        ap._state.boss_was_killed = True
+        # A batch is mid-craft -- don't duplicate / reset it.
+        ap._state.queue.repair_packs_remaining = 0
+        ap._state.queue.shield_recharges_remaining = 2
+        s = _state(
+            buildings=[_hs_building()],
+            station_inventory_items={"shield_recharge": 0},
+        )
+        ap._observe_consumable_restock(s, s["player"], 0.0)
+        assert ap._state.queue.shield_recharges_remaining == 2
+
+    def test_counts_supply_across_station_ship_quickuse(
+            self, _clock, _fresh_bot_state):
+        ap._state.boss_was_killed = True
+        # Supply spread thin across all three locations still totals
+        # above the floor -> no premature re-arm.
+        ap._state.queue.repair_packs_remaining = 0
+        ap._state.queue.shield_recharges_remaining = 0
+        s = _state(
+            buildings=[_hs_building()],
+            inventory_items={"iron": 0, "shield_recharge": 3,
+                             "repair_pack": 10},
+            station_inventory_items={"shield_recharge": 3,
+                                     "repair_pack": 10},
+        )
+        s["quick_use_slots"] = [
+            {"item_type": "shield_recharge", "count": 4},
+            {"item_type": "repair_pack", "count": 4},
+        ]
+        # shield total = 3 + 3 + 4 = 10 > 5; repair = 10 + 10 + 4 = 24.
+        ap._observe_consumable_restock(s, s["player"], 0.0)
+        assert ap._state.queue.shield_recharges_remaining == 0
