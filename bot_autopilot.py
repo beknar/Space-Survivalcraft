@@ -997,6 +997,7 @@ from bot_autopilot_http import (
 from bot_autopilot_targeting import (
     _pickup_is_blacklisted, _blacklist_pickup, _nearest_pickup,
     _asteroid_is_blacklisted, _blacklist_asteroid, _nearest_asteroid,
+    _nearest_copper_asteroid, _copper_priority_active,
     _nearest_huntable_alien, _record_position, _detect_stuck,
     _wall_pin_trap_active, _maybe_force_wall_pin_escape,
     _ship_clear_of_edges, _ship_clear_of_buildings, _do_escape_edge,

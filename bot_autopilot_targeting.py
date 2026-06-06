@@ -268,6 +268,64 @@ def _nearest_asteroid(state: dict, px: float, py: float
     return (best, best_d)
 
 
+def _nearest_copper_asteroid(state: dict, px: float, py: float
+                             ) -> tuple[dict | None, float]:
+    """Nearest COPPER asteroid (``/state`` ``type`` contains 'copper',
+    i.e. ``CopperAsteroid``) that clears the same edge / wormhole /
+    pin-zone / gas / blacklist filters as ``_nearest_asteroid``.
+
+    The plain ``_nearest_asteroid`` ignores resource type, so the bot
+    never prioritised copper -- and the Nebula AI-pilot (300 copper) +
+    advanced-crafter (500 copper) builds stayed permanently blocked,
+    leaving the whole Nebula module/drone tier dormant (2026-06-05
+    investigation).  This lets the MINE action actively seek copper when
+    the build needs it.
+    """
+    zone = state.get("zone") or {}
+    world_w = float(zone.get("world_w", 6400) or 6400)
+    world_h = float(zone.get("world_h", 6400) or 6400)
+    margin = _ap.ASTEROID_EDGE_SKIP_PX
+    best = None
+    best_d = float("inf")
+    for ast in (state.get("asteroids") or []):
+        if "copper" not in str(ast.get("type", "")).lower():
+            continue
+        bx = float(ast.get("x", 0.0))
+        by = float(ast.get("y", 0.0))
+        if (bx < margin or bx > world_w - margin
+                or by < margin or by > world_h - margin):
+            continue
+        if _target_near_return_wormhole(state, bx, by):
+            continue
+        if _ap._target_in_pin_zone(bx, by):
+            continue
+        if _target_in_gas_cloud(state, bx, by):
+            continue
+        if _bl.asteroid_is_blacklisted(
+                ast, _ap._state.asteroid_blacklist, _ap._get_now):
+            continue
+        d2 = math.hypot(bx - px, by - py)
+        if d2 < best_d:
+            best, best_d = ast, d2
+    return (best, best_d)
+
+
+def _copper_priority_active(state: dict) -> bool:
+    """True when the bot should actively mine copper: in ZONE2, the
+    Nebula HS is fortified, the Advanced Crafter isn't built yet, and
+    station copper is below the amount the build needs.  Gates the
+    copper-preference in ``_do_mine_nearest``."""
+    zone_id = str((state.get("zone") or {}).get("id", ""))
+    if "ZONE2" not in zone_id:
+        return False
+    if not _ap._state.nebula_fortify_done:
+        return False
+    if _ap._advanced_crafter_already_built(state):
+        return False
+    copper = int(_station_items(state).get("copper", 0))
+    return copper < _ap.ADVANCED_CRAFTER_COPPER_COST
+
+
 def _nearest_huntable_alien(state: dict, px: float, py: float,
                             *, currently_hunting: bool = False
                             ) -> tuple[dict | None, float]:

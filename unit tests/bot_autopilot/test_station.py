@@ -4389,6 +4389,75 @@ class TestNextCraftTargetConsumableAutoPop:
         assert "combat_drone" not in ap._state.queue.modules_to_craft
 
 
+# ── Copper-priority mining for the Nebula tier (2026-06-06) ────────────
+
+
+class TestCopperPriority:
+    """The MINE selector ignored asteroid type, so the bot never
+    accumulated the 500 copper the Advanced Crafter gate needs and the
+    whole Nebula module/drone tier stayed dormant.  ``_copper_priority_active``
+    + ``_nearest_copper_asteroid`` let the MINE action seek copper when
+    the Nebula build needs it."""
+
+    def _zone2(self, *, copper=0, fortified=True, asteroids=()):
+        s = _state(
+            buildings=[_hs_building()],
+            asteroids=list(asteroids),
+            station_inventory_items={"copper": copper},
+        )
+        s["zone"]["id"] = "ZoneID.ZONE2"
+        ap._state.nebula_fortify_done = fortified
+        return s
+
+    def test_priority_active_in_zone2_low_copper(
+            self, _clock, _fresh_bot_state):
+        assert ap._copper_priority_active(self._zone2(copper=100)) is True
+
+    def test_priority_inactive_when_copper_sufficient(
+            self, _clock, _fresh_bot_state):
+        s = self._zone2(copper=ap.ADVANCED_CRAFTER_COPPER_COST)
+        assert ap._copper_priority_active(s) is False
+
+    def test_priority_inactive_outside_zone2(
+            self, _clock, _fresh_bot_state):
+        s = self._zone2(copper=0)
+        s["zone"]["id"] = "ZoneID.MAIN"
+        assert ap._copper_priority_active(s) is False
+
+    def test_priority_inactive_before_fortify(
+            self, _clock, _fresh_bot_state):
+        s = self._zone2(copper=0, fortified=False)
+        assert ap._copper_priority_active(s) is False
+
+    def test_priority_inactive_when_already_built(
+            self, _clock, _fresh_bot_state):
+        s = self._zone2(copper=0)
+        s["buildings"].append({"x": 3300.0, "y": 3300.0,
+                               "building_type": "Advanced Crafter"})
+        assert ap._copper_priority_active(s) is False
+
+    def test_nearest_copper_picks_copper_over_nearer_iron(
+            self, _clock, _fresh_bot_state):
+        # Iron is closer, but the selector must return the copper one.
+        s = self._zone2(copper=0, asteroids=[
+            {"x": 3000.0, "y": 3000.0, "hp": 100, "type": "IronAsteroid"},
+            {"x": 3600.0, "y": 3000.0, "hp": 100,
+             "type": "CopperAsteroid"},
+        ])
+        target, d = ap._nearest_copper_asteroid(s, 3000.0, 3000.0)
+        assert target is not None
+        assert target["type"] == "CopperAsteroid"
+        assert d == 600.0
+
+    def test_nearest_copper_none_when_no_copper_asteroids(
+            self, _clock, _fresh_bot_state):
+        s = self._zone2(copper=0, asteroids=[
+            {"x": 3000.0, "y": 3000.0, "hp": 100,
+             "type": "IronAsteroid"}])
+        target, _d = ap._nearest_copper_asteroid(s, 3000.0, 3000.0)
+        assert target is None
+
+
 # ── Consumable depleted-restock (2026-06-05 telemetry) ────────────────
 
 
