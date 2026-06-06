@@ -1785,6 +1785,62 @@ class TestEquipConsumablesGateSelfHeals:
         assert ap._fsm["state"] == ap.S_EQUIP_CONSUMABLES
         assert ap._state.consumables_equipped is False
 
+    def test_gate_fires_for_shield_when_only_repair_equipped(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """2026-06-06: a bound repair_pack must NOT mask a MISSING
+        shield_recharge.  Captured: the bot kept its repair packs
+        equipped (25 hp-heal fires), so the old "any consumable equipped"
+        gate skipped, and 5-15 shield_recharge sat in the station
+        unequipped for ~540 s -> the shield heal never fired -> death at
+        1 shield.  With shield_recharge in the station but absent from
+        the slots, EQUIP must fire even though repair_pack is bound."""
+        monkeypatch.setattr(
+            ap, "_act_equip_consumables", lambda s, p: None)
+        ap._state.consumables_equipped = True   # stale
+        ap._state.queue.consumable_phase_started = True
+        ap._state.queue.repair_packs_remaining = 0
+        ap._state.queue.shield_recharges_remaining = 0
+        ap._state.build_done = True
+        s = _state(
+            buildings=[{"x": 3200.0, "y": 3200.0,
+                        "building_type": "Home Station"}],
+            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            station_inventory_items={"shield_recharge": 5},
+        )
+        s["quick_use_slots"] = [
+            {"item_type": "repair_pack", "count": 10},   # repair bound...
+            {"item_type": None, "count": 0},             # ...shield empty
+        ]
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_EQUIP_CONSUMABLES
+
+    def test_gate_skips_when_missing_type_absent_from_station(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """Don't fire EQUIP for a missing type the station can't supply:
+        repair_pack bound, shield slot empty, but station has only
+        repair packs (no shield_recharge) -> nothing useful to equip."""
+        monkeypatch.setattr(
+            ap, "_act_equip_consumables", lambda s, p: None)
+        ap._state.consumables_equipped = False
+        ap._state.queue.consumable_phase_started = True
+        ap._state.queue.repair_packs_remaining = 0
+        ap._state.queue.shield_recharges_remaining = 0
+        ap._state.build_done = True
+        s = _state(
+            buildings=[{"x": 3200.0, "y": 3200.0,
+                        "building_type": "Home Station"}],
+            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            station_inventory_items={"repair_pack": 5},   # no shield stock
+        )
+        s["quick_use_slots"] = [
+            {"item_type": "repair_pack", "count": 10},
+            {"item_type": None, "count": 0},
+        ]
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] != ap.S_EQUIP_CONSUMABLES
+
 
 
 # ── Consumable-phase deadlock fixes (2026-05-03 telemetry) ────────────
