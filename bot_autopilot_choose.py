@@ -1325,12 +1325,28 @@ def choose_next_state(state: dict, p: dict, cur: str) -> str:
     # MIN_DWELL-skip helper inside ``_act_at_station``.
     if hs is not None:
         quick_use = state.get("quick_use_slots") or []
-        has_consumable_equipped = any(
-            s and s.get("item_type") in ("repair_pack", "shield_recharge")
-            and int(s.get("count", 0)) > 0
-            for s in quick_use)
-        if (not has_consumable_equipped
-                and _ap._consumables_in_station_inv(state)):
+        sitems = _ap._station_items(state)
+
+        # Per-TYPE check (2026-06-06): the old gate used "ANY consumable
+        # equipped", so a bound repair_pack masked a MISSING
+        # shield_recharge -- the bot never re-equipped the shield heal
+        # while it still had repair packs.  Captured: the station held
+        # 5-15 shield_recharge for ~540 s but the bot never bound them
+        # and died at 1 shield with heals sitting unequipped (25 hp-heal
+        # fires in that window confirm repair_pack WAS equipped).  Fire
+        # EQUIP if EITHER type is missing from a quick-use slot AND the
+        # station has that type to give -- ``equip_consumables_to_quick_use``
+        # binds both, so one POST tops up whichever is missing.
+        def _equipped(item_type: str) -> bool:
+            return any(
+                s and s.get("item_type") == item_type
+                and int(s.get("count", 0)) > 0
+                for s in quick_use)
+        needs_repair = (not _equipped("repair_pack")
+                        and int(sitems.get("repair_pack", 0)) > 0)
+        needs_shield = (not _equipped("shield_recharge")
+                        and int(sitems.get("shield_recharge", 0)) > 0)
+        if needs_repair or needs_shield:
             # Reset the latch so ``_act_equip_consumables`` actually
             # POSTs.  The action's skip-condition is the latch
             # itself; a stale-True latch from a previous session

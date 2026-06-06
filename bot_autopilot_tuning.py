@@ -1264,6 +1264,16 @@ SHIELD_RECHARGE_CRAFT_BATCHES: int = 5
 # repair packs / 15 shield recharges.
 WARP_RECRAFT_REPAIR_BATCHES: int = 3
 WARP_RECRAFT_SHIELD_BATCHES: int = 3
+# Depleted-restock floor (2026-06-06).  The warp-back recraft above only
+# fires on the warp-edge-into-MAIN; a bot that burns its consumables
+# down while operating (no warp edge) never restocks.  Captured
+# 2026-06-05: the bot spent ~12 min using ~19 shield heals in ZONE2,
+# then fought the final ~13 min with shield supply = 0.  When the total
+# shield_recharge OR repair_pack supply (station + ship + quick-use)
+# falls to this floor or below AND the craft queue is idle, re-arm the
+# WARP_RECRAFT batches so the bot restocks at its next crafter visit.
+# Above zero so the bot starts replenishing before it runs fully dry.
+CONSUMABLE_RESTOCK_FLOOR: int = 5
 # Nebula-death recovery batches (2026-05-24).  When the bot dies in
 # ZONE2 (Nebula), latch ``nebula_recovery_pending`` and force a
 # fresh craft of repair packs + shield recharges before the next

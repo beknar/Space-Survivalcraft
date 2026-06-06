@@ -1785,6 +1785,62 @@ class TestEquipConsumablesGateSelfHeals:
         assert ap._fsm["state"] == ap.S_EQUIP_CONSUMABLES
         assert ap._state.consumables_equipped is False
 
+    def test_gate_fires_for_shield_when_only_repair_equipped(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """2026-06-06: a bound repair_pack must NOT mask a MISSING
+        shield_recharge.  Captured: the bot kept its repair packs
+        equipped (25 hp-heal fires), so the old "any consumable equipped"
+        gate skipped, and 5-15 shield_recharge sat in the station
+        unequipped for ~540 s -> the shield heal never fired -> death at
+        1 shield.  With shield_recharge in the station but absent from
+        the slots, EQUIP must fire even though repair_pack is bound."""
+        monkeypatch.setattr(
+            ap, "_act_equip_consumables", lambda s, p: None)
+        ap._state.consumables_equipped = True   # stale
+        ap._state.queue.consumable_phase_started = True
+        ap._state.queue.repair_packs_remaining = 0
+        ap._state.queue.shield_recharges_remaining = 0
+        ap._state.build_done = True
+        s = _state(
+            buildings=[{"x": 3200.0, "y": 3200.0,
+                        "building_type": "Home Station"}],
+            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            station_inventory_items={"shield_recharge": 5},
+        )
+        s["quick_use_slots"] = [
+            {"item_type": "repair_pack", "count": 10},   # repair bound...
+            {"item_type": None, "count": 0},             # ...shield empty
+        ]
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] == ap.S_EQUIP_CONSUMABLES
+
+    def test_gate_skips_when_missing_type_absent_from_station(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """Don't fire EQUIP for a missing type the station can't supply:
+        repair_pack bound, shield slot empty, but station has only
+        repair packs (no shield_recharge) -> nothing useful to equip."""
+        monkeypatch.setattr(
+            ap, "_act_equip_consumables", lambda s, p: None)
+        ap._state.consumables_equipped = False
+        ap._state.queue.consumable_phase_started = True
+        ap._state.queue.repair_packs_remaining = 0
+        ap._state.queue.shield_recharges_remaining = 0
+        ap._state.build_done = True
+        s = _state(
+            buildings=[{"x": 3200.0, "y": 3200.0,
+                        "building_type": "Home Station"}],
+            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            station_inventory_items={"repair_pack": 5},   # no shield stock
+        )
+        s["quick_use_slots"] = [
+            {"item_type": "repair_pack", "count": 10},
+            {"item_type": None, "count": 0},
+        ]
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] != ap.S_EQUIP_CONSUMABLES
+
 
 
 # ── Consumable-phase deadlock fixes (2026-05-03 telemetry) ────────────
@@ -4400,3 +4456,84 @@ class TestCopperPriority:
              "type": "IronAsteroid"}])
         target, _d = ap._nearest_copper_asteroid(s, 3000.0, 3000.0)
         assert target is None
+
+
+# ── Consumable depleted-restock (2026-06-05 telemetry) ────────────────
+
+
+class TestConsumableRestock:
+    """``_observe_consumable_restock`` re-arms the consumable craft
+    queue when the bot runs its stock dry WHILE OPERATING -- not just on
+    the warp-back-to-MAIN edge.  Captured 2026-06-05: the bot fought the
+    final ~13 min of a session with shield supply = 0 because the only
+    restock trigger fired on the warp edge."""
+
+    def test_rearms_when_shield_depleted(self, _clock, _fresh_bot_state):
+        ap._state.boss_was_killed = True   # restock is post-boss only
+        ap._state.queue.repair_packs_remaining = 0
+        ap._state.queue.shield_recharges_remaining = 0
+        ap._state.queue.consumable_phase_started = True
+        ap._state.consumables_equipped = True
+        s = _state(
+            buildings=[_hs_building()],
+            # shield depleted (2 <= floor 5); repair plentiful.
+            station_inventory_items={"shield_recharge": 2,
+                                     "repair_pack": 20},
+        )
+        ap._observe_consumable_restock(s, s["player"], 0.0)
+        assert (ap._state.queue.shield_recharges_remaining
+                == ap.WARP_RECRAFT_SHIELD_BATCHES)
+        assert (ap._state.queue.repair_packs_remaining
+                == ap.WARP_RECRAFT_REPAIR_BATCHES)
+        # Latches reset so CRAFT re-evaluates + the bot re-equips.
+        assert ap._state.queue.consumable_phase_started is False
+        assert ap._state.consumables_equipped is False
+
+    def test_no_rearm_when_supply_above_floor(
+            self, _clock, _fresh_bot_state):
+        ap._state.boss_was_killed = True
+        ap._state.queue.repair_packs_remaining = 0
+        ap._state.queue.shield_recharges_remaining = 0
+        s = _state(
+            buildings=[_hs_building()],
+            station_inventory_items={"shield_recharge": 20,
+                                     "repair_pack": 20},
+        )
+        ap._observe_consumable_restock(s, s["player"], 0.0)
+        assert ap._state.queue.shield_recharges_remaining == 0
+        assert ap._state.queue.repair_packs_remaining == 0
+
+    def test_no_rearm_when_queue_already_armed(
+            self, _clock, _fresh_bot_state):
+        ap._state.boss_was_killed = True
+        # A batch is mid-craft -- don't duplicate / reset it.
+        ap._state.queue.repair_packs_remaining = 0
+        ap._state.queue.shield_recharges_remaining = 2
+        s = _state(
+            buildings=[_hs_building()],
+            station_inventory_items={"shield_recharge": 0},
+        )
+        ap._observe_consumable_restock(s, s["player"], 0.0)
+        assert ap._state.queue.shield_recharges_remaining == 2
+
+    def test_counts_supply_across_station_ship_quickuse(
+            self, _clock, _fresh_bot_state):
+        ap._state.boss_was_killed = True
+        # Supply spread thin across all three locations still totals
+        # above the floor -> no premature re-arm.
+        ap._state.queue.repair_packs_remaining = 0
+        ap._state.queue.shield_recharges_remaining = 0
+        s = _state(
+            buildings=[_hs_building()],
+            inventory_items={"iron": 0, "shield_recharge": 3,
+                             "repair_pack": 10},
+            station_inventory_items={"shield_recharge": 3,
+                                     "repair_pack": 10},
+        )
+        s["quick_use_slots"] = [
+            {"item_type": "shield_recharge", "count": 4},
+            {"item_type": "repair_pack", "count": 4},
+        ]
+        # shield total = 3 + 3 + 4 = 10 > 5; repair = 10 + 10 + 4 = 24.
+        ap._observe_consumable_restock(s, s["player"], 0.0)
+        assert ap._state.queue.shield_recharges_remaining == 0

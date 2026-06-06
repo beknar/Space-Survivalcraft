@@ -1040,6 +1040,7 @@ from bot_autopilot_lifecycle import (
     _observe_warp_back_to_main,
     _observe_warp_traverse_arc_complete,
     _observe_gas_lingering,
+    _observe_consumable_restock,
 )
 
 
@@ -1403,6 +1404,13 @@ def _do_auto(state: dict, p: dict) -> None:
     # up back in MAIN with the latch sticky -- no path out.  See
     # ``_observe_warp_back_to_main`` for the full rationale.
     _observe_warp_back_to_main(state, p, now)
+
+    # Re-arm the consumable craft queue when the bot has run its
+    # shield/repair stock dry while operating (not just on the warp-back
+    # edge), so it restocks at its next crafter visit.  See
+    # ``_observe_consumable_restock`` for the captured pathology (2026-
+    # 06-05: ~13 min fought with shield supply = 0).
+    _observe_consumable_restock(state, p, now)
 
     # Emit warp_traverse_arc_completed when the FSM exits S_WARP_TRAVERSE
     # without the action-handler arrival-band branch having fired
