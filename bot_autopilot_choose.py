@@ -168,7 +168,15 @@ def _zone2_far_swarm_tether(state: dict, p: dict, hs) -> bool:
     px, py = p.get("x", 0.0), p.get("y", 0.0)
     hs_dist = math.hypot(float(hs.get("x", 0.0)) - px,
                          float(hs.get("y", 0.0)) - py)
-    if hs_dist <= _ap.ZONE2_TETHER_DIST_PX:
+    # Heal-aware distance (2026-06-06 evening): with NO shield_recharge
+    # equipped the bot can't survive the swarm out in the open, so tether
+    # it much closer to the HS umbrella.  Captured: a 4-death spiral far
+    # from base (hs_dist 2200-6182) once the bot ran dry of heals.  When a
+    # heal IS equipped the normal generous operating radius applies.
+    tether_dist = _ap.ZONE2_TETHER_DIST_PX
+    if not _bot_has_ready_shield_consumable(state):
+        tether_dist = min(tether_dist, _ap.ZONE2_TETHER_UNHEALED_DIST_PX)
+    if hs_dist <= tether_dist:
         return False
     swarm = sum(
         1 for a in (state.get("aliens") or [])

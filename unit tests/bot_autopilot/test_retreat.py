@@ -257,7 +257,7 @@ class TestZone2SwarmTether:
     fighting 55-60 aliens 2500-4600 px from base."""
 
     def _far_swarm_state(self, *, shields=120, hs_dist=3000.0,
-                         alien_dist=1000.0, n=None, hs=True):
+                         alien_dist=1000.0, n=None, hs=True, healed=False):
         n = ap.RETREAT_SWARM_ALIEN_COUNT if n is None else n
         buildings = [_hs_building(x=hs_dist, y=0.0)] if hs else []
         s = _state(
@@ -268,6 +268,9 @@ class TestZone2SwarmTether:
             buildings=buildings,
         )
         s["zone"]["id"] = "ZoneID.ZONE2"
+        if healed:
+            s["quick_use_slots"] = [
+                {"item_type": "shield_recharge", "count": 5}]
         return s
 
     def test_far_hs_dense_swarm_heads_home(
@@ -318,3 +321,29 @@ class TestZone2SwarmTether:
         s = self._far_swarm_state(hs_dist=1500.0, alien_dist=500.0)
         assert ap._choose_next_state(
             s, s["player"], ap.S_MINE) == ap.S_ENGAGE
+
+    def test_unhealed_tethers_at_shorter_distance(
+            self, _clock, _fresh_bot_state):
+        # 2026-06-06 evening: no shield_recharge equipped -> tether fires
+        # at hs_dist 2000 (between the unhealed 1500 and the normal 2800).
+        import bot_autopilot_choose as choose
+        s = self._far_swarm_state(hs_dist=2000.0, healed=False)
+        hs = ap._find_home_station(s)
+        assert choose._zone2_far_swarm_tether(s, s["player"], hs) is True
+
+    def test_healed_uses_normal_operating_radius(
+            self, _clock, _fresh_bot_state):
+        # With a shield heal equipped, the bot operates out to the normal
+        # 2800 px -- no tether at hs_dist 2000.
+        import bot_autopilot_choose as choose
+        s = self._far_swarm_state(hs_dist=2000.0, healed=True)
+        hs = ap._find_home_station(s)
+        assert choose._zone2_far_swarm_tether(s, s["player"], hs) is False
+
+    def test_healed_still_tethers_when_very_far(
+            self, _clock, _fresh_bot_state):
+        # Even healed, beyond the normal 2800 px tether it heads home.
+        import bot_autopilot_choose as choose
+        s = self._far_swarm_state(hs_dist=3000.0, healed=True)
+        hs = ap._find_home_station(s)
+        assert choose._zone2_far_swarm_tether(s, s["player"], hs) is True
