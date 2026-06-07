@@ -183,6 +183,45 @@ def _act_craft(state: dict, p: dict) -> None:
           f"sr_left={q.shield_recharges_remaining}")
 
 
+def _log_install_blocked(state: dict, p: dict, reason: str,
+                         head: str | None) -> None:
+    """Emit a throttled ``install_blocked`` telemetry event capturing
+    WHY the install queue head can't advance.
+
+    Added 2026-06-07 after a 34-min session deadlocked in S_INSTALL
+    (190 ``stuck_detected`` events, queue stuck at 3 modules): the
+    snapshot couldn't distinguish "module item missing from station
+    inventory" from "ship slot full" from "install POST rejected", and
+    the ``[autopilot] INSTALL: ... rejected`` print goes to stdout (not
+    captured in ``bot_io``).  This records the reject ``reason``, the
+    ship's ``module_slots``, and the head's ``mod_``/``bp_`` station
+    counts so the next log pins the proximate cause directly.
+
+    Throttled on ``_state.install_blocked_last_log_at`` (reusing the
+    30 s ``STUCK_LOG_THROTTLE_S``) so a perpetually-blocked install
+    logs roughly once per window rather than at 10 Hz.
+    """
+    now = _ap._get_now()
+    if (now - _ap._state.install_blocked_last_log_at
+            < _ap.STUCK_LOG_THROTTLE_S):
+        return
+    _ap._state.install_blocked_last_log_at = now
+    sitems = (state.get("station_inventory") or {}).get("items") or {}
+    slots = list(state.get("module_slots") or [])
+    _ap._telemetry_log(
+        "install_blocked",
+        reason=reason,
+        head=head,
+        head_mod_in_station=(int(sitems.get(f"mod_{head}", 0))
+                             if head else 0),
+        head_bp_in_station=(int(sitems.get(f"bp_{head}", 0))
+                            if head else 0),
+        module_slots=slots,
+        module_slots_filled=sum(1 for s in slots if s),
+        install_queue=list(_ap._state.queue.modules_to_install),
+        **_ap._telemetry_snapshot_fields(state, p))
+
+
 def _act_install(state: dict, p: dict) -> None:
     """S_INSTALL: navigate to the Home Station, then fire POST
     /install_module for the head of ``modules_to_install``.  Pops
@@ -203,6 +242,14 @@ def _act_install(state: dict, p: dict) -> None:
         return
     target = _ap._next_install_target(state)
     if target is None:
+        # Docked at the HS with a non-empty queue but no installable
+        # target -- the head's ``mod_<key>`` isn't in station inventory
+        # (never crafted, or consumed elsewhere).  This is the silent
+        # deadlock: the FSM holds S_INSTALL forever.  Log why.
+        q = _ap._state.queue
+        head = q.modules_to_install[0] if q.modules_to_install else None
+        if head is not None:
+            _log_install_blocked(state, p, "no_install_target", head)
         _ap._do_idle()
         return
     _ap.KeyState.release_all()
@@ -223,12 +270,15 @@ def _act_install(state: dict, p: dict) -> None:
             reason = (swap_res or {}).get("reason", "transport failure")
             print(f"[autopilot] SWAP: uninstall {swap_out!r} "
                   f"rejected ({reason})")
+            _log_install_blocked(
+                state, p, f"swap_uninstall_rejected:{reason}", target)
         return
     result = _ap._post_install_module(target)
     q = _ap._state.queue
     if result is None or not result.get("ok", False):
         reason = (result or {}).get("reason", "transport failure")
         print(f"[autopilot] INSTALL: {target!r} rejected ({reason})")
+        _log_install_blocked(state, p, f"install_rejected:{reason}", target)
         return
     if q.modules_to_install and q.modules_to_install[0] == target:
         q.modules_to_install.pop(0)

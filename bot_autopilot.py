@@ -609,6 +609,13 @@ class BotState:
     # ``warp_wormhole_*``, ``warp_traverse_*``) are preserved via
     # property aliases below.
     warp: WarpState = field(default_factory=WarpState)
+    # Install-blocked telemetry throttle (2026-06-07).  A 34-min
+    # session deadlocked in S_INSTALL (190 stuck_detected, queue head
+    # never advancing) and the snapshot couldn't show WHY -- whether
+    # the module item was missing from station inventory, a slot was
+    # full, or the install POST was rejected.  ``_act_install`` emits a
+    # throttled ``install_blocked`` event keyed off this timestamp.
+    install_blocked_last_log_at: float = 0.0
 
     def reset(self) -> None:
         """Restore every field to its default.  Mutates dict fields
@@ -667,6 +674,7 @@ class BotState:
         self.death_recovery_zone = ""
         self.boss_combat = BossCombatState()
         self.warp = WarpState()
+        self.install_blocked_last_log_at = 0.0
 
 
 # ── BotState backward-compat property aliases ─────────────────────────────
