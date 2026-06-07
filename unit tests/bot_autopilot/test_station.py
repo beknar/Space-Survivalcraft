@@ -3991,7 +3991,10 @@ class TestNebulaAdvancedCrafterGate:
         items = {
             "iron": ap.ADVANCED_CRAFTER_IRON_COST,
             "copper": ap.ADVANCED_CRAFTER_COPPER_COST,
-            "advanced_crafter": 1,
+            # Collected blueprints are stored as bp_<module> (2026-06-06
+            # key fix), so the advanced-crafter blueprint is keyed
+            # bp_advanced_crafter in the station.
+            "bp_advanced_crafter": 1,
         }
         if station_items is not None:
             items.update(station_items)
@@ -4031,7 +4034,18 @@ class TestNebulaAdvancedCrafterGate:
 
     def test_does_not_fire_without_blueprint(self, _clock):
         self._arm_prerequisites()
-        s = self._staged_state(station_items={"advanced_crafter": 0})
+        s = self._staged_state(station_items={"bp_advanced_crafter": 0})
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] != ap.S_BUILD_ADV_CRAFTER
+
+    def test_un_prefixed_key_does_not_fire(self, _clock):
+        """Regression guard for the 2026-06-06 key mismatch: the gate
+        must NOT fire on the un-prefixed ``advanced_crafter`` key (which
+        a gathered blueprint is never stored under) -- only on
+        ``bp_advanced_crafter``."""
+        self._arm_prerequisites()
+        s = self._staged_state(station_items={
+            "bp_advanced_crafter": 0, "advanced_crafter": 1})
         ap._do_auto(s, s["player"])
         assert ap._fsm["state"] != ap.S_BUILD_ADV_CRAFTER
 

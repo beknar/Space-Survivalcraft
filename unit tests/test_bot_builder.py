@@ -935,8 +935,9 @@ def _adv_crafter_gv(*, station_items=None, has_hs=True,
     ``building_manager.place_building`` is monkey-patched in each
     test to avoid touching real sprites / textures."""
     if station_items is None:
+        # Collected blueprints store as bp_<module> (2026-06-06 key fix).
         station_items = {"iron": 1000, "copper": 500,
-                         "advanced_crafter": 1}
+                         "bp_advanced_crafter": 1}
     station_inv = SimpleNamespace(
         items=dict(station_items),
         count_item=lambda it: station_inv.items.get(it, 0),
@@ -969,7 +970,21 @@ def test_place_advanced_crafter_fails_without_home_station():
 def test_place_advanced_crafter_fails_without_blueprint():
     gv = _adv_crafter_gv(
         station_items={"iron": 1000, "copper": 500,
-                       "advanced_crafter": 0})
+                       "bp_advanced_crafter": 0})
+    result = bot_builder.place_advanced_crafter(gv)
+    assert result["ok"] is False
+    assert "blueprint" in result["reason"]
+
+
+def test_place_advanced_crafter_uses_bp_prefixed_key():
+    """2026-06-06: a gathered blueprint is stored as bp_advanced_crafter;
+    the un-prefixed advanced_crafter key must NOT satisfy the gate."""
+    import building_manager as bm
+    placed = []
+    gv = _adv_crafter_gv(
+        station_items={"iron": 1000, "copper": 500,
+                       "advanced_crafter": 5,        # wrong key
+                       "bp_advanced_crafter": 0})    # the real one missing
     result = bot_builder.place_advanced_crafter(gv)
     assert result["ok"] is False
     assert "blueprint" in result["reason"]
@@ -978,7 +993,7 @@ def test_place_advanced_crafter_fails_without_blueprint():
 def test_place_advanced_crafter_fails_without_iron():
     gv = _adv_crafter_gv(
         station_items={"iron": 100, "copper": 500,
-                       "advanced_crafter": 1})
+                       "bp_advanced_crafter": 1})
     result = bot_builder.place_advanced_crafter(gv)
     assert result["ok"] is False
     assert "iron" in result["reason"]
@@ -987,7 +1002,7 @@ def test_place_advanced_crafter_fails_without_iron():
 def test_place_advanced_crafter_fails_without_copper():
     gv = _adv_crafter_gv(
         station_items={"iron": 1000, "copper": 10,
-                       "advanced_crafter": 1})
+                       "bp_advanced_crafter": 1})
     result = bot_builder.place_advanced_crafter(gv)
     assert result["ok"] is False
     assert "copper" in result["reason"]

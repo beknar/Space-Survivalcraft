@@ -776,18 +776,24 @@ def place_advanced_crafter(gv: Any) -> dict:
             }
 
     # Resource + blueprint gate.  Mirrors the build-menu rule for
-    # Advanced Crafter: needs the unlocked ``advanced_crafter``
-    # blueprint sitting in station inventory, plus iron + copper to
-    # cover the cost.  The build_menu reads the same fields via
-    # ``unlocked_blueprints``; the bot can't navigate UI so we
-    # inspect station inventory directly.
+    # Advanced Crafter: needs the advanced-crafter blueprint sitting in
+    # station inventory, plus iron + copper to cover the cost.  The
+    # build_menu reads ``unlocked_blueprints``; the bot can't navigate
+    # UI so we inspect station inventory directly.
+    #
+    # Blueprint key (2026-06-06): a collected blueprint pickup adds
+    # ``bp_<module>`` to inventory (game_view:448 + pickup:102), so the
+    # blueprint lands in station as ``bp_advanced_crafter`` -- the gate
+    # used to check the un-prefixed ``advanced_crafter`` and so never
+    # found the blueprint the bot had gathered.
     bt_stats = BUILDING_TYPES["Advanced Crafter"]
     cost = int(bt_stats.get("cost", 1000))
     copper_cost = int(bt_stats.get("cost_copper", 500))
     station = gv._station_inv
-    if int(station.count_item("advanced_crafter")) < 1:
+    if int(station.count_item("bp_advanced_crafter")) < 1:
         return {"ok": False,
-                "reason": "advanced_crafter blueprint not in station inventory"}
+                "reason": "bp_advanced_crafter blueprint not in "
+                          "station inventory"}
     iron_have = int(station.count_item("iron"))
     copper_have = int(station.count_item("copper"))
     if iron_have < cost:
