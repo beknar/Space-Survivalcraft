@@ -4496,9 +4496,9 @@ class TestConsumableRestock:
         )
         ap._observe_consumable_restock(s, s["player"], 0.0)
         assert (ap._state.queue.shield_recharges_remaining
-                == ap.WARP_RECRAFT_SHIELD_BATCHES)
+                == ap.CONSUMABLE_RESTOCK_SHIELD_BATCHES)
         assert (ap._state.queue.repair_packs_remaining
-                == ap.WARP_RECRAFT_REPAIR_BATCHES)
+                == ap.CONSUMABLE_RESTOCK_REPAIR_BATCHES)
         # Latches reset so CRAFT re-evaluates + the bot re-equips.
         assert ap._state.queue.consumable_phase_started is False
         assert ap._state.consumables_equipped is False
@@ -4521,7 +4521,7 @@ class TestConsumableRestock:
         s["boss_defeated"] = True                  # loaded post-boss save
         ap._observe_consumable_restock(s, s["player"], 0.0)
         assert (ap._state.queue.shield_recharges_remaining
-                == ap.WARP_RECRAFT_SHIELD_BATCHES)
+                == ap.CONSUMABLE_RESTOCK_SHIELD_BATCHES)
 
     def test_no_rearm_before_boss_even_when_depleted(
             self, _clock, _fresh_bot_state):
@@ -4575,15 +4575,15 @@ class TestConsumableRestock:
         ap._state.queue.shield_recharges_remaining = 0
         s = _state(
             buildings=[_hs_building()],
-            inventory_items={"iron": 0, "shield_recharge": 3,
+            inventory_items={"iron": 0, "shield_recharge": 5,
                              "repair_pack": 10},
-            station_inventory_items={"shield_recharge": 3,
+            station_inventory_items={"shield_recharge": 5,
                                      "repair_pack": 10},
         )
         s["quick_use_slots"] = [
-            {"item_type": "shield_recharge", "count": 4},
+            {"item_type": "shield_recharge", "count": 5},
             {"item_type": "repair_pack", "count": 4},
         ]
-        # shield total = 3 + 3 + 4 = 10 > 5; repair = 10 + 10 + 4 = 24.
+        # shield total = 5 + 5 + 5 = 15 > 10 floor; repair = 24 > 10.
         ap._observe_consumable_restock(s, s["player"], 0.0)
         assert ap._state.queue.shield_recharges_remaining == 0

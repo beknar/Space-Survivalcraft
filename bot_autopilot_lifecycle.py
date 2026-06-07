@@ -467,8 +467,8 @@ def _observe_consumable_restock(state: dict, p: dict, now: float) -> None:
     if (shield_total > _ap.CONSUMABLE_RESTOCK_FLOOR
             and repair_total > _ap.CONSUMABLE_RESTOCK_FLOOR):
         return
-    queue.repair_packs_remaining = _ap.WARP_RECRAFT_REPAIR_BATCHES
-    queue.shield_recharges_remaining = _ap.WARP_RECRAFT_SHIELD_BATCHES
+    queue.repair_packs_remaining = _ap.CONSUMABLE_RESTOCK_REPAIR_BATCHES
+    queue.shield_recharges_remaining = _ap.CONSUMABLE_RESTOCK_SHIELD_BATCHES
     # Re-arm the phase so the CRAFT cascade re-evaluates against the
     # fresh queue, and force a re-equip after the crafts land.
     queue.consumable_phase_started = False
