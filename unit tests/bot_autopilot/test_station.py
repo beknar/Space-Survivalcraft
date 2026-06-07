@@ -1310,6 +1310,10 @@ class TestInstallBlockedTelemetry:
 
     def test_throttled_within_window(self, _clock, monkeypatch):
         # Two blocked calls inside STUCK_LOG_THROTTLE_S -> only one log.
+        # Pin the install watchdog threshold above the throttle window so
+        # advancing the clock exercises the throttle in isolation (the
+        # watchdog would otherwise recraft + empty the queue at 20 s).
+        monkeypatch.setattr(ap, "INSTALL_STALL_GIVEUP_S", 1.0e9)
         events = self._capture(monkeypatch)
         s = self._docked_state(station_items={})
         ap._state.queue.modules_to_install = ["death_blossom"]
@@ -1330,6 +1334,110 @@ class TestInstallBlockedTelemetry:
         ap._state.queue.modules_to_install = ["broadside"]
         ap._act_install(s, s["player"])
         assert not [f for e, f in events if e == "install_blocked"]
+
+
+class TestInstallWatchdog:
+    """2026-06-07: a docked install that can't advance (head's mod_<key>
+    missing from station, or install POST persistently rejected) used to
+    deadlock S_INSTALL for a whole session.  The watchdog re-queues the
+    head for craft (item missing) or abandons it (rejected / re-craft
+    exhausted) once it's been stalled INSTALL_STALL_GIVEUP_S while docked."""
+
+    def _docked_state(self, *, station_items=None, module_slots=None):
+        # Reset the watchdog tracker (not covered by _fresh_bot_state).
+        ap._state.install_stall_head = ""
+        ap._state.install_stall_since = 0.0
+        ap._state.install_recraft_attempts = {}
+        s = _state(
+            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            buildings=[_hs_building(x=3200.0, y=3200.0),
+                       _crafter_building()],
+            station_inventory_items=station_items or {},
+            module_slots=module_slots,
+        )
+        ap._state.queue.modules_to_craft.clear()
+        return s
+
+    def test_recrafts_when_item_missing_after_stall(
+            self, _clock, monkeypatch):
+        s = self._docked_state(station_items={})  # mod_ absent
+        ap._state.queue.modules_to_install = ["death_blossom", "force_wall"]
+        ap._act_install(s, s["player"])           # arms the timer
+        assert ap._state.queue.modules_to_install[0] == "death_blossom"
+        _clock[0] += ap.INSTALL_STALL_GIVEUP_S + 1.0
+        ap._act_install(s, s["player"])           # watchdog fires
+        # Missing head re-queued for craft, popped from install.
+        assert "death_blossom" not in ap._state.queue.modules_to_install
+        assert "death_blossom" in ap._state.queue.modules_to_craft
+        assert ap._state.install_recraft_attempts["death_blossom"] == 1
+        # Next module is now the install head.
+        assert ap._state.queue.modules_to_install[0] == "force_wall"
+
+    def test_abandons_when_recraft_exhausted(self, _clock, monkeypatch):
+        s = self._docked_state(station_items={})
+        ap._state.queue.modules_to_install = ["death_blossom"]
+        ap._state.install_recraft_attempts = {
+            "death_blossom": ap.INSTALL_RECRAFT_MAX_ATTEMPTS}
+        ap._act_install(s, s["player"])
+        _clock[0] += ap.INSTALL_STALL_GIVEUP_S + 1.0
+        ap._act_install(s, s["player"])
+        # Dropped entirely -- not re-queued for craft, not in install.
+        assert "death_blossom" not in ap._state.queue.modules_to_install
+        assert "death_blossom" not in ap._state.queue.modules_to_craft
+
+    def test_abandons_when_item_present_but_rejected(
+            self, _clock, monkeypatch):
+        # mod_ present + free slot, but install POST always rejected.
+        monkeypatch.setattr(
+            ap, "_post_install_module",
+            lambda mod_key, timeout_s=5.0: {"ok": False,
+                                            "reason": "server refused"})
+        s = self._docked_state(
+            station_items={"mod_death_blossom": 1},
+            module_slots=["broadside", None, None, None])
+        ap._state.queue.modules_to_install = ["death_blossom"]
+        ap._act_install(s, s["player"])           # attempts, rejected
+        _clock[0] += ap.INSTALL_STALL_GIVEUP_S + 1.0
+        ap._act_install(s, s["player"])           # watchdog -> abandon
+        assert "death_blossom" not in ap._state.queue.modules_to_install
+        # Item was present, so re-craft is pointless -> not queued.
+        assert "death_blossom" not in ap._state.queue.modules_to_craft
+
+    def test_no_intervention_within_grace(self, _clock, monkeypatch):
+        s = self._docked_state(station_items={})
+        ap._state.queue.modules_to_install = ["death_blossom"]
+        ap._act_install(s, s["player"])
+        _clock[0] += ap.INSTALL_STALL_GIVEUP_S - 1.0   # still within grace
+        ap._act_install(s, s["player"])
+        # Untouched -- the queue is intact, the bot just idles/blocks.
+        assert ap._state.queue.modules_to_install == ["death_blossom"]
+        assert "death_blossom" not in ap._state.queue.modules_to_craft
+
+    def test_grace_resets_on_head_change(self, _clock, monkeypatch):
+        # Head A stalls partway, then A installs and B becomes head; B
+        # must get a fresh grace window, not inherit A's elapsed time.
+        s = self._docked_state(station_items={})
+        ap._state.queue.modules_to_install = ["death_blossom", "force_wall"]
+        ap._act_install(s, s["player"])           # arms timer on A
+        _clock[0] += ap.INSTALL_STALL_GIVEUP_S - 1.0
+        # Simulate A having installed: pop it so B is the head.
+        ap._state.queue.modules_to_install = ["force_wall"]
+        ap._act_install(s, s["player"])           # re-arms on B, no fire
+        assert ap._state.queue.modules_to_install == ["force_wall"]
+        assert ap._state.install_stall_head == "force_wall"
+
+    def test_en_route_resets_stall_tracker(self, _clock, monkeypatch):
+        monkeypatch.setattr(ap, "_do_goto",
+                            lambda *a, **k: None)
+        s = self._docked_state(station_items={})
+        ap._state.queue.modules_to_install = ["death_blossom"]
+        ap._act_install(s, s["player"])           # docked, arms timer
+        assert ap._state.install_stall_head == "death_blossom"
+        # Move the bot far from the HS -> en route, tracker resets.
+        s["player"]["x"] = 3200.0 + ap.INSTALL_INTERACT_RANGE_PX + 200.0
+        ap._act_install(s, s["player"])
+        assert ap._state.install_stall_head == ""
 
 
 class TestModuleSwap:

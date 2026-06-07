@@ -616,6 +616,15 @@ class BotState:
     # full, or the install POST was rejected.  ``_act_install`` emits a
     # throttled ``install_blocked`` event keyed off this timestamp.
     install_blocked_last_log_at: float = 0.0
+    # Install-progress watchdog (2026-06-07).  Tracks the queue head the
+    # bot is currently trying (and failing) to install while docked, and
+    # how long it's been stalled, so ``_act_install`` can re-queue or
+    # abandon a head that can't advance instead of deadlocking S_INSTALL
+    # forever.  ``install_recraft_attempts`` caps the re-craft retries
+    # per module key.
+    install_stall_head: str = ""
+    install_stall_since: float = 0.0
+    install_recraft_attempts: dict = field(default_factory=dict)
 
     def reset(self) -> None:
         """Restore every field to its default.  Mutates dict fields
@@ -675,6 +684,9 @@ class BotState:
         self.boss_combat = BossCombatState()
         self.warp = WarpState()
         self.install_blocked_last_log_at = 0.0
+        self.install_stall_head = ""
+        self.install_stall_since = 0.0
+        self.install_recraft_attempts = {}
 
 
 # ── BotState backward-compat property aliases ─────────────────────────────
