@@ -184,6 +184,17 @@ ZONE2_TETHER_DIST_PX:       float = 2800.0
 # station shield do the surviving) instead of the generous 2800 px
 # operating radius.  Still only fires under a dense swarm.
 ZONE2_TETHER_UNHEALED_DIST_PX: float = 1500.0
+# Tighter tether while the bot is REBUILDING its loadout after a death
+# (2026-06-06 evening).  Captured in the same 4-death spiral: each death
+# dropped the Nebula modules (misty_step / force_wall / death_blossom)
+# AND the broadside, leaving them queued in ``queue.modules_to_install``;
+# the bot then re-engaged the swarm half-equipped -- no modules, often no
+# heal -- and died again before it ever got back to the crafter to
+# re-install.  While modules are pending, keep the bot close to the HS
+# umbrella so it actually completes the re-install instead of roaming off
+# under-gunned.  Independent of the heal check above -- the bot can be
+# topped up on heals yet still be missing every combat module.
+ZONE2_TETHER_RECOVERING_DIST_PX: float = 1500.0
 # Nebula AI Pilot ship cost gate (2026-05-24).  Mirrors the
 # ``BUILDING_TYPES["Basic Ship"]`` cost (500 iron + 250 copper at
 # default character rates) plus a small headroom so the placement

@@ -148,7 +148,11 @@ def _zone2_far_swarm_tether(state: dict, p: dict, hs) -> bool:
       * a Home Station exists to tether to (``hs`` not None) -- with no
         base there is nothing to retreat toward, so the bot keeps
         roaming to build one,
-      * the bot is farther than ``ZONE2_TETHER_DIST_PX`` from that HS,
+      * the bot is farther than the tether distance from that HS -- the
+        generous ``ZONE2_TETHER_DIST_PX`` normally, but shortened to
+        ``ZONE2_TETHER_UNHEALED_DIST_PX`` when no shield_recharge is
+        equipped and ``ZONE2_TETHER_RECOVERING_DIST_PX`` while modules are
+        pending re-install (the tighter of whichever apply wins),
       * a dense swarm (>= RETREAT_SWARM_ALIEN_COUNT within
         RETREAT_SWARM_RANGE_PX) is adjacent.
 
@@ -176,6 +180,20 @@ def _zone2_far_swarm_tether(state: dict, p: dict, hs) -> bool:
     tether_dist = _ap.ZONE2_TETHER_DIST_PX
     if not _bot_has_ready_shield_consumable(state):
         tether_dist = min(tether_dist, _ap.ZONE2_TETHER_UNHEALED_DIST_PX)
+    # Recovery-aware distance (2026-06-06 evening): while the bot is
+    # rebuilding its loadout after a death -- a combat module that was
+    # dropped at death is still queued for re-install -- keep it close to
+    # the HS so it gets back to the crafter and re-installs instead of
+    # re-engaging the swarm half-equipped.  Independent of the heal check
+    # above: the bot can be topped up on heals yet still be missing every
+    # module.  Keyed on the intersection of the install queue with the
+    # modules lost at the last death (``death_recovery_modules``) so this
+    # fires ONLY for a post-death re-install, NOT the initial module
+    # install (when ``modules_to_install`` is the never-installed default
+    # set and ``death_recovery_modules`` is empty).
+    if (set(_ap._state.queue.modules_to_install)
+            & set(_ap._state.death_recovery_modules)):
+        tether_dist = min(tether_dist, _ap.ZONE2_TETHER_RECOVERING_DIST_PX)
     if hs_dist <= tether_dist:
         return False
     swarm = sum(
