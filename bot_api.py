@@ -381,6 +381,39 @@ def _gas_areas_state(gv) -> list[dict]:
     return out
 
 
+def _slipspaces_state(gv) -> list[dict]:
+    """Snapshot of slipspace teleporters in the active zone.
+
+    Colliding with a slipspace instantly relocates the ship to a
+    DIFFERENT slipspace in the same zone -- which can fling the bot deep
+    into the swarm (captured: a ~4810 px jump in 1.4 s, plus a death at
+    hs_dist 8343).  The bot's navigation treats each as a hard repulsion
+    no-go.  Zone-scoped: ZONE2 / Star Maze keep the list on the active
+    zone object (``_slipspaces``); MAIN keeps it on ``gv``.  Each entry
+    has ``x``, ``y``, and ``radius``.
+    """
+    try:
+        z = getattr(gv, "_zone", None)
+        slips = getattr(z, "_slipspaces", None)
+        if slips is None:
+            slips = getattr(gv, "_slipspaces", None)
+        if slips is None:
+            return []
+    except Exception:
+        return []
+    out: list[dict] = []
+    for s in slips:
+        try:
+            out.append({
+                "x": float(s.center_x),
+                "y": float(s.center_y),
+                "radius": float(getattr(s, "radius", 60.0)),
+            })
+        except Exception:
+            continue
+    return out
+
+
 def _menu_state(gv) -> dict:
     """Best-effort: which modal (if any) is open, so the
     autopilot doesn't fight the player by spamming WASD while a
@@ -490,6 +523,7 @@ def get_state(gv) -> dict:
         "blueprint_pickups": _pickup_list(_safe(lambda: gv.blueprint_pickup_list)),
         "wormholes": _safe(lambda: _wormholes_state(gv)) or [],
         "gas_areas": _safe(lambda: _gas_areas_state(gv)) or [],
+        "slipspaces": _safe(lambda: _slipspaces_state(gv)) or [],
         # ``boss_defeated`` is the GAME's persisted "main boss has
         # died in this save" flag (set in collisions_boss.py, saved
         # via game_save.py).  Survives save/load so the bot can

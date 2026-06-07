@@ -500,6 +500,41 @@ class TestGasAreasState:
         ]
 
 
+class TestSlipspacesState:
+    """``_slipspaces_state`` exposes slipspace teleporters in the active
+    zone so the bot's navigation can repulse away from them (colliding
+    flings the ship to another slipspace -- a ~4810 px jump)."""
+
+    def test_no_slipspaces_returns_empty(self):
+        gv = _gv()  # zone has no _slipspaces, gv has none
+        assert bot_api._slipspaces_state(gv) == []
+
+    def test_zone_slipspaces_serialized(self):
+        gv = _gv()
+        gv._zone = SimpleNamespace(
+            zone_id="ZoneID.ZONE2",
+            _slipspaces=[
+                SimpleNamespace(center_x=1000.0, center_y=2000.0,
+                                radius=60.0),
+                SimpleNamespace(center_x=5000.0, center_y=4000.0,
+                                radius=60.0),
+            ])
+        out = bot_api._slipspaces_state(gv)
+        assert out == [
+            {"x": 1000.0, "y": 2000.0, "radius": 60.0},
+            {"x": 5000.0, "y": 4000.0, "radius": 60.0},
+        ]
+
+    def test_falls_back_to_gv_slipspaces_in_main(self):
+        # MAIN keeps the list on gv, not the zone object.
+        gv = _gv()
+        gv._zone = SimpleNamespace(zone_id="ZoneID.MAIN")  # no _slipspaces
+        gv._slipspaces = [SimpleNamespace(center_x=300.0, center_y=400.0,
+                                          radius=60.0)]
+        out = bot_api._slipspaces_state(gv)
+        assert out == [{"x": 300.0, "y": 400.0, "radius": 60.0}]
+
+
 class TestGetStateIncludesWormholesAndGasAreas:
     """``get_state`` glues every extractor together; the keys for
     the new fields must be present so the bot can read them."""
@@ -513,6 +548,7 @@ class TestGetStateIncludesWormholesAndGasAreas:
         s = bot_api.get_state(gv)
         assert "wormholes" in s
         assert "gas_areas" in s
+        assert "slipspaces" in s
 
 
 class TestBossDefeatedFlag:
