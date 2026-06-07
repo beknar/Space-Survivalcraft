@@ -883,3 +883,60 @@ class TestBuildingClusterCentroid:
             fallback=(0.0, 0.0))
         assert cx == pytest.approx(200.0)
         assert cy == pytest.approx(200.0)
+
+
+# ── Slipspace repulsion (2026-06-06) ──────────────────────────────────
+
+
+class TestSlipspaceRepulsion:
+    """Slipspaces teleport the ship to another slipspace in the same
+    zone on collision (radius ~60 px) -- captured flinging the bot
+    ~4810 px into the swarm.  The repulsion peels the bot off well
+    before the trigger, in EVERY zone (no MAIN short-circuit)."""
+
+    def _state(self, slips):
+        return {"zone": {"world_w": 6400.0, "world_h": 6400.0},
+                "slipspaces": list(slips)}
+
+    def test_no_slipspaces_returns_zero(self):
+        rx, ry = nav.slipspace_repulsion(
+            {"x": 3200.0, "y": 3200.0}, self._state([]))
+        assert (rx, ry) == (0.0, 0.0)
+
+    def test_pushes_directly_away(self):
+        s = self._state([{"x": 3200.0, "y": 3200.0, "radius": 60.0}])
+        # Bot west of the slipspace -> pushed further west (-x).
+        rx, ry = nav.slipspace_repulsion({"x": 3100.0, "y": 3200.0}, s)
+        assert rx < 0.0
+        assert ry == pytest.approx(0.0)
+
+    def test_full_strength_at_collision_radius(self):
+        s = self._state([{"x": 3200.0, "y": 3200.0, "radius": 60.0}])
+        # 60 px east of centre == exactly the radius -> strength 1.0.
+        rx, _ry = nav.slipspace_repulsion({"x": 3260.0, "y": 3200.0}, s)
+        assert rx == pytest.approx(1.0)
+
+    def test_zero_beyond_outer_range(self):
+        s = self._state([{"x": 3200.0, "y": 3200.0, "radius": 60.0}])
+        far = 60.0 + nav.SLIPSPACE_REPULSION_RANGE_PX + 50.0
+        rx, ry = nav.slipspace_repulsion(
+            {"x": 3200.0 + far, "y": 3200.0}, s)
+        assert (rx, ry) == (0.0, 0.0)
+
+    def test_fires_in_main_zone_too(self):
+        # Unlike return wormholes, slipspaces repulse even in MAIN.
+        s = {"zone": {"world_w": 6400.0, "world_h": 6400.0,
+                      "id": "ZoneID.MAIN"},
+             "slipspaces": [{"x": 3200.0, "y": 3200.0, "radius": 60.0}]}
+        rx, _ry = nav.slipspace_repulsion({"x": 3100.0, "y": 3200.0}, s)
+        assert rx < 0.0
+
+    def test_steered_heading_deflects_around_slipspace(self):
+        # Bot driving east; a slipspace just off the path ahead must
+        # bend the steered heading away from the pure-east goal.
+        s = {"zone": {"world_w": 6400.0, "world_h": 6400.0},
+             "slipspaces": [{"x": 3280.0, "y": 3230.0, "radius": 60.0}]}
+        p = {"x": 3200.0, "y": 3200.0, "heading": 90.0}
+        plain = nav.angle_to(100.0, 0.0)
+        steered = nav.steered_heading(s, p, 100.0, 0.0, 100.0)
+        assert abs(steered - plain) > 1.0

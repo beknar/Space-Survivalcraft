@@ -182,6 +182,18 @@ WORMHOLE_REPULSION_RANGE_PX:  float = 250.0
 WORMHOLE_REPULSION_RADIUS_PX: float = 100.0  # the game's collision trigger
 WORMHOLE_REPULSION_GAIN:      float = 1.0
 
+# Slipspace repulsion (2026-06-06).  Slipspaces are rotating teleporters
+# scattered across non-warp zones; colliding with one (radius ~60 px)
+# instantly relocates the ship to a DIFFERENT slipspace in the same zone,
+# velocity preserved -- captured flinging the bot ~4810 px into the swarm
+# in 1.4 s, and a death at hs_dist 8343.  Unlike RETURN wormholes (the bot
+# sometimes WANTS to take one), the bot NEVER wants to hit a slipspace, so
+# this field fires in EVERY zone.  Range a touch wider than the 60 px
+# collision radius so the bot peels off well before the teleport trigger.
+SLIPSPACE_REPULSION_RADIUS_PX: float = 60.0   # matches SLIPSPACE_RADIUS
+SLIPSPACE_REPULSION_RANGE_PX:  float = 220.0
+SLIPSPACE_REPULSION_GAIN:      float = 1.0
+
 # Distance the bot walks per tick when seeking a clear spot or
 # heading along the escape vector.  Re-exported here because
 # ``do_escape_edge`` uses it as the escape target offset.
@@ -525,6 +537,45 @@ def wormhole_repulsion(p: dict, state: dict,
     return (rx, ry)
 
 
+def slipspace_repulsion(p: dict, state: dict,
+                        target: tuple[float, float] | None = None
+                        ) -> tuple[float, float]:
+    """Per-slipspace repulsion vector.  Colliding with a slipspace
+    (radius ~60 px) instantly teleports the ship to a DIFFERENT
+    slipspace in the same zone -- captured flinging the bot ~4810 px
+    into the swarm in 1.4 s.  Treat every slipspace as a hard no-go in
+    EVERY zone (the bot never wants to hit one), so -- unlike the
+    return-wormhole field -- there is no MAIN short-circuit and no
+    ``target`` suppression.  Same linear-ramp pattern as the other
+    fields: magnitude 1.0 at the collision radius, 0 at radius + range.
+    """
+    slips = state.get("slipspaces") or []
+    if not slips:
+        return (0.0, 0.0)
+    px = float(p.get("x", 0.0))
+    py = float(p.get("y", 0.0))
+    rx = 0.0
+    ry = 0.0
+    for s in slips:
+        sx = float(s.get("x", 0.0))
+        sy = float(s.get("y", 0.0))
+        rad = float(s.get("radius", SLIPSPACE_REPULSION_RADIUS_PX))
+        dx_s = px - sx
+        dy_s = py - sy
+        d = math.hypot(dx_s, dy_s)
+        outer = rad + SLIPSPACE_REPULSION_RANGE_PX
+        if d >= outer:
+            continue
+        if d < 0.5:
+            rx += 1.0
+            continue
+        depth = max(0.0, outer - d)
+        strength = depth / SLIPSPACE_REPULSION_RANGE_PX
+        rx += (dx_s / d) * strength
+        ry += (dy_s / d) * strength
+    return (rx, ry)
+
+
 # ── Cluster avoidance: aggregate the station as a single obstacle ──────
 
 def clamp_to_world(tx: float, ty: float, zone: dict,
@@ -718,6 +769,9 @@ def steered_heading(state: dict, p: dict, dx: float, dy: float,
     wx_w, wy_w = wormhole_repulsion(p, state, target=target)
     rx += wx_w * WORMHOLE_REPULSION_GAIN
     ry += wy_w * WORMHOLE_REPULSION_GAIN
+    sx_s, sy_s = slipspace_repulsion(p, state, target=target)
+    rx += sx_s * SLIPSPACE_REPULSION_GAIN
+    ry += sy_s * SLIPSPACE_REPULSION_GAIN
     if rx == 0.0 and ry == 0.0:
         return angle_to(dx, dy)
     norm = max(1.0, dist)
