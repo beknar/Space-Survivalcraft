@@ -428,8 +428,22 @@ def _observe_consumable_restock(state: dict, p: dict, now: float) -> None:
     # consumable phase + the warp-back recraft already cover stocking,
     # and re-arming here would un-finish ``_consumable_phase_finished()``
     # and block the pre-boss QWI / FORTIFY / EQUIP staging that gate on
-    # it.  ``boss_was_killed`` is a clean "past initial setup" proxy.
-    if not _ap._state.boss_was_killed:
+    # it.
+    #
+    # Use the SAME boss-killed signal the choose-cascade uses (OR the
+    # in-session ``boss_was_killed`` latch with the game's persisted
+    # ``boss_defeated`` flag).  Fix (2026-06-06 follow-up): the original
+    # gate checked ``boss_was_killed`` alone, which is set only on the
+    # in-session boss-kill EDGE -- so on a save loaded post-boss (the
+    # 2026-06-06 capture) it stayed False and this observer never fired.
+    # That bot spent ~100 of 118 min with shield supply = 0 and died
+    # twice with no heal: the restock it needed was gated off on exactly
+    # the save-loaded session where it mattered.  ``boss_defeated`` (from
+    # /state) makes it fire on loaded games too.
+    boss_killed_signal = (
+        _ap._state.boss_was_killed
+        or bool(state.get("boss_defeated", False)))
+    if not boss_killed_signal:
         return
     queue = _ap._state.queue
     # Already crafting a batch -- don't duplicate (and this short-circuit

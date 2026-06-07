@@ -4489,6 +4489,42 @@ class TestConsumableRestock:
         assert ap._state.queue.consumable_phase_started is False
         assert ap._state.consumables_equipped is False
 
+    def test_rearms_on_loaded_save_via_boss_defeated(
+            self, _clock, _fresh_bot_state):
+        """2026-06-06 fix: ``boss_was_killed`` is set only on the
+        in-session boss-kill edge, so on a save loaded post-boss it stays
+        False.  The captured session ran that way and the restock never
+        fired -- the bot spent ~100 min with shield supply = 0.  The
+        persisted ``boss_defeated`` flag from /state must trigger the
+        restock on loaded games too."""
+        ap._state.boss_was_killed = False          # no in-session kill
+        ap._state.queue.repair_packs_remaining = 0
+        ap._state.queue.shield_recharges_remaining = 0
+        s = _state(
+            buildings=[_hs_building()],
+            station_inventory_items={"shield_recharge": 0},
+        )
+        s["boss_defeated"] = True                  # loaded post-boss save
+        ap._observe_consumable_restock(s, s["player"], 0.0)
+        assert (ap._state.queue.shield_recharges_remaining
+                == ap.WARP_RECRAFT_SHIELD_BATCHES)
+
+    def test_no_rearm_before_boss_even_when_depleted(
+            self, _clock, _fresh_bot_state):
+        """Pre-boss (neither signal set), the restock stays off so it
+        can't un-finish the consumable phase and block QWI / FORTIFY
+        staging."""
+        ap._state.boss_was_killed = False
+        ap._state.queue.repair_packs_remaining = 0
+        ap._state.queue.shield_recharges_remaining = 0
+        s = _state(
+            buildings=[_hs_building()],
+            station_inventory_items={"shield_recharge": 0},
+        )
+        # boss_defeated absent / False -> pre-boss.
+        ap._observe_consumable_restock(s, s["player"], 0.0)
+        assert ap._state.queue.shield_recharges_remaining == 0
+
     def test_no_rearm_when_supply_above_floor(
             self, _clock, _fresh_bot_state):
         ap._state.boss_was_killed = True
