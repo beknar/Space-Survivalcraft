@@ -222,6 +222,64 @@ def _log_install_blocked(state: dict, p: dict, reason: str,
         **_ap._telemetry_snapshot_fields(state, p))
 
 
+def _install_stall_expired(head: str) -> bool:
+    """True when install queue ``head`` has been the stalled head
+    (docked, not advancing) for at least ``INSTALL_STALL_GIVEUP_S``.
+
+    Starts / resets the stall timer on every head transition, so a head
+    that installs normally within the grace window never trips the
+    watchdog -- only a head that stays blocked the whole window does.
+    """
+    now = _ap._get_now()
+    st = _ap._state
+    if st.install_stall_head != head:
+        st.install_stall_head = head
+        st.install_stall_since = now
+        return False
+    return (now - st.install_stall_since) >= _ap.INSTALL_STALL_GIVEUP_S
+
+
+def _resolve_install_stall(state: dict, p: dict, head: str) -> None:
+    """Break an S_INSTALL deadlock on ``head`` (added 2026-06-07).
+
+    Re-queue the head for crafting if its ``mod_<key>`` is missing from
+    station inventory (and re-craft attempts remain) -- the common case,
+    a module whose craft never deposited its product.  Otherwise abandon
+    it (item present but the install POST persistently rejected, or
+    re-craft already exhausted) so the rest of the install queue and the
+    session proceed instead of wedging.  Resets the stall tracker either
+    way and logs the intervention to telemetry.
+    """
+    q = _ap._state.queue
+    st = _ap._state
+    sitems = (state.get("station_inventory") or {}).get("items") or {}
+    in_station = int(sitems.get(f"mod_{head}", 0)) >= 1
+    attempts = st.install_recraft_attempts.get(head, 0)
+    if not in_station and attempts < _ap.INSTALL_RECRAFT_MAX_ATTEMPTS:
+        if q.modules_to_install and q.modules_to_install[0] == head:
+            q.modules_to_install.pop(0)
+        if head not in q.modules_to_craft:
+            q.modules_to_craft.append(head)
+        st.install_recraft_attempts[head] = attempts + 1
+        action = "recraft"
+    else:
+        if q.modules_to_install and q.modules_to_install[0] == head:
+            q.modules_to_install.pop(0)
+        action = "abandon"
+    st.install_stall_head = ""
+    st.install_stall_since = 0.0
+    print(f"[autopilot] INSTALL-WATCHDOG: {action} {head!r} "
+          f"(stalled {_ap.INSTALL_STALL_GIVEUP_S:.0f}s docked, "
+          f"in_station={in_station}, attempt={attempts})")
+    _ap._telemetry_log(
+        "install_stall_resolved",
+        action=action, head=head, in_station=in_station,
+        recraft_attempt=attempts,
+        install_queue=list(q.modules_to_install),
+        craft_queue=list(q.modules_to_craft),
+        **_ap._telemetry_snapshot_fields(state, p))
+
+
 def _act_install(state: dict, p: dict) -> None:
     """S_INSTALL: navigate to the Home Station, then fire POST
     /install_module for the head of ``modules_to_install``.  Pops
@@ -236,18 +294,30 @@ def _act_install(state: dict, p: dict) -> None:
     hy = float(hs.get("y", 0.0))
     dist = math.hypot(hx - px, hy - py)
     if dist > _ap.INSTALL_INTERACT_RANGE_PX:
+        # En route -- not docked, so don't accrue install-stall time
+        # (reset the tracker; the grace window restarts on arrival).
+        _ap._state.install_stall_head = ""
         _ap.KeyState.hold("space", False)
         _ap._do_goto(state, p, hx, hy,
                  stop_radius=_ap.INSTALL_INTERACT_RANGE_PX * 0.8)
+        return
+    # Docked.  Run the install-progress watchdog BEFORE attempting: if
+    # the head has been un-installable the whole grace window, re-queue
+    # it for craft (item missing) or abandon it (persistently rejected)
+    # so the FSM can't deadlock in S_INSTALL the way the 2026-06-07
+    # session did (190 stuck_detected, zero progress for 34 min).
+    q = _ap._state.queue
+    head = q.modules_to_install[0] if q.modules_to_install else None
+    if head is not None and _install_stall_expired(head):
+        _resolve_install_stall(state, p, head)
         return
     target = _ap._next_install_target(state)
     if target is None:
         # Docked at the HS with a non-empty queue but no installable
         # target -- the head's ``mod_<key>`` isn't in station inventory
         # (never crafted, or consumed elsewhere).  This is the silent
-        # deadlock: the FSM holds S_INSTALL forever.  Log why.
-        q = _ap._state.queue
-        head = q.modules_to_install[0] if q.modules_to_install else None
+        # deadlock: the FSM holds S_INSTALL forever.  Log why (the
+        # watchdog above resolves it once the grace window elapses).
         if head is not None:
             _log_install_blocked(state, p, "no_install_target", head)
         _ap._do_idle()

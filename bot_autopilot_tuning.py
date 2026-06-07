@@ -1212,6 +1212,24 @@ CRAFT_INTERACT_RANGE_PX: float = 500.0
 # the bot retries after a death.  Server-side ``install_module``
 # doesn't enforce a distance check either.
 INSTALL_INTERACT_RANGE_PX: float = 500.0
+# Install-progress watchdog (2026-06-07).  Captured pathology: a 34-min
+# session deadlocked in S_INSTALL -- docked at the Home Station with 3
+# modules queued but the head's ``mod_<key>`` never installable (item
+# absent from station inventory / install POST persistently rejected).
+# The FSM holds S_INSTALL forever (queue non-empty + at base), and the
+# stuck-escape watchdog only thrashes (190 stuck_detected events, zero
+# progress, whole session lost).  When the install head fails to advance
+# for this long WHILE DOCKED, the watchdog intervenes: re-queue the head
+# for crafting if its item is missing, else abandon it so the rest of
+# the queue (and the session) proceeds.  20 s = 200 poll ticks of being
+# blocked -- long enough to rule out a transient HTTP hiccup or an
+# in-flight module swap (uninstall-then-install spans 2 ticks).
+INSTALL_STALL_GIVEUP_S: float = 20.0
+# Max times the watchdog re-queues a missing module for re-craft before
+# giving up and abandoning it.  One retry covers a craft that silently
+# failed to deposit its product; a second failure means something
+# durable is wrong, so drop the module rather than loop forever.
+INSTALL_RECRAFT_MAX_ATTEMPTS: int = 1
 # Death-loot recovery (PR 2026-05-10): how close the bot must get to
 # the recorded death position before the dropped iron / module
 # pickups vacuum into the ship via the existing auto-attract loop.
