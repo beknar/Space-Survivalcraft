@@ -176,6 +176,14 @@ RETREAT_SWARM_RANGE_EXIT_PX: float = 1800.0
 # RETREAT_HS_MAX_DIST_PX (2200) so the bot still operates in a generous
 # radius around base; the tether only fires far out AND under a swarm.
 ZONE2_TETHER_DIST_PX:       float = 2800.0
+# Tighter tether when the bot has NO shield_recharge equipped (2026-06-06
+# evening).  Captured: the bot ran out of shield heals, then died in a
+# 4-death spiral far from base (hs_dist 2200-6182) with no way to
+# recover -- without a heal it can't survive the ZONE2 swarm out in the
+# open.  When unhealed, tether much closer to the HS umbrella (turrets +
+# station shield do the surviving) instead of the generous 2800 px
+# operating radius.  Still only fires under a dense swarm.
+ZONE2_TETHER_UNHEALED_DIST_PX: float = 1500.0
 # Nebula AI Pilot ship cost gate (2026-05-24).  Mirrors the
 # ``BUILDING_TYPES["Basic Ship"]`` cost (500 iron + 250 copper at
 # default character rates) plus a small headroom so the placement
