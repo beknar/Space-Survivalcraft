@@ -1243,6 +1243,95 @@ class TestInstallAction:
             "under the widened INSTALL_INTERACT_RANGE_PX.")
 
 
+class TestInstallBlockedTelemetry:
+    """2026-06-07: a 34-min session deadlocked in S_INSTALL (190
+    stuck_detected events, queue stuck at 3 modules) with no way to tell
+    from telemetry WHY the queue head couldn't advance.  ``_act_install``
+    now emits a throttled ``install_blocked`` event capturing the reject
+    reason + module_slots + the head's station inventory counts."""
+
+    def _docked_state(self, *, station_items=None, module_slots=None):
+        s = _state(
+            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            buildings=[_hs_building(x=3200.0, y=3200.0),
+                       _crafter_building()],
+            station_inventory_items=station_items or {},
+            module_slots=module_slots,
+        )
+        ap._state.queue.modules_to_craft.clear()
+        return s
+
+    def _capture(self, monkeypatch):
+        events: list = []
+        monkeypatch.setattr(
+            ap, "_telemetry_log",
+            lambda event, **f: events.append((event, f)))
+        return events
+
+    def test_logs_no_install_target_when_mod_missing(
+            self, _clock, monkeypatch):
+        # Docked at the HS, queue non-empty, but the head's mod_<key> is
+        # NOT in station inventory -> the silent deadlock.  Must log.
+        events = self._capture(monkeypatch)
+        s = self._docked_state(station_items={})  # no mod_death_blossom
+        ap._state.queue.modules_to_install = ["death_blossom", "force_wall"]
+        ap._act_install(s, s["player"])
+        blocked = [f for e, f in events if e == "install_blocked"]
+        assert len(blocked) == 1
+        assert blocked[0]["reason"] == "no_install_target"
+        assert blocked[0]["head"] == "death_blossom"
+        assert blocked[0]["head_mod_in_station"] == 0
+        assert blocked[0]["install_queue"] == ["death_blossom", "force_wall"]
+
+    def test_logs_install_rejected_reason(self, _clock, monkeypatch):
+        # mod_ is present but the install POST is rejected -> capture the
+        # game-side reason verbatim.
+        events = self._capture(monkeypatch)
+        monkeypatch.setattr(
+            ap, "_post_install_module",
+            lambda mod_key, timeout_s=5.0: {"ok": False,
+                                            "reason": "no free module slot"})
+        s = self._docked_state(
+            station_items={"mod_death_blossom": 1},
+            module_slots=["broadside", "shield_booster",
+                          "shield_enhancer", "armor_plate"])
+        # All 4 slots are target-free of nebula but full; swap plan will
+        # try to uninstall.  Force the plain-install path by giving a
+        # free slot so swap returns None and the install POST fires.
+        s["module_slots"] = ["broadside", None, None, None]
+        ap._state.queue.modules_to_install = ["death_blossom"]
+        ap._act_install(s, s["player"])
+        blocked = [f for e, f in events if e == "install_blocked"]
+        assert len(blocked) == 1
+        assert blocked[0]["reason"] == "install_rejected:no free module slot"
+        assert blocked[0]["head"] == "death_blossom"
+        assert blocked[0]["head_mod_in_station"] == 1
+
+    def test_throttled_within_window(self, _clock, monkeypatch):
+        # Two blocked calls inside STUCK_LOG_THROTTLE_S -> only one log.
+        events = self._capture(monkeypatch)
+        s = self._docked_state(station_items={})
+        ap._state.queue.modules_to_install = ["death_blossom"]
+        ap._act_install(s, s["player"])
+        ap._act_install(s, s["player"])
+        assert sum(1 for e, _ in events if e == "install_blocked") == 1
+        # Advance past the throttle window -> logs again.
+        _clock[0] += ap.STUCK_LOG_THROTTLE_S + 1.0
+        ap._act_install(s, s["player"])
+        assert sum(1 for e, _ in events if e == "install_blocked") == 2
+
+    def test_no_log_on_successful_install(self, _clock, monkeypatch):
+        events = self._capture(monkeypatch)
+        monkeypatch.setattr(
+            ap, "_post_install_module",
+            lambda mod_key, timeout_s=5.0: {"ok": True, "slot": 0})
+        s = self._docked_state(station_items={"mod_broadside": 1})
+        ap._state.queue.modules_to_install = ["broadside"]
+        ap._act_install(s, s["player"])
+        assert not [f for e, f in events if e == "install_blocked"]
+
+
 class TestModuleSwap:
     """2026-06-02: the ship's 4 slots fill with the MAIN loadout, so the
     three Nebula modules (misty_step / force_wall / death_blossom) could
