@@ -1211,7 +1211,15 @@ def choose_next_state(state: dict, p: dict, cur: str) -> str:
             and _ap._find_home_station(state) is not None
             and not _ap._advanced_crafter_already_built(state)):
         _station_items_adv = _ap._station_items(state)
-        if (int(_station_items_adv.get("advanced_crafter", 0)) >= 1
+        # Blueprint key fix (2026-06-06): a collected blueprint pickup
+        # adds ``bp_<module>`` to inventory (game_view:448, pickup:102),
+        # so the advanced-crafter blueprint lands in the station as
+        # ``bp_advanced_crafter`` -- NOT ``advanced_crafter``.  The gate
+        # checked the un-prefixed key, so it never saw the blueprint and
+        # the Advanced Crafter was never built (the whole Nebula
+        # module/drone tier stayed dormant despite the bot gathering the
+        # blueprint).  ``place_advanced_crafter`` is fixed to match.
+        if (int(_station_items_adv.get("bp_advanced_crafter", 0)) >= 1
                 and int(_station_items_adv.get("iron", 0))
                     >= _ap.ADVANCED_CRAFTER_IRON_COST
                 and int(_station_items_adv.get("copper", 0))

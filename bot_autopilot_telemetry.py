@@ -146,8 +146,12 @@ def make_snapshot_fields(
         # tier stayed dormant) and the snapshot couldn't show whether
         # copper or the blueprint was the blocker.
         "station_copper": int(sitems.get("copper", 0)),
+        # Blueprint key fix (2026-06-06): collected blueprints are stored
+        # as ``bp_<module>``, so the advanced-crafter blueprint is
+        # ``bp_advanced_crafter`` -- the original diagnostic checked the
+        # un-prefixed key and always read False even when present.
         "has_advanced_crafter_bp": int(
-            sitems.get("advanced_crafter", 0)) >= 1,
+            sitems.get("bp_advanced_crafter", 0)) >= 1,
         # Blacklist sizes (added 2026-05-09): when the targeting
         # helpers return None despite visible asteroids/pickups,
         # the post-hoc analyst needs to know whether the cause is
