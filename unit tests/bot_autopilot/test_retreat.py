@@ -257,7 +257,8 @@ class TestZone2SwarmTether:
     fighting 55-60 aliens 2500-4600 px from base."""
 
     def _far_swarm_state(self, *, shields=120, hs_dist=3000.0,
-                         alien_dist=1000.0, n=None, hs=True, healed=False):
+                         alien_dist=1000.0, n=None, hs=True, healed=False,
+                         recovering=False):
         n = ap.RETREAT_SWARM_ALIEN_COUNT if n is None else n
         buildings = [_hs_building(x=hs_dist, y=0.0)] if hs else []
         s = _state(
@@ -271,6 +272,16 @@ class TestZone2SwarmTether:
         if healed:
             s["quick_use_slots"] = [
                 {"item_type": "shield_recharge", "count": 5}]
+        if recovering:
+            # Mimic a post-death loadout rebuild: combat modules were
+            # dropped at the last death (recorded in
+            # death_recovery_modules) and re-queued for install.  The
+            # recovery tether keys on the intersection of the two, so set
+            # both -- the _fresh_bot_state fixture starts them empty.
+            ap._state.queue.modules_to_install = [
+                "death_blossom", "force_wall"]
+            ap._state.death_recovery_modules = [
+                "death_blossom", "force_wall"]
         return s
 
     def test_far_hs_dense_swarm_heads_home(
@@ -347,3 +358,37 @@ class TestZone2SwarmTether:
         s = self._far_swarm_state(hs_dist=3000.0, healed=True)
         hs = ap._find_home_station(s)
         assert choose._zone2_far_swarm_tether(s, s["player"], hs) is True
+
+    def test_recovering_tethers_at_shorter_distance(
+            self, _clock, _fresh_bot_state):
+        # 2026-06-06 evening F3: even fully healed, while combat modules
+        # are queued for re-install the bot tethers at the tighter
+        # recovering distance (1500) -- at hs_dist 2000 it heads home to
+        # finish the re-install instead of re-engaging the swarm
+        # half-equipped.
+        import bot_autopilot_choose as choose
+        s = self._far_swarm_state(
+            hs_dist=2000.0, healed=True, recovering=True)
+        hs = ap._find_home_station(s)
+        assert choose._zone2_far_swarm_tether(s, s["player"], hs) is True
+
+    def test_not_recovering_uses_normal_radius(
+            self, _clock, _fresh_bot_state):
+        # Control for the above: same healed bot at hs_dist 2000 with NO
+        # modules pending operates out to the normal 2800 px -- the tether
+        # is driven by the pending re-install, not the distance alone.
+        import bot_autopilot_choose as choose
+        s = self._far_swarm_state(
+            hs_dist=2000.0, healed=True, recovering=False)
+        hs = ap._find_home_station(s)
+        assert choose._zone2_far_swarm_tether(s, s["player"], hs) is False
+
+    def test_recovering_idles_at_base_full_cascade(
+            self, _clock, _fresh_bot_state):
+        # End-to-end: healed, full shields, hs_dist 2000, dense swarm,
+        # modules pending -> the choose cascade returns S_IDLE_AT_BASE so
+        # the bot drives back to the HS ring and re-installs.
+        s = self._far_swarm_state(
+            hs_dist=2000.0, healed=True, recovering=True)
+        assert ap._choose_next_state(
+            s, s["player"], ap.S_MINE) == ap.S_IDLE_AT_BASE
