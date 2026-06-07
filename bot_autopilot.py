@@ -1134,6 +1134,43 @@ def _on_enter(new_state: str) -> None:
         _state.mine_progress_check_at = 0.0
 
 
+def _docked_for_interaction(state: dict, p: dict) -> bool:
+    """True when the bot is in a station-dock interaction state
+    (DEPOSIT / CRAFT / INSTALL) AND already within interact range of the
+    building it's acting on -- i.e. docked and meant to sit still to fire
+    its POST.
+
+    Added 2026-06-07.  The stuck-escape burst must NOT fire here: a
+    docked bot is intentionally stationary, so the position watchdog
+    reads it as stuck and shoves it off the station, which then drives
+    back, thrashing.  The captured S_INSTALL deadlock did exactly this --
+    190 stuck_detected events at hs_dist 59-611 over 34 min, zero
+    progress.  Only the DOCKED phase is skipped; while still travelling
+    to the station the burst keeps protecting against real pins (see the
+    skip-set notes in ``_run_stuck_escape``).
+    """
+    st = _fsm["state"]
+    px = float(p.get("x", 0.0))
+    py = float(p.get("y", 0.0))
+    if st in (S_DEPOSIT, S_INSTALL):
+        hs = _find_home_station(state)
+        if hs is None:
+            return False
+        d = math.hypot(float(hs.get("x", 0.0)) - px,
+                       float(hs.get("y", 0.0)) - py)
+        rng = (INSTALL_INTERACT_RANGE_PX if st == S_INSTALL
+               else DEPOSIT_RANGE_PX)
+        return d <= rng
+    if st == S_CRAFT:
+        crafter = _find_basic_crafter(state, idle_only=False)
+        if crafter is None:
+            return False
+        d = math.hypot(float(crafter.get("x", 0.0)) - px,
+                       float(crafter.get("y", 0.0)) - py)
+        return d <= CRAFT_INTERACT_RANGE_PX
+    return False
+
+
 def _run_stuck_escape(state: dict, p: dict, now: float) -> bool:
     """Stuck-watchdog + escape-burst machine, run once per tick before
     the FSM dispatch.  Returns True when an escape burst was dispatched
@@ -1250,8 +1287,20 @@ def _run_stuck_escape(state: dict, p: dict, now: float) -> bool:
     _threatened_pin = (_stuck_threat is not None
                        and _stuck_threat_d < ENGAGE_ENTER_PX)
     _escape_skip_states = (S_SEARCH, S_IDLE_AT_BASE, S_REGEN, S_RETREAT)
-    _escape_skipped = _fsm["state"] in _escape_skip_states
-    if (_escape_skipped and _edge_pinned and _threatened_pin
+    # Docked-interaction skip (2026-06-07): a bot within interact range
+    # of the station building it's acting on (DEPOSIT / CRAFT / INSTALL)
+    # is meant to sit still and POST -- bursting it off-station just
+    # thrashes (the S_INSTALL deadlock logged 190 stuck_detected events
+    # doing this).  Still protected while travelling to the station.
+    _docked_interacting = _docked_for_interaction(state, p)
+    _escape_skipped = (_fsm["state"] in _escape_skip_states
+                       or _docked_interacting)
+    # Edge-pin + threat overrides the soft skip states so a cornered bot
+    # still flees -- but NOT the docked skip: the station umbrella /
+    # turret ring defends the dock, and peeling off would re-open the
+    # thrash and abandon the in-progress interaction.
+    if (_escape_skipped and not _docked_interacting
+            and _edge_pinned and _threatened_pin
             and _fsm["state"] != S_SEARCH):
         _escape_skipped = False
     if _detect_stuck() and not _escape_skipped:

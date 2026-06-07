@@ -4042,3 +4042,95 @@ class TestRunStuckEscapeContract:
         assert ap._stuck_state["escape_until"] > 0.0
         assert len(dispatched) >= 1
 
+
+class TestDockedEscapeSkip:
+    """2026-06-07: the stuck-escape burst must NOT fire when the bot is
+    docked within interact range of the station building it's acting on
+    (DEPOSIT / CRAFT / INSTALL).  The captured S_INSTALL deadlock logged
+    190 stuck_detected events at hs_dist 59-611 because the burst kept
+    shoving the docked bot off-station and it drove back.  En-route to
+    the station the burst still protects against real pins."""
+
+    def test_install_within_range_is_docked(self, _clock):
+        ap._fsm["state"] = ap.S_INSTALL
+        s = _state(player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                           "shields": 150, "max_shields": 150},
+                   buildings=[_hs_building(x=3200.0, y=3200.0)])
+        assert ap._docked_for_interaction(s, s["player"]) is True
+
+    def test_install_beyond_range_not_docked(self, _clock):
+        ap._fsm["state"] = ap.S_INSTALL
+        # HS is INSTALL_INTERACT_RANGE_PX + 300 away -> still travelling.
+        s = _state(player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                           "shields": 150, "max_shields": 150},
+                   buildings=[_hs_building(
+                       x=3200.0,
+                       y=3200.0 + ap.INSTALL_INTERACT_RANGE_PX + 300.0)])
+        assert ap._docked_for_interaction(s, s["player"]) is False
+
+    def test_deposit_within_range_is_docked(self, _clock):
+        ap._fsm["state"] = ap.S_DEPOSIT
+        s = _state(player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                           "shields": 150, "max_shields": 150},
+                   buildings=[_hs_building(x=3200.0, y=3200.0)])
+        assert ap._docked_for_interaction(s, s["player"]) is True
+
+    def test_craft_within_range_is_docked(self, _clock):
+        ap._fsm["state"] = ap.S_CRAFT
+        s = _state(player={"x": 3260.0, "y": 3260.0, "heading": 0.0,
+                           "shields": 150, "max_shields": 150},
+                   buildings=[_hs_building(x=3200.0, y=3200.0),
+                              _crafter_building(x=3260.0, y=3260.0)])
+        assert ap._docked_for_interaction(s, s["player"]) is True
+
+    def test_non_dock_state_never_docked(self, _clock):
+        ap._fsm["state"] = ap.S_MINE
+        s = _state(player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                           "shields": 150, "max_shields": 150},
+                   buildings=[_hs_building(x=3200.0, y=3200.0)])
+        assert ap._docked_for_interaction(s, s["player"]) is False
+
+    def test_no_home_station_not_docked(self, _clock):
+        ap._fsm["state"] = ap.S_INSTALL
+        s = _state(player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                           "shields": 150, "max_shields": 150})
+        assert ap._docked_for_interaction(s, s["player"]) is False
+
+    def test_escape_skipped_while_docked_installing(
+            self, _clock, monkeypatch):
+        # Pinned in S_INSTALL right at the HS for the whole detect window
+        # -> the burst must NOT arm (the bot is meant to sit and install).
+        ap._fsm["state"] = ap.S_INSTALL
+        dispatched = []
+        monkeypatch.setattr(ap, "_do_escape_edge",
+                            lambda s, p: dispatched.append((s, p)))
+        s = _state(player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                           "shields": 150, "max_shields": 150},
+                   buildings=[_hs_building(x=3200.0, y=3200.0)])
+        for _ in range(25):
+            ap._fsm["state"] = ap.S_INSTALL
+            assert ap._run_stuck_escape(s, s["player"], _clock[0]) is False
+            _clock[0] += 0.1
+        assert ap._stuck_state["escape_until"] == 0.0
+        assert dispatched == []
+
+    def test_escape_still_fires_en_route_to_station(
+            self, _clock, monkeypatch):
+        # Same pinned-in-S_INSTALL condition but BEYOND interact range
+        # (still travelling) -> the burst must arm, preserving the
+        # en-route pin protection.
+        ap._fsm["state"] = ap.S_INSTALL
+        monkeypatch.setattr(ap, "_do_escape_edge", lambda s, p: None)
+        s = _state(
+            player={"x": 3200.0, "y": 1000.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            buildings=[_hs_building(x=3200.0, y=3200.0)])  # ~2200 px away
+        result = False
+        for _ in range(25):
+            ap._fsm["state"] = ap.S_INSTALL
+            result = ap._run_stuck_escape(s, s["player"], _clock[0])
+            if result:
+                break
+            _clock[0] += 0.1
+        assert result is True
+        assert ap._stuck_state["escape_until"] > 0.0
