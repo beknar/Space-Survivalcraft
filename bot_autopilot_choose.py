@@ -723,6 +723,546 @@ def _engage_decision(state: dict, cur: str, threat, td: float,
     return None
 
 
+def _tier_recover_loot(state, p, now) -> str | None:
+    # 1.4  RECOVER_LOOT — after the bot just died, navigate back to
+    #      the recorded death position so the dropped iron / module
+    #      / consumable pickups vacuum into the ship.  Promoted above
+    #      ENGAGE_BOSS (2026-05-11): without this the bot dies during
+    #      a boss fight, respawns shieldless + moduleless, and is
+    #      pulled straight back into S_ENGAGE_BOSS by section 1.5 —
+    #      it never visits S_RECOVER_LOOT, so the lost loadout stays
+    #      on the floor and the bot dies again with no modules
+    #      installed.  Telemetry caught the death loop: 5 player_death
+    #      events with lost_modules=[] after the first death, mod_q=4
+    #      stuck in the install queue.  REGEN still preempts (above)
+    #      so a half-recovered loadout doesn't get the bot killed
+    #      mid-trip.
+    _ap._maybe_clear_death_recovery(state, p, now)
+    if _ap._state.death_recovery_pending:
+        # Suppress recover_loot when re-entering the death pile
+        # would walk the bot into the boss's aggro range with no
+        # umbrella to retreat to.  2026-05-14 eighteenth-pass log
+        # captured the pathology: 7 deaths in 17 s at the same
+        # death pile while the boss hovered there.  Two gates:
+        #   * boss alive AND boss within
+        #     ``RECOVER_LOOT_BOSS_DANGER_PX`` of the death pos
+        #     -- bot would respawn-cycle into the boss's range.
+        #   * boss alive AND no home station -- nowhere to
+        #     install recovered modules at, so recovery is
+        #     pointless until HS rebuilds (or boss dies).
+        # In both cases pending stays True (recovery resumes
+        # when the danger clears) and the hard
+        # ``DEATH_RECOVERY_TIMEOUT_S`` still applies, so the
+        # FSM doesn't deadlock if the boss never leaves.
+        boss = state.get("boss")
+        recovery_blocked = False
+        if boss is not None:
+            drx, dry = _ap._state.death_recovery_pos
+            bdx = float(boss.get("x", 0.0)) - drx
+            bdy = float(boss.get("y", 0.0)) - dry
+            boss_at_death_pos = (
+                math.hypot(bdx, bdy)
+                < _ap.RECOVER_LOOT_BOSS_DANGER_PX)
+            no_hs = _ap._find_home_station(state) is None
+            recovery_blocked = boss_at_death_pos or no_hs
+        # Non-MAIN loadout gate (2026-05-26).  Captured 2026-05-25
+        # pathology: the bot died during ``S_RECOVER_LOOT`` 53 s
+        # after a Nebula death because it drove toward the death
+        # pile naked + with cold weapons + no consumables in slots.
+        # Defer recovery until shields / HP / consumables are
+        # rebuilt; the bumped ``DEATH_RECOVERY_TIMEOUT_NEBULA_S``
+        # gives the bot 180 s of headroom before it accepts the
+        # loss.  MAIN-zone recoveries skip this -- the HS umbrella
+        # + turret ring make recovery safe even with a stripped
+        # ship.
+        if not recovery_blocked \
+                and not _ap._recovery_loadout_ready(state):
+            recovery_blocked = True
+        if not recovery_blocked:
+            return _ap.S_RECOVER_LOOT
+    return None
+
+
+def _tier_build(state, p) -> str | None:
+    px, py = p.get("x", 0.0), p.get("y", 0.0)
+    # 4. BUILD — one-shot starter base when iron + clear area
+    #    conditions are met.  Falls below ENGAGE / REGEN so the
+    #    bot doesn't try to build during combat or while shields
+    #    are low.  Falls above MINE / SEARCH so the bot stops
+    #    accumulating iron the moment it has enough and a clear
+    #    spot.  ``_ap._state.build_done`` flips True after the first attempt.
+    #    BUILD_SEEK actively walks toward less-cluttered space when
+    #    iron is met but the area isn't clear.
+    #
+    #    The has-Home-Station short-circuit (see section 0
+    #    above) flips ``build_done`` True the moment the bot
+    #    sees an existing HS, so this branch only fires for a
+    #    bot starting in a station-less world.
+    if (not _ap._state.build_done
+            and _ap._iron_total(state) >= _ap.BUILD_IRON_THRESHOLD):
+        if _ap._build_area_clear(state, px, py):
+            return _ap.S_BUILD
+        return _ap.S_BUILD_SEEK
+
+    # 4.5 BUILD_NEBULA — second starter base in ZONE2 (Nebula).
+    #     Buildings are zone-scoped via the ZoneState stash
+    #     mechanism (see ``zones/__init__.py``), so each zone has its
+    #     own ``building_list``.  The ``Home Station`` BUILDING_TYPES
+    #     max=1 cap is enforced against the current zone's list, not
+    #     save-wide -- so the bot can build a MAIN base AND a Nebula
+    #     base without conflict.  Gated by its own ``nebula_build_done``
+    #     latch independently of ``build_done``, and restricted to
+    #     ZONE2 (the only non-MAIN zone with persistent buildings
+    #     where a base makes economic sense; STAR_MAZE is too
+    #     space-constrained, WARP_* are transient).
+    #
+    #     Falls below the MAIN BUILD branch in priority -- if the bot
+    #     somehow lands in ZONE2 without ever having built a MAIN
+    #     base, the MAIN branch can't fire (wrong zone) so this one
+    #     handles things.  But the typical flow is: MAIN built first
+    #     (session 0), Nebula built later when the bot accumulates
+    #     iron in ZONE2.  Same ``BUILD_SEEK`` shared with MAIN for the
+    #     "area not clear, keep walking" sub-state.
+    zone_id_build = str((state.get("zone") or {}).get("id", ""))
+    in_zone2 = "ZONE2" in zone_id_build
+    if (in_zone2
+            and not _ap._state.nebula_build_done
+            and _ap._iron_total(state) >= _ap.BUILD_IRON_THRESHOLD):
+        if _ap._build_area_clear(state, px, py):
+            return _ap.S_BUILD_NEBULA
+        return _ap.S_BUILD_SEEK
+
+    # 4.6 FORTIFY_NEBULA (2026-05-24) -- after the Nebula HS is up,
+    #     add the same defense-turret + missile-array ring the MAIN
+    #     HS gets in section 5.6.  Captured pathology (PR #184
+    #     telemetry): bot's second Nebula death was in fsm=regen at
+    #     the unfortified Nebula HS umbrella; building defenses
+    #     gives the bot a safe combat anchor analogous to MAIN's.
+    #
+    #     Gates: in ZONE2, Nebula HS already up, fortify not yet
+    #     done, station iron covers FORTIFY_IRON_COST plus a small
+    #     buffer.  ``_act_fortify_nebula`` reuses ``_post_fortify``
+    #     -- the builder anchors on the first Home Station in the
+    #     current zone's building_list (zone-scoped), so calling
+    #     it while the bot is in ZONE2 fortifies the Nebula HS.
+    if (in_zone2
+            and _ap._state.nebula_build_done
+            and not _ap._state.nebula_fortify_done
+            and _ap._find_home_station(state) is not None
+            and _ap._station_iron(state) >= _ap.FORTIFY_IRON_COST):
+        return _ap.S_FORTIFY_NEBULA
+
+    # 4.7 PLACE_AI_PILOT_NEBULA (2026-05-24) -- park a Basic Ship
+    #     with the AI Pilot module installed beside the Nebula HS
+    #     so the bot has friendly-fire-immune cover fire while it
+    #     fights the Nebula swarm.  Gated AFTER fortify (defenses
+    #     first; AI pilot ship is the second-tier buff).  Requires
+    #     a craftable ``ai_pilot`` module in station inventory,
+    #     plus iron + copper to cover the Basic Ship cost.  Falls
+    #     through silently if any prerequisite is missing -- the
+    #     bot keeps fighting solo until the inputs accumulate.
+    if (in_zone2
+            and _ap._state.nebula_fortify_done
+            and not _ap._state.nebula_ai_pilot_placed
+            and _ap._find_home_station(state) is not None):
+        _station_items_now = _ap._station_items(state)
+        if (int(_station_items_now.get("ai_pilot", 0)) >= 1
+                and int(_station_items_now.get("iron", 0))
+                    >= _ap.AI_PILOT_SHIP_IRON_COST
+                and int(_station_items_now.get("copper", 0))
+                    >= _ap.AI_PILOT_SHIP_COPPER_COST):
+            return _ap.S_PLACE_AI_PILOT_NEBULA
+
+    # 4.8 BUILD_ADV_CRAFTER (2026-05-25) -- place an Advanced
+    #     Crafter beside the Nebula HS so the bot can craft Nebula-
+    #     tier modules (misty_step / force_wall / death_blossom)
+    #     locally instead of having to warp back to MAIN for every
+    #     craft.  Once present, the existing CRAFT pipeline drives
+    #     it transparently -- both BasicCrafter and AdvancedCrafter
+    #     register as ``BasicCrafter`` instances internally, so
+    #     ``_find_idle_basic_crafter`` returns whichever is idle.
+    #     Gated AFTER ai-pilot ship (defenses then cover fire then
+    #     advanced crafting -- the tier-up chain).  Requires the
+    #     ``advanced_crafter`` blueprint deposited + 1000 iron +
+    #     500 copper.
+    if (in_zone2
+            and _ap._state.nebula_fortify_done
+            and not _ap._state.nebula_advanced_crafter_done
+            and _ap._find_home_station(state) is not None
+            and not _ap._advanced_crafter_already_built(state)):
+        _station_items_adv = _ap._station_items(state)
+        # Blueprint key fix (2026-06-06): a collected blueprint pickup
+        # adds ``bp_<module>`` to inventory (game_view:448, pickup:102),
+        # so the advanced-crafter blueprint lands in the station as
+        # ``bp_advanced_crafter`` -- NOT ``advanced_crafter``.  The gate
+        # checked the un-prefixed key, so it never saw the blueprint and
+        # the Advanced Crafter was never built (the whole Nebula
+        # module/drone tier stayed dormant despite the bot gathering the
+        # blueprint).  ``place_advanced_crafter`` is fixed to match.
+        if (int(_station_items_adv.get("bp_advanced_crafter", 0)) >= 1
+                and int(_station_items_adv.get("iron", 0))
+                    >= _ap.ADVANCED_CRAFTER_IRON_COST
+                and int(_station_items_adv.get("copper", 0))
+                    >= _ap.ADVANCED_CRAFTER_COPPER_COST):
+            return _ap.S_BUILD_ADV_CRAFTER
+    return None
+
+
+def _tier_craft_install_bossprep(state, p, hs) -> str | None:
+    px, py = p.get("x", 0.0), p.get("y", 0.0)
+    # 5.5  CRAFT / INSTALL — sequential post-build workflow.  Only
+    #      reachable after a Home Station + Basic Crafter exist.
+    #      Install takes priority over a fresh craft (we want
+    #      crafted modules onto the ship before queuing more).
+    #      Both gates require the FSM to NOT already have a
+    #      crafter mid-cycle — the queue is intentionally serial,
+    #      so the bot returns to MINE / GATHER / SEARCH while a
+    #      craft ticks down its 60 s timer.
+    if hs is not None and _ap._find_basic_crafter(state, idle_only=False) is not None:
+        if _ap._next_install_target(state) is not None:
+            return _ap.S_INSTALL
+        if not _ap._any_crafter_busy(state) and _ap._next_craft_target(state) is not None:
+            return _ap.S_CRAFT
+
+    # 5.6  Boss-prep pipeline — fires once the consumable craft
+    #      queue is fully drained (25 repair packs + 25 shield
+    #      recharges produced, all sitting in station inventory).
+    #      Three sequential one-shot stages; each flips a sticky
+    #      flag on success so the FSM never re-fires it:
+    #
+    #        a) _ap.S_EQUIP_CONSUMABLES — withdraw consumables from
+    #           station inventory + bind them to ship quick-use
+    #           slots.  Falls through immediately if no consumables
+    #           remain in station inventory (already withdrawn).
+    #        b) _ap.S_PRE_BOSS_MINE     — if station iron is below the
+    #           _ap.QWI_BUILD_IRON_TARGET buffer (default 2000), keep
+    #           mining.  Same action handler as _ap.S_MINE, but the
+    #           FSM-level distinction tracks the explicit mining
+    #           goal so telemetry can see it.
+    #        c) _ap.S_BUILD_QWI         — iron staged + QWI not yet
+    #           placed: navigate to the Home Station and POST
+    #           /place_qwi.  The QWI auto-spawns the Double Star
+    #           boss; from there _ap.S_ENGAGE_BOSS takes over.
+    # EQUIP CONSUMABLES — decoupled from the full consumable phase
+    # (2026-06-03).  Bind any available repair_pack / shield_recharge to
+    # the quick-use slots whenever a slot lacks one AND the station has
+    # one to give -- WITHOUT waiting for the entire 25 + 25 batch phase
+    # to finish.  Captured: a 55-min, 9-death session logged
+    # heal_shield_fire = 0 (armed 13x, never fired) because no
+    # shield_recharge was ever in a quick-use slot.  The bot crafted
+    # shield_recharge into the station, but the old gate
+    # (``_consumable_phase_finished()``) refused to equip until ALL 50
+    # batches completed -- and repeated deaths kept resetting the module/
+    # consumable grind, so the phase never finished and the bot fought
+    # with no shield heal.  Binding partial stock immediately gives the
+    # bot a working heal while it finishes crafting the rest.
+    #
+    # Self-heal by checking the actual quick-use slot state, not just the
+    # ``consumables_equipped`` latch (2026-05-11 fifth pass): the latch
+    # alone misses the post-death case where the bot deposits recovered
+    # consumables but the latch stayed True from session start.  Checking
+    # the live slot contents makes the gate fire whenever a slot needs a
+    # consumable AND station has one.  The latch is still the one-tick
+    # MIN_DWELL-skip helper inside ``_act_at_station``.
+    if hs is not None:
+        quick_use = state.get("quick_use_slots") or []
+        sitems = _ap._station_items(state)
+
+        # Per-TYPE check (2026-06-06): the old gate used "ANY consumable
+        # equipped", so a bound repair_pack masked a MISSING
+        # shield_recharge -- the bot never re-equipped the shield heal
+        # while it still had repair packs.  Captured: the station held
+        # 5-15 shield_recharge for ~540 s but the bot never bound them
+        # and died at 1 shield with heals sitting unequipped (25 hp-heal
+        # fires in that window confirm repair_pack WAS equipped).  Fire
+        # EQUIP if EITHER type is missing from a quick-use slot AND the
+        # station has that type to give -- ``equip_consumables_to_quick_use``
+        # binds both, so one POST tops up whichever is missing.
+        def _equipped(item_type: str) -> bool:
+            return any(
+                s and s.get("item_type") == item_type
+                and int(s.get("count", 0)) > 0
+                for s in quick_use)
+        needs_repair = (not _equipped("repair_pack")
+                        and int(sitems.get("repair_pack", 0)) > 0)
+        needs_shield = (not _equipped("shield_recharge")
+                        and int(sitems.get("shield_recharge", 0)) > 0)
+        if needs_repair or needs_shield:
+            # Reset the latch so ``_act_equip_consumables`` actually
+            # POSTs.  The action's skip-condition is the latch
+            # itself; a stale-True latch from a previous session
+            # would otherwise make the action ``_do_idle`` forever.
+            _ap._state.consumables_equipped = False
+            return _ap.S_EQUIP_CONSUMABLES
+
+    # Boss-prep staging (PRE_BOSS_MINE / FORTIFY / BUILD_QWI) still waits
+    # for the FULL consumable phase to finish so the bot faces the Double
+    # Star boss fully stocked (25 repair + 25 shield), not on partial
+    # supply.  The equip-to-quick-use above is independent of this.
+    if hs is not None and _ap._consumable_phase_finished():
+        if not _ap._state.qwi_placed \
+                and not _ap._qwi_already_built(state):
+            station_iron = _ap._station_iron(state)
+            # Iron gate covers the fortify ring (_ap.FORTIFY_IRON_COST)
+            # AND the QWI cost (1000) — keep mining until the
+            # buffer is enough that placing fortify won't drop the
+            # station below the QWI cost cushion.  Without this the
+            # bot could fortify, drain iron, and then PRE_BOSS_MINE
+            # again to refill before BUILD_QWI fires.
+            if station_iron < _ap.QWI_BUILD_IRON_TARGET:
+                # Still mining toward the iron buffer — fall back
+                # to the normal MINE / SEARCH cascade below but
+                # tag it as PRE_BOSS_MINE so telemetry knows we're
+                # heading toward the QWI build.
+                if _ap._nearest_asteroid(state, px, py)[0] is not None:
+                    return _ap.S_PRE_BOSS_MINE
+            else:
+                # Fortify before the QWI build so the cluster has
+                # the full defensive ring (matches the bumped
+                # _ap.QWI_STAGE_MIN_TURRETS).  The ``_qwi_ready_to_build``
+                # gate also enforces the turret count, so even if
+                # the bot crashed/restarted between fortify and QWI
+                # the latched flag would re-evaluate from current
+                # building snapshot before BUILD_QWI fires.
+                if not _ap._state.fortify_done:
+                    return _ap.S_FORTIFY
+                return _ap.S_BUILD_QWI
+    return None
+
+
+def _tier_mine_or_search(state, p, cur, now) -> str | None:
+    px, py = p.get("x", 0.0), p.get("y", 0.0)
+    # 6. MINE vs SEARCH — discrete event, no hysteresis needed.
+    #    Filter out blacklisted asteroids so a single unreachable
+    #    one doesn't force MINE to fire on a target the bot
+    #    can't actually reach.  Also cap chase distance: an
+    #    asteroid farther than _ap.MAX_ASTEROID_CHASE_PX is treated
+    #    as out-of-reach so MINE falls through to SEARCH (spiral
+    #    around current position) instead of long obstacle-laden
+    #    trips across the world.
+    #
+    #    Escape hatch: if SEARCH **or IDLE_AT_BASE** has been the
+    #    active state for _ap.SEARCH_GIVEUP_S, drop the cap and commit
+    #    to whatever's _ap.nearest.  A long round trip is better than
+    #    parking / spiralling indefinitely in a region with no
+    #    in-range asteroids.  IDLE_AT_BASE was added to the gate
+    #    in 2026-05-09 — the original gate only covered SEARCH,
+    #    so a bot with a Home Station (which routes through
+    #    IDLE_AT_BASE in section 8 below when nothing's
+    #    actionable) would mine all the near asteroids, then
+    #    park forever as far asteroids respawned out of chase
+    #    range.  User report: "the bot does not go after asteroids
+    #    when all of the enemies have been destroyed and it is
+    #    idling at the station."
+    #
+    #    The commitment is STICKY (``_ap._state.chase_committed``):
+    #    once we decide to chase a far target, the cap stays
+    #    dropped until the bot reaches chase range — otherwise
+    #    the FSM bounces ↔ MINE every MIN_DWELL_S because
+    #    ``long_giveup`` only holds while ``cur`` is in the gate.
+    nearest_ast, ast_d = _ap._nearest_asteroid(state, px, py)
+    if nearest_ast is not None:
+        in_chase_range = ast_d < _ap.MAX_ASTEROID_CHASE_PX
+        # Gather->mine hysteresis (2026-06-02): the mirror of the
+        # mine->gather guard in section 3.  While actively GATHERing,
+        # only a genuinely-close asteroid (MINE_ENTER_WHILE_GATHERING_PX)
+        # preempts to MINE -- finishing a gather used to dart the bot to
+        # a mid-range asteroid (287 dwell-suppressed gather->mine flips),
+        # which then dropped iron and pulled it back.  The full chase cap
+        # still drives the commit / giveup machinery below, so a far
+        # asteroid keeps its SEARCH / IDLE_AT_BASE giveup escape hatch.
+        gather_holds_mine = (
+            cur == _ap.S_GATHER
+            and ast_d >= _ap.MINE_ENTER_WHILE_GATHERING_PX)
+        if in_chase_range:
+            # Reached (or approached) a chase-range asteroid —
+            # clear any prior commitment so future SEARCH /
+            # IDLE_AT_BASE episodes get the normal cap-protected
+            # behaviour.
+            _ap._state.chase_committed = False
+            if not gather_holds_mine:
+                return _ap.S_MINE
+        # Out of chase range.  Either we're already committed
+        # to a far chase, or we've been waiting (in SEARCH or
+        # IDLE_AT_BASE) long enough to commit now.  IDLE_AT_BASE
+        # uses a tighter gate (``_ap.IDLE_AT_BASE_GIVEUP_S``, 10 s)
+        # than SEARCH (``_ap.SEARCH_GIVEUP_S``, 60 s) because at base
+        # the bot is genuinely idle — the long wait left users
+        # observing "the bot does not leave when there are
+        # asteroids available to be harvested" (2026-05-09 report).
+        search_entered = _ap._fsm.get("entered_at")
+        if cur == _ap.S_IDLE_AT_BASE:
+            giveup_threshold = _ap.IDLE_AT_BASE_GIVEUP_S
+        elif cur == _ap.S_SEARCH:
+            giveup_threshold = _ap.SEARCH_GIVEUP_S
+        else:
+            giveup_threshold = float("inf")
+        long_giveup = (
+            search_entered is not None
+            and (now - search_entered) >= giveup_threshold
+        )
+        if _ap._state.chase_committed or long_giveup:
+            _ap._state.chase_committed = True
+            return _ap.S_MINE
+    else:
+        # No visible asteroid (everything blacklisted, or none
+        # in /state) — clear the commitment so the next time an
+        # asteroid appears we start fresh.
+        _ap._state.chase_committed = False
+        # Stale-blacklist flush (2026-05-09): when the bot has been
+        # parked in IDLE_AT_BASE for _ap.IDLE_BLACKLIST_FLUSH_S yet the
+        # world has visible asteroids that all happen to be
+        # blacklisted, the bot is wedged in a silent deadlock —
+        # ``_do_mine_nearest`` blacklists unreachable asteroids
+        # without emitting a stuck_detected, so the per-entry 60 s
+        # TTL can be continuously refreshed by repeated MINE
+        # attempts faster than entries evict.  Wipe both blacklists
+        # so the next tick re-targets from scratch.  Long enough to
+        # not interfere with normal short-cycle blacklisting; short
+        # enough to recover within the user's patience window.
+        idle_entered = _ap._fsm.get("entered_at")
+        visible_asteroids = state.get("asteroids") or []
+        if (cur == _ap.S_IDLE_AT_BASE
+                and visible_asteroids
+                and idle_entered is not None
+                and (now - idle_entered) >= _ap.IDLE_BLACKLIST_FLUSH_S
+                and (_ap._state.asteroid_blacklist
+                     or _ap._state.pickup_blacklist)):
+            n_ast = len(_ap._state.asteroid_blacklist)
+            n_pu = len(_ap._state.pickup_blacklist)
+            _ap._state.asteroid_blacklist.clear()
+            _ap._state.pickup_blacklist.clear()
+            _ap._telemetry_log(
+                "idle_blacklist_flush",
+                cleared_asteroid_entries=n_ast,
+                cleared_pickup_entries=n_pu,
+                visible_asteroids=len(visible_asteroids),
+                idle_dwell_s=round(now - idle_entered, 1),
+                **_ap._telemetry_snapshot_fields(state, p))
+            # Re-query after the flush so this same tick can
+            # commit to MINE instead of waiting another tick.
+            nearest_ast, ast_d = _ap._nearest_asteroid(state, px, py)
+            if nearest_ast is not None:
+                _ap._state.chase_committed = True
+                return _ap.S_MINE
+    return None
+
+
+def _tier_hunt(state, p, cur, now) -> str | None:
+    px, py = p.get("x", 0.0), p.get("y", 0.0)
+    # 7. HUNT — no asteroid available but an alien is in _ap.HUNT_RANGE_PX.
+    #    The bot needs resources (iron drops on alien kills) and
+    #    sitting in SEARCH circling empty space wastes time.
+    #    Triggered only when ENGAGE didn't fire (alien out of the
+    #    800 px engage band) AND no asteroid is reachable.  Action
+    #    handler reuses _act_engage so the close-and-fight behaviour
+    #    is identical — only the dispatch differs (HUNT proactively,
+    #    ENGAGE defensively).
+    #
+    #    Use the wider _ap.IDLE_HUNT_RANGE_PX gate when CURRENTLY in
+    #    either _ap.S_IDLE_AT_BASE (bot parked at base, healed, adjacent
+    #    to crafter — no reason to be picky) OR _ap.S_HUNT (already
+    #    committed to a chase — finish it instead of bouncing back
+    #    to idle).  The _ap.S_HUNT case is the symmetric-exit half of
+    #    the hysteresis: without it, an alien sitting between
+    #    _ap.HUNT_RANGE_PX (3000) and _ap.IDLE_HUNT_RANGE_PX (9000) creates
+    #    a thrash band where IDLE keeps re-entering HUNT and HUNT
+    #    keeps falling out — the 2026-05-04-evening telemetry
+    #    captured 52 IDLE↔HUNT bounces in 5.9 minutes (one every
+    #    7 s, 22/23 dwells right at the MIN_DWELL_S floor) before
+    #    this fix.  Other states (MINE / SEARCH / GATHER) still
+    #    use the tight 3000 px gate so they only divert to a chase
+    #    when the alien is genuinely close.
+    hunt_gate = (_ap.IDLE_HUNT_RANGE_PX
+                 if cur in (_ap.S_IDLE_AT_BASE, _ap.S_HUNT)
+                 else _ap.HUNT_RANGE_PX)
+    # Use the edge-filtered selector for HUNT so we don't commit
+    # to chasing an alien parked against the world boundary; that
+    # was the dominant failure mode in the 2026-05-06 telemetry
+    # (190 s wall-pin at px=48 with no stuck_detected firing).
+    # ENGAGE / REGEN above keep using the unfiltered ``threat``
+    # because defensive responses must react to any attacker
+    # regardless of position.
+    hunt_target, hunt_td = _ap._nearest_huntable_alien(
+        state, px, py, currently_hunting=(cur == _ap.S_HUNT))
+    # Building-cluster pin escape (2026-05-06 follow-up #2): if we're
+    # already in _ap.S_HUNT and the bot has wandered INSIDE the home-
+    # station building repulsion field, refuse to re-fire HUNT.
+    # Symmetric to the wall-pin escape but against buildings instead
+    # of world edges: bot drove into the cluster chasing an alien,
+    # buildings are blocking forward motion, but the FSM keeps
+    # picking HUNT every tick because the alien target is interior
+    # (not edge-adjacent) so the wall-pin escape doesn't engage.
+    # Telemetry caught a 55 s pin at px≈220, hsd≈230 inside the
+    # cluster — the alien was chased through the field, the bot
+    # oscillated 10–20 px per 5 s tick, and rotation defeated the
+    # position-history stuck detector after the initial hit.
+    # Falling through to IDLE_AT_BASE pulls the bot to the 600 px
+    # outer ring (clear of all buildings) on the next tick; HUNT can
+    # then re-fire from open space and engage cleanly.
+    #
+    # Delay (2026-05-06 follow-up #3): require HUNT to have been
+    # active for >= _ap.HUNT_CLUSTER_PIN_DELAY_S before the guard fires.
+    # Without this, the guard tripped on the very first re-eval tick
+    # (dwell ~ MIN_DWELL_S = 1 s) which broke fresh HUNT entries
+    # from cluster-interior idle parking positions: 39 fast IDLE↔HUNT
+    # pairs in the follow-up telemetry.  The delay gives the bot
+    # 3 s of HUNT travel to thread its way out of the perimeter
+    # before the guard activates; the 55 s pin from #37 is still
+    # caught well within the original symptom window.
+    hunt_entered = _ap._fsm.get("entered_at")
+    hunt_time = (now - hunt_entered
+                 if cur == _ap.S_HUNT and hunt_entered is not None
+                 else 0.0)
+    # Wall exemption (2026-05-06 follow-up #5): when the bot is
+    # inside the world-edge margin, the cluster guard is the WRONG
+    # tool — the bot isn't stuck in the cluster centre, it's wall-
+    # pinned with the cluster on the inboard side, and the cluster
+    # is the *only path* to interior aliens.  Pre-fix telemetry
+    # showed the guard firing every 13 s in this scenario (3 s HUNT
+    # + 10 s lockout), with the user complaint "bot stays idle even
+    # though enemies are present on the minimap; only moves when an
+    # asteroid respawns".  Letting HUNT continue here returns the
+    # geometry-driven slow-but-steady chase the user expects.
+    #
+    # PR #36's wall-pin escape still owns the wall+edge-aliens case
+    # (it returns None when every alien is edge-adjacent, which
+    # arms PR #39's lockout).  The cluster guard now owns only the
+    # interior cluster pin it was originally designed for: bot
+    # genuinely stuck deep in the station, far from any wall.
+    zone = state.get("zone") or {}
+    world_w = float(zone.get("world_w", 6400) or 6400)
+    world_h = float(zone.get("world_h", 6400) or 6400)
+    bot_at_wall = (px < _ap.ALIEN_EDGE_SKIP_PX
+                   or px > world_w - _ap.ALIEN_EDGE_SKIP_PX
+                   or py < _ap.ALIEN_EDGE_SKIP_PX
+                   or py > world_h - _ap.ALIEN_EDGE_SKIP_PX)
+    if (cur == _ap.S_HUNT and hunt_target is not None
+            and hunt_time >= _ap.HUNT_CLUSTER_PIN_DELAY_S
+            and not _ap._ship_clear_of_buildings(p, state)
+            and not bot_at_wall):
+        hunt_target = None
+    # Pin-escape lockout (2026-05-06 follow-up #4): if either pin-
+    # escape path zeroed hunt_target while aliens were still visible,
+    # block HUNT re-entry from IDLE_AT_BASE for _ap.HUNT_PIN_GIVEUP_S so
+    # the next tick doesn't immediately re-fire (currently_hunting
+    # would be False from IDLE, taking the helper's fallback path).
+    # Without this lockout the bot oscillated IDLE↔HUNT 107 times in
+    # 3 minutes during a wall-pin (median dwell 1.01 s in both
+    # states).  hunt_target is None here only when aliens are
+    # visible AND we were in HUNT (no-aliens case has empty list,
+    # legitimate alien-out-of-range case has non-None target with
+    # hunt_td >= hunt_gate); both gates fail-closed for safety.
+    if (cur == _ap.S_HUNT and hunt_target is None
+            and (state.get("aliens") or [])):
+        _ap._state.hunt_giveup_until = max(
+            _ap._state.hunt_giveup_until, now + _ap.HUNT_PIN_GIVEUP_S)
+    if (hunt_target is not None and hunt_td < hunt_gate
+            and now >= _ap._state.hunt_giveup_until):
+        return _ap.S_HUNT
+    return None
+
+
 def choose_next_state(state: dict, p: dict, cur: str) -> str:
     """Pure function: given the world snapshot and the current FSM
     state, return what state the bot *wants* to be in this tick.
@@ -837,62 +1377,11 @@ def choose_next_state(state: dict, p: dict, cur: str) -> str:
 
     now = _ap._get_now()
 
-    # 1.4  RECOVER_LOOT — after the bot just died, navigate back to
-    #      the recorded death position so the dropped iron / module
-    #      / consumable pickups vacuum into the ship.  Promoted above
-    #      ENGAGE_BOSS (2026-05-11): without this the bot dies during
-    #      a boss fight, respawns shieldless + moduleless, and is
-    #      pulled straight back into S_ENGAGE_BOSS by section 1.5 —
-    #      it never visits S_RECOVER_LOOT, so the lost loadout stays
-    #      on the floor and the bot dies again with no modules
-    #      installed.  Telemetry caught the death loop: 5 player_death
-    #      events with lost_modules=[] after the first death, mod_q=4
-    #      stuck in the install queue.  REGEN still preempts (above)
-    #      so a half-recovered loadout doesn't get the bot killed
-    #      mid-trip.
-    _ap._maybe_clear_death_recovery(state, p, now)
-    if _ap._state.death_recovery_pending:
-        # Suppress recover_loot when re-entering the death pile
-        # would walk the bot into the boss's aggro range with no
-        # umbrella to retreat to.  2026-05-14 eighteenth-pass log
-        # captured the pathology: 7 deaths in 17 s at the same
-        # death pile while the boss hovered there.  Two gates:
-        #   * boss alive AND boss within
-        #     ``RECOVER_LOOT_BOSS_DANGER_PX`` of the death pos
-        #     -- bot would respawn-cycle into the boss's range.
-        #   * boss alive AND no home station -- nowhere to
-        #     install recovered modules at, so recovery is
-        #     pointless until HS rebuilds (or boss dies).
-        # In both cases pending stays True (recovery resumes
-        # when the danger clears) and the hard
-        # ``DEATH_RECOVERY_TIMEOUT_S`` still applies, so the
-        # FSM doesn't deadlock if the boss never leaves.
-        boss = state.get("boss")
-        recovery_blocked = False
-        if boss is not None:
-            drx, dry = _ap._state.death_recovery_pos
-            bdx = float(boss.get("x", 0.0)) - drx
-            bdy = float(boss.get("y", 0.0)) - dry
-            boss_at_death_pos = (
-                math.hypot(bdx, bdy)
-                < _ap.RECOVER_LOOT_BOSS_DANGER_PX)
-            no_hs = _ap._find_home_station(state) is None
-            recovery_blocked = boss_at_death_pos or no_hs
-        # Non-MAIN loadout gate (2026-05-26).  Captured 2026-05-25
-        # pathology: the bot died during ``S_RECOVER_LOOT`` 53 s
-        # after a Nebula death because it drove toward the death
-        # pile naked + with cold weapons + no consumables in slots.
-        # Defer recovery until shields / HP / consumables are
-        # rebuilt; the bumped ``DEATH_RECOVERY_TIMEOUT_NEBULA_S``
-        # gives the bot 180 s of headroom before it accepts the
-        # loss.  MAIN-zone recoveries skip this -- the HS umbrella
-        # + turret ring make recovery safe even with a stripped
-        # ship.
-        if not recovery_blocked \
-                and not _ap._recovery_loadout_ready(state):
-            recovery_blocked = True
-        if not recovery_blocked:
-            return _ap.S_RECOVER_LOOT
+    # 1.4 RECOVER_LOOT — drive back to the death pile to vacuum
+    #     dropped loot.  Extracted to ``_tier_recover_loot``.
+    result = _tier_recover_loot(state, p, now)
+    if result is not None:
+        return result
 
     # 1.45 POST-RECOVERY DEPOSIT/INSTALL — after S_RECOVER_LOOT vacuums
     #      up dropped modules, they sit in SHIP cargo as ``mod_<key>``
@@ -1164,126 +1653,12 @@ def choose_next_state(state: dict, p: dict, cur: str) -> str:
         if pickup is not None and pd < gather_enter:
             return _ap.S_GATHER
 
-    # 4. BUILD — one-shot starter base when iron + clear area
-    #    conditions are met.  Falls below ENGAGE / REGEN so the
-    #    bot doesn't try to build during combat or while shields
-    #    are low.  Falls above MINE / SEARCH so the bot stops
-    #    accumulating iron the moment it has enough and a clear
-    #    spot.  ``_ap._state.build_done`` flips True after the first attempt.
-    #    BUILD_SEEK actively walks toward less-cluttered space when
-    #    iron is met but the area isn't clear.
-    #
-    #    The has-Home-Station short-circuit (see section 0
-    #    above) flips ``build_done`` True the moment the bot
-    #    sees an existing HS, so this branch only fires for a
-    #    bot starting in a station-less world.
-    if (not _ap._state.build_done
-            and _ap._iron_total(state) >= _ap.BUILD_IRON_THRESHOLD):
-        if _ap._build_area_clear(state, px, py):
-            return _ap.S_BUILD
-        return _ap.S_BUILD_SEEK
-
-    # 4.5 BUILD_NEBULA — second starter base in ZONE2 (Nebula).
-    #     Buildings are zone-scoped via the ZoneState stash
-    #     mechanism (see ``zones/__init__.py``), so each zone has its
-    #     own ``building_list``.  The ``Home Station`` BUILDING_TYPES
-    #     max=1 cap is enforced against the current zone's list, not
-    #     save-wide -- so the bot can build a MAIN base AND a Nebula
-    #     base without conflict.  Gated by its own ``nebula_build_done``
-    #     latch independently of ``build_done``, and restricted to
-    #     ZONE2 (the only non-MAIN zone with persistent buildings
-    #     where a base makes economic sense; STAR_MAZE is too
-    #     space-constrained, WARP_* are transient).
-    #
-    #     Falls below the MAIN BUILD branch in priority -- if the bot
-    #     somehow lands in ZONE2 without ever having built a MAIN
-    #     base, the MAIN branch can't fire (wrong zone) so this one
-    #     handles things.  But the typical flow is: MAIN built first
-    #     (session 0), Nebula built later when the bot accumulates
-    #     iron in ZONE2.  Same ``BUILD_SEEK`` shared with MAIN for the
-    #     "area not clear, keep walking" sub-state.
-    zone_id_build = str((state.get("zone") or {}).get("id", ""))
-    in_zone2 = "ZONE2" in zone_id_build
-    if (in_zone2
-            and not _ap._state.nebula_build_done
-            and _ap._iron_total(state) >= _ap.BUILD_IRON_THRESHOLD):
-        if _ap._build_area_clear(state, px, py):
-            return _ap.S_BUILD_NEBULA
-        return _ap.S_BUILD_SEEK
-
-    # 4.6 FORTIFY_NEBULA (2026-05-24) -- after the Nebula HS is up,
-    #     add the same defense-turret + missile-array ring the MAIN
-    #     HS gets in section 5.6.  Captured pathology (PR #184
-    #     telemetry): bot's second Nebula death was in fsm=regen at
-    #     the unfortified Nebula HS umbrella; building defenses
-    #     gives the bot a safe combat anchor analogous to MAIN's.
-    #
-    #     Gates: in ZONE2, Nebula HS already up, fortify not yet
-    #     done, station iron covers FORTIFY_IRON_COST plus a small
-    #     buffer.  ``_act_fortify_nebula`` reuses ``_post_fortify``
-    #     -- the builder anchors on the first Home Station in the
-    #     current zone's building_list (zone-scoped), so calling
-    #     it while the bot is in ZONE2 fortifies the Nebula HS.
-    if (in_zone2
-            and _ap._state.nebula_build_done
-            and not _ap._state.nebula_fortify_done
-            and _ap._find_home_station(state) is not None
-            and _ap._station_iron(state) >= _ap.FORTIFY_IRON_COST):
-        return _ap.S_FORTIFY_NEBULA
-
-    # 4.7 PLACE_AI_PILOT_NEBULA (2026-05-24) -- park a Basic Ship
-    #     with the AI Pilot module installed beside the Nebula HS
-    #     so the bot has friendly-fire-immune cover fire while it
-    #     fights the Nebula swarm.  Gated AFTER fortify (defenses
-    #     first; AI pilot ship is the second-tier buff).  Requires
-    #     a craftable ``ai_pilot`` module in station inventory,
-    #     plus iron + copper to cover the Basic Ship cost.  Falls
-    #     through silently if any prerequisite is missing -- the
-    #     bot keeps fighting solo until the inputs accumulate.
-    if (in_zone2
-            and _ap._state.nebula_fortify_done
-            and not _ap._state.nebula_ai_pilot_placed
-            and _ap._find_home_station(state) is not None):
-        _station_items_now = _ap._station_items(state)
-        if (int(_station_items_now.get("ai_pilot", 0)) >= 1
-                and int(_station_items_now.get("iron", 0))
-                    >= _ap.AI_PILOT_SHIP_IRON_COST
-                and int(_station_items_now.get("copper", 0))
-                    >= _ap.AI_PILOT_SHIP_COPPER_COST):
-            return _ap.S_PLACE_AI_PILOT_NEBULA
-
-    # 4.8 BUILD_ADV_CRAFTER (2026-05-25) -- place an Advanced
-    #     Crafter beside the Nebula HS so the bot can craft Nebula-
-    #     tier modules (misty_step / force_wall / death_blossom)
-    #     locally instead of having to warp back to MAIN for every
-    #     craft.  Once present, the existing CRAFT pipeline drives
-    #     it transparently -- both BasicCrafter and AdvancedCrafter
-    #     register as ``BasicCrafter`` instances internally, so
-    #     ``_find_idle_basic_crafter`` returns whichever is idle.
-    #     Gated AFTER ai-pilot ship (defenses then cover fire then
-    #     advanced crafting -- the tier-up chain).  Requires the
-    #     ``advanced_crafter`` blueprint deposited + 1000 iron +
-    #     500 copper.
-    if (in_zone2
-            and _ap._state.nebula_fortify_done
-            and not _ap._state.nebula_advanced_crafter_done
-            and _ap._find_home_station(state) is not None
-            and not _ap._advanced_crafter_already_built(state)):
-        _station_items_adv = _ap._station_items(state)
-        # Blueprint key fix (2026-06-06): a collected blueprint pickup
-        # adds ``bp_<module>`` to inventory (game_view:448, pickup:102),
-        # so the advanced-crafter blueprint lands in the station as
-        # ``bp_advanced_crafter`` -- NOT ``advanced_crafter``.  The gate
-        # checked the un-prefixed key, so it never saw the blueprint and
-        # the Advanced Crafter was never built (the whole Nebula
-        # module/drone tier stayed dormant despite the bot gathering the
-        # blueprint).  ``place_advanced_crafter`` is fixed to match.
-        if (int(_station_items_adv.get("bp_advanced_crafter", 0)) >= 1
-                and int(_station_items_adv.get("iron", 0))
-                    >= _ap.ADVANCED_CRAFTER_IRON_COST
-                and int(_station_items_adv.get("copper", 0))
-                    >= _ap.ADVANCED_CRAFTER_COPPER_COST):
-            return _ap.S_BUILD_ADV_CRAFTER
+    # 4. BUILD family (4 / 4.5 / 4.6 / 4.7 / 4.8) — starter base,
+    #     Nebula base, fortify, AI-pilot ship, advanced crafter.
+    #     Extracted to ``_tier_build``.
+    result = _tier_build(state, p)
+    if result is not None:
+        return result
 
     # 5. DEPOSIT — once a Home Station exists, the bot periodically
     #    returns to dump everything in the ship inventory (iron,
@@ -1336,348 +1711,24 @@ def choose_next_state(state: dict, p: dict, cur: str) -> str:
                     and not too_far_for_deposit):
                 return _ap.S_DEPOSIT
 
-    # 5.5  CRAFT / INSTALL — sequential post-build workflow.  Only
-    #      reachable after a Home Station + Basic Crafter exist.
-    #      Install takes priority over a fresh craft (we want
-    #      crafted modules onto the ship before queuing more).
-    #      Both gates require the FSM to NOT already have a
-    #      crafter mid-cycle — the queue is intentionally serial,
-    #      so the bot returns to MINE / GATHER / SEARCH while a
-    #      craft ticks down its 60 s timer.
-    if hs is not None and _ap._find_basic_crafter(state, idle_only=False) is not None:
-        if _ap._next_install_target(state) is not None:
-            return _ap.S_INSTALL
-        if not _ap._any_crafter_busy(state) and _ap._next_craft_target(state) is not None:
-            return _ap.S_CRAFT
+    # 5.5 / 5.6 CRAFT / INSTALL + boss-prep pipeline (equip /
+    #     pre-boss mine / fortify / QWI).  Extracted to
+    #     ``_tier_craft_install_bossprep`` (takes the section-5 ``hs``).
+    result = _tier_craft_install_bossprep(state, p, hs)
+    if result is not None:
+        return result
 
-    # 5.6  Boss-prep pipeline — fires once the consumable craft
-    #      queue is fully drained (25 repair packs + 25 shield
-    #      recharges produced, all sitting in station inventory).
-    #      Three sequential one-shot stages; each flips a sticky
-    #      flag on success so the FSM never re-fires it:
-    #
-    #        a) _ap.S_EQUIP_CONSUMABLES — withdraw consumables from
-    #           station inventory + bind them to ship quick-use
-    #           slots.  Falls through immediately if no consumables
-    #           remain in station inventory (already withdrawn).
-    #        b) _ap.S_PRE_BOSS_MINE     — if station iron is below the
-    #           _ap.QWI_BUILD_IRON_TARGET buffer (default 2000), keep
-    #           mining.  Same action handler as _ap.S_MINE, but the
-    #           FSM-level distinction tracks the explicit mining
-    #           goal so telemetry can see it.
-    #        c) _ap.S_BUILD_QWI         — iron staged + QWI not yet
-    #           placed: navigate to the Home Station and POST
-    #           /place_qwi.  The QWI auto-spawns the Double Star
-    #           boss; from there _ap.S_ENGAGE_BOSS takes over.
-    # EQUIP CONSUMABLES — decoupled from the full consumable phase
-    # (2026-06-03).  Bind any available repair_pack / shield_recharge to
-    # the quick-use slots whenever a slot lacks one AND the station has
-    # one to give -- WITHOUT waiting for the entire 25 + 25 batch phase
-    # to finish.  Captured: a 55-min, 9-death session logged
-    # heal_shield_fire = 0 (armed 13x, never fired) because no
-    # shield_recharge was ever in a quick-use slot.  The bot crafted
-    # shield_recharge into the station, but the old gate
-    # (``_consumable_phase_finished()``) refused to equip until ALL 50
-    # batches completed -- and repeated deaths kept resetting the module/
-    # consumable grind, so the phase never finished and the bot fought
-    # with no shield heal.  Binding partial stock immediately gives the
-    # bot a working heal while it finishes crafting the rest.
-    #
-    # Self-heal by checking the actual quick-use slot state, not just the
-    # ``consumables_equipped`` latch (2026-05-11 fifth pass): the latch
-    # alone misses the post-death case where the bot deposits recovered
-    # consumables but the latch stayed True from session start.  Checking
-    # the live slot contents makes the gate fire whenever a slot needs a
-    # consumable AND station has one.  The latch is still the one-tick
-    # MIN_DWELL-skip helper inside ``_act_at_station``.
-    if hs is not None:
-        quick_use = state.get("quick_use_slots") or []
-        sitems = _ap._station_items(state)
+    # 6. MINE vs SEARCH — discrete chase / commit / give-up +
+    #     stale-blacklist flush.  Extracted to ``_tier_mine_or_search``.
+    result = _tier_mine_or_search(state, p, cur, now)
+    if result is not None:
+        return result
 
-        # Per-TYPE check (2026-06-06): the old gate used "ANY consumable
-        # equipped", so a bound repair_pack masked a MISSING
-        # shield_recharge -- the bot never re-equipped the shield heal
-        # while it still had repair packs.  Captured: the station held
-        # 5-15 shield_recharge for ~540 s but the bot never bound them
-        # and died at 1 shield with heals sitting unequipped (25 hp-heal
-        # fires in that window confirm repair_pack WAS equipped).  Fire
-        # EQUIP if EITHER type is missing from a quick-use slot AND the
-        # station has that type to give -- ``equip_consumables_to_quick_use``
-        # binds both, so one POST tops up whichever is missing.
-        def _equipped(item_type: str) -> bool:
-            return any(
-                s and s.get("item_type") == item_type
-                and int(s.get("count", 0)) > 0
-                for s in quick_use)
-        needs_repair = (not _equipped("repair_pack")
-                        and int(sitems.get("repair_pack", 0)) > 0)
-        needs_shield = (not _equipped("shield_recharge")
-                        and int(sitems.get("shield_recharge", 0)) > 0)
-        if needs_repair or needs_shield:
-            # Reset the latch so ``_act_equip_consumables`` actually
-            # POSTs.  The action's skip-condition is the latch
-            # itself; a stale-True latch from a previous session
-            # would otherwise make the action ``_do_idle`` forever.
-            _ap._state.consumables_equipped = False
-            return _ap.S_EQUIP_CONSUMABLES
-
-    # Boss-prep staging (PRE_BOSS_MINE / FORTIFY / BUILD_QWI) still waits
-    # for the FULL consumable phase to finish so the bot faces the Double
-    # Star boss fully stocked (25 repair + 25 shield), not on partial
-    # supply.  The equip-to-quick-use above is independent of this.
-    if hs is not None and _ap._consumable_phase_finished():
-        if not _ap._state.qwi_placed \
-                and not _ap._qwi_already_built(state):
-            station_iron = _ap._station_iron(state)
-            # Iron gate covers the fortify ring (_ap.FORTIFY_IRON_COST)
-            # AND the QWI cost (1000) — keep mining until the
-            # buffer is enough that placing fortify won't drop the
-            # station below the QWI cost cushion.  Without this the
-            # bot could fortify, drain iron, and then PRE_BOSS_MINE
-            # again to refill before BUILD_QWI fires.
-            if station_iron < _ap.QWI_BUILD_IRON_TARGET:
-                # Still mining toward the iron buffer — fall back
-                # to the normal MINE / SEARCH cascade below but
-                # tag it as PRE_BOSS_MINE so telemetry knows we're
-                # heading toward the QWI build.
-                if _ap._nearest_asteroid(state, px, py)[0] is not None:
-                    return _ap.S_PRE_BOSS_MINE
-            else:
-                # Fortify before the QWI build so the cluster has
-                # the full defensive ring (matches the bumped
-                # _ap.QWI_STAGE_MIN_TURRETS).  The ``_qwi_ready_to_build``
-                # gate also enforces the turret count, so even if
-                # the bot crashed/restarted between fortify and QWI
-                # the latched flag would re-evaluate from current
-                # building snapshot before BUILD_QWI fires.
-                if not _ap._state.fortify_done:
-                    return _ap.S_FORTIFY
-                return _ap.S_BUILD_QWI
-
-    # 6. MINE vs SEARCH — discrete event, no hysteresis needed.
-    #    Filter out blacklisted asteroids so a single unreachable
-    #    one doesn't force MINE to fire on a target the bot
-    #    can't actually reach.  Also cap chase distance: an
-    #    asteroid farther than _ap.MAX_ASTEROID_CHASE_PX is treated
-    #    as out-of-reach so MINE falls through to SEARCH (spiral
-    #    around current position) instead of long obstacle-laden
-    #    trips across the world.
-    #
-    #    Escape hatch: if SEARCH **or IDLE_AT_BASE** has been the
-    #    active state for _ap.SEARCH_GIVEUP_S, drop the cap and commit
-    #    to whatever's _ap.nearest.  A long round trip is better than
-    #    parking / spiralling indefinitely in a region with no
-    #    in-range asteroids.  IDLE_AT_BASE was added to the gate
-    #    in 2026-05-09 — the original gate only covered SEARCH,
-    #    so a bot with a Home Station (which routes through
-    #    IDLE_AT_BASE in section 8 below when nothing's
-    #    actionable) would mine all the near asteroids, then
-    #    park forever as far asteroids respawned out of chase
-    #    range.  User report: "the bot does not go after asteroids
-    #    when all of the enemies have been destroyed and it is
-    #    idling at the station."
-    #
-    #    The commitment is STICKY (``_ap._state.chase_committed``):
-    #    once we decide to chase a far target, the cap stays
-    #    dropped until the bot reaches chase range — otherwise
-    #    the FSM bounces ↔ MINE every MIN_DWELL_S because
-    #    ``long_giveup`` only holds while ``cur`` is in the gate.
-    nearest_ast, ast_d = _ap._nearest_asteroid(state, px, py)
-    if nearest_ast is not None:
-        in_chase_range = ast_d < _ap.MAX_ASTEROID_CHASE_PX
-        # Gather->mine hysteresis (2026-06-02): the mirror of the
-        # mine->gather guard in section 3.  While actively GATHERing,
-        # only a genuinely-close asteroid (MINE_ENTER_WHILE_GATHERING_PX)
-        # preempts to MINE -- finishing a gather used to dart the bot to
-        # a mid-range asteroid (287 dwell-suppressed gather->mine flips),
-        # which then dropped iron and pulled it back.  The full chase cap
-        # still drives the commit / giveup machinery below, so a far
-        # asteroid keeps its SEARCH / IDLE_AT_BASE giveup escape hatch.
-        gather_holds_mine = (
-            cur == _ap.S_GATHER
-            and ast_d >= _ap.MINE_ENTER_WHILE_GATHERING_PX)
-        if in_chase_range:
-            # Reached (or approached) a chase-range asteroid —
-            # clear any prior commitment so future SEARCH /
-            # IDLE_AT_BASE episodes get the normal cap-protected
-            # behaviour.
-            _ap._state.chase_committed = False
-            if not gather_holds_mine:
-                return _ap.S_MINE
-        # Out of chase range.  Either we're already committed
-        # to a far chase, or we've been waiting (in SEARCH or
-        # IDLE_AT_BASE) long enough to commit now.  IDLE_AT_BASE
-        # uses a tighter gate (``_ap.IDLE_AT_BASE_GIVEUP_S``, 10 s)
-        # than SEARCH (``_ap.SEARCH_GIVEUP_S``, 60 s) because at base
-        # the bot is genuinely idle — the long wait left users
-        # observing "the bot does not leave when there are
-        # asteroids available to be harvested" (2026-05-09 report).
-        search_entered = _ap._fsm.get("entered_at")
-        if cur == _ap.S_IDLE_AT_BASE:
-            giveup_threshold = _ap.IDLE_AT_BASE_GIVEUP_S
-        elif cur == _ap.S_SEARCH:
-            giveup_threshold = _ap.SEARCH_GIVEUP_S
-        else:
-            giveup_threshold = float("inf")
-        long_giveup = (
-            search_entered is not None
-            and (now - search_entered) >= giveup_threshold
-        )
-        if _ap._state.chase_committed or long_giveup:
-            _ap._state.chase_committed = True
-            return _ap.S_MINE
-    else:
-        # No visible asteroid (everything blacklisted, or none
-        # in /state) — clear the commitment so the next time an
-        # asteroid appears we start fresh.
-        _ap._state.chase_committed = False
-        # Stale-blacklist flush (2026-05-09): when the bot has been
-        # parked in IDLE_AT_BASE for _ap.IDLE_BLACKLIST_FLUSH_S yet the
-        # world has visible asteroids that all happen to be
-        # blacklisted, the bot is wedged in a silent deadlock —
-        # ``_do_mine_nearest`` blacklists unreachable asteroids
-        # without emitting a stuck_detected, so the per-entry 60 s
-        # TTL can be continuously refreshed by repeated MINE
-        # attempts faster than entries evict.  Wipe both blacklists
-        # so the next tick re-targets from scratch.  Long enough to
-        # not interfere with normal short-cycle blacklisting; short
-        # enough to recover within the user's patience window.
-        idle_entered = _ap._fsm.get("entered_at")
-        visible_asteroids = state.get("asteroids") or []
-        if (cur == _ap.S_IDLE_AT_BASE
-                and visible_asteroids
-                and idle_entered is not None
-                and (now - idle_entered) >= _ap.IDLE_BLACKLIST_FLUSH_S
-                and (_ap._state.asteroid_blacklist
-                     or _ap._state.pickup_blacklist)):
-            n_ast = len(_ap._state.asteroid_blacklist)
-            n_pu = len(_ap._state.pickup_blacklist)
-            _ap._state.asteroid_blacklist.clear()
-            _ap._state.pickup_blacklist.clear()
-            _ap._telemetry_log(
-                "idle_blacklist_flush",
-                cleared_asteroid_entries=n_ast,
-                cleared_pickup_entries=n_pu,
-                visible_asteroids=len(visible_asteroids),
-                idle_dwell_s=round(now - idle_entered, 1),
-                **_ap._telemetry_snapshot_fields(state, p))
-            # Re-query after the flush so this same tick can
-            # commit to MINE instead of waiting another tick.
-            nearest_ast, ast_d = _ap._nearest_asteroid(state, px, py)
-            if nearest_ast is not None:
-                _ap._state.chase_committed = True
-                return _ap.S_MINE
-
-    # 7. HUNT — no asteroid available but an alien is in _ap.HUNT_RANGE_PX.
-    #    The bot needs resources (iron drops on alien kills) and
-    #    sitting in SEARCH circling empty space wastes time.
-    #    Triggered only when ENGAGE didn't fire (alien out of the
-    #    800 px engage band) AND no asteroid is reachable.  Action
-    #    handler reuses _act_engage so the close-and-fight behaviour
-    #    is identical — only the dispatch differs (HUNT proactively,
-    #    ENGAGE defensively).
-    #
-    #    Use the wider _ap.IDLE_HUNT_RANGE_PX gate when CURRENTLY in
-    #    either _ap.S_IDLE_AT_BASE (bot parked at base, healed, adjacent
-    #    to crafter — no reason to be picky) OR _ap.S_HUNT (already
-    #    committed to a chase — finish it instead of bouncing back
-    #    to idle).  The _ap.S_HUNT case is the symmetric-exit half of
-    #    the hysteresis: without it, an alien sitting between
-    #    _ap.HUNT_RANGE_PX (3000) and _ap.IDLE_HUNT_RANGE_PX (9000) creates
-    #    a thrash band where IDLE keeps re-entering HUNT and HUNT
-    #    keeps falling out — the 2026-05-04-evening telemetry
-    #    captured 52 IDLE↔HUNT bounces in 5.9 minutes (one every
-    #    7 s, 22/23 dwells right at the MIN_DWELL_S floor) before
-    #    this fix.  Other states (MINE / SEARCH / GATHER) still
-    #    use the tight 3000 px gate so they only divert to a chase
-    #    when the alien is genuinely close.
-    hunt_gate = (_ap.IDLE_HUNT_RANGE_PX
-                 if cur in (_ap.S_IDLE_AT_BASE, _ap.S_HUNT)
-                 else _ap.HUNT_RANGE_PX)
-    # Use the edge-filtered selector for HUNT so we don't commit
-    # to chasing an alien parked against the world boundary; that
-    # was the dominant failure mode in the 2026-05-06 telemetry
-    # (190 s wall-pin at px=48 with no stuck_detected firing).
-    # ENGAGE / REGEN above keep using the unfiltered ``threat``
-    # because defensive responses must react to any attacker
-    # regardless of position.
-    hunt_target, hunt_td = _ap._nearest_huntable_alien(
-        state, px, py, currently_hunting=(cur == _ap.S_HUNT))
-    # Building-cluster pin escape (2026-05-06 follow-up #2): if we're
-    # already in _ap.S_HUNT and the bot has wandered INSIDE the home-
-    # station building repulsion field, refuse to re-fire HUNT.
-    # Symmetric to the wall-pin escape but against buildings instead
-    # of world edges: bot drove into the cluster chasing an alien,
-    # buildings are blocking forward motion, but the FSM keeps
-    # picking HUNT every tick because the alien target is interior
-    # (not edge-adjacent) so the wall-pin escape doesn't engage.
-    # Telemetry caught a 55 s pin at px≈220, hsd≈230 inside the
-    # cluster — the alien was chased through the field, the bot
-    # oscillated 10–20 px per 5 s tick, and rotation defeated the
-    # position-history stuck detector after the initial hit.
-    # Falling through to IDLE_AT_BASE pulls the bot to the 600 px
-    # outer ring (clear of all buildings) on the next tick; HUNT can
-    # then re-fire from open space and engage cleanly.
-    #
-    # Delay (2026-05-06 follow-up #3): require HUNT to have been
-    # active for >= _ap.HUNT_CLUSTER_PIN_DELAY_S before the guard fires.
-    # Without this, the guard tripped on the very first re-eval tick
-    # (dwell ~ MIN_DWELL_S = 1 s) which broke fresh HUNT entries
-    # from cluster-interior idle parking positions: 39 fast IDLE↔HUNT
-    # pairs in the follow-up telemetry.  The delay gives the bot
-    # 3 s of HUNT travel to thread its way out of the perimeter
-    # before the guard activates; the 55 s pin from #37 is still
-    # caught well within the original symptom window.
-    hunt_entered = _ap._fsm.get("entered_at")
-    hunt_time = (now - hunt_entered
-                 if cur == _ap.S_HUNT and hunt_entered is not None
-                 else 0.0)
-    # Wall exemption (2026-05-06 follow-up #5): when the bot is
-    # inside the world-edge margin, the cluster guard is the WRONG
-    # tool — the bot isn't stuck in the cluster centre, it's wall-
-    # pinned with the cluster on the inboard side, and the cluster
-    # is the *only path* to interior aliens.  Pre-fix telemetry
-    # showed the guard firing every 13 s in this scenario (3 s HUNT
-    # + 10 s lockout), with the user complaint "bot stays idle even
-    # though enemies are present on the minimap; only moves when an
-    # asteroid respawns".  Letting HUNT continue here returns the
-    # geometry-driven slow-but-steady chase the user expects.
-    #
-    # PR #36's wall-pin escape still owns the wall+edge-aliens case
-    # (it returns None when every alien is edge-adjacent, which
-    # arms PR #39's lockout).  The cluster guard now owns only the
-    # interior cluster pin it was originally designed for: bot
-    # genuinely stuck deep in the station, far from any wall.
-    zone = state.get("zone") or {}
-    world_w = float(zone.get("world_w", 6400) or 6400)
-    world_h = float(zone.get("world_h", 6400) or 6400)
-    bot_at_wall = (px < _ap.ALIEN_EDGE_SKIP_PX
-                   or px > world_w - _ap.ALIEN_EDGE_SKIP_PX
-                   or py < _ap.ALIEN_EDGE_SKIP_PX
-                   or py > world_h - _ap.ALIEN_EDGE_SKIP_PX)
-    if (cur == _ap.S_HUNT and hunt_target is not None
-            and hunt_time >= _ap.HUNT_CLUSTER_PIN_DELAY_S
-            and not _ap._ship_clear_of_buildings(p, state)
-            and not bot_at_wall):
-        hunt_target = None
-    # Pin-escape lockout (2026-05-06 follow-up #4): if either pin-
-    # escape path zeroed hunt_target while aliens were still visible,
-    # block HUNT re-entry from IDLE_AT_BASE for _ap.HUNT_PIN_GIVEUP_S so
-    # the next tick doesn't immediately re-fire (currently_hunting
-    # would be False from IDLE, taking the helper's fallback path).
-    # Without this lockout the bot oscillated IDLE↔HUNT 107 times in
-    # 3 minutes during a wall-pin (median dwell 1.01 s in both
-    # states).  hunt_target is None here only when aliens are
-    # visible AND we were in HUNT (no-aliens case has empty list,
-    # legitimate alien-out-of-range case has non-None target with
-    # hunt_td >= hunt_gate); both gates fail-closed for safety.
-    if (cur == _ap.S_HUNT and hunt_target is None
-            and (state.get("aliens") or [])):
-        _ap._state.hunt_giveup_until = max(
-            _ap._state.hunt_giveup_until, now + _ap.HUNT_PIN_GIVEUP_S)
-    if (hunt_target is not None and hunt_td < hunt_gate
-            and now >= _ap._state.hunt_giveup_until):
-        return _ap.S_HUNT
+    # 7. HUNT — proactive alien chase with cluster/wall pin guards.
+    #     Extracted to ``_tier_hunt``.
+    result = _tier_hunt(state, p, cur, now)
+    if result is not None:
+        return result
 
     # 8. IDLE_AT_BASE — nothing actionable is visible.  When a Home
     #    Station exists, head there and wait for respawns rather
