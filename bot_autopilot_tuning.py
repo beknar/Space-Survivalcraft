@@ -250,6 +250,16 @@ NEBULA_ADV_CONSUMABLE_TARGETS: dict[str, tuple[str, int]] = {
     "mining_drone":   ("mining_drone", 5),
     "combat_drone":   ("combat_drone", 5),
 }
+# Companion-drone auto-deploy (2026-06-07).  The bot crafts mining +
+# combat drones (above) but never fielded them -- ``use_quick_use_slot``
+# didn't handle drone items, so the slot bindings were dead weight.  The
+# ``_observe_drone_deploy`` observer now POSTs /deploy_drone to field a
+# combat drone while fighting and a mining drone otherwise, swapping as
+# needed.  Cooldown throttles swaps so a brief state flip (engage <->
+# mine) doesn't ping-pong the drone every tick; only one drone is active
+# at a time and a swap refunds the old charge, so the cost is churn, not
+# lost drones.
+DRONE_DEPLOY_COOLDOWN_S: float = 4.0
 # REGEN escape-valve hysteresis (2026-05-13 fifteenth telemetry pass).
 # The previous escape-valve fired on a SINGLE tick where shields
 # didn't gain (``sh > last_regen_shields`` was False).  Captured in

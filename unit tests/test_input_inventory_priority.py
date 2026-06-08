@@ -142,3 +142,77 @@ class TestSameDroneDeployErrorMessage:
         gv.inventory.add_item("mining_drone", 1)
         deploy_drone(gv)
         assert isinstance(gv._active_drone, MiningDrone)
+
+
+class TestDeployDroneVariant:
+    """2026-06-07: ``deploy_drone_variant`` lets the autopilot field a
+    SPECIFIC drone variant (independent of the active weapon) so it can
+    run a combat drone while fighting and a mining drone while mining,
+    swapping as needed.  Shares ``_deploy_drone_impl`` with the R key."""
+
+    def _gv(self):
+        from game_view import GameView
+        return GameView(faction="Earth", ship_type="Cruiser",
+                        skip_music=True)
+
+    def test_deploys_requested_combat_variant(self):
+        from combat_helpers import deploy_drone_variant
+        from sprites.drone import CombatDrone
+        gv = self._gv()
+        gv.inventory.add_item("combat_drone", 2)
+        res = deploy_drone_variant(gv, "combat")
+        assert res["ok"] and res["active"] == "combat_drone"
+        assert isinstance(gv._active_drone, CombatDrone)
+        assert gv.inventory.count_item("combat_drone") == 1
+
+    def test_deploys_requested_mining_variant_regardless_of_weapon(self):
+        # Active weapon is the Basic Laser (combat), but an explicit
+        # "mining" request must still field the MINING drone.
+        from combat_helpers import deploy_drone_variant
+        from sprites.drone import MiningDrone
+        gv = self._gv()
+        assert gv._active_weapon.mines_rock is False
+        gv.inventory.add_item("mining_drone", 1)
+        res = deploy_drone_variant(gv, "mining")
+        assert res["ok"]
+        assert isinstance(gv._active_drone, MiningDrone)
+
+    def test_swaps_and_refunds_old_variant(self):
+        from combat_helpers import deploy_drone_variant
+        from sprites.drone import CombatDrone, MiningDrone
+        gv = self._gv()
+        d = CombatDrone(0.0, 0.0)
+        gv._drone_list.append(d)
+        gv._active_drone = d
+        gv.inventory.add_item("mining_drone", 1)
+        res = deploy_drone_variant(gv, "mining")
+        assert res["ok"]
+        assert isinstance(gv._active_drone, MiningDrone)
+        # Old combat drone refunded to inventory.
+        assert gv.inventory.count_item("combat_drone") == 1
+
+    def test_same_variant_is_noop_no_charge(self):
+        from combat_helpers import deploy_drone_variant
+        from sprites.drone import CombatDrone
+        gv = self._gv()
+        d = CombatDrone(0.0, 0.0)
+        gv._drone_list.append(d)
+        gv._active_drone = d
+        gv.inventory.add_item("combat_drone", 3)
+        res = deploy_drone_variant(gv, "combat")
+        assert res["reason"] == "already_deployed"
+        assert gv.inventory.count_item("combat_drone") == 3
+
+    def test_no_charges_returns_error(self):
+        from combat_helpers import deploy_drone_variant
+        gv = self._gv()
+        res = deploy_drone_variant(gv, "combat")
+        assert res["ok"] is False and res["reason"] == "no_charges"
+        assert getattr(gv, "_active_drone", None) is None
+
+    def test_bad_variant_rejected(self):
+        from combat_helpers import deploy_drone_variant
+        gv = self._gv()
+        res = deploy_drone_variant(gv, "nonsense")
+        assert res["ok"] is False
+        assert res["reason"].startswith("bad_variant")

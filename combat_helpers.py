@@ -168,45 +168,35 @@ def recall_drone(gv: GameView) -> None:
     flash_game_msg(gv, "Drone recalled", 1.2)
 
 
-def deploy_drone(gv: GameView) -> None:
-    """Handle the R key.  Picks the drone variant from the active
-    weapon (mining beam → mining drone, basic laser → combat drone)
-    and either deploys it (consuming one charge) or swaps the
-    currently-active drone for the other variant.  Swapping refunds
-    the old drone's charge to the inventory before consuming the new
-    one — pressing R while the WRONG drone is out is now a clean
-    swap rather than a destructive replacement.
+def _deploy_drone_impl(gv: GameView, is_mining: bool) -> dict:
+    """Core deploy / swap for a SPECIFIC drone variant.
 
-    Behaviour summary:
+    Shared by the R-key handler (``deploy_drone``, variant from the
+    active weapon) and the autopilot path (``deploy_drone_variant``,
+    variant chosen explicitly).  Returns a status dict
+    ``{"ok", "reason", "active"}`` for the API caller; the R-key
+    handler ignores it and relies on the flashed messages.
+
       * No drone deployed → spawn the matching variant; consume one
         ``mining_drone`` / ``combat_drone`` from the inventory.
       * Same variant already deployed → no-op (no charge consumed).
-      * Other variant deployed → recall the active drone (refund 1
-        of its variant), spawn the new one, consume 1 of the new
-        variant.  Net result: 0 destroyed, 1 swapped.
+      * Other variant deployed → recall the active drone (refund 1 of
+        its variant), spawn the new one, consume 1 of the new variant.
+        Net result: 0 destroyed, 1 swapped.
     """
-    if gv._escape_menu.open or gv._player_dead:
-        return
-    weapon = gv._active_weapon
-    is_mining = bool(getattr(weapon, "mines_rock", False))
     item_key = "mining_drone" if is_mining else "combat_drone"
     desired_cls_name = "MiningDrone" if is_mining else "CombatDrone"
+    label = "Mining Drone" if is_mining else "Combat Drone"
     # Already-deployed branch.
     active = getattr(gv, "_active_drone", None)
     if active is not None:
         if type(active).__name__ == desired_cls_name:
-            # Same variant — surface a clear error message rather
-            # than silently swallowing the keypress.  The player
-            # likely expected the second R press to deploy a
-            # second drone (it doesn't — only one drone allowed
-            # at a time) or to be a free swap (it isn't, since
-            # it's the same type).
-            label = ("Mining Drone" if desired_cls_name == "MiningDrone"
-                     else "Combat Drone")
-            flash_game_msg(
-                gv,
-                f"{label} already deployed", 1.5)
-            return
+            # Same variant — surface a clear message rather than
+            # silently swallowing the request.  Only one drone is
+            # allowed at a time, and a same-type re-deploy is a no-op.
+            flash_game_msg(gv, f"{label} already deployed", 1.5)
+            return {"ok": True, "reason": "already_deployed",
+                    "active": item_key}
         # Different variant — refund it first (back into inventory),
         # then fall through to the standard deploy path so the new
         # variant is spawned + consumed cleanly.
@@ -217,7 +207,7 @@ def deploy_drone(gv: GameView) -> None:
     # Inventory check.
     if gv.inventory.count_item(item_key) <= 0:
         flash_game_msg(gv, f"No {item_key.replace('_', ' ')}s available!")
-        return
+        return {"ok": False, "reason": "no_charges", "active": None}
     # Spawn behind the player so the drone visibly enters the world.
     spawn_x = gv.player.center_x
     spawn_y = gv.player.center_y
@@ -232,6 +222,35 @@ def deploy_drone(gv: GameView) -> None:
     # the other consumable-fire helpers follow.
     from update_logic import disable_null_field_around_player
     disable_null_field_around_player(gv)
+    return {"ok": True, "reason": "deployed", "active": item_key}
+
+
+def deploy_drone(gv: GameView) -> None:
+    """Handle the R key.  Picks the drone variant from the active
+    weapon (mining beam → mining drone, basic laser → combat drone)
+    and deploys / swaps via ``_deploy_drone_impl``.  Swapping refunds
+    the old drone's charge before consuming the new one — pressing R
+    while the WRONG drone is out is a clean swap, not a destructive
+    replacement."""
+    if gv._escape_menu.open or gv._player_dead:
+        return
+    weapon = gv._active_weapon
+    is_mining = bool(getattr(weapon, "mines_rock", False))
+    _deploy_drone_impl(gv, is_mining)
+
+
+def deploy_drone_variant(gv: GameView, variant: str) -> dict:
+    """Deploy / swap to a SPECIFIC drone variant, independent of the
+    active weapon.  Used by the autopilot so it can field a combat
+    drone while fighting and a mining drone while mining, swapping as
+    needed.  ``variant`` is ``"mining"`` or ``"combat"``.  Returns the
+    ``_deploy_drone_impl`` status dict (or an error dict)."""
+    if getattr(gv, "_player_dead", False):
+        return {"ok": False, "reason": "player_dead", "active": None}
+    if variant not in ("mining", "combat"):
+        return {"ok": False, "reason": f"bad_variant:{variant}",
+                "active": None}
+    return _deploy_drone_impl(gv, variant == "mining")
 
 
 def fire_missile(gv: GameView, slot: int) -> None:

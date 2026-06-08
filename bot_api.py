@@ -297,6 +297,22 @@ def _module_slots_state(gv) -> list[str | None]:
         return []
 
 
+def _active_drone_state(gv) -> str | None:
+    """The variant of the currently-deployed companion drone --
+    ``"mining"`` / ``"combat"`` -- or ``None`` when no drone is out.
+    Lets the autopilot decide whether to deploy / swap the drone for
+    the current activity (combat drone while fighting, mining drone
+    while mining)."""
+    try:
+        active = getattr(gv, "_active_drone", None)
+        if active is None:
+            return None
+        return ("mining" if type(active).__name__ == "MiningDrone"
+                else "combat")
+    except Exception:
+        return None
+
+
 def _quick_use_slots_state(gv) -> list[dict]:
     """Snapshot of the ship's quick-use bar.
 
@@ -513,6 +529,7 @@ def get_state(gv) -> dict:
         "inventory": _inventory_state(gv),
         "station_inventory": _station_inventory_state(gv),
         "module_slots": _module_slots_state(gv),
+        "active_drone": _active_drone_state(gv),
         "quick_use_slots": _quick_use_slots_state(gv),
         # Zone-aware lists — pull from the same aggregators the
         # minimap uses so the bot sees what the player sees.
@@ -761,6 +778,18 @@ class _Handler(BaseHTTPRequestHandler):
             self._dispatch_main(
                 lambda gv: bot_builder.use_quick_use_slot(gv, slot),
                 timeout=5.0, err_label="use failed")
+            return
+        if self.path == "/deploy_drone":
+            body, ok = self._read_json_body()
+            if not ok:
+                return
+            if not self._require_gv():
+                return
+            variant = str(body.get("variant", "combat"))
+            import combat_helpers
+            self._dispatch_main(
+                lambda gv: combat_helpers.deploy_drone_variant(gv, variant),
+                timeout=5.0, err_label="deploy_drone failed")
             return
         if self.path == "/fortify":
             if not self._require_gv():
