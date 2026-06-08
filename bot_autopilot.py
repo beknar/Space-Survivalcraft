@@ -1459,17 +1459,10 @@ def _observe_drone_deploy(state: dict, p: dict, now: float) -> None:
         **_telemetry_snapshot_fields(state, p))
 
 
-def _do_auto(state: dict, p: dict) -> None:
-    """Step the FSM one tick, then dispatch the action for the
-    current state.  ENGAGE preempts dwell; everything else waits
-    out ``MIN_DWELL_S`` before transitioning.
-
-    The first tick after ``_fsm_reset()`` (entered_at sentinel
-    None) always stamps the timer and is allowed to transition
-    freely -- otherwise a fresh process couldn't react to its
-    initial observation."""
-    _telemetry_init()
-    now = _get_now()
+def _run_observers(state: dict, p: dict, now: float) -> None:
+    """Per-tick telemetry snapshot + the consumable/death/gas/warp/
+    restock/drone observers that run before FSM dispatch.  Each is an
+    independent side-effecting check -- see the individual helpers."""
     # Periodic snapshot so the JSONL stream still has context
     # during long stable stretches (no transitions = no other
     # events).  Cheap: ~1 line per 5 s.
@@ -1529,16 +1522,12 @@ def _do_auto(state: dict, p: dict) -> None:
     # ``_observe_warp_traverse_arc_complete`` for the rationale.
     _observe_warp_traverse_arc_complete(state, p, now)
 
-    # Stuck watchdog: if the ship has been pinned against either the
-    # world boundary OR a station building cluster, override the FSM
-    # and head along the local repulsion vector toward open space.
-    # Runs (and may dispatch an escape burst) BEFORE the FSM dispatch so
-    # it preempts whatever was driving the ship into the obstacle.  Full
-    # machine -- active-escape drive, edge-pin override, blacklisting,
-    # pin-zone anchoring -- lives in ``_run_stuck_escape``.
-    if _run_stuck_escape(state, p, now):
-        return
 
+def _step_fsm(state: dict, p: dict, now: float) -> str:
+    """Choose the desired state and apply the transition (first-tick
+    free transition, else ENGAGE/REGEN/idle-react preempt or MIN_DWELL
+    gating), firing the entry hook + transition telemetry.  Returns the
+    resolved current state for action dispatch."""
     cur = _fsm["state"]
     prev = cur
     desired = _choose_next_state(state, p, cur)
@@ -1617,7 +1606,11 @@ def _do_auto(state: dict, p: dict) -> None:
                            dwell_s=round(dwell, 3),
                            min_dwell_s=MIN_DWELL_S,
                            **_telemetry_snapshot_fields(state, p))
+    return cur
 
+
+def _dispatch_action(state: dict, p: dict, cur: str) -> None:
+    """Run the action handler for the resolved FSM state ``cur``."""
     if cur == S_ENGAGE_BOSS:
         _act_engage_boss(state, p)
     elif cur == S_ENGAGE:
@@ -1676,6 +1669,31 @@ def _do_auto(state: dict, p: dict) -> None:
         _act_retreat(state, p)
     else:  # S_SEARCH
         _do_spiral_search(state, p)
+
+
+def _do_auto(state: dict, p: dict) -> None:
+    """Step the FSM one tick, then dispatch the action for the
+    current state.  ENGAGE preempts dwell; everything else waits
+    out ``MIN_DWELL_S`` before transitioning.
+
+    The first tick after ``_fsm_reset()`` (entered_at sentinel
+    None) always stamps the timer and is allowed to transition
+    freely -- otherwise a fresh process couldn't react to its
+    initial observation."""
+    _telemetry_init()
+    now = _get_now()
+    _run_observers(state, p, now)
+    # Stuck watchdog: if the ship has been pinned against either the
+    # world boundary OR a station building cluster, override the FSM
+    # and head along the local repulsion vector toward open space.
+    # Runs (and may dispatch an escape burst) BEFORE the FSM dispatch so
+    # it preempts whatever was driving the ship into the obstacle.  Full
+    # machine -- active-escape drive, edge-pin override, blacklisting,
+    # pin-zone anchoring -- lives in ``_run_stuck_escape``.
+    if _run_stuck_escape(state, p, now):
+        return
+    cur = _step_fsm(state, p, now)
+    _dispatch_action(state, p, cur)
 
 
 # ── Main loop ─────────────────────────────────────────────────────────────
