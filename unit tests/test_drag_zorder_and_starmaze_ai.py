@@ -38,12 +38,14 @@ class TestHUDDragPreviewMethod:
 
     def test_draw_logic_calls_drag_preview_after_inventories(self):
         # Source-level pin: the call must come AFTER both inventory
-        # draws so the dragged icon stays on top.  Inspect the
-        # ``draw_ui`` source to confirm ordering — keeps the visual
-        # contract from regressing under a future refactor.
+        # draws so the dragged icon stays on top.  Inspect the overlay
+        # draw source to confirm ordering — keeps the visual contract
+        # from regressing under a future refactor.  (The overlay paint
+        # order moved from ``draw_ui`` into ``_draw_overlays`` in the
+        # 2026-06-07 draw_ui decomposition; the contract is unchanged.)
         import inspect
-        from draw_logic import draw_ui
-        src = inspect.getsource(draw_ui)
+        from draw_logic import _draw_overlays
+        src = inspect.getsource(_draw_overlays)
         inv_idx = src.find("gv.inventory.draw()")
         drag_idx = src.find("gv._hud.draw_drag_preview()")
         assert inv_idx >= 0

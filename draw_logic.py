@@ -687,28 +687,9 @@ def _maze_spawner_positions(
     return [(sp.center_x, sp.center_y, sp.killed) for sp in spawners]
 
 
-def draw_ui(gv: GameView) -> None:
-    """Draw all UI-space elements (called inside ui_cam.activate)."""
-    from sprites.building import compute_modules_used, compute_module_capacity
-
-    # Treat every modal overlay as "menu open" so the expensive video
-    # blit + pixel-readback is skipped while the user is in a panel.
-    # fps_drops.log showed ~1250 drops with CRAFT open (worst 81 ms)
-    # — the HUD videos were still decoding behind the panel the user
-    # can't even see through.
-    menu_open = (
-        gv._escape_menu.open
-        or gv._craft_menu.open
-        or gv._trade_menu.open
-        or gv._build_menu.open
-        or gv._station_inv.open
-        or gv._qwi_menu.open
-        or gv._fleet_menu.open
-        or gv._station_info.open
-        or gv._ship_stats.open
-        or gv._dialogue.open
-        or gv._map_overlay.open
-    )
+def _draw_hud(gv: GameView, menu_open: bool) -> None:
+    """HUD panel (minimap, status, fog) + the char/main video frame
+    blits (skipped while a modal is open)."""
     gv._hud.draw(
         weapon_name=gv._active_weapon.name,
         hp=gv.player.hp,
@@ -765,6 +746,13 @@ def draw_ui(gv: GameView) -> None:
             vid_y = MINIMAP_Y + MINIMAP_H + 6
             gv._video_player.draw_in_hud(vid_x, vid_y, vid_size)
 
+
+def _draw_overlays(gv: GameView) -> None:
+    """Cargo / station inventory, drag previews, and the menu panels
+    (build / station-info / ship-stats / craft / trade / qwi / fleet /
+    dialogue / full-screen map), in paint order."""
+    from sprites.building import (compute_modules_used,
+                                  compute_module_capacity)
     # Overlays
     gv._station_inv.draw()
     gv.inventory.draw()
@@ -800,6 +788,10 @@ def draw_ui(gv: GameView) -> None:
     # Full-screen map last so it sits on top of every other overlay.
     gv._map_overlay.draw(gv)
 
+
+def _draw_map_drone_hover(gv: GameView) -> None:
+    """Drone status tooltip when the full map is open and the cursor is
+    over the drone marker."""
     # Map drone hover — when the large map is open AND the cursor is
     # over the drone's plotted X marker, render the same status
     # tooltip the in-world hover uses, anchored to the cursor.  Uses
@@ -844,6 +836,10 @@ def draw_ui(gv: GameView) -> None:
                 gv._t_drone_tip.y = ty + 2
                 gv._t_drone_tip.draw()
 
+
+def _draw_building_hover(gv: GameView, menu_open: bool) -> None:
+    """Building HP tooltip on hover (suppressed in menus / placement /
+    destroy mode)."""
     # Building hover tooltip
     if (gv._hover_building is not None
             and not menu_open
@@ -872,6 +868,9 @@ def draw_ui(gv: GameView) -> None:
         gv._t_building_tip.y = ty + 2
         gv._t_building_tip.draw()
 
+
+def _draw_boss_hp_bar(gv: GameView) -> None:
+    """Top-screen boss HP / shield / phase bar."""
     # Boss HP bar
     if gv._boss is not None and gv._boss.hp > 0:
         bar_w = 400
@@ -906,6 +905,9 @@ def draw_ui(gv: GameView) -> None:
         gv._t_boss_label.y = bar_y + bar_h + 10
         gv._t_boss_label.draw()
 
+
+def _draw_flash_message(gv: GameView) -> None:
+    """Centre-screen transient flash message."""
     # Flash message
     if gv._flash_msg:
         play_cx = STATUS_WIDTH + (gv.window.width - STATUS_WIDTH) // 2
@@ -922,6 +924,9 @@ def draw_ui(gv: GameView) -> None:
             (200, 60, 60), border_width=1)
         gv._t_flash.draw()
 
+
+def _draw_boss_announcement(gv: GameView) -> None:
+    """Pulsing boss-spawn announcement band."""
     # Boss spawn announcement
     if gv._boss_announce_timer > 0.0:
         play_cx = STATUS_WIDTH + (gv.window.width - STATUS_WIDTH) // 2
@@ -942,5 +947,33 @@ def draw_ui(gv: GameView) -> None:
         gv._t_boss_subtitle.y = play_cy - 30
         gv._t_boss_subtitle.draw()
 
+
+def draw_ui(gv: GameView) -> None:
+    """Draw all UI-space elements (called inside ui_cam.activate)."""
+    # Treat every modal overlay as "menu open" so the expensive video
+    # blit + pixel-readback is skipped while the user is in a panel.
+    # fps_drops.log showed ~1250 drops with CRAFT open (worst 81 ms)
+    # — the HUD videos were still decoding behind the panel the user
+    # can't even see through.
+    menu_open = (
+        gv._escape_menu.open
+        or gv._craft_menu.open
+        or gv._trade_menu.open
+        or gv._build_menu.open
+        or gv._station_inv.open
+        or gv._qwi_menu.open
+        or gv._fleet_menu.open
+        or gv._station_info.open
+        or gv._ship_stats.open
+        or gv._dialogue.open
+        or gv._map_overlay.open
+    )
+    _draw_hud(gv, menu_open)
+    _draw_overlays(gv)
+    _draw_map_drone_hover(gv)
+    _draw_building_hover(gv, menu_open)
+    _draw_boss_hp_bar(gv)
+    _draw_flash_message(gv)
+    _draw_boss_announcement(gv)
     gv._escape_menu.draw()
     gv._death_screen.draw()
