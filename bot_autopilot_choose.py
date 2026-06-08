@@ -387,6 +387,39 @@ def _housekeeping_short_circuits(state: dict, p: dict) -> None:
                     "nebula_advanced_module_queued",
                     module=key, phase="craft",
                     **_ap._telemetry_snapshot_fields(state, p))
+        # Prune non-target modules from the install/craft queues
+        # (2026-06-07).  Once the Advanced Crafter exists, the Nebula
+        # goal is the 4-slot ``NEBULA_TARGET_LOADOUT`` (the three advanced
+        # modules + broadside).  A Nebula death re-queues the WHOLE lost
+        # loadout for install (``_observe_death_edges`` copies the dead
+        # ship's ``module_slots`` into ``modules_to_install``), so the
+        # MAIN-loadout modules -- ``shield_booster`` / ``shield_enhancer``
+        # / ``armor_plate`` -- get re-queued even though they aren't in
+        # the target set.  The bot then burns install cycles re-installing
+        # a module the swap planner immediately uninstalls again to make
+        # room for an advanced one (a ping-pong).  Drop any non-target
+        # module from both queues so the bot stops trying to install the
+        # shield booster once the three advanced modules + broadside are
+        # the goal.  The craft queue keeps the advanced consumable recipes
+        # (homing_missile / mining_drone / combat_drone), which aren't
+        # ship modules.
+        if adv_crafter_present:
+            q = _ap._state.queue
+            before = len(q.modules_to_install)
+            q.modules_to_install[:] = [
+                k for k in q.modules_to_install
+                if k in _ap.NEBULA_TARGET_LOADOUT]
+            q.modules_to_craft[:] = [
+                k for k in q.modules_to_craft
+                if k in _ap.NEBULA_TARGET_LOADOUT
+                or k in _ap.NEBULA_ADV_CONSUMABLE_TARGETS]
+            pruned = before - len(q.modules_to_install)
+            if pruned:
+                _ap._telemetry_log(
+                    "nebula_install_queue_pruned",
+                    pruned=pruned,
+                    install_queue=list(q.modules_to_install),
+                    **_ap._telemetry_snapshot_fields(state, p))
         # Advanced (Nebula-tier) consumable auto-queue (2026-05-26).
         # When the bot is in ZONE2 with an Advanced Crafter built,
         # the matching blueprint deposited, and the produced item

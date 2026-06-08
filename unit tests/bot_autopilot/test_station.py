@@ -4171,6 +4171,78 @@ class TestNebulaAdvancedModuleAutoQueue:
             assert k not in ap._state.queue.modules_to_install
 
 
+class TestNebulaInstallQueuePrune:
+    """2026-06-07: once the Advanced Crafter exists the Nebula goal is the
+    4-slot NEBULA_TARGET_LOADOUT (3 advanced + broadside).  A Nebula death
+    re-queues the whole lost loadout for install, including MAIN modules
+    (shield_booster / shield_enhancer / armor_plate) the bot then
+    ping-pongs on.  The housekeeping prune drops non-target modules from
+    the install/craft queues so the bot stops trying to install them."""
+
+    def _zone2(self, *, adv_crafter=True):
+        ap._state.queue.modules_to_install.clear()
+        ap._state.queue.modules_to_craft.clear()
+        ap._state.nebula_advanced_crafter_done = adv_crafter
+        s = _state(
+            player={"x": 4000.0, "y": 4000.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            station_inventory_items={},
+            module_slots=[],
+            buildings=[{"x": 4000.0, "y": 4000.0,
+                        "building_type": "Home Station"}])
+        s["zone"]["id"] = "ZoneID.ZONE2"
+        return s
+
+    def test_prunes_main_modules_keeps_target(self, _clock):
+        s = self._zone2(adv_crafter=True)
+        ap._state.queue.modules_to_install[:] = [
+            "broadside", "shield_booster", "shield_enhancer",
+            "armor_plate", "death_blossom"]
+        ap._do_auto(s, s["player"])
+        q = ap._state.queue.modules_to_install
+        assert "shield_booster" not in q
+        assert "shield_enhancer" not in q
+        assert "armor_plate" not in q
+        assert "broadside" in q
+        assert "death_blossom" in q
+
+    def test_keeps_full_target_loadout(self, _clock):
+        s = self._zone2(adv_crafter=True)
+        ap._state.queue.modules_to_install[:] = list(
+            ap.NEBULA_TARGET_LOADOUT)
+        ap._do_auto(s, s["player"])
+        for k in ap.NEBULA_TARGET_LOADOUT:
+            assert k in ap._state.queue.modules_to_install
+
+    def test_no_prune_without_adv_crafter(self, _clock):
+        # Before the Advanced Crafter exists the bot still wants its MAIN
+        # loadout -- don't prune.
+        s = self._zone2(adv_crafter=False)
+        ap._state.queue.modules_to_install[:] = [
+            "broadside", "shield_booster"]
+        ap._do_auto(s, s["player"])
+        assert "shield_booster" in ap._state.queue.modules_to_install
+
+    def test_no_prune_outside_zone2(self, _clock):
+        s = self._zone2(adv_crafter=True)
+        s["zone"]["id"] = "ZoneID.MAIN"
+        ap._state.queue.modules_to_install[:] = [
+            "broadside", "shield_booster"]
+        ap._do_auto(s, s["player"])
+        assert "shield_booster" in ap._state.queue.modules_to_install
+
+    def test_prunes_craft_queue_but_keeps_advanced_consumables(self, _clock):
+        s = self._zone2(adv_crafter=True)
+        ap._state.queue.modules_to_install[:] = ["death_blossom"]
+        ap._state.queue.modules_to_craft[:] = [
+            "shield_booster", "death_blossom", "combat_drone"]
+        ap._do_auto(s, s["player"])
+        cq = ap._state.queue.modules_to_craft
+        assert "shield_booster" not in cq    # non-target module dropped
+        assert "death_blossom" in cq         # target module kept
+        assert "combat_drone" in cq          # advanced consumable kept
+
+
 # ── Nebula Advanced Crafter (2026-05-25) ──────────────────────────────────
 
 
