@@ -172,6 +172,29 @@ def _post_use_quick_use(slot: int, timeout_s: float = 5.0) -> dict | None:
         return None
 
 
+def _post_deploy_drone(variant: str,
+                       timeout_s: float = 5.0) -> dict | None:
+    """POST /deploy_drone — deploy / swap the companion drone to a
+    specific ``variant`` ("mining" | "combat"), independent of the
+    active weapon.  Returns the parsed JSON response or None on
+    transport failure."""
+    try:
+        req = Request(
+            f"{_ap.API_BASE}/deploy_drone",
+            data=json.dumps({"variant": str(variant)}).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urlopen(req, timeout=timeout_s) as r:
+            return json.loads(r.read().decode("utf-8"))
+    except (URLError, TimeoutError, OSError) as e:
+        print(f"[autopilot] deploy_drone POST error: {e}")
+        return None
+    except Exception as e:
+        print(f"[autopilot] deploy_drone POST unexpected error: {e}")
+        return None
+
+
 def _post_equip_consumables(timeout_s: float = 5.0) -> dict | None:
     """POST /equip_consumables — withdraw repair packs + shield
     recharges from station into ship inv + bind to quick-use

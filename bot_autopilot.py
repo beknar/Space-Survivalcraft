@@ -625,6 +625,10 @@ class BotState:
     install_stall_head: str = ""
     install_stall_since: float = 0.0
     install_recraft_attempts: dict = field(default_factory=dict)
+    # Companion-drone auto-deploy throttle (2026-06-07).  Monotonic
+    # timestamp of the last /deploy_drone POST so swaps between the
+    # combat and mining drone don't thrash on a brief FSM state flip.
+    drone_deploy_last_at: float = 0.0
 
     def reset(self) -> None:
         """Restore every field to its default.  Mutates dict fields
@@ -687,6 +691,7 @@ class BotState:
         self.install_stall_head = ""
         self.install_stall_since = 0.0
         self.install_recraft_attempts = {}
+        self.drone_deploy_last_at = 0.0
 
 
 # ── BotState backward-compat property aliases ─────────────────────────────
@@ -1007,6 +1012,7 @@ from bot_autopilot_http import (
     _post_uninstall_module,
     _post_deposit_to_station,
     _post_use_quick_use,
+    _post_deploy_drone,
     _post_equip_consumables,
     _post_fortify,
     _post_place_qwi,
@@ -1425,6 +1431,62 @@ def _run_stuck_escape(state: dict, p: dict, now: float) -> bool:
     return False
 
 
+# FSM states where the bot is actively fighting -- field a combat drone.
+_DRONE_COMBAT_STATES = (S_ENGAGE, S_ENGAGE_BOSS, S_HUNT, S_RETREAT)
+
+
+def _drone_desired_variant(state: dict, p: dict) -> str:
+    """The drone variant that fits the current activity: ``"combat"``
+    while fighting (a combat FSM state, or any alien within engage
+    range), else ``"mining"``."""
+    if _fsm["state"] in _DRONE_COMBAT_STATES:
+        return "combat"
+    px = float(p.get("x", 0.0))
+    py = float(p.get("y", 0.0))
+    threat, td = nearest(state.get("aliens") or [], px, py)
+    if threat is not None and td < ENGAGE_ENTER_PX:
+        return "combat"
+    return "mining"
+
+
+def _observe_drone_deploy(state: dict, p: dict, now: float) -> None:
+    """Field / swap the companion drone to match the current activity:
+    a combat drone while fighting, a mining drone otherwise.
+
+    Added 2026-06-07.  The bot crafts both drone variants but never
+    deployed them -- ``use_quick_use_slot`` didn't handle drone items,
+    so the slot bindings were dead weight.  Fires /deploy_drone only
+    when the desired variant differs from what's currently out AND the
+    bot holds a charge of it, throttled by ``DRONE_DEPLOY_COOLDOWN_S``
+    so a brief engage<->mine flip doesn't ping-pong the drone.  A swap
+    refunds the old charge game-side, so an unnecessary swap costs churn,
+    not a lost drone.
+    """
+    items = (state.get("inventory") or {}).get("items") or {}
+    have = {
+        "combat": int(items.get("combat_drone", 0)) > 0,
+        "mining": int(items.get("mining_drone", 0)) > 0,
+    }
+    active = state.get("active_drone")  # "combat" / "mining" / None
+    # Nothing held and nothing out -> pre-drone-tier, skip (no POST spam).
+    if not (have["combat"] or have["mining"] or active is not None):
+        return
+    desired = _drone_desired_variant(state, p)
+    if active == desired:
+        return                        # already fielding the right drone
+    if not have[desired]:
+        return                        # no charge of the desired variant
+    if (now - _state.drone_deploy_last_at) < DRONE_DEPLOY_COOLDOWN_S:
+        return
+    _state.drone_deploy_last_at = now
+    res = _post_deploy_drone(desired)
+    _telemetry_log(
+        "drone_deploy",
+        variant=desired, was=active,
+        result=(res or {}).get("reason", "transport_failure"),
+        **_telemetry_snapshot_fields(state, p))
+
+
 def _do_auto(state: dict, p: dict) -> None:
     """Step the FSM one tick, then dispatch the action for the
     current state.  ENGAGE preempts dwell; everything else waits
@@ -1480,6 +1542,11 @@ def _do_auto(state: dict, p: dict) -> None:
     # ``_observe_consumable_restock`` for the captured pathology (2026-
     # 06-05: ~13 min fought with shield supply = 0).
     _observe_consumable_restock(state, p, now)
+
+    # Field / swap the companion drone to match the current activity --
+    # a combat drone while fighting, a mining drone otherwise.  See
+    # ``_observe_drone_deploy`` (2026-06-07).
+    _observe_drone_deploy(state, p, now)
 
     # Emit warp_traverse_arc_completed when the FSM exits S_WARP_TRAVERSE
     # without the action-handler arrival-band branch having fired

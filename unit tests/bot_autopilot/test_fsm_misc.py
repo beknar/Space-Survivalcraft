@@ -4134,3 +4134,96 @@ class TestDockedEscapeSkip:
             _clock[0] += 0.1
         assert result is True
         assert ap._stuck_state["escape_until"] > 0.0
+
+
+class TestDroneDeployObserver:
+    """2026-06-07: the bot crafts both drone variants but never deployed
+    them.  ``_observe_drone_deploy`` fields a combat drone while fighting
+    and a mining drone otherwise, swapping only when the desired variant
+    differs from what's out, the bot holds a charge, and the cooldown has
+    elapsed."""
+
+    def _capture(self, monkeypatch):
+        calls = []
+        monkeypatch.setattr(
+            ap, "_post_deploy_drone",
+            lambda variant, timeout_s=5.0: (calls.append(variant)
+                                            or {"ok": True,
+                                                "reason": "deployed"}))
+        monkeypatch.setattr(ap, "_telemetry_log", lambda *a, **k: None)
+        return calls
+
+    def _drone_state(self, *, combat=0, mining=0, active=None):
+        s = _state(player={"x": 0.0, "y": 0.0, "heading": 0.0,
+                           "shields": 150, "max_shields": 150},
+                   inventory_items={"combat_drone": combat,
+                                    "mining_drone": mining})
+        s["active_drone"] = active
+        return s
+
+    # -- desired-variant logic --
+    def test_desired_combat_in_engage_state(self, _clock):
+        ap._fsm["state"] = ap.S_ENGAGE
+        s = self._drone_state()
+        assert ap._drone_desired_variant(s, s["player"]) == "combat"
+
+    def test_desired_combat_with_near_threat(self, _clock):
+        ap._fsm["state"] = ap.S_MINE
+        s = self._drone_state()
+        s["aliens"] = [{"x": ap.ENGAGE_ENTER_PX - 50.0, "y": 0.0, "hp": 50}]
+        assert ap._drone_desired_variant(s, s["player"]) == "combat"
+
+    def test_desired_mining_when_idle_no_threat(self, _clock):
+        ap._fsm["state"] = ap.S_MINE
+        s = self._drone_state()
+        assert ap._drone_desired_variant(s, s["player"]) == "mining"
+
+    # -- observer gating --
+    def test_deploys_combat_when_fighting(self, _clock, monkeypatch):
+        calls = self._capture(monkeypatch)
+        ap._fsm["state"] = ap.S_ENGAGE
+        s = self._drone_state(combat=2, active=None)
+        ap._observe_drone_deploy(s, s["player"], _clock[0])
+        assert calls == ["combat"]
+
+    def test_swaps_to_mining_when_not_fighting(self, _clock, monkeypatch):
+        calls = self._capture(monkeypatch)
+        ap._fsm["state"] = ap.S_MINE
+        s = self._drone_state(mining=2, active="combat")
+        ap._observe_drone_deploy(s, s["player"], _clock[0])
+        assert calls == ["mining"]
+
+    def test_no_deploy_when_already_correct(self, _clock, monkeypatch):
+        calls = self._capture(monkeypatch)
+        ap._fsm["state"] = ap.S_ENGAGE
+        s = self._drone_state(combat=2, active="combat")
+        ap._observe_drone_deploy(s, s["player"], _clock[0])
+        assert calls == []
+
+    def test_no_deploy_without_charge(self, _clock, monkeypatch):
+        calls = self._capture(monkeypatch)
+        ap._fsm["state"] = ap.S_ENGAGE
+        s = self._drone_state(combat=0, mining=3, active=None)
+        ap._observe_drone_deploy(s, s["player"], _clock[0])
+        assert calls == []   # wants combat, has none
+
+    def test_no_deploy_when_no_drones_at_all(self, _clock, monkeypatch):
+        calls = self._capture(monkeypatch)
+        ap._fsm["state"] = ap.S_MINE
+        s = self._drone_state(combat=0, mining=0, active=None)
+        ap._observe_drone_deploy(s, s["player"], _clock[0])
+        assert calls == []
+
+    def test_throttled_then_fires_after_cooldown(self, _clock, monkeypatch):
+        calls = self._capture(monkeypatch)
+        ap._state.drone_deploy_last_at = 0.0
+        ap._fsm["state"] = ap.S_ENGAGE
+        s = self._drone_state(combat=5, active=None)
+        ap._observe_drone_deploy(s, s["player"], _clock[0])
+        # Second call within cooldown -> no new POST (active still None in
+        # this stubbed state, so desired still differs).
+        ap._observe_drone_deploy(s, s["player"], _clock[0])
+        assert calls == ["combat"]
+        _clock[0] += ap.DRONE_DEPLOY_COOLDOWN_S + 1.0
+        ap._observe_drone_deploy(s, s["player"], _clock[0])
+        assert calls == ["combat", "combat"]
