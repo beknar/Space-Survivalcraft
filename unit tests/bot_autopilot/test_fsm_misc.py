@@ -4154,6 +4154,10 @@ class TestDroneDeployObserver:
         return calls
 
     def _drone_state(self, *, combat=0, mining=0, active=None):
+        # Reset the drone timers so the combat-sticky hysteresis is
+        # deterministic (not covered by _fresh_bot_state).
+        ap._state.drone_deploy_last_at = 0.0
+        ap._state.drone_last_combat_at = 0.0
         s = _state(player={"x": 0.0, "y": 0.0, "heading": 0.0,
                            "shields": 150, "max_shields": 150},
                    inventory_items={"combat_drone": combat,
@@ -4187,11 +4191,47 @@ class TestDroneDeployObserver:
         assert calls == ["combat"]
 
     def test_swaps_to_mining_when_not_fighting(self, _clock, monkeypatch):
+        # No recent combat (drone_last_combat_at reset to 0, clock at
+        # 1000) -> sustained non-combat, so the swap to mining fires.
         calls = self._capture(monkeypatch)
         ap._fsm["state"] = ap.S_MINE
         s = self._drone_state(mining=2, active="combat")
         ap._observe_drone_deploy(s, s["player"], _clock[0])
         assert calls == ["mining"]
+
+    def test_keeps_combat_drone_during_sticky_window(
+            self, _clock, monkeypatch):
+        # Combat drone out, bot briefly mining, but combat ended only a
+        # moment ago -> within DRONE_COMBAT_STICKY_S, so do NOT swap to
+        # mining (this is the thrash the hysteresis kills).
+        calls = self._capture(monkeypatch)
+        ap._fsm["state"] = ap.S_MINE
+        s = self._drone_state(mining=2, active="combat")
+        ap._state.drone_last_combat_at = _clock[0] - 5.0  # 5 s ago
+        ap._observe_drone_deploy(s, s["player"], _clock[0])
+        assert calls == []
+
+    def test_swaps_to_mining_after_sticky_window(
+            self, _clock, monkeypatch):
+        # Same setup but combat ended well beyond the sticky window ->
+        # the bot has genuinely been mining, so swap to the mining drone.
+        calls = self._capture(monkeypatch)
+        ap._fsm["state"] = ap.S_MINE
+        s = self._drone_state(mining=2, active="combat")
+        ap._state.drone_last_combat_at = (
+            _clock[0] - ap.DRONE_COMBAT_STICKY_S - 1.0)
+        ap._observe_drone_deploy(s, s["player"], _clock[0])
+        assert calls == ["mining"]
+
+    def test_combat_deploys_immediately_despite_sticky(
+            self, _clock, monkeypatch):
+        # Stickiness must NOT delay deploying combat when a fight starts:
+        # combat_now is True so the combat drone goes out at once.
+        calls = self._capture(monkeypatch)
+        ap._fsm["state"] = ap.S_ENGAGE
+        s = self._drone_state(combat=2, active="mining")
+        ap._observe_drone_deploy(s, s["player"], _clock[0])
+        assert calls == ["combat"]
 
     def test_no_deploy_when_already_correct(self, _clock, monkeypatch):
         calls = self._capture(monkeypatch)

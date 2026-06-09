@@ -629,6 +629,11 @@ class BotState:
     # timestamp of the last /deploy_drone POST so swaps between the
     # combat and mining drone don't thrash on a brief FSM state flip.
     drone_deploy_last_at: float = 0.0
+    # Monotonic timestamp of the last tick the bot was in combat, for the
+    # combat-sticky drone hysteresis (2026-06-08): the combat drone stays
+    # out for ``DRONE_COMBAT_STICKY_S`` after this before a swap back to
+    # the mining drone is allowed.
+    drone_last_combat_at: float = 0.0
 
     def reset(self) -> None:
         """Restore every field to its default.  Mutates dict fields
@@ -692,6 +697,7 @@ class BotState:
         self.install_stall_since = 0.0
         self.install_recraft_attempts = {}
         self.drone_deploy_last_at = 0.0
+        self.drone_last_combat_at = 0.0
 
 
 # ── BotState backward-compat property aliases ─────────────────────────────
@@ -1443,7 +1449,18 @@ def _observe_drone_deploy(state: dict, p: dict, now: float) -> None:
     # Nothing held and nothing out -> pre-drone-tier, skip (no POST spam).
     if not (have["combat"] or have["mining"] or active is not None):
         return
-    desired = _drone_desired_variant(state, p)
+    # Combat-sticky hysteresis (2026-06-08): deploy the combat drone the
+    # instant a fight starts, but keep it out for DRONE_COMBAT_STICKY_S
+    # after the last combat tick before swapping back to mining.  Without
+    # this the normal engage<->mine FSM churn flipped the drone every few
+    # seconds (138 swaps / 2.2 h session).  Only a sustained non-combat
+    # stretch returns the mining drone.
+    combat_now = _drone_desired_variant(state, p) == "combat"
+    if combat_now:
+        _state.drone_last_combat_at = now
+    recently_combat = (
+        (now - _state.drone_last_combat_at) < DRONE_COMBAT_STICKY_S)
+    desired = "combat" if (combat_now or recently_combat) else "mining"
     if active == desired:
         return                        # already fielding the right drone
     if not have[desired]:
