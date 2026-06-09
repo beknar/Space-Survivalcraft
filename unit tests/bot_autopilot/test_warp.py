@@ -2395,3 +2395,85 @@ class TestNebulaDeathRecoveryGate:
         assert ap._state.nebula_recovery_pending is False
 
 
+
+
+class TestWarpPinRetryCooldown:
+    """2026-06-08: all four MAIN wormholes are in corners inside the
+    boundary-repulsion margin.  When the bot pins ~1800 px short of one,
+    the watchdog abandons the warp, but `_observe_warp_back_to_main`
+    re-armed within a tick and re-targeted the SAME corner -- a ~15 s
+    loop (8 pin-timeouts + 8 relatches over ~110 s).  A pin-timeout now
+    sets `warp_pin_retry_after`, and the relatch observer holds off until
+    it elapses."""
+
+    def setup_method(self):
+        ap._state.warp_wormhole_arrived_at = 0.0
+        ap._state.warp_wormhole_progress_at = 0.0
+        ap._state.warp_wormhole_best_d = 0.0
+        ap._state.warp_after_boss_done = False
+        ap._state.warp_pin_retry_after = 0.0
+
+    def _wh_state(self):
+        # Bot pinned far from a single corner wormhole.
+        s = _state(player={"x": 1500.0, "y": 1500.0, "heading": 0.0,
+                           "shields": 150, "max_shields": 150})
+        s["wormholes"] = [{"x": 200.0, "y": 200.0,
+                           "zone_target": "ZoneID.WARP_METEOR"}]
+        return s
+
+    def test_progress_watchdog_sets_cooldown(self, monkeypatch):
+        clock = [1000.0]
+        monkeypatch.setattr(ap, "_get_now", lambda: clock[0])
+        monkeypatch.setattr(ap, "_do_goto", lambda *a, **k: None)
+        monkeypatch.setattr(ap, "_telemetry_log", lambda *a, **k: None)
+        s = self._wh_state()
+        ap._act_warp_to_wormhole(s, s["player"])           # arms progress timer
+        clock[0] += ap.WARP_TO_WORMHOLE_NO_PROGRESS_TIMEOUT_S + 0.1
+        ap._act_warp_to_wormhole(s, s["player"])           # no progress -> timeout
+        assert ap._state.warp_after_boss_done is True
+        assert ap._state.warp_pin_retry_after == (
+            clock[0] + ap.WARP_PIN_RETRY_COOLDOWN_S)
+
+    def test_arrival_watchdog_sets_cooldown(self, monkeypatch):
+        clock = [1000.0]
+        monkeypatch.setattr(ap, "_get_now", lambda: clock[0])
+        monkeypatch.setattr(ap, "_do_goto", lambda *a, **k: None)
+        monkeypatch.setattr(ap, "_telemetry_log", lambda *a, **k: None)
+        # Wormhole within stop_radius so the arrival watchdog arms.
+        s = _state(player={"x": 200.0, "y": 200.0, "heading": 0.0,
+                           "shields": 150, "max_shields": 150})
+        s["wormholes"] = [{"x": 210.0, "y": 210.0,
+                           "zone_target": "ZoneID.WARP_METEOR"}]
+        ap._act_warp_to_wormhole(s, s["player"])
+        clock[0] += ap.WARP_TO_WORMHOLE_PIN_TIMEOUT_S + 0.1
+        ap._act_warp_to_wormhole(s, s["player"])
+        assert ap._state.warp_after_boss_done is True
+        assert ap._state.warp_pin_retry_after == (
+            clock[0] + ap.WARP_PIN_RETRY_COOLDOWN_S)
+
+    def _main_state(self):
+        s = _state(player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                           "shields": 150, "max_shields": 150},
+                   buildings=[_hs_building()])
+        s["zone"]["id"] = "ZoneID.MAIN"
+        return s
+
+    def test_relatch_suppressed_within_cooldown(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        monkeypatch.setattr(ap, "_telemetry_log", lambda *a, **k: None)
+        ap._state.boss_was_killed = True
+        ap._state.warp_after_boss_done = True
+        ap._state.warp_pin_retry_after = 1000.0
+        s = self._main_state()
+        ap._observe_warp_back_to_main(s, s["player"], 970.0)   # within cooldown
+        assert ap._state.warp_after_boss_done is True          # NOT re-armed
+
+    def test_relatch_fires_after_cooldown(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        monkeypatch.setattr(ap, "_telemetry_log", lambda *a, **k: None)
+        ap._state.boss_was_killed = True
+        ap._state.warp_after_boss_done = True
+        ap._state.warp_pin_retry_after = 1000.0
+        s = self._main_state()
+        ap._observe_warp_back_to_main(s, s["player"], 1001.0)  # past cooldown
+        assert ap._state.warp_after_boss_done is False         # re-armed

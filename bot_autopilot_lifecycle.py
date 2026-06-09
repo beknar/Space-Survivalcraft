@@ -320,6 +320,14 @@ def _observe_warp_back_to_main(state: dict, p: dict, now: float) -> None:
     in_main = ("MAIN" in zone_id) and ("WARP" not in zone_id)
     if not in_main:
         return
+    # Warp-pin retry cooldown (2026-06-08).  A wormhole pin-timeout just
+    # abandoned the warp because the bot couldn't path to a corner
+    # wormhole; re-arming now re-targets the same one and pins again
+    # (captured loop: 8 pin-timeouts + 8 relatches at one spot over
+    # ~110 s).  Hold off re-arming until the cooldown elapses so the bot
+    # does productive work and drifts to a new position first.
+    if now < _ap._state.warp_pin_retry_after:
+        return
     _ap._state.warp_after_boss_done = False
     _ap._state.warp_traverse_done = False
     # Mark the pending-relatch flag so the S_WARP_TO_WORMHOLE

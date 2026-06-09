@@ -330,6 +330,12 @@ class WarpState:
     wormhole_arrived_at: float = 0.0
     wormhole_best_d: float = 0.0
     wormhole_progress_at: float = 0.0
+    # Retry cooldown after a wormhole pin-timeout (2026-06-08).  Set to
+    # ``now + WARP_PIN_RETRY_COOLDOWN_S`` when a watchdog abandons a
+    # pinned warp; ``_observe_warp_back_to_main`` refuses to re-arm the
+    # warp until it elapses, so the bot does productive work instead of
+    # re-targeting the same unreachable corner wormhole every ~15 s.
+    pin_retry_after: float = 0.0
     traverse_max_y: float = 0.0
     traverse_progress_at: float = 0.0
     traverse_detour_count: int = 0
@@ -729,6 +735,7 @@ BotState.warp_traverse_done = _alias("warp", "traverse_done")
 BotState.warp_wormhole_arrived_at = _alias("warp", "wormhole_arrived_at")
 BotState.warp_wormhole_best_d = _alias("warp", "wormhole_best_d")
 BotState.warp_wormhole_progress_at = _alias("warp", "wormhole_progress_at")
+BotState.warp_pin_retry_after = _alias("warp", "pin_retry_after")
 BotState.warp_traverse_max_y = _alias("warp", "traverse_max_y")
 BotState.warp_traverse_progress_at = _alias("warp", "traverse_progress_at")
 BotState.warp_traverse_detour_count = _alias("warp", "traverse_detour_count")

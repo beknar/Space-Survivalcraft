@@ -536,6 +536,17 @@ WARP_TO_WORMHOLE_PIN_TIMEOUT_S: float = 5.0
 # sub-cell wobble from boundary repulsion oscillation).
 WARP_TO_WORMHOLE_NO_PROGRESS_TIMEOUT_S: float = 15.0
 WARP_TO_WORMHOLE_PROGRESS_THRESHOLD_PX: float = 50.0
+# Retry cooldown after a wormhole pin-timeout (2026-06-08).  All four
+# MAIN wormholes sit in the map corners, inside the boundary-repulsion
+# margin.  When the bot pins ~1800 px short of the nearest corner, the
+# watchdog abandons (latches warp_after_boss_done) -- but the bot is
+# still in MAIN, so ``_observe_warp_back_to_main`` re-arms within a tick
+# and the cascade re-targets the SAME corner, pinning again.  Captured: 8
+# pin-timeouts + 8 relatches at one spot over ~110 s.  After a timeout,
+# block the warp re-arm for this long so the bot does productive work
+# (mining / hunting drifts it elsewhere) and retries the warp from a new
+# position instead of looping on the corner.
+WARP_PIN_RETRY_COOLDOWN_S: float = 60.0
 # Lateral-detour timeout (2026-05-17): when ``_act_warp_traverse``
 # fails to advance the bot's max y over the current arc for this
 # many seconds, the action switches target_x from the world centre
