@@ -260,6 +260,18 @@ NEBULA_ADV_CONSUMABLE_TARGETS: dict[str, tuple[str, int]] = {
 # at a time and a swap refunds the old charge, so the cost is churn, not
 # lost drones.
 DRONE_DEPLOY_COOLDOWN_S: float = 4.0
+# Combat-sticky hysteresis for the drone auto-deploy (2026-06-08).  The
+# first cut keyed the desired variant on the INSTANT FSM state, so the
+# normal engage<->mine churn flipped the drone every few seconds: a
+# 2.2 h session logged 138 deploys, a perfect 69 mining->combat /
+# 69 combat->mining alternation, min gap = the 4 s cooldown.  Each swap
+# recalls + redeploys the drone, so it never settles into useful work.
+# Fix: deploy the combat drone the instant a fight starts, but keep it
+# out for this long after the LAST combat tick before allowing a swap
+# back to the mining drone -- so a brief mine between fights no longer
+# thrashes the drone.  Only a sustained (> this) non-combat stretch
+# swaps to mining.
+DRONE_COMBAT_STICKY_S: float = 20.0
 # REGEN escape-valve hysteresis (2026-05-13 fifteenth telemetry pass).
 # The previous escape-valve fired on a SINGLE tick where shields
 # didn't gain (``sh > last_regen_shields`` was False).  Captured in
