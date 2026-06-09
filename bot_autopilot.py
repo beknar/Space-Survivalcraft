@@ -1177,115 +1177,51 @@ def _docked_for_interaction(state: dict, p: dict) -> bool:
     return False
 
 
-def _run_stuck_escape(state: dict, p: dict, now: float) -> bool:
-    """Stuck-watchdog + escape-burst machine, run once per tick before
-    the FSM dispatch.  Returns True when an escape burst was dispatched
-    this tick and ``_do_auto`` must return immediately; False to fall
-    through into normal state selection.
+def _drive_active_escape(state: dict, p: dict, zone: dict,
+                         now: float) -> bool:
+    """Continue an already-active escape burst until the ship is
+    clear of edges + buildings and the minimum duration elapsed, then
+    re-anchor the SEARCH spiral in clear space.  True while still
+    escaping, False once the burst is released."""
+    # Escape is active.  Stay in escape until ALL of:
+    #  * the minimum duration has elapsed, AND
+    #  * the ship is clear of all world edges by the safety
+    #    margin, AND
+    #  * the ship is clear of all buildings by the building-
+    #    repulsion range (so an escape from a station-corner
+    #    pin doesn't expire while still inside the field that
+    #    will pin us again).
+    # Continuously clear position history while in escape so
+    # the next detect cycle starts fresh after we exit.
+    _stuck_state["history"] = []
+    if (now < _stuck_state["escape_until"]
+            or not _ship_clear_of_edges(p, zone)
+            or not _ship_clear_of_buildings(p, state)):
+        _do_escape_edge(state, p)
+        return True
+    # Exit condition met — clear the override and fall through.
+    _stuck_state["escape_until"] = 0.0
+    # Re-anchor the SEARCH spiral at the bot's CURRENT
+    # (clear-space) position.  Prior code re-anchored at
+    # world centre during the on-stuck handler — but the
+    # home station is typically built near world centre, so
+    # the next SEARCH cycle would target right back through
+    # the building cluster that caused the stuck (observed:
+    # 13 consecutive stuck events in 72 s, all in S_SEARCH,
+    # all oscillating between two positions 60-130 px from
+    # the HS).  Anchoring at the post-escape position means
+    # the new spiral starts in clear space.
+    _spiral_state["anchor"] = (
+        float(p.get("x", 0.0)), float(p.get("y", 0.0)))
+    _spiral_state["angle"] = 0.0
+    _spiral_state["radius"] = 100.0
+    return False
 
-    If the ship has been pinned against either the world boundary OR a
-    station building cluster, this overrides the FSM and heads along the
-    local repulsion vector toward open space -- it has to run BEFORE the
-    FSM dispatch so it preempts whatever was driving the ship into the
-    obstacle.  It records the position sample, runs the wall-pin
-    force-escape, then:
-      * if an escape burst is already active, keeps driving it until the
-        ship clears the edges + buildings, then re-anchors the SEARCH
-        spiral at the clear-space landing position;
-      * otherwise runs the position/rotation stuck detector (with the
-        2026-05-30 edge-pin override for the REGEN / IDLE / RETREAT skip
-        states) and, on a fresh stuck, arms the burst, blacklists the
-        unreachable target, records the pin-zone anchor, and logs.
-    """
-    _record_position(p)
-    zone = state.get("zone") or {}
-    # Wall+cluster trap force-escape (2026-05-06 follow-up #7): the
-    # navigation-layer position-history stuck detector misses a
-    # very specific failure mode — the bot rotating in place to
-    # track an alien while wall-pinned, with cluster-inland
-    # geometry.  Rotation defeats the rotation gate and the bot's
-    # tiny tracking-jitter movements (~1 px/s in the telemetry)
-    # don't cleanly trigger the displacement gate over a 1.5 s
-    # window either.  Add a geometry-aware detector that bypasses
-    # the rotation gate when trap conditions hold AND the bot's
-    # position has barely changed.  Force-arming escape mode lets
-    # compute_escape_target's wall-tangent path (PR #42) take over.
-    _maybe_force_wall_pin_escape(state, p, now)
-    if _stuck_state["escape_until"] > 0.0:
-        # Escape is active.  Stay in escape until ALL of:
-        #  * the minimum duration has elapsed, AND
-        #  * the ship is clear of all world edges by the safety
-        #    margin, AND
-        #  * the ship is clear of all buildings by the building-
-        #    repulsion range (so an escape from a station-corner
-        #    pin doesn't expire while still inside the field that
-        #    will pin us again).
-        # Continuously clear position history while in escape so
-        # the next detect cycle starts fresh after we exit.
-        _stuck_state["history"] = []
-        if (now < _stuck_state["escape_until"]
-                or not _ship_clear_of_edges(p, zone)
-                or not _ship_clear_of_buildings(p, state)):
-            _do_escape_edge(state, p)
-            return True
-        # Exit condition met — clear the override and fall through.
-        _stuck_state["escape_until"] = 0.0
-        # Re-anchor the SEARCH spiral at the bot's CURRENT
-        # (clear-space) position.  Prior code re-anchored at
-        # world centre during the on-stuck handler — but the
-        # home station is typically built near world centre, so
-        # the next SEARCH cycle would target right back through
-        # the building cluster that caused the stuck (observed:
-        # 13 consecutive stuck events in 72 s, all in S_SEARCH,
-        # all oscillating between two positions 60-130 px from
-        # the HS).  Anchoring at the post-escape position means
-        # the new spiral starts in clear space.
-        _spiral_state["anchor"] = (
-            float(p.get("x", 0.0)), float(p.get("y", 0.0)))
-        _spiral_state["angle"] = 0.0
-        _spiral_state["radius"] = 100.0
-    # Skip stuck-detect when in S_SEARCH, S_IDLE_AT_BASE, or S_REGEN.
-    #
-    # S_SEARCH: the spiral's brake-coast motion at small radii
-    # looks indistinguishable from "pinned" to the position +
-    # rotation watchdog (consecutive spiral targets at r=100 are
-    # only ~7 px apart in tangent — well inside the 25 px detect
-    # threshold).
-    #
-    # S_IDLE_AT_BASE: the bot is intentionally parked + drifting;
-    # the watchdog has no useful work to do.  At the original 300 px
-    # radius the watchdog fired 12 times in 5 minutes when the bot
-    # was inside a tight building cluster.  Even with the radius
-    # widened to 600 px, drift / micro-collisions inside the idle
-    # zone shouldn't trigger a 1.5 s escape burst — the bot would
-    # just navigate back to the same idle target on the next tick.
-    #
-    # S_REGEN: action is ``_do_idle()`` — bot intentionally parks
-    # and waits for shields to recover.  Zero movement is the
-    # whole point, so the watchdog fires every cycle.  2026-05-05
-    # telemetry caught the pathology cleanly: a single 40 s REGEN
-    # run produced 8 stuck_detected events; each escape burst
-    # shoved the bot ~700 px (4 successive bursts moved it 2052 px
-    # north along x≈3050) before pinning it against an edge for
-    # the final 12 s.  Shields still recovered (54 → 88) but the
-    # ship ended up far from where REGEN started.
-    #
-    # GATHER / MINE / DEPOSIT / CRAFT / INSTALL / HUNT still get
-    # stuck-detect protection — those states call _do_goto with
-    # brake_on_arrival=True against single chase targets, so a
-    # real pin cleanly fires the watchdog.
-    # Edge-pin override (2026-05-30): the skip set above keeps the
-    # escape burst from firing during intentional idle / spiral /
-    # regen parking.  But a GENUINE world-edge pin (ship inside the
-    # edge margin, not a spiral-coast false positive) while a threat
-    # is adjacent is lethal even in those states -- the 2026-05-30
-    # telemetry captured two Nebula deaths in fsm=regen wall-pinned
-    # near the map edge, shields collapsing while the watchdog stayed
-    # silent because REGEN was in the skip set.  Let the escape fire
-    # in REGEN / IDLE_AT_BASE / RETREAT when both conditions hold so
-    # the bot peels off the wall instead of bleeding out against it.
-    # S_SEARCH stays excluded (its small-radius spiral coast routinely
-    # trips the position watchdog in open space, edge or not).
+
+def _compute_escape_skip(state: dict, p: dict, zone: dict) -> bool:
+    """Whether the stuck-escape burst is suppressed this tick: True in
+    the soft skip states + while docked to interact, with the edge-pin
+    + threat override that re-enables escape for a cornered bot."""
     _edge_pinned = not _ship_clear_of_edges(p, zone)
     _stuck_threat, _stuck_threat_d = nearest(
         state.get("aliens") or [],
@@ -1309,124 +1245,160 @@ def _run_stuck_escape(state: dict, p: dict, now: float) -> bool:
             and _edge_pinned and _threatened_pin
             and _fsm["state"] != S_SEARCH):
         _escape_skipped = False
-    if _detect_stuck() and not _escape_skipped:
-        _stuck_state["escape_until"] = now + STUCK_ESCAPE_MIN_DURATION_S
-        # Blacklist whichever target the bot was trying to reach —
-        # if we got stuck WHILE in S_GATHER, the pickup is
-        # unreachable (typically inside a station-building's
-        # repulsion zone); if we got stuck WHILE in S_MINE, the
-        # asteroid is unreachable (asteroids aren't in the field,
-        # so the bot rams them).  Without these blacklists, the
-        # FSM re-targets the same object on the next tick and the
-        # stuck → escape → re-target loop runs forever.
-        blacklisted_pu = None
-        blacklisted_ast = None
-        sx = float(p.get("x", 0.0))
-        sy = float(p.get("y", 0.0))
-        if _fsm["state"] == S_GATHER:
-            stuck_pu, _ = _nearest_pickup(state, sx, sy)
-            if stuck_pu is not None:
-                _blacklist_pickup(stuck_pu)
-                blacklisted_pu = {
-                    "x": round(float(stuck_pu.get("x", 0.0)), 1),
-                    "y": round(float(stuck_pu.get("y", 0.0)), 1),
-                    "item_type": stuck_pu.get("item_type", ""),
-                }
-                print(f"[autopilot] PICKUP-BLACKLIST: {blacklisted_pu} "
-                      f"(stuck while gathering, ttl "
-                      f"{int(PICKUP_BLACKLIST_TTL_S)}s)")
-        elif _fsm["state"] == S_MINE:
-            stuck_ast, _ = _nearest_asteroid(state, sx, sy)
-            if stuck_ast is not None:
-                _blacklist_asteroid(stuck_ast)
-                blacklisted_ast = {
-                    "x": round(float(stuck_ast.get("x", 0.0)), 1),
-                    "y": round(float(stuck_ast.get("y", 0.0)), 1),
-                    "hp": stuck_ast.get("hp", 0),
-                }
-                print(f"[autopilot] ASTEROID-BLACKLIST: {blacklisted_ast} "
-                      f"(stuck while mining, ttl "
-                      f"{int(ASTEROID_BLACKLIST_TTL_S)}s)")
-        elif _fsm["state"] == S_HUNT:
-            # Hunt-stuck giveup (acute): track recent stuck events,
-            # and if the threshold trips inside the window, latch
-            # HUNT off for HUNT_GIVEUP_S so the FSM falls through
-            # to IDLE_AT_BASE and re-routes from clear space.
-            times = _state.hunt_stuck_times
-            cutoff = now - HUNT_STUCK_WINDOW_S
-            _state.hunt_stuck_times = [t for t in times if t >= cutoff]
-            _state.hunt_stuck_times.append(now)
-            if len(_state.hunt_stuck_times) >= HUNT_STUCK_THRESHOLD:
-                _state.hunt_giveup_until = now + HUNT_GIVEUP_S
-                _state.hunt_stuck_times.clear()
-                print(f"[autopilot] HUNT-GIVEUP: "
-                      f"{HUNT_STUCK_THRESHOLD} stuck events in "
-                      f"{HUNT_STUCK_WINDOW_S:.0f}s — suppressing "
-                      f"S_HUNT for {HUNT_GIVEUP_S:.0f}s")
-            # Hunt-stuck giveup (long-term per-anchor): catches the
-            # slow repeated-pin pattern (3 stucks at the same cluster
-            # anchor spread over 250 s — never trips the acute window
-            # but burns sessions on repeated pins).  Anchor is
-            # rounded to a HUNT_ANCHOR_GRID_PX grid; once it
-            # accumulates HUNT_ANCHOR_MAX_HITS within HUNT_ANCHOR_TTL_S
-            # the long-giveup latches for HUNT_LONG_GIVEUP_S.
-            anchor = (round(sx / HUNT_ANCHOR_GRID_PX) * HUNT_ANCHOR_GRID_PX,
-                      round(sy / HUNT_ANCHOR_GRID_PX) * HUNT_ANCHOR_GRID_PX)
-            # Evict expired anchors inline so the dict stays bounded.
-            expired = [k for k, (_n, exp) in _state.hunt_anchor_hits.items()
-                       if now >= exp]
-            for k in expired:
-                del _state.hunt_anchor_hits[k]
-            entry = _state.hunt_anchor_hits.get(anchor)
-            if entry is None:
-                _state.hunt_anchor_hits[anchor] = [1, now + HUNT_ANCHOR_TTL_S]
-            else:
-                entry[0] += 1
-                entry[1] = now + HUNT_ANCHOR_TTL_S
-                if entry[0] >= HUNT_ANCHOR_MAX_HITS:
-                    _state.hunt_giveup_until = max(
-                        _state.hunt_giveup_until,
-                        now + HUNT_LONG_GIVEUP_S)
-                    del _state.hunt_anchor_hits[anchor]
-                    print(f"[autopilot] HUNT-LONG-GIVEUP: anchor "
-                          f"{anchor} hit {HUNT_ANCHOR_MAX_HITS}× — "
-                          f"suppressing S_HUNT for "
-                          f"{HUNT_LONG_GIVEUP_S:.0f}s")
-        # Pin-zone anchor (2026-05-17): every stuck event adds the
-        # current ship position to the pin-zone list so the target
-        # selectors filter pickups / asteroids near it for the TTL.
-        # Generalizes the HUNT-anchor pattern above to all FSM
-        # states -- the captured log showed 8 stuck events in 130 s
-        # at the same Nebula anchor, but only HUNT had per-anchor
-        # giveup logic so ENGAGE/MINE/GATHER kept pulling the bot
-        # back via newly-spawned targets in the same cluster.
-        _record_pin_zone_anchor(sx, sy, now)
-        _telemetry_log("stuck_detected",
-                       cause=("building"
-                              if not _ship_clear_of_buildings(p, state)
-                              else "edge"),
-                       fsm_state=_fsm["state"],
-                       blacklisted_pickup=blacklisted_pu,
-                       blacklisted_asteroid=blacklisted_ast,
-                       **_telemetry_snapshot_fields(state, p))
-        # The spiral re-anchor moved to the escape-EXIT branch
-        # (above).  Anchoring at world centre on stuck-detect
-        # was the source of a regression: the home station is
-        # typically built near world centre, so the next SEARCH
-        # cycle would target right back through the building
-        # cluster.  We now wait until the escape lands the ship
-        # in clear space and anchor THERE.
-        _stuck_state["history"] = []
-        # Throttle the log so a long escape burst doesn't spam.
-        if (now - _stuck_state["last_log"]) >= STUCK_LOG_THROTTLE_S:
-            # Distinguish edge vs building stucks in the log so
-            # repeated firings are easier to diagnose.
-            cause = ("building" if not _ship_clear_of_buildings(p, state)
-                     else "edge")
-            print(f"[autopilot] STUCK at {cause} — escape burst along "
-                  "repulsion vector + re-anchoring spiral")
-            _stuck_state["last_log"] = now
-        _do_escape_edge(state, p)
+    return _escape_skipped
+
+
+def _arm_stuck_escape(state: dict, p: dict, now: float) -> None:
+    """Handle a fresh stuck: arm the burst, blacklist the unreachable
+    target (GATHER pickup / MINE asteroid) or run the HUNT give-up
+    latches, record the pin-zone anchor, log, and drive the escape."""
+    _stuck_state["escape_until"] = now + STUCK_ESCAPE_MIN_DURATION_S
+    # Blacklist whichever target the bot was trying to reach —
+    # if we got stuck WHILE in S_GATHER, the pickup is
+    # unreachable (typically inside a station-building's
+    # repulsion zone); if we got stuck WHILE in S_MINE, the
+    # asteroid is unreachable (asteroids aren't in the field,
+    # so the bot rams them).  Without these blacklists, the
+    # FSM re-targets the same object on the next tick and the
+    # stuck → escape → re-target loop runs forever.
+    blacklisted_pu = None
+    blacklisted_ast = None
+    sx = float(p.get("x", 0.0))
+    sy = float(p.get("y", 0.0))
+    if _fsm["state"] == S_GATHER:
+        stuck_pu, _ = _nearest_pickup(state, sx, sy)
+        if stuck_pu is not None:
+            _blacklist_pickup(stuck_pu)
+            blacklisted_pu = {
+                "x": round(float(stuck_pu.get("x", 0.0)), 1),
+                "y": round(float(stuck_pu.get("y", 0.0)), 1),
+                "item_type": stuck_pu.get("item_type", ""),
+            }
+            print(f"[autopilot] PICKUP-BLACKLIST: {blacklisted_pu} "
+                  f"(stuck while gathering, ttl "
+                  f"{int(PICKUP_BLACKLIST_TTL_S)}s)")
+    elif _fsm["state"] == S_MINE:
+        stuck_ast, _ = _nearest_asteroid(state, sx, sy)
+        if stuck_ast is not None:
+            _blacklist_asteroid(stuck_ast)
+            blacklisted_ast = {
+                "x": round(float(stuck_ast.get("x", 0.0)), 1),
+                "y": round(float(stuck_ast.get("y", 0.0)), 1),
+                "hp": stuck_ast.get("hp", 0),
+            }
+            print(f"[autopilot] ASTEROID-BLACKLIST: {blacklisted_ast} "
+                  f"(stuck while mining, ttl "
+                  f"{int(ASTEROID_BLACKLIST_TTL_S)}s)")
+    elif _fsm["state"] == S_HUNT:
+        # Hunt-stuck giveup (acute): track recent stuck events,
+        # and if the threshold trips inside the window, latch
+        # HUNT off for HUNT_GIVEUP_S so the FSM falls through
+        # to IDLE_AT_BASE and re-routes from clear space.
+        times = _state.hunt_stuck_times
+        cutoff = now - HUNT_STUCK_WINDOW_S
+        _state.hunt_stuck_times = [t for t in times if t >= cutoff]
+        _state.hunt_stuck_times.append(now)
+        if len(_state.hunt_stuck_times) >= HUNT_STUCK_THRESHOLD:
+            _state.hunt_giveup_until = now + HUNT_GIVEUP_S
+            _state.hunt_stuck_times.clear()
+            print(f"[autopilot] HUNT-GIVEUP: "
+                  f"{HUNT_STUCK_THRESHOLD} stuck events in "
+                  f"{HUNT_STUCK_WINDOW_S:.0f}s — suppressing "
+                  f"S_HUNT for {HUNT_GIVEUP_S:.0f}s")
+        # Hunt-stuck giveup (long-term per-anchor): catches the
+        # slow repeated-pin pattern (3 stucks at the same cluster
+        # anchor spread over 250 s — never trips the acute window
+        # but burns sessions on repeated pins).  Anchor is
+        # rounded to a HUNT_ANCHOR_GRID_PX grid; once it
+        # accumulates HUNT_ANCHOR_MAX_HITS within HUNT_ANCHOR_TTL_S
+        # the long-giveup latches for HUNT_LONG_GIVEUP_S.
+        anchor = (round(sx / HUNT_ANCHOR_GRID_PX) * HUNT_ANCHOR_GRID_PX,
+                  round(sy / HUNT_ANCHOR_GRID_PX) * HUNT_ANCHOR_GRID_PX)
+        # Evict expired anchors inline so the dict stays bounded.
+        expired = [k for k, (_n, exp) in _state.hunt_anchor_hits.items()
+                   if now >= exp]
+        for k in expired:
+            del _state.hunt_anchor_hits[k]
+        entry = _state.hunt_anchor_hits.get(anchor)
+        if entry is None:
+            _state.hunt_anchor_hits[anchor] = [1, now + HUNT_ANCHOR_TTL_S]
+        else:
+            entry[0] += 1
+            entry[1] = now + HUNT_ANCHOR_TTL_S
+            if entry[0] >= HUNT_ANCHOR_MAX_HITS:
+                _state.hunt_giveup_until = max(
+                    _state.hunt_giveup_until,
+                    now + HUNT_LONG_GIVEUP_S)
+                del _state.hunt_anchor_hits[anchor]
+                print(f"[autopilot] HUNT-LONG-GIVEUP: anchor "
+                      f"{anchor} hit {HUNT_ANCHOR_MAX_HITS}× — "
+                      f"suppressing S_HUNT for "
+                      f"{HUNT_LONG_GIVEUP_S:.0f}s")
+    # Pin-zone anchor (2026-05-17): every stuck event adds the
+    # current ship position to the pin-zone list so the target
+    # selectors filter pickups / asteroids near it for the TTL.
+    # Generalizes the HUNT-anchor pattern above to all FSM
+    # states -- the captured log showed 8 stuck events in 130 s
+    # at the same Nebula anchor, but only HUNT had per-anchor
+    # giveup logic so ENGAGE/MINE/GATHER kept pulling the bot
+    # back via newly-spawned targets in the same cluster.
+    _record_pin_zone_anchor(sx, sy, now)
+    _telemetry_log("stuck_detected",
+                   cause=("building"
+                          if not _ship_clear_of_buildings(p, state)
+                          else "edge"),
+                   fsm_state=_fsm["state"],
+                   blacklisted_pickup=blacklisted_pu,
+                   blacklisted_asteroid=blacklisted_ast,
+                   **_telemetry_snapshot_fields(state, p))
+    # The spiral re-anchor moved to the escape-EXIT branch
+    # (above).  Anchoring at world centre on stuck-detect
+    # was the source of a regression: the home station is
+    # typically built near world centre, so the next SEARCH
+    # cycle would target right back through the building
+    # cluster.  We now wait until the escape lands the ship
+    # in clear space and anchor THERE.
+    _stuck_state["history"] = []
+    # Throttle the log so a long escape burst doesn't spam.
+    if (now - _stuck_state["last_log"]) >= STUCK_LOG_THROTTLE_S:
+        # Distinguish edge vs building stucks in the log so
+        # repeated firings are easier to diagnose.
+        cause = ("building" if not _ship_clear_of_buildings(p, state)
+                 else "edge")
+        print(f"[autopilot] STUCK at {cause} — escape burst along "
+              "repulsion vector + re-anchoring spiral")
+        _stuck_state["last_log"] = now
+    _do_escape_edge(state, p)
+
+
+def _run_stuck_escape(state: dict, p: dict, now: float) -> bool:
+    """Stuck-watchdog + escape-burst machine, run once per tick before
+    the FSM dispatch.  Returns True when an escape burst was dispatched
+    this tick and ``_do_auto`` must return immediately; False to fall
+    through into normal state selection.
+
+    If the ship has been pinned against either the world boundary OR a
+    station building cluster, this overrides the FSM and heads along the
+    local repulsion vector toward open space -- it has to run BEFORE the
+    FSM dispatch so it preempts whatever was driving the ship into the
+    obstacle.  It records the position sample, runs the wall-pin
+    force-escape, then:
+      * if an escape burst is already active, keeps driving it until the
+        ship clears the edges + buildings, then re-anchors the SEARCH
+        spiral at the clear-space landing position;
+      * otherwise runs the position/rotation stuck detector (with the
+        2026-05-30 edge-pin override for the REGEN / IDLE / RETREAT skip
+        states) and, on a fresh stuck, arms the burst, blacklists the
+        unreachable target, records the pin-zone anchor, and logs.
+    """
+    _record_position(p)
+    zone = state.get("zone") or {}
+    _maybe_force_wall_pin_escape(state, p, now)
+    if _stuck_state["escape_until"] > 0.0:
+        if _drive_active_escape(state, p, zone, now):
+            return True
+    if _detect_stuck() and not _compute_escape_skip(state, p, zone):
+        _arm_stuck_escape(state, p, now)
         return True
     return False
 
