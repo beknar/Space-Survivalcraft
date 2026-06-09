@@ -261,10 +261,10 @@ def draw_background(
         tx += ts
 
 
-def draw_world(gv: GameView, cx: float, cy: float, hw: float, hh: float) -> None:
-    """Draw all world-space entities (called inside world_cam.activate)."""
-    draw_background(gv, cx, cy, hw, hh)
-
+def _draw_zone_entities(gv: GameView, cx: float, cy: float,
+                        hw: float, hh: float) -> None:
+    """Zone-specific world entities: the explicit MAIN draw order, or
+    the non-MAIN zone's own ``draw_world`` + Nebula boss."""
     # Zone-specific world entities
     from zones import ZoneID
     if gv._zone.zone_id == ZoneID.MAIN:
@@ -292,27 +292,10 @@ def draw_world(gv: GameView, cx: float, cy: float, hw: float, hh: float) -> None
         # clouds + cone overlay the zone's own entities.
         _draw_nebula_boss(gv)
 
-    # HP + shield bars above every live boss (Double Star + Nebula).
-    # Same shape as the parked-ship HP bar, just wider and with an
-    # extra blue shield row when shields are non-zero.
-    _draw_boss_health_bars(gv)
 
-    # Trade station (shared across all zones — drawn after zone entities)
-    _draw_trade_station(gv)
-
-    # Slipspace teleporters — drawn before null fields so a slipspace
-    # that overlaps a stealth patch doesn't block the cluster dots.
-    _draw_slipspaces(gv)
-
-    # Null fields — semi-transparent dot clusters drawn above world
-    # entities but below the player ship + projectiles so they don't
-    # occlude combat readouts.
-    _draw_null_fields(gv)
-
-    # Station shield — drawn before the player/particles so it sits
-    # behind the ship and projectiles but on top of buildings.
-    _draw_station_shield(gv)
-
+def _draw_refugee_npc(gv: GameView) -> None:
+    """Double Star refugee NPC sprite + hover label (Zone 2 only)."""
+    from zones import ZoneID
     # Double Star Refugee NPC — Zone 2 only, once unlocked
     if gv._refugee_npc is not None and gv._zone.zone_id == ZoneID.ZONE2:
         arcade.draw_sprite(gv._refugee_npc)
@@ -325,6 +308,11 @@ def draw_world(gv: GameView, cx: float, cy: float, hw: float, hh: float) -> None
             t.y = gv._refugee_npc.center_y + 40
             t.draw()
 
+
+def _draw_player_and_projectiles(gv: GameView) -> None:
+    """Projectiles / missiles / melee / drone / force walls, then the
+    player ship (with null-field cloak + nose marker) and its shield /
+    enhancer ring / consumable-use glow."""
     # Shared world entities (always drawn)
     gv.projectile_list.draw()
     gv._missile_list.draw()
@@ -406,6 +394,11 @@ def draw_world(gv: GameView, cx: float, cy: float, hw: float, hh: float) -> None
         arcade.draw_circle_filled(
             gv.player.center_x, gv.player.center_y,
             radius, (r, g, b, alpha))
+
+
+def _draw_world_overlays(gv: GameView) -> None:
+    """World-space overlays drawn last: parked-ship HP bars + hover,
+    drone hover, hit/fire sparks, placement ghost, destroy crosshair."""
     # Parked ship HP bars (world space)
     for ps in gv._parked_ships:
         if ps.hp < ps.max_hp:
@@ -455,6 +448,37 @@ def draw_world(gv: GameView, cx: float, cy: float, hw: float, hh: float) -> None
         arcade.draw_line(dcx - sz, dcy, dcx + sz, dcy, (255, 60, 60, 200), 2)
         arcade.draw_line(dcx, dcy - sz, dcx, dcy + sz, (255, 60, 60, 200), 2)
         arcade.draw_circle_outline(dcx, dcy, 12, (255, 60, 60, 180), 2)
+
+
+def draw_world(gv: GameView, cx: float, cy: float, hw: float, hh: float) -> None:
+    """Draw all world-space entities (called inside world_cam.activate)."""
+    draw_background(gv, cx, cy, hw, hh)
+    _draw_zone_entities(gv, cx, cy, hw, hh)
+
+    # HP + shield bars above every live boss (Double Star + Nebula).
+    # Same shape as the parked-ship HP bar, just wider and with an
+    # extra blue shield row when shields are non-zero.
+    _draw_boss_health_bars(gv)
+
+    # Trade station (shared across all zones — drawn after zone entities)
+    _draw_trade_station(gv)
+
+    # Slipspace teleporters — drawn before null fields so a slipspace
+    # that overlaps a stealth patch doesn't block the cluster dots.
+    _draw_slipspaces(gv)
+
+    # Null fields — semi-transparent dot clusters drawn above world
+    # entities but below the player ship + projectiles so they don't
+    # occlude combat readouts.
+    _draw_null_fields(gv)
+
+    # Station shield — drawn before the player/particles so it sits
+    # behind the ship and projectiles but on top of buildings.
+    _draw_station_shield(gv)
+
+    _draw_refugee_npc(gv)
+    _draw_player_and_projectiles(gv)
+    _draw_world_overlays(gv)
 
 
 def _minimap_obstacles(gv: GameView):
