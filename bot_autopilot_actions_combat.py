@@ -754,6 +754,7 @@ def _wormhole_arrival_watchdog(state: dict, p: dict, now: float,
         **_ap._telemetry_snapshot_fields(state, p))
     _ap._state.warp_after_boss_done = True
     _ap._state.warp_wormhole_arrived_at = 0.0
+    _ap._state.warp_pin_retry_after = now + _ap.WARP_PIN_RETRY_COOLDOWN_S
     return True
 
 
@@ -800,6 +801,7 @@ def _wormhole_progress_watchdog(state: dict, p: dict, now: float,
     _ap._state.warp_after_boss_done = True
     _ap._state.warp_wormhole_best_d = 0.0
     _ap._state.warp_wormhole_progress_at = 0.0
+    _ap._state.warp_pin_retry_after = now + _ap.WARP_PIN_RETRY_COOLDOWN_S
     return True
 
 
