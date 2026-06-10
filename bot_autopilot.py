@@ -1049,6 +1049,7 @@ from bot_autopilot_targeting import (
     _recovery_loadout_ready,
     _qwi_ready_to_build, _find_quick_use_slot,
     _next_craft_target, _next_install_target, _module_swap_plan,
+    _consumable_supply_total,
 )
 from bot_autopilot_movement import (
     _do_idle, _do_goto, _do_hold_distance, _do_spiral_search,

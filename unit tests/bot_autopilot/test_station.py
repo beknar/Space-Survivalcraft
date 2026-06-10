@@ -875,6 +875,76 @@ class TestCraftQueueOrder:
         assert ap._next_craft_target(s) is None
 
 
+class TestConsumableEntryGateEmergencyBypass:
+    """2026-06-09: a 33-min session ran ~24 min at ZERO shield/repair
+    stock while station iron sat at 190-450 -- below the 500-iron
+    consumable-phase ENTRY gate but above the 200-iron per-craft cost
+    the whole time.  ``_next_craft_target`` returned None for the
+    pending batches, so the bot cycled regen episodes with no heals.
+    The entry gate now bypasses when that consumable's total supply
+    (station + ship + quick-use) is at/below CONSUMABLE_RESTOCK_FLOOR."""
+
+    def _drained_modules(self):
+        ap._state.queue.modules_to_craft.clear()
+        ap._state.queue.modules_to_install.clear()
+        ap._state.queue.consumable_phase_started = False
+
+    def test_dry_supply_bypasses_entry_gate(self, _clock):
+        # Iron 300: above per-craft cost (200), below entry gate (500).
+        # No consumables anywhere -> dry -> bypass fires.
+        self._drained_modules()
+        s = _state(
+            buildings=[_hs_building(), _crafter_building()],
+            station_inventory_items={"iron": 300},
+        )
+        assert ap._next_craft_target(s) == "repair_pack"
+
+    def test_shield_dry_bypasses_for_shield_phase(self, _clock):
+        # Repair batches done; shield batches pending; shield dry.
+        self._drained_modules()
+        ap._state.queue.repair_packs_remaining = 0
+        s = _state(
+            buildings=[_hs_building(), _crafter_building()],
+            station_inventory_items={"iron": 300},
+        )
+        assert ap._next_craft_target(s) == "shield_recharge"
+
+    def test_plentiful_supply_keeps_entry_gate(self, _clock):
+        # Stock above the floor everywhere -> the 500-iron entry gate
+        # still applies (no emergency), so iron 300 returns None.
+        self._drained_modules()
+        s = _state(
+            buildings=[_hs_building(), _crafter_building()],
+            station_inventory_items={
+                "iron": 300,
+                "repair_pack": ap.CONSUMABLE_RESTOCK_FLOOR + 5,
+                "shield_recharge": ap.CONSUMABLE_RESTOCK_FLOOR + 5,
+            },
+        )
+        assert ap._next_craft_target(s) is None
+
+    def test_bypass_still_respects_per_craft_cost(self, _clock):
+        # Dry, but iron below the 200 per-craft cost -> still None
+        # (the bypass opens the entry gate, not the wallet).
+        self._drained_modules()
+        s = _state(
+            buildings=[_hs_building(), _crafter_building()],
+            station_inventory_items={"iron": 150},
+        )
+        assert ap._next_craft_target(s) is None
+
+    def test_supply_total_sums_all_locations(self, _clock):
+        s = _state(
+            station_inventory_items={"shield_recharge": 3},
+            inventory_items={"shield_recharge": 2, "iron": 0},
+        )
+        s["quick_use_slots"] = [
+            {"item_type": "shield_recharge", "count": 4},
+            {"item_type": "repair_pack", "count": 9}]
+        assert ap._consumable_supply_total(s, "shield_recharge") == 9
+        assert ap._consumable_supply_total(s, "repair_pack") == 9
+
+
 
 
 class TestCraftQueueSkipsAlreadyDoneModules:
@@ -2075,13 +2145,19 @@ class TestConsumablePhaseThreshold:
         assert ap._next_craft_target(s) == "repair_pack"
 
     def test_consumable_phase_blocked_below_500(self, _clock):
-        """Just below the consumable threshold — the bot still
-        waits."""
+        """Just below the consumable threshold — the bot still waits,
+        PROVIDED its existing consumable supply is healthy.  (With dry
+        supply the 2026-06-09 emergency bypass overrides the entry gate
+        — see TestConsumableEntryGateEmergencyBypass.)"""
         ap._state.queue.modules_to_craft.clear()
         ap._state.queue.modules_to_install.clear()
         s = _state(
             buildings=[_hs_building(), _crafter_building()],
-            station_inventory_items={"iron": 499},
+            station_inventory_items={
+                "iron": 499,
+                "repair_pack": ap.CONSUMABLE_RESTOCK_FLOOR + 5,
+                "shield_recharge": ap.CONSUMABLE_RESTOCK_FLOOR + 5,
+            },
         )
         assert ap._next_craft_target(s) is None
 

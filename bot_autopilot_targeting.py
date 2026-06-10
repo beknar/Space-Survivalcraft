@@ -816,6 +816,21 @@ def _find_quick_use_slot(slots: list, item_type: str) -> int | None:
     return None
 
 
+def _consumable_supply_total(state: dict, item_type: str) -> int:
+    """Total supply of ``item_type`` across station inventory, ship
+    cargo, and quick-use slots.  Mirrors the per-location sum the
+    restock observer uses; shared so the emergency entry-gate bypass in
+    ``_next_craft_target`` and the choose-cascade emergency-craft tier
+    read the same number."""
+    sitems = _station_items(state)
+    items = (state.get("inventory") or {}).get("items") or {}
+    n = int(sitems.get(item_type, 0)) + int(items.get(item_type, 0))
+    for s in (state.get("quick_use_slots") or []):
+        if s and s.get("item_type") == item_type:
+            n += int(s.get("count", 0))
+    return n
+
+
 def _next_craft_target(state: dict) -> str | None:
     """Return the next thing the bot wants to craft, or ``None`` if
     the queue is empty / preconditions aren't met.  Encapsulates
@@ -915,6 +930,20 @@ def _next_craft_target(state: dict) -> str | None:
             and iron >= _ap.CONSUMABLE_PHASE_IRON_THRESHOLD):
         q.consumable_phase_started = True
 
+    # Emergency entry-gate bypass (2026-06-09).  Captured: a 33-min
+    # session ran ~24 min at ZERO shield/repair stock while station iron
+    # sat at 190-450 -- below the 500-iron phase entry gate but above the
+    # 200-iron per-craft cost the whole time.  The gate exists to keep
+    # consumable crafting from draining iron staged for the module phase;
+    # when the bot's heal supply is at/below the restock floor that
+    # trade-off inverts -- one batch of heals is life-critical, the iron
+    # buffer is not.  Bypass the ENTRY gate (per-craft cost still
+    # applies) when the respective consumable's total supply is depleted.
+    repair_dry = (_consumable_supply_total(state, "repair_pack")
+                  <= _ap.CONSUMABLE_RESTOCK_FLOOR)
+    shield_dry = (_consumable_supply_total(state, "shield_recharge")
+                  <= _ap.CONSUMABLE_RESTOCK_FLOOR)
+
     if q.repair_packs_remaining > 0:
         # Consumable phase uses CONSUMABLE_PHASE_IRON_THRESHOLD
         # (500) as the entry gate — much lower than the module
@@ -924,7 +953,8 @@ def _next_craft_target(state: dict) -> str | None:
         # gate stops applying so a transient iron dip can't
         # stall the queue.
         if (not q.consumable_phase_started
-                and iron < _ap.CONSUMABLE_PHASE_IRON_THRESHOLD):
+                and iron < _ap.CONSUMABLE_PHASE_IRON_THRESHOLD
+                and not repair_dry):
             return None
         if iron < CRAFT_IRON_COST:
             return None
@@ -933,7 +963,8 @@ def _next_craft_target(state: dict) -> str | None:
     # ── Shield recharge phase ─────────────────────────────────────
     if q.shield_recharges_remaining > 0:
         if (not q.consumable_phase_started
-                and iron < _ap.CONSUMABLE_PHASE_IRON_THRESHOLD):
+                and iron < _ap.CONSUMABLE_PHASE_IRON_THRESHOLD
+                and not shield_dry):
             return None
         if iron < CRAFT_IRON_COST:
             return None
