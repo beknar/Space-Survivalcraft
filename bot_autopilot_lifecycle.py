@@ -405,7 +405,6 @@ def _observe_warp_back_to_main(state: dict, p: dict, now: float) -> None:
 
     _ap._telemetry_log(
         "warp_after_boss_relatch_for_return",
-        zone_id=zone_id,
         **_ap._telemetry_snapshot_fields(state, p))
 
 
@@ -550,7 +549,6 @@ def _observe_warp_traverse_arc_complete(state: dict, p: dict,
                >= _ap.WARP_TRAVERSE_CROSSED_MAX_Y_PX)
     _ap._telemetry_log(
         "warp_traverse_arc_completed",
-        zone_id=zone_id,
         outcome="crossed" if crossed else "interrupted",
         arc_duration_s=round(arc_duration_s, 1),
         max_y=round(_ap._state.warp_traverse_max_y, 1),

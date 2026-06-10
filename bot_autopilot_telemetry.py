@@ -103,6 +103,12 @@ def make_snapshot_fields(
     deposit_cooldown_remaining = max(
         0.0, deposit_cooldown_s - (now - bot_state.last_deposit_at))
     return {
+        # Zone diagnostic (2026-06-09).  Every post-hoc analysis so far
+        # has had to INFER the bot's zone from alien-count signatures
+        # (~60 aliens = Nebula swarm, declining count = MAIN hunt) --
+        # the snapshot never carried it.  One short string per line
+        # ends the guesswork.
+        "zone_id": str((state.get("zone") or {}).get("id", "")),
         "px": round(px, 1),
         "py": round(py, 1),
         "ship_iron": int(items.get("iron", 0)),

@@ -1491,7 +1491,6 @@ def choose_next_state(state: dict, p: dict, cur: str) -> str:
         _ap._state.nebula_recovery_pending = False
         _ap._telemetry_log(
             "warp_after_boss_complete",
-            zone_id=zone_id,
             **_ap._telemetry_snapshot_fields(state, p))
     # Modules-to-install gate (2026-05-17 follow-up): the queue
     # blocks the warp by default, but if the queue is non-empty AND
