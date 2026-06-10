@@ -373,6 +373,7 @@ MAX_STACK: dict[str, int] = {
     "repair_pack": 99,
     "shield_recharge": 99,
     "copper": 999,
+    "silicon": 999,
     "missile": 500,
     "mining_drone": 100,
     "combat_drone": 100,
@@ -1351,3 +1352,70 @@ LANDING_THUNDER_WORM_DAMAGE: float = 40.0
 LANDING_THUNDER_WORM_DETECT: float = 200.0
 LANDING_THUNDER_WORM_XP: int = 45
 LANDING_THUNDER_WORM_DOUBLE_SHOT_SPREAD: float = 12.0  # deg between the 2 shots
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 18. Planet Surface (Phase 2 — on-foot slice, Debra-only)
+# ═══════════════════════════════════════════════════════════════════════════════
+# Implements docs/planets.md section 6: a top-down, on-foot surface scene
+# reached from the top edge of the Landing Scene.  This slice covers
+# locomotion, the armor stat, the ranged + mining arsenal, and resource
+# nodes.  Surface enemies, melee weapons, base-building, blueprints, and
+# L11-30 progression are later phases.  Only Debra has surface assets, so
+# the on-foot avatar uses Debra's sprite for every character this phase.
+
+# ── Surface world ──────────────────────────────────────────────────────────
+PLANET_SURFACE_WIDTH: int = 4000
+PLANET_SURFACE_HEIGHT: int = 4000
+
+# ── On-foot character ──────────────────────────────────────────────────────
+ON_FOOT_SPEED: float = 250.0          # px/s, direct WASD movement
+ON_FOOT_DAMPING: float = 0.55         # velocity retained per frame (snappy stop)
+ON_FOOT_BASE_HP: int = 100
+ON_FOOT_BASE_ARMOR: int = 1           # flat, non-depleting damage prevention
+ON_FOOT_SCALE: float = 0.6
+ON_FOOT_RADIUS: float = 22.0
+# DESIGN-GAP: only Debra has a planetary sprite, so this avatar is used
+# for every character this phase (Ellie/Tara art shelved per the spec).
+DEBRA_SURFACE_PNG: str = os.path.join(
+    _HERE, "assets", "ai generated", "planetary", "debra-sprite3.png")
+
+# ── On-foot arsenal (this slice: ranged + mining only) ─────────────────────
+# Basic Laser Rifle — reuses the projectile-weapon path.
+ON_FOOT_RIFLE_DAMAGE: float = 10.0
+ON_FOOT_RIFLE_COOLDOWN: float = 0.30
+ON_FOOT_RIFLE_RANGE: float = 600.0
+ON_FOOT_RIFLE_SPEED: float = 900.0
+ON_FOOT_RIFLE_PNG: str = os.path.join(
+    _HERE, "assets", "scifi-space-station-items-assets",
+    "individual", "weapons", "scifi_weapons_02_007.png")
+ON_FOOT_RIFLE_SHOT_PNG: str = os.path.join(LASER_DIR, "laserBlue02.png")
+# Portable Mining Beam — damages resource nodes, yields ore.
+ON_FOOT_MINING_DAMAGE: float = 5.0    # vs rocks/nodes
+ON_FOOT_MINING_COOLDOWN: float = 0.10
+ON_FOOT_MINING_RANGE: float = 300.0
+ON_FOOT_MINING_SPEED: float = 600.0
+ON_FOOT_MINING_PNG: str = os.path.join(
+    _HERE, "assets", "scifi-space-station-items-assets",
+    "individual", "tools", "scifi_tools_01_008.png")
+
+# ── Resource nodes (docs/planets.md section 12) ────────────────────────────
+_MATERIALS_DIR: str = os.path.join(
+    _HERE, "assets", "scifi-space-station-items-assets",
+    "individual", "materials")
+RESOURCE_NODE_SCALE: float = 0.5
+RESOURCE_NODE_RADIUS: float = 32.0
+# (node png, ore png, hp, yield item key, yield amount, surface count)
+ROCK_NODE_PNG: str = os.path.join(_MATERIALS_DIR, "scifi_materials_01_000.png")
+ROCK_NODE_HP: int = 50
+ROCK_NODE_YIELD: int = 10              # iron per node
+ROCK_NODE_COUNT: int = 14
+COPPER_VEIN_PNG: str = os.path.join(_MATERIALS_DIR, "scifi_materials_02_004.png")
+COPPER_VEIN_HP: int = 50
+COPPER_VEIN_YIELD: int = 10           # copper per node
+COPPER_VEIN_COUNT: int = 8
+SILICON_VEIN_PNG: str = os.path.join(_MATERIALS_DIR, "scifi_materials_01_001.png")
+SILICON_ORE_PNG: str = os.path.join(_MATERIALS_DIR, "scifi_materials_01_003.png")
+SILICON_VEIN_HP: int = 75
+SILICON_VEIN_YIELD: int = 10          # silicon per node
+SILICON_VEIN_COUNT: int = 6

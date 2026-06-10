@@ -160,6 +160,42 @@ def load_weapons(gun_count: int, faction: str | None = None) -> list[Weapon]:
     return weapons
 
 
+def load_on_foot_weapons() -> list[Weapon]:
+    """On-foot (planet surface) arsenal for Phase 2 — the ranged Basic
+    Laser Rifle and the Portable Mining Beam.  Both reuse the projectile
+    weapon path (the rifle damages future surface enemies; the mining
+    beam carries ``mines_rock`` so the surface zone routes its hits to
+    resource nodes).  Melee weapons (electron sword / pick axe) are a
+    later phase.  docs/planets.md section 6.
+    """
+    from constants import (
+        ON_FOOT_RIFLE_SHOT_PNG, ON_FOOT_RIFLE_DAMAGE, ON_FOOT_RIFLE_COOLDOWN,
+        ON_FOOT_RIFLE_RANGE, ON_FOOT_RIFLE_SPEED,
+        ON_FOOT_MINING_DAMAGE, ON_FOOT_MINING_COOLDOWN,
+        ON_FOOT_MINING_RANGE, ON_FOOT_MINING_SPEED,
+    )
+    rifle_tex = arcade.load_texture(ON_FOOT_RIFLE_SHOT_PNG)
+    mining_tex = arcade.load_texture(os.path.join(LASER_DIR, "laserGreen13.png"))
+    laser_snd = arcade.load_sound(
+        os.path.join(SFX_WEAPONS_DIR, "Small Laser Weapon Shot 1.wav"))
+    mining_snd = arcade.load_sound(
+        os.path.join(SFX_WEAPONS_DIR, "Sci-Fi Arc Emitter Weapon Shot 2.wav"))
+    return [
+        Weapon(
+            "Basic Laser Rifle", rifle_tex, laser_snd,
+            cooldown=ON_FOOT_RIFLE_COOLDOWN, damage=ON_FOOT_RIFLE_DAMAGE,
+            projectile_speed=ON_FOOT_RIFLE_SPEED, max_range=ON_FOOT_RIFLE_RANGE,
+            proj_scale=1.0, mines_rock=False,
+        ),
+        Weapon(
+            "Portable Mining Beam", mining_tex, mining_snd,
+            cooldown=ON_FOOT_MINING_COOLDOWN, damage=ON_FOOT_MINING_DAMAGE,
+            projectile_speed=ON_FOOT_MINING_SPEED, max_range=ON_FOOT_MINING_RANGE,
+            proj_scale=1.0, mines_rock=True,
+        ),
+    ]
+
+
 def load_explosion_assets() -> tuple[list[arcade.Texture], arcade.Sound]:
     """Load explosion animation frames and sound."""
     exp_ss = arcade.load_spritesheet(EXPLOSION_PNG)

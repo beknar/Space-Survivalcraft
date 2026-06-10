@@ -94,17 +94,17 @@ class PlanetaryLandingZone(WarpZoneBase):
         self._exit_top_zone = self._origin_zone  # unused; top is stubbed
 
     def _check_exits(self, gv: GameView) -> None:
-        """Bottom = return to origin.  Top = surface entry (stubbed until
-        the on-foot surface phase lands)."""
+        """Bottom = return to origin.  Top = descend to the on-foot
+        planet surface."""
         if gv.player.center_y < EXIT_THRESHOLD:
             self._return_to_source(gv)
         elif gv.player.center_y > self.world_height - EXIT_THRESHOLD:
-            # DESIGN-GAP: surface scene not implemented yet.  Flash a
-            # notice and nudge the player back in so the seam is ready
-            # for the next phase without dangling code.
-            gv._flash_game_msg("Planet surface — coming soon", 2.0)
-            gv.player.center_y = self.world_height - EXIT_THRESHOLD - 40.0
-            gv.player.vel_y = min(0.0, getattr(gv.player, "vel_y", 0.0))
+            # Carry origin + planet type onward so the surface knows
+            # where to lift off back to.
+            gv._planet_origin_zone = self._origin_zone
+            gv._pending_planet_type = self.planet_type
+            gv._transition_zone(
+                ZoneID.PLANETARY_SURFACE, entry_side="bottom")
 
     def _check_walls(self, gv: GameView) -> None:
         """Left/right walls cost a fraction of shields + HP per tick and

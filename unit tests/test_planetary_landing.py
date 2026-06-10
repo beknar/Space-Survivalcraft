@@ -187,14 +187,17 @@ class TestLandingZoneRouting:
                    for c in stub_gv.calls["transition"]]
         assert targets == [ZoneID.STAR_MAZE]
 
-    def test_top_edge_is_stub_no_transition(self, stub_gv):
-        zone = _landing_zone()
+    def test_top_edge_descends_to_surface(self, stub_gv):
+        # Phase 2 wired the top edge to the on-foot surface scene.
+        zone = _landing_zone(ZoneID.STAR_MAZE)
+        zone.planet_type = "earth"
         stub_gv.player.center_y = zone.world_height - 10.0
-        stub_gv.player.vel_y = 50.0
         zone._check_exits(stub_gv)
-        assert stub_gv.calls["transition"] == []      # surface not built yet
-        assert stub_gv.calls["flash"]                  # "coming soon" notice
-        assert stub_gv.player.center_y < zone.world_height - EXIT_THRESHOLD
+        targets = [c[0][0] if isinstance(c, tuple) else c
+                   for c in stub_gv.calls["transition"]]
+        assert ZoneID.PLANETARY_SURFACE in targets
+        assert stub_gv._planet_origin_zone == ZoneID.STAR_MAZE
+        assert stub_gv._pending_planet_type == "earth"
 
     def test_wall_contact_applies_fractional_damage(self, stub_gv):
         zone = _landing_zone()

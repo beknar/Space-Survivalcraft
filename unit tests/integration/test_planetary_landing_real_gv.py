@@ -54,7 +54,7 @@ class TestPlanetaryLandingRealGV:
 
         assert gv._zone.zone_id == ZoneID.STAR_MAZE
 
-    def test_top_edge_is_stub_stays_in_scene(self, real_game_view):
+    def test_top_edge_descends_to_surface(self, real_game_view):
         gv = real_game_view
         gv._planet_origin_zone = ZoneID.STAR_MAZE
         gv._transition_zone(ZoneID.PLANETARY_LANDING, entry_side="bottom")
@@ -63,7 +63,6 @@ class TestPlanetaryLandingRealGV:
         gv.player.center_y = zone.world_height - 10.0
         gv.on_update(1 / 60)
 
-        # Surface scene isn't built yet — top edge must NOT transition.
-        assert gv._zone.zone_id == ZoneID.PLANETARY_LANDING
-        # Player nudged back inside.
-        assert gv.player.center_y < zone.world_height - 50
+        # Phase 2: the top edge now lands on the on-foot surface.
+        assert gv._zone.zone_id == ZoneID.PLANETARY_SURFACE
+        assert gv._on_foot is True

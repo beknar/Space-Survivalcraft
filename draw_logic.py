@@ -758,6 +758,7 @@ def _draw_hud(gv: GameView, menu_open: bool) -> None:
         slipspace_positions=_slipspace_positions(gv),
         maze_rooms=_maze_rooms(gv),
         maze_spawner_positions=_maze_spawner_positions(gv),
+        armor=getattr(gv.player, "armor", 0),
     )
     # Video frame draws (skip when menu open)
     if not menu_open:

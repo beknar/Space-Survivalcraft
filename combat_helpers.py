@@ -30,9 +30,15 @@ def trigger_shake(gv: GameView) -> None:
 
 
 def apply_damage_to_player(gv: GameView, amount: int) -> None:
-    """Apply damage to the player's shields first, then HP."""
+    """Apply damage to the player's armor (flat), then shields, then HP."""
     if gv._player_dead:
         return
+    # Armor — flat, non-depleting reduction applied first (docs/planets.md).
+    # 0 for the ship, so this is a no-op in space; raised on planet
+    # surfaces.  Never reduces a hit below 1 so armor can't fully negate.
+    armor = getattr(gv.player, "armor", 0)
+    if armor > 0 and amount > 0:
+        amount = max(1, amount - armor)
     if gv.player.shield_absorb > 0 and gv.player.shields > 0:
         amount = max(1, amount - gv.player.shield_absorb)
     if gv.player.shields > 0:

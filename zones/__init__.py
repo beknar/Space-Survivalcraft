@@ -37,6 +37,9 @@ class ZoneID(Enum):
     # in the Star Maze with the Planetary Landing Adapter installed.
     # docs/planets.md section 5.
     PLANETARY_LANDING = auto()
+    # On-foot, top-down planet surface, reached from the top edge of the
+    # Landing Scene.  docs/planets.md section 6.
+    PLANETARY_SURFACE = auto()
 
 
 # Zone-id groupings used throughout the code for routing decisions.
@@ -82,6 +85,8 @@ def welcome_message_for(zone_id: "ZoneID") -> str | None:
         return "Welcome to the Star Maze"
     if zone_id is ZoneID.PLANETARY_LANDING:
         return "Descending to the planet…"
+    if zone_id is ZoneID.PLANETARY_SURFACE:
+        return "Touchdown — planet surface"
     if zone_id in ALL_WARP_ZONES:
         # Theme suffix is the last underscore-separated chunk of the
         # enum name (WARP_METEOR, NEBULA_WARP_METEOR, MAZE_WARP_METEOR
@@ -250,6 +255,9 @@ def create_zone(zone_id: ZoneID) -> ZoneState:
         # zone pulls in sprite/spec modules that import from ``zones``.
         from zones.zone_planetary_landing import PlanetaryLandingZone
         instance = PlanetaryLandingZone()
+    elif zone_id is ZoneID.PLANETARY_SURFACE:
+        from zones.zone_planetary_surface import PlanetarySurfaceZone
+        instance = PlanetarySurfaceZone()
     else:
         instance = _MAP[zone_id]()
     # Tag reused warp-zone instances so their setup() can branch on
