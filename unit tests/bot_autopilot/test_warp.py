@@ -1889,9 +1889,11 @@ class TestWarpRelatchPendingBestEffort:
 
     def test_warp_fires_without_consumables_when_pending(
             self, _clock, _fresh_bot_state, monkeypatch):
-        """The captured pathology: post-death state with no
-        consumables in slots.  Pending flag set -> cascade still
-        fires S_WARP_TO_WORMHOLE."""
+        """Post-death state with no consumables in SLOTS but supply in
+        ship cargo (not equipped).  Pending flag set -> cascade still
+        fires S_WARP_TO_WORMHOLE.  (Supply must be non-dry: since the
+        2026-06-09 dry-supply block, a bot with ZERO heals anywhere
+        never best-effort-warps -- it mines + crafts first.)"""
         monkeypatch.setattr(
             ap, "_act_warp_to_wormhole", lambda s, p: None)
         ap._state.boss_was_killed = True
@@ -1899,6 +1901,8 @@ class TestWarpRelatchPendingBestEffort:
         ap._state.warp_relatched_pending = True
         ap._state.queue.modules_to_install = []
         s = self._ready_state(zone="ZoneID.MAIN")
+        s["inventory"]["items"]["repair_pack"] = 5
+        s["inventory"]["items"]["shield_recharge"] = 5
         # No quick_use_slots in state -- captured post-death state.
         ap._do_auto(s, s["player"])
         assert ap._fsm["state"] == ap.S_WARP_TO_WORMHOLE
@@ -1998,6 +2002,10 @@ class TestWarpRelatchPendingBestEffort:
             "shield_booster", "broadside", "shield_enhancer",
             "armor_plate"]
         s = self._ready_state(zone="ZoneID.MAIN")
+        # Non-dry supply in cargo (2026-06-09 dry-supply block would
+        # otherwise hold the best-effort warp for mine-and-craft).
+        s["inventory"]["items"]["repair_pack"] = 5
+        s["inventory"]["items"]["shield_recharge"] = 5
         # Empty station inv -- modules unreachable.
         assert s["station_inventory"]["items"] == {}
         ap._do_auto(s, s["player"])
@@ -2142,7 +2150,8 @@ class TestWarpRecraftBeforeRewarp:
     def test_warp_fires_when_no_prep_work_available(
             self, _clock, _fresh_bot_state, monkeypatch):
         """When truly nothing to do at station (no craft, no
-        install, no equip), the best-effort warp fires."""
+        install, no equip, crafter idle) and supply is non-dry, the
+        best-effort warp fires."""
         monkeypatch.setattr(
             ap, "_act_warp_to_wormhole", lambda s, p: None)
         ap._state.boss_was_killed = True
@@ -2154,6 +2163,10 @@ class TestWarpRecraftBeforeRewarp:
         ap._state.queue.shield_recharges_remaining = 0
         ap._state.queue.consumable_phase_started = True
         s = self._staged_relatch_state()
+        # Supply in cargo (not equipped, station empty): non-dry, so
+        # the 2026-06-09 dry-supply block stays out of the way.
+        s["inventory"]["items"]["repair_pack"] = 5
+        s["inventory"]["items"]["shield_recharge"] = 5
         # Empty station + empty queue + no install + no consumables
         # in slots -- nothing prep can do.  Warp fires.
         s["wormholes"] = [
@@ -2162,6 +2175,63 @@ class TestWarpRecraftBeforeRewarp:
         ]
         ap._do_auto(s, s["player"])
         assert ap._fsm["state"] == ap.S_WARP_TO_WORMHOLE
+
+    def test_best_effort_blocked_while_supply_dry(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """2026-06-09: a bot with ZERO heal supply anywhere never
+        best-effort-warps -- it can always mine toward the 200-iron
+        batch cost and craft (entry-gate emergency bypass), so 'no
+        prep work' is never true while dry."""
+        monkeypatch.setattr(
+            ap, "_act_warp_to_wormhole", lambda s, p: None)
+        ap._state.boss_was_killed = True
+        ap._state.warp_after_boss_done = False
+        ap._state.warp_relatched_pending = True
+        ap._state.queue.modules_to_install = []
+        ap._state.queue.modules_to_craft.clear()
+        ap._state.queue.repair_packs_remaining = 0
+        ap._state.queue.shield_recharges_remaining = 0
+        ap._state.queue.consumable_phase_started = True
+        s = self._staged_relatch_state()
+        s["wormholes"] = [
+            {"x": 200.0, "y": 200.0,
+             "zone_target": "ZoneID.WARP_METEOR"},
+        ]
+        # Identical to the test above but with NO supply anywhere.
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] != ap.S_WARP_TO_WORMHOLE
+
+    def test_best_effort_waits_for_inflight_craft(
+            self, _clock, _fresh_bot_state, monkeypatch):
+        """2026-06-09: a busy crafter counts as prep work -- the bot
+        POSTed an emergency heal batch, counters hit zero, and the
+        pre-fix gate warped it out ~50 s before the 60 s crafter
+        timer delivered the heals."""
+        monkeypatch.setattr(
+            ap, "_act_warp_to_wormhole", lambda s, p: None)
+        ap._state.boss_was_killed = True
+        ap._state.warp_after_boss_done = False
+        ap._state.warp_relatched_pending = True
+        ap._state.queue.modules_to_install = []
+        ap._state.queue.modules_to_craft.clear()
+        ap._state.queue.repair_packs_remaining = 0
+        ap._state.queue.shield_recharges_remaining = 0
+        ap._state.queue.consumable_phase_started = True
+        s = self._staged_relatch_state()
+        # Non-dry (cargo supply) so the dry block isn't what holds it.
+        s["inventory"]["items"]["repair_pack"] = 5
+        s["inventory"]["items"]["shield_recharge"] = 5
+        # The crafter is mid-batch -- supplies seconds away.
+        for b in s["buildings"]:
+            if b.get("building_type") == "Basic Crafter":
+                b["crafting"] = True
+                b["craft_target"] = "shield_recharge"
+        s["wormholes"] = [
+            {"x": 200.0, "y": 200.0,
+             "zone_target": "ZoneID.WARP_METEOR"},
+        ]
+        ap._do_auto(s, s["player"])
+        assert ap._fsm["state"] != ap.S_WARP_TO_WORMHOLE
 
 
 # ── Nebula-death recovery gate (2026-05-24) ───────────────────────────────

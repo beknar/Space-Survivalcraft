@@ -1537,8 +1537,16 @@ def choose_next_state(state: dict, p: dict, cur: str) -> str:
         has_consumables_unequipped = (
             not (have_repair and have_shield)
             and _ap._consumables_in_station_inv(state))
+        # In-flight batch counts as prep work (2026-06-09).  Captured:
+        # the bot POSTed an emergency heal craft, the queue counters hit
+        # zero (can_craft False), and the warp fired ~50 s before the
+        # crafter's 60 s timer delivered the heals -- it left for the
+        # Nebula dry while its restock finished behind it.  A busy
+        # crafter means supplies are literally seconds away; wait.
+        crafter_busy = _ap._any_crafter_busy(state)
         prep_work_available = (
-            can_craft or can_install or has_consumables_unequipped)
+            can_craft or can_install or has_consumables_unequipped
+            or crafter_busy)
         # Initial post-boss warp requires consumables in slots.
         # Re-warp after a return-to-MAIN relatch fires only when
         # there's no more prep work the bot could be doing at the
@@ -1546,9 +1554,21 @@ def choose_next_state(state: dict, p: dict, cur: str) -> str:
         # wiped on death and the one-shot consumable craft phase
         # is already exhausted; without the relaxation the strict
         # gate strands the bot in MAIN forever).
+        #
+        # Dry-supply block (2026-06-09): the best-effort relaxation
+        # exists for "nothing left to do at the station" -- but a bot
+        # with ZERO heal supply anywhere always has something to do:
+        # mine toward the 200-iron batch cost and craft (the entry-gate
+        # emergency bypass guarantees the craft is reachable once iron
+        # covers it).  Never best-effort-warp while a heal supply is
+        # fully dry; the strict equipped-consumables path is unaffected.
+        supply_dry = (
+            _ap._consumable_supply_total(state, "shield_recharge") == 0
+            or _ap._consumable_supply_total(state, "repair_pack") == 0)
         warp_best_effort = (
             _ap._state.warp_relatched_pending
-            and not prep_work_available)
+            and not prep_work_available
+            and not supply_dry)
         # Nebula-death recovery gate (2026-05-24): when the bot
         # died in Nebula on the prior arc, demand strict prep --
         # consumables in slots AND HP / shields at the configured
