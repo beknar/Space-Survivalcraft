@@ -359,6 +359,19 @@ def update_movement(gv: GameView, dt: float) -> bool:
         sr = arcade.key.E in gv._keys
         fire = arcade.key.SPACE in gv._keys
 
+    # On-foot (planet surface) movement is direct WASD steering — no
+    # rotation, thrust, drag-physics, shield sprite, or thruster sound.
+    # WASD/arrows map straight to up/down/left/right (docs/planets.md).
+    if getattr(gv, "_on_foot", False):
+        up = arcade.key.UP in gv._keys or arcade.key.W in gv._keys
+        down = arcade.key.DOWN in gv._keys or arcade.key.S in gv._keys
+        left = arcade.key.LEFT in gv._keys or arcade.key.A in gv._keys
+        right = arcade.key.RIGHT in gv._keys or arcade.key.D in gv._keys
+        if gv._escape_menu.open:
+            up = down = left = right = fire = False
+        gv.player.apply_input_on_foot(dt, up, down, left, right)
+        return fire
+
     if gv.joystick and not gv._escape_menu.open:
         lx = gv.joystick.leftx
         ly = gv.joystick.lefty

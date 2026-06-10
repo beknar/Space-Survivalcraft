@@ -132,6 +132,11 @@ class PlayerShip(arcade.Sprite):
         self._base_max_shields: int = shields
         self._base_shield_regen: float = self._shield_regen
         self.shield_absorb: int = 0  # damage reduction to shields
+        # Armor — flat, non-depleting damage prevention (docs/planets.md).
+        # 0 for the ship; raised when the player is on a planet surface
+        # (on-foot mode).  Applied before shields/HP in
+        # ``combat_helpers.apply_damage_to_player``.
+        self.armor: int = 0
         self._shield_acc: float = 0.0
         self._collision_cd: float = 0.0
 
@@ -231,6 +236,48 @@ class PlayerShip(arcade.Sprite):
                 self._anim_timer = 0.0
                 self._anim_col = 0
             self.texture = self._frames[0][self._anim_col]
+
+    def apply_input_on_foot(
+        self,
+        dt: float,
+        up: bool,
+        down: bool,
+        left: bool,
+        right: bool,
+    ) -> None:
+        """On-foot (planet surface) movement: direct WASD steering at a
+        fixed walk speed, no rotation or thrust.  ``heading`` tracks the
+        last movement direction so the ranged weapon fires where the
+        character is walking (docs/planets.md section 6).
+
+        The sprite itself is NOT rotated (``angle`` stays 0) — top-down
+        character art reads best upright; directional gun rendering is a
+        later-phase polish item.
+        """
+        from constants import ON_FOOT_SPEED, ON_FOOT_DAMPING
+
+        dx = (1.0 if right else 0.0) - (1.0 if left else 0.0)
+        dy = (1.0 if up else 0.0) - (1.0 if down else 0.0)
+        if dx or dy:
+            mag = math.hypot(dx, dy)
+            nx, ny = dx / mag, dy / mag
+            self.vel_x = nx * ON_FOOT_SPEED
+            self.vel_y = ny * ON_FOOT_SPEED
+            # heading: 0 = up, increasing clockwise (matches ship convention
+            # where nose-up is heading 0 and sin/cos drive the muzzle).
+            self.heading = math.degrees(math.atan2(nx, ny)) % 360
+        else:
+            self.vel_x *= ON_FOOT_DAMPING
+            self.vel_y *= ON_FOOT_DAMPING
+
+        hw, hh = self.width / 2, self.height / 2
+        self.center_x = max(hw, min(self.world_width - hw,
+                                    self.center_x + self.vel_x * dt))
+        self.center_y = max(hh, min(self.world_height - hh,
+                                    self.center_y + self.vel_y * dt))
+
+        if self._collision_cd > 0.0:
+            self._collision_cd = max(0.0, self._collision_cd - dt)
 
     @property
     def thrust_intensity(self) -> float:

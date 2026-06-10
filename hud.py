@@ -74,6 +74,10 @@ class HUD:
         self._t_wpn_name = arcade.Text("WEAPON:", cx, hp_y - 140,
                                        arcade.color.YELLOW, 10, bold=True,
                                        anchor_x="center")
+        # Armor readout — only shown on planet surfaces (armor > 0).
+        self._t_armor = arcade.Text("", cx, hp_y - 156,
+                                    (180, 210, 255), 10, bold=True,
+                                    anchor_x="center")
         self._show_fps: bool = False
         self._fps: float = 60.0
         self._t_fps = arcade.Text("", STATUS_WIDTH - 10, self._sh - 26,
@@ -584,6 +588,7 @@ class HUD:
         slipspace_positions: list[tuple[float, float]] | None = None,
         maze_rooms: list[tuple[float, float, float, float]] | None = None,
         maze_spawner_positions: list[tuple[float, float, bool]] | None = None,
+        armor: int = 0,
     ) -> None:
         """Draw the full HUD status panel."""
         # Panel background
@@ -615,6 +620,13 @@ class HUD:
         if self._t_wpn_name.text != wpn_label:
             self._t_wpn_name.text = wpn_label
         self._t_wpn_name.draw()
+
+        # Armor (planet surface only).
+        if armor > 0:
+            armor_label = f"ARMOR: {armor}"
+            if self._t_armor.text != armor_label:
+                self._t_armor.text = armor_label
+            self._t_armor.draw()
 
         # HP bar (colour shifts red as HP drops)
         hp_color = (
