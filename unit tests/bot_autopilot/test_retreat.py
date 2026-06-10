@@ -301,8 +301,11 @@ class TestZone2SwarmTether:
 
     def test_far_hs_no_swarm_does_not_tether(
             self, _clock, _fresh_bot_state):
-        # Far HS but only one alien in range -> no tether.
-        s = self._far_swarm_state(n=1)
+        # Far HS but only one alien in range -> no tether, PROVIDED a
+        # shield heal is equipped.  (Unhealed, the 2026-06-09 leash
+        # tethers on distance alone -- see
+        # TestUnhealedTetherNoSwarmGate.)
+        s = self._far_swarm_state(n=1, healed=True)
         s["asteroids"] = [{"x": 300.0, "y": 0.0, "hp": 100}]
         assert ap._choose_next_state(
             s, s["player"], ap.S_MINE) != ap.S_IDLE_AT_BASE
@@ -392,3 +395,88 @@ class TestZone2SwarmTether:
             hs_dist=2000.0, healed=True, recovering=True)
         assert ap._choose_next_state(
             s, s["player"], ap.S_MINE) == ap.S_IDLE_AT_BASE
+
+
+class TestUnhealedTetherNoSwarmGate:
+    """2026-06-09 death 1: the bot was ground down 3000-8800 px from the
+    HS by 2-3 chasers -- never >= RETREAT_SWARM_ALIEN_COUNT within range,
+    so the density-gated unhealed tether stayed silent until RETREAT
+    fired with the HS unreachable (corner death, all 4 modules lost).
+    With no ready shield heal, the ZONE2 tether now fires on distance
+    alone; the swarm-density gate still applies when healed."""
+
+    def _sparse_state(self, *, hs_dist, healed, n_aliens=2):
+        s = _state(
+            player={"x": 0.0, "y": 0.0, "heading": 0.0,
+                    "shields": 120, "max_shields": 120},
+            aliens=[{"x": 900.0 + 80.0 * i, "y": 0.0, "hp": 50}
+                    for i in range(n_aliens)],   # sparse: < swarm count
+            buildings=[_hs_building(x=hs_dist, y=0.0)],
+        )
+        s["zone"]["id"] = "ZoneID.ZONE2"
+        if healed:
+            s["quick_use_slots"] = [
+                {"item_type": "shield_recharge", "count": 5}]
+        return s
+
+    def test_unhealed_tethers_without_swarm(self, _clock, _fresh_bot_state):
+        import bot_autopilot_choose as choose
+        s = self._sparse_state(hs_dist=2000.0, healed=False)
+        hs = ap._find_home_station(s)
+        assert choose._zone2_far_swarm_tether(s, s["player"], hs) is True
+
+    def test_healed_sparse_does_not_tether(self, _clock, _fresh_bot_state):
+        # Healed + sparse chasers beyond even the 2800 px radius -> the
+        # density gate still holds (no tether for a lone straggler chase).
+        import bot_autopilot_choose as choose
+        s = self._sparse_state(hs_dist=3000.0, healed=True)
+        hs = ap._find_home_station(s)
+        assert choose._zone2_far_swarm_tether(s, s["player"], hs) is False
+
+    def test_unhealed_inside_radius_does_not_tether(
+            self, _clock, _fresh_bot_state):
+        import bot_autopilot_choose as choose
+        s = self._sparse_state(hs_dist=1200.0, healed=False)
+        hs = ap._find_home_station(s)
+        assert choose._zone2_far_swarm_tether(s, s["player"], hs) is False
+
+
+class TestUnhealedHuntLeash:
+    """2026-06-09 death 1 (the pull half): HUNT's 9000 px idle gate
+    pulled the bot off the safe umbrella into the swarm at 0 heals.
+    In ZONE2 with no ready shield heal, hunt targets beyond the
+    unhealed-tether radius of the Home Station are now leashed off."""
+
+    def _at_base_state(self, *, alien_dist_from_hs, healed):
+        # Bot parked at the Nebula HS; one alien at the given distance.
+        s = _state(
+            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 120, "max_shields": 120},
+            aliens=[{"x": 3200.0 + alien_dist_from_hs, "y": 3200.0,
+                     "hp": 50}],
+            buildings=[_hs_building(x=3200.0, y=3200.0)],
+        )
+        s["zone"]["id"] = "ZoneID.ZONE2"
+        if healed:
+            s["quick_use_slots"] = [
+                {"item_type": "shield_recharge", "count": 5}]
+        return s
+
+    def test_unhealed_far_target_not_hunted(self, _clock, _fresh_bot_state):
+        # Alien 2500 px from the HS (> 1500 leash), bot dry -> no HUNT.
+        s = self._at_base_state(alien_dist_from_hs=2500.0, healed=False)
+        desired = ap._choose_next_state(s, s["player"], ap.S_IDLE_AT_BASE)
+        assert desired != ap.S_HUNT
+
+    def test_healed_far_target_hunted(self, _clock, _fresh_bot_state):
+        s = self._at_base_state(alien_dist_from_hs=2500.0, healed=True)
+        desired = ap._choose_next_state(s, s["player"], ap.S_IDLE_AT_BASE)
+        assert desired == ap.S_HUNT
+
+    def test_unhealed_near_target_still_hunted(
+            self, _clock, _fresh_bot_state):
+        # Within the leash radius the bot still defends its base
+        # vicinity (alien 1200 px from HS, outside the 800 engage band).
+        s = self._at_base_state(alien_dist_from_hs=1200.0, healed=False)
+        desired = ap._choose_next_state(s, s["player"], ap.S_IDLE_AT_BASE)
+        assert desired == ap.S_HUNT
