@@ -875,6 +875,72 @@ class TestCraftQueueOrder:
         assert ap._next_craft_target(s) is None
 
 
+class TestEmergencyCraftPriority:
+    """2026-06-09 (tier 1.95): with ~60 aliens around the Nebula HS
+    there is always a threat in the engage band, so the normal CRAFT
+    tier (5.5, below ENGAGE) never got a window -- the bot brawled and
+    regen-cycled at 0 heals for ~24 min.  When the heal supply is fully
+    dry and a crafter is ready, S_CRAFT now outranks ENGAGE."""
+
+    def _swarm_at_base(self, *, station_items, crafter=True,
+                       crafter_busy=False):
+        ap._state.queue.modules_to_craft.clear()
+        ap._state.queue.modules_to_install.clear()
+        buildings = [_hs_building(x=3300.0, y=3200.0)]
+        if crafter:
+            buildings.append(_crafter_building(
+                x=3350.0, y=3250.0, crafting=crafter_busy))
+        s = _state(
+            player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            aliens=[{"x": 3600.0, "y": 3200.0, "hp": 50}],  # 400 px: engage band
+            buildings=buildings,
+            station_inventory_items=station_items,
+        )
+        s["zone"]["id"] = "ZoneID.MAIN"
+        return s
+
+    def test_dry_supply_crafts_above_engage(
+            self, _clock, _fresh_bot_state):
+        # Zero heals anywhere + crafter ready + iron covers a batch ->
+        # CRAFT outranks the alien sitting in the engage band.
+        s = self._swarm_at_base(station_items={"iron": 300})
+        assert ap._choose_next_state(
+            s, s["player"], ap.S_MINE) == ap.S_CRAFT
+
+    def test_healthy_supply_engages_normally(
+            self, _clock, _fresh_bot_state):
+        s = self._swarm_at_base(station_items={
+            "iron": 300, "repair_pack": 15, "shield_recharge": 15})
+        assert ap._choose_next_state(
+            s, s["player"], ap.S_MINE) == ap.S_ENGAGE
+
+    def test_no_crafter_engages_normally(
+            self, _clock, _fresh_bot_state):
+        # Dry but nothing to craft at -> normal combat cascade.
+        s = self._swarm_at_base(station_items={"iron": 300},
+                                crafter=False)
+        assert ap._choose_next_state(
+            s, s["player"], ap.S_MINE) == ap.S_ENGAGE
+
+    def test_busy_crafter_engages_normally(
+            self, _clock, _fresh_bot_state):
+        # A batch is already ticking down -- nothing to gain standing
+        # at the crafter; fight under the umbrella until it lands.
+        s = self._swarm_at_base(station_items={"iron": 300},
+                                crafter_busy=True)
+        assert ap._choose_next_state(
+            s, s["player"], ap.S_MINE) == ap.S_ENGAGE
+
+    def test_unaffordable_batch_engages_normally(
+            self, _clock, _fresh_bot_state):
+        # Dry, crafter idle, but iron below the per-craft cost -> the
+        # tier defers to _next_craft_target's None and combat proceeds.
+        s = self._swarm_at_base(station_items={"iron": 150})
+        assert ap._choose_next_state(
+            s, s["player"], ap.S_MINE) == ap.S_ENGAGE
+
+
 class TestConsumableEntryGateEmergencyBypass:
     """2026-06-09: a 33-min session ran ~24 min at ZERO shield/repair
     stock while station iron sat at 190-450 -- below the 500-iron
