@@ -565,5 +565,10 @@ def init_zones(gv: GameView) -> None:
     gv._main_zone = MainZone()
     gv._zone2 = None
     gv._star_maze = None
+    # Planet-descent hand-off state (docs/planets.md): which planet type
+    # the pending landing scene should use, and which zone the bottom
+    # edge of that scene returns to.  Set when the player rams a planet.
+    gv._pending_planet_type = "earth"
+    gv._planet_origin_zone = None
     gv._zone = gv._main_zone
     gv._zone.setup(gv)

@@ -496,6 +496,17 @@ MODULE_TYPES: dict[str, dict] = {
                         "craft_cost": 800, "craft_cost_copper": 400,
                         "icon": os.path.join(_POWERUPS_DIR, "powerupRed_star.png"),
                         "advanced": True},
+    # Planetary Landing Adapter — flag-style module (like ai_pilot /
+    # force_wall): ``apply_modules`` ignores it; presence in
+    # ``gv._module_slots`` is what gates ramming a planet into the
+    # Planetary Landing Scene instead of taking collision damage.
+    "planetary_landing": {"label": "Planetary Landing Adapter",
+                        "effect": "planetary_landing", "value": 1,
+                        "craft_cost": 500, "craft_cost_copper": 500,
+                        "icon": os.path.join(
+                            _HERE, "assets", "11 Scifi Icons Pack",
+                            "128x128", "Battery-128x128.png"),
+                        "advanced": True},
     # Drone consumables — crafted at the Advanced Crafter, post-Nebula
     # blueprint drops only.  The "R" key dispatches to the matching
     # drone based on the player's active weapon (mining beam → mining
@@ -1242,3 +1253,101 @@ NEBULA_BOSS_CONE_DURATION: float = 1.5     # seconds the cone stays active
 NEBULA_BOSS_CONE_COOLDOWN: float = 6.0
 NEBULA_BOSS_CONE_DAMAGE: float = 20.0      # damage per 0.5 s tick while inside
                                            # (doubled from 10 per user tuning).
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 17. Planetary (Phase 1 — "Reach + Descend")
+# ═══════════════════════════════════════════════════════════════════════════════
+# Implements docs/planets.md sections 3-5 only: planet world objects in
+# the Star Maze, the Planetary Landing Adapter ship module (see
+# MODULE_TYPES["planetary_landing"]), and the aerial Planetary Landing
+# Scene.  On-foot surface gameplay is a later phase.
+
+# ── Planet world objects ───────────────────────────────────────────────────
+_PLANETS_DIR = os.path.join(
+    _HERE, "assets", "Kenney Game Assets All-in-1 3.4.0",
+    "2D assets", "Planets", "Planets",
+)
+# planet type -> sprite asset (docs/planets.md section 4).
+PLANET_PNG_BY_TYPE: dict[str, str] = {
+    "earth":  os.path.join(_PLANETS_DIR, "planet03.png"),
+    "frost":  os.path.join(_PLANETS_DIR, "planet07.png"),
+    "barren": os.path.join(_PLANETS_DIR, "planet04.png"),
+}
+# DESIGN-GAP: docs/planets.md does not specify planet size / collider
+# radius.  Scale chosen so the collider radius is ~180 px.
+PLANET_SCALE: float = 1.4
+PLANET_RADIUS: float = 180.0
+# DESIGN-GAP: docs says "first planet found" in the Star Maze but gives
+# no count.  Phase 1 places a single Earth planet at a seeded position.
+PLANET_COUNT_STAR_MAZE: int = 1
+# Fraction of max shields / max HP lost on a planet collision when the
+# Planetary Landing Adapter is NOT installed (docs/planets.md section 4),
+# and on touching the landing-scene left/right walls (section 5).
+PLANET_CONTACT_DAMAGE_FRAC: float = 0.25
+
+# ── Planetary Landing Scene ────────────────────────────────────────────────
+# Reuses the warp-zone footprint (3200 x 6400) and framework.
+# Cloudy-sky backdrop (docs/planets.md section 5).
+PLANET_SKY_BG_PNG: str = os.path.join(
+    _HERE, "assets", "SBS - Seamless Sky Backgrounds - 1024x512",
+    "1024x512", "Cloudy Sky", "Cloudy_Sky-Blue_01-1024x512.png",
+)
+
+# Landing-scene enemy weapon (laser) assets (docs/planets.md section 5).
+LANDING_TLASER_PNG: str = os.path.join(LASER_DIR, "laserBlue04.png")
+LANDING_XBLAST_PNG: str = os.path.join(LASER_DIR, "laserRed09.png")
+LANDING_DOUBLE_LASER_PNG: str = os.path.join(LASER_DIR, "laserBlue09.png")
+
+# DESIGN-GAP: docs/planets.md specifies the enemies' laser assets but no
+# body sprites.  Phase 1 uses Kenney "Simple Space" enemy sprites (the
+# same pack the Enemy Spawner warp zone already loads) as placeholders.
+_SIMPLE_SPACE_DIR: str = os.path.join(
+    _HERE, "assets", "kenney space combat assets",
+    "Simple Space", "PNG", "Retina",
+)
+LANDING_SKY_WORM_BODY_PNG: str = os.path.join(_SIMPLE_SPACE_DIR, "enemy_B.png")
+LANDING_CLOUD_DRONE_BODY_PNG: str = os.path.join(_SIMPLE_SPACE_DIR, "enemy_C.png")
+LANDING_THUNDER_WORM_BODY_PNG: str = os.path.join(_SIMPLE_SPACE_DIR, "enemy_E.png")
+
+# Per-type landing-enemy stats (docs/planets.md section 5 table).
+# Shared projectile flight values (range / speed) reuse alien defaults.
+LANDING_LASER_RANGE: float = 600.0
+LANDING_LASER_SPEED: float = 700.0
+LANDING_ENEMY_SCALE: float = 0.5
+LANDING_ENEMY_FIRE_CD: float = 1.2          # seconds between shots
+LANDING_ENEMY_BODY_RADIUS: float = 22.0     # collision radius vs player / shots
+
+# Sky Worm — 20x, HP 50, shield 50 @ 35%, 120 px/s, T-Laser 20 dmg,
+# detect 300 px, 35 XP.
+LANDING_SKY_WORM_COUNT: int = 20
+LANDING_SKY_WORM_HP: int = 50
+LANDING_SKY_WORM_SHIELD: int = 50
+LANDING_SKY_WORM_SHIELD_CHANCE: float = 0.35
+LANDING_SKY_WORM_SPEED: float = 120.0
+LANDING_SKY_WORM_DAMAGE: float = 20.0
+LANDING_SKY_WORM_DETECT: float = 300.0
+LANDING_SKY_WORM_XP: int = 35
+
+# Cloud Drone — 20x, HP 60, shield 60 @ 35%, 120 px/s, X-Blast 30 dmg,
+# detect 300 px, 45 XP.
+LANDING_CLOUD_DRONE_COUNT: int = 20
+LANDING_CLOUD_DRONE_HP: int = 60
+LANDING_CLOUD_DRONE_SHIELD: int = 60
+LANDING_CLOUD_DRONE_SHIELD_CHANCE: float = 0.35
+LANDING_CLOUD_DRONE_SPEED: float = 120.0
+LANDING_CLOUD_DRONE_DAMAGE: float = 30.0
+LANDING_CLOUD_DRONE_DETECT: float = 300.0
+LANDING_CLOUD_DRONE_XP: int = 45
+
+# Thunder Worm — 20x, HP 70, no shield, 150 px/s, Double Laser 40 dmg
+# (fires TWO projectiles per shot), detect 200 px, 45 XP.
+LANDING_THUNDER_WORM_COUNT: int = 20
+LANDING_THUNDER_WORM_HP: int = 70
+LANDING_THUNDER_WORM_SHIELD: int = 0
+LANDING_THUNDER_WORM_SHIELD_CHANCE: float = 0.0
+LANDING_THUNDER_WORM_SPEED: float = 150.0
+LANDING_THUNDER_WORM_DAMAGE: float = 40.0
+LANDING_THUNDER_WORM_DETECT: float = 200.0
+LANDING_THUNDER_WORM_XP: int = 45
+LANDING_THUNDER_WORM_DOUBLE_SHOT_SPREAD: float = 12.0  # deg between the 2 shots

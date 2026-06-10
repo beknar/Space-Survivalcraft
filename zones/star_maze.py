@@ -37,6 +37,7 @@ from constants import (
     WANDERING_RADIUS,
     ASTEROID_RADIUS, ALIEN_BOUNCE,
     RESPAWN_INTERVAL,
+    PLANET_COUNT_STAR_MAZE, PLANET_RADIUS, PLANET_CONTACT_DAMAGE_FRAC,
 )
 from zones import ZoneID, ZoneState
 from zones.maze_geometry import (
@@ -47,6 +48,7 @@ from zones.maze_geometry import (
 from sprites.wormhole import Wormhole
 from sprites.maze_alien import MazeAlien
 from sprites.maze_spawner import MazeSpawner
+from sprites.planet import Planet
 
 if TYPE_CHECKING:
     from game_view import GameView
@@ -153,6 +155,14 @@ class StarMazeZone(ZoneState):
         self._fog_revealed: int = 0
         # alien -> parent spawner uid.
         self._alien_parent: dict[MazeAlien, int] = {}
+        # Landable planets (docs/planets.md sections 4-5).  Spawned
+        # deterministically from ``_world_seed`` in ``setup`` so they
+        # survive save/load without dedicated serialization (planets are
+        # indestructible, so a seeded respawn is identical).
+        self._planets: arcade.SpriteList = arcade.SpriteList()
+        # Cooldown between contact-damage ticks when the player rams a
+        # planet WITHOUT the Planetary Landing Adapter installed.
+        self._planet_contact_cd: float = 0.0
         # Spatial hash of wall rects: grid[gx, gy] -> list of wall
         # AABBs that overlap that cell.  Built in _generate and
         # consulted by every per-frame wall query so we don't walk
@@ -192,6 +202,12 @@ class StarMazeZone(ZoneState):
         # Fog grid hand-off.
         gv._fog_grid = self._fog_grid
         gv._fog_revealed = self._fog_revealed
+
+        # Landable planets — seeded so a reload regenerates the identical
+        # layout.  Guarded on an empty list so re-entering the zone (the
+        # instance persists in gv._star_maze) doesn't duplicate them.
+        if not self._planets:
+            self._spawn_planets()
 
         # Restore Star Maze buildings (stashed when the player left
         # OR pre-filled by ``game_save._restore_star_maze_full`` on
@@ -393,6 +409,64 @@ class StarMazeZone(ZoneState):
             cy = self.world_height / 2 + random.uniform(-800, 800)
         return self.world_width / 2, self.world_height / 2
 
+    # ── Planets (docs/planets.md sections 4-5) ──────────────────────
+
+    def _spawn_planets(self) -> None:
+        """Place ``PLANET_COUNT_STAR_MAZE`` Earth planets at seeded open
+        points.  DESIGN-GAP: docs says "first planet found" with no count
+        or placement — Phase 1 uses one Earth planet at a seeded spot
+        clear of the maze walls."""
+        rng = random.Random(self._world_seed ^ 0x50A4E7)
+        for _ in range(PLANET_COUNT_STAR_MAZE):
+            # Bias well away from the central return wormhole so the
+            # player doesn't spawn on top of a planet.
+            bx = rng.uniform(0.2, 0.8) * self.world_width
+            by = rng.uniform(0.2, 0.8) * self.world_height
+            x, y = self._find_open_point(bx, by, radius=PLANET_RADIUS)
+            self._planets.append(Planet(x, y, "earth"))
+
+    def _update_planet_contact(self, gv: GameView, dt: float) -> bool:
+        """Handle the ship touching a planet.  With the Planetary Landing
+        Adapter installed, transition into the landing scene (returns
+        True so the caller stops the rest of the tick).  Without it,
+        apply 25% shield + 25% HP damage on a cooldown and bounce off."""
+        self._planet_contact_cd = max(0.0, self._planet_contact_cd - dt)
+        px, py = gv.player.center_x, gv.player.center_y
+        has_adapter = "planetary_landing" in (gv._module_slots or [])
+        for planet in self._planets:
+            dx = px - planet.center_x
+            dy = py - planet.center_y
+            reach = planet.radius + SHIP_RADIUS
+            if dx * dx + dy * dy >= reach * reach:
+                continue
+            if has_adapter:
+                gv._planet_origin_zone = ZoneID.STAR_MAZE
+                gv._pending_planet_type = planet.planet_type
+                gv._flash_game_msg("Entering planetary descent…", 1.5)
+                gv._transition_zone(
+                    ZoneID.PLANETARY_LANDING, entry_side="bottom")
+                return True
+            # No adapter — collision damage + bounce out.
+            dist = math.hypot(dx, dy) or 0.001
+            nx, ny = dx / dist, dy / dist
+            gv.player.center_x = planet.center_x + nx * reach
+            gv.player.center_y = planet.center_y + ny * reach
+            v_dot_n = gv.player.vel_x * nx + gv.player.vel_y * ny
+            if v_dot_n < 0.0:
+                gv.player.vel_x -= (1.0 + SHIP_BOUNCE) * v_dot_n * nx
+                gv.player.vel_y -= (1.0 + SHIP_BOUNCE) * v_dot_n * ny
+            if self._planet_contact_cd <= 0.0:
+                self._planet_contact_cd = 1.0
+                gv.player.shields = int(
+                    gv.player.shields * (1.0 - PLANET_CONTACT_DAMAGE_FRAC))
+                gv._apply_damage_to_player(
+                    int(gv.player.max_hp * PLANET_CONTACT_DAMAGE_FRAC))
+                gv._trigger_shake()
+                gv._flash_game_msg(
+                    "No landing adapter! Hull scorched by re-entry.", 2.0)
+                arcade.play_sound(gv._bump_snd, volume=0.4)
+        return False
+
     # ── Per-frame update ────────────────────────────────────────────
 
     def update(self, gv: GameView, dt: float) -> None:
@@ -422,6 +496,11 @@ class StarMazeZone(ZoneState):
                 gv._flash_game_msg(msg, 1.5)
                 gv._transition_zone(target, entry_side="wormhole_return")
                 return
+
+        # Planet contact — may transition into the landing scene (in
+        # which case stop processing this tick).
+        if self._update_planet_contact(gv, dt):
+            return
 
         # Route shared GameView alien + alien-projectile lists at the
         # Nebula-style population so the reused helpers operate on
@@ -997,6 +1076,9 @@ class StarMazeZone(ZoneState):
         self._copper_asteroids.draw()
         self._wanderers.draw()
         self._slipspaces.draw()
+        # Planets — large static landmarks, drawn under the maze walls.
+        if len(self._planets) > 0:
+            self._planets.draw()
         # Null fields are drawn globally via draw_logic._draw_null_fields
         # (batched into 2 draw_points calls).  We do NOT redraw them
         # here — the per-field nf.draw() path issued 28 immediate-mode
