@@ -4267,3 +4267,68 @@ class TestDroneDeployObserver:
         _clock[0] += ap.DRONE_DEPLOY_COOLDOWN_S + 1.0
         ap._observe_drone_deploy(s, s["player"], _clock[0])
         assert calls == ["combat", "combat"]
+
+
+class TestMainWormholeAvoidance:
+    """2026-06-09 death 2: the bot blundered into a MAIN corner wormhole
+    DURING ENGAGE (engage -> warp_traverse, no warp decision ever made),
+    bypassing every warp-readiness gate, and arrived in the 60-alien
+    Nebula naked + dry -- dead in 18 s.  MAIN outbound wormholes are now
+    repulsed like hazards unless the goto target IS the wormhole (the
+    deliberate S_WARP_TO_WORMHOLE drive)."""
+
+    def _main_state(self, *, px=400.0, py=200.0):
+        s = _state(player={"x": px, "y": py, "heading": 0.0,
+                           "shields": 150, "max_shields": 150})
+        s["zone"]["id"] = "ZoneID.MAIN"
+        s["wormholes"] = [{"x": 200.0, "y": 200.0,
+                           "zone_target": "ZoneID.WARP_METEOR"}]
+        return s
+
+    def test_combat_target_repulsed_from_wormhole(self):
+        # Bot 200 px from the corner wormhole (inside the 350 px outer
+        # band), goto target = an alien far away -> repulsion pushes
+        # the bot AWAY (+x: wormhole is west of the bot).
+        from bot_autopilot_navigation import wormhole_repulsion
+        s = self._main_state()
+        rx, ry = wormhole_repulsion(s["player"], s,
+                                    target=(3000.0, 3000.0))
+        assert rx > 0.0
+
+    def test_deliberate_warp_drive_not_repulsed(self):
+        # Goto target = the wormhole itself (S_WARP_TO_WORMHOLE) ->
+        # suppression: the bot is allowed to dock with it.
+        from bot_autopilot_navigation import wormhole_repulsion
+        s = self._main_state()
+        rx, ry = wormhole_repulsion(s["player"], s,
+                                    target=(200.0, 200.0))
+        assert rx == 0.0 and ry == 0.0
+
+    def test_targetless_drive_stays_silent_in_main(self):
+        # target=None in MAIN (escape bursts etc.) -> field silent,
+        # preserving the pre-fix behavior for unreasoned drives.
+        from bot_autopilot_navigation import wormhole_repulsion
+        s = self._main_state()
+        rx, ry = wormhole_repulsion(s["player"], s)
+        assert rx == 0.0 and ry == 0.0
+
+    def test_out_of_band_wormhole_no_repulsion(self):
+        # Bot far from every wormhole -> no force even with a far target.
+        from bot_autopilot_navigation import wormhole_repulsion
+        s = self._main_state(px=3200.0, py=3200.0)
+        rx, ry = wormhole_repulsion(s["player"], s,
+                                    target=(5000.0, 5000.0))
+        assert rx == 0.0 and ry == 0.0
+
+    def test_nebula_return_repulsion_unchanged(self):
+        # Regression: the non-MAIN return-wormhole behavior is intact,
+        # including the no-target-suppression spec (target ON the
+        # return wormhole still repulses).
+        from bot_autopilot_navigation import wormhole_repulsion
+        s = _state(player={"x": 1700.0, "y": 1000.0, "heading": 0.0})
+        s["zone"]["id"] = "ZoneID.ZONE2"
+        s["wormholes"] = [{"x": 1600.0, "y": 1000.0,
+                           "zone_target": "ZoneID.MAIN"}]
+        rx, ry = wormhole_repulsion(s["player"], s,
+                                    target=(1600.0, 1000.0))
+        assert rx > 0.0
