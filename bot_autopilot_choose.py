@@ -178,7 +178,8 @@ def _zone2_far_swarm_tether(state: dict, p: dict, hs) -> bool:
     # from base (hs_dist 2200-6182) once the bot ran dry of heals.  When a
     # heal IS equipped the normal generous operating radius applies.
     tether_dist = _ap.ZONE2_TETHER_DIST_PX
-    if not _bot_has_ready_shield_consumable(state):
+    unhealed = not _bot_has_ready_shield_consumable(state)
+    if unhealed:
         tether_dist = min(tether_dist, _ap.ZONE2_TETHER_UNHEALED_DIST_PX)
     # Recovery-aware distance (2026-06-06 evening): while the bot is
     # rebuilding its loadout after a death -- a combat module that was
@@ -196,6 +197,16 @@ def _zone2_far_swarm_tether(state: dict, p: dict, hs) -> bool:
         tether_dist = min(tether_dist, _ap.ZONE2_TETHER_RECOVERING_DIST_PX)
     if hs_dist <= tether_dist:
         return False
+    # Unhealed leash (2026-06-09): with NO shield heal available the
+    # tether fires on distance ALONE -- no dense-swarm requirement.
+    # Captured death: the bot was ground down 3000-8800 px from the HS by
+    # 2-3 chasers (never >= RETREAT_SWARM_ALIEN_COUNT within range), so
+    # the density-gated tether stayed silent until RETREAT fired with the
+    # HS unreachable; centroid-flee pinned it in a corner and it died,
+    # dropping all four modules.  At 0 heals the bot has no business
+    # roaming the Nebula far from its umbrella, swarm or not.
+    if unhealed:
+        return True
     swarm = sum(
         1 for a in (state.get("aliens") or [])
         if math.hypot(float(a.get("x", 0.0)) - px,
@@ -1185,6 +1196,29 @@ def _tier_hunt(state, p, cur, now) -> str | None:
     # regardless of position.
     hunt_target, hunt_td = _ap._nearest_huntable_alien(
         state, px, py, currently_hunting=(cur == _ap.S_HUNT))
+    # Unhealed ZONE2 hunt leash (2026-06-09).  Captured death: the bot
+    # was parked safe at the Nebula HS umbrella with ZERO heal supply,
+    # then HUNT (the 9000 px idle-hunt gate) pulled it into a 59-alien
+    # swarm; the engage chain kept it out at 3-4k px, shields collapsed,
+    # and RETREAT fired too late (HS unreachable at 8.4k px) -- corner
+    # death, all four modules dropped.  With no ready shield heal in
+    # ZONE2, only hunt targets within the unhealed-tether radius of the
+    # Home Station -- the bot defends its base vicinity but doesn't
+    # roam the swarm at 0 heals.  Pairs with the unhealed tether (1.9),
+    # which now fires on distance alone: the leash stops the pull OUT,
+    # the tether brings the bot back IN.
+    if hunt_target is not None and "ZONE2" in str(
+            (state.get("zone") or {}).get("id", "")):
+        if not _bot_has_ready_shield_consumable(state):
+            hs_leash = _ap._find_home_station(state)
+            if hs_leash is not None:
+                t_hs_d = math.hypot(
+                    float(hunt_target.get("x", 0.0))
+                    - float(hs_leash.get("x", 0.0)),
+                    float(hunt_target.get("y", 0.0))
+                    - float(hs_leash.get("y", 0.0)))
+                if t_hs_d > _ap.ZONE2_TETHER_UNHEALED_DIST_PX:
+                    hunt_target = None
     # Building-cluster pin escape (2026-05-06 follow-up #2): if we're
     # already in _ap.S_HUNT and the bot has wandered INSIDE the home-
     # station building repulsion field, refuse to re-fire HUNT.
