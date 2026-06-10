@@ -1594,6 +1594,32 @@ def choose_next_state(state: dict, p: dict, cur: str) -> str:
     if _zone2_far_swarm_tether(state, p, hs_pri145):
         return _ap.S_IDLE_AT_BASE
 
+    # 1.95 EMERGENCY RESTOCK CRAFT (2026-06-09).  When the bot's heal
+    #      supply is FULLY DRY (zero shield_recharge or repair_pack
+    #      across station + ship + quick-use) and a crafter is ready,
+    #      route to S_CRAFT *above* ENGAGE.  Captured pathology: with
+    #      ~60 aliens around the Nebula HS there is always a threat in
+    #      the 800 px engage band, so the normal CRAFT tier (5.5, below
+    #      ENGAGE) never got a window -- the bot brawled + regen-cycled
+    #      at 0 heals for ~24 min instead of spending 60 s crafting a
+    #      batch.  The station umbrella defends the trip (turrets +
+    #      combat assist still fire reflexively); RETREAT / REGEN /
+    #      FLEE_GAS above this still own the defensive interrupts.
+    #      Self-limiting: one batch landing makes supply non-zero and
+    #      the tier stops firing.  ``_next_craft_target`` must agree a
+    #      consumable is actually craftable (crafter idle, iron covers
+    #      the per-craft cost, entry gate bypassed when dry -- see the
+    #      paired emergency-bypass fix), so this can't promote module
+    #      crafts or fire at an unaffordable/busy crafter.
+    if (hs_pri145 is not None
+            and (_ap._consumable_supply_total(state, "shield_recharge") == 0
+                 or _ap._consumable_supply_total(state, "repair_pack") == 0)
+            and _ap._find_basic_crafter(state, idle_only=False) is not None
+            and not _ap._any_crafter_busy(state)
+            and _ap._next_craft_target(state) in (
+                "repair_pack", "shield_recharge")):
+        return _ap.S_CRAFT
+
     # 2. ENGAGE — alien within band.  Preempts the rest.  ``threat, td``
     #    were loaded above for the REGEN escape valve and are reused
     #    here (no re-walk of the alien list); the no-HS-boss + outside-
