@@ -150,6 +150,26 @@ class TestMakeSnapshotFields:
         # HS distance computed.
         assert snap["has_home_station"] is True
         assert snap["hs_dist"] is not None
+        # No zone in the state -> empty string (never KeyErrors).
+        assert snap["zone_id"] == ""
+
+    def test_zone_id_in_snapshot(self):
+        """2026-06-09: every post-hoc analysis had to infer the zone
+        from alien-count signatures; the snapshot now carries it."""
+        state = {
+            "inventory": {"items": {}},
+            "station_inventory": {"items": {}},
+            "buildings": [],
+            "zone": {"id": "ZoneID.ZONE2", "world_w": 6400},
+        }
+        p = {"x": 0.0, "y": 0.0, "shields": 100, "max_shields": 100}
+        snap = tlm.make_snapshot_fields(
+            state, p, self._bot_state(),
+            deposit_cooldown_s=30.0,
+            find_home_station=lambda s: None,
+            get_now=lambda: 0.0,
+        )
+        assert snap["zone_id"] == "ZoneID.ZONE2"
 
     def test_blacklist_sizes_in_snapshot(self):
         """Snapshot must report current asteroid + pickup blacklist

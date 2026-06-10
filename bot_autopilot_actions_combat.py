@@ -951,7 +951,6 @@ def _act_warp_traverse(state: dict, p: dict) -> None:
         _ap._state.warp_traverse_arc_started_at = now
         _ap._telemetry_log(
             "warp_traverse_arc_started",
-            zone_id=zone_id,
             arc_start_y=round(py_now, 1),
             **_ap._telemetry_snapshot_fields(state, p))
     elif py_now > _ap._state.warp_traverse_max_y:
@@ -995,7 +994,6 @@ def _act_warp_traverse(state: dict, p: dict) -> None:
             _ap._state.warp_traverse_detour_side = -1  # right wall
         _ap._telemetry_log(
             "warp_traverse_detour_committed",
-            zone_id=zone_id,
             detour_count=_ap._state.warp_traverse_detour_count,
             detour_side=("left"
                          if _ap._state.warp_traverse_detour_side > 0
@@ -1033,7 +1031,6 @@ def _act_warp_traverse(state: dict, p: dict) -> None:
             # (no recorded start).
             _ap._telemetry_log(
                 "warp_traverse_arc_completed",
-                zone_id=zone_id,
                 outcome="arrived",
                 arc_duration_s=(round(arc_duration_s, 1)
                                 if arc_duration_s is not None
