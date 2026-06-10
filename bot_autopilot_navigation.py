@@ -181,6 +181,12 @@ GAS_REPULSION_TARGET_SUPPRESS_PX: float = 150.0
 WORMHOLE_REPULSION_RANGE_PX:  float = 250.0
 WORMHOLE_REPULSION_RADIUS_PX: float = 100.0  # the game's collision trigger
 WORMHOLE_REPULSION_GAIN:      float = 1.0
+# MAIN outbound-wormhole avoidance (2026-06-09): in MAIN the field now
+# repulses outbound wormholes too, EXCEPT the one the goto target sits
+# on (the deliberate S_WARP_TO_WORMHOLE drive).  150 px = comfortably
+# wider than the 100 px collision trigger so a goto aimed at the
+# wormhole centre robustly suppresses its own repulsion.
+MAIN_WORMHOLE_TARGET_SUPPRESS_PX: float = 150.0
 
 # Slipspace repulsion (2026-06-06).  Slipspaces are rotating teleporters
 # scattered across non-warp zones; colliding with one (radius ~60 px)
@@ -480,32 +486,37 @@ def gas_repulsion(p: dict, state: dict,
 def wormhole_repulsion(p: dict, state: dict,
                        target: tuple[float, float] | None = None
                        ) -> tuple[float, float]:
-    """Per-wormhole repulsion vector for RETURN wormholes only.
+    """Per-wormhole repulsion vector.
 
-    A wormhole is a "return wormhole" if its ``zone_target`` field
-    points back to MAIN AND the bot is currently NOT in MAIN.
-    This covers the Nebula (ZONE2) central wormhole + any other
-    backward-pointing wormholes the player progression might
-    introduce later.  MAIN-zone outbound wormholes (target =
-    WARP_*) are never repulsed -- the bot uses them for the
-    post-boss warp, and steered_heading is called by every
-    navigation handler including ``_act_warp_to_wormhole``.
+    Non-MAIN zones: repulse RETURN wormholes only (``zone_target``
+    points back to MAIN) -- the Nebula central wormhole and any future
+    backward-pointing ones.  Forward-progression wormholes stay
+    attractive.
+
+    MAIN (2026-06-09): repulse OUTBOUND wormholes too, UNLESS the goto
+    ``target`` is the wormhole itself (within
+    ``MAIN_WORMHOLE_TARGET_SUPPRESS_PX``) -- that's the deliberate
+    ``_act_warp_to_wormhole`` drive.  Captured death: the bot blundered
+    into a corner wormhole DURING ENGAGE (engage -> warp_traverse with
+    no warp decision ever made), bypassing every warp-readiness gate,
+    and arrived in the 60-alien Nebula naked + with zero heals -- dead
+    in 18 s.  An accidental zone transition mid-combat is a hazard, so
+    the field now treats MAIN wormholes like one.  With ``target=None``
+    in MAIN (rare: targetless drives like escape bursts) the field
+    stays silent, preserving the old behavior for drives we can't
+    reason about.
 
     Same linear-ramp pattern as the other repulsion fields:
     magnitude is 1.0 at the wormhole's collision radius
     (``WORMHOLE_REPULSION_RADIUS_PX``, matching the game's
     100 px auto-warp trigger), 0 at ``radius + range``.
 
-    ``target``: if the goto target itself sits inside a
-    wormhole's danger zone (e.g. an unusual gather/mine path
-    that crosses it), the field still fires -- the spec is "AVOID
-    the return wormhole", full stop, so no target suppression.
+    Return wormholes get no target suppression -- the spec is "AVOID
+    the return wormhole", full stop.
     """
     zone_id = str((state.get("zone") or {}).get("id", ""))
     in_main_zone = ("MAIN" in zone_id) and ("WARP" not in zone_id)
-    if in_main_zone:
-        # In MAIN the only wormholes are outbound (target=WARP_*).
-        # The bot may WANT to use one of them, so no repulsion.
+    if in_main_zone and target is None:
         return (0.0, 0.0)
     whs = state.get("wormholes") or []
     if not whs:
@@ -516,11 +527,21 @@ def wormhole_repulsion(p: dict, state: dict,
     ry = 0.0
     for wh in whs:
         zt = str(wh.get("zone_target", ""))
-        # Only repulse RETURN wormholes (zone_target points to MAIN).
-        if "MAIN" not in zt:
-            continue
         wx = float(wh.get("x", 0.0))
         wy = float(wh.get("y", 0.0))
+        if in_main_zone:
+            # Outbound wormhole the bot is deliberately driving to --
+            # suppress, mirroring REPULSION_TARGET_SUPPRESS for
+            # buildings.
+            tdx = wx - target[0]
+            tdy = wy - target[1]
+            if (tdx * tdx + tdy * tdy
+                    <= MAIN_WORMHOLE_TARGET_SUPPRESS_PX
+                    * MAIN_WORMHOLE_TARGET_SUPPRESS_PX):
+                continue
+        elif "MAIN" not in zt:
+            # Non-MAIN: only repulse RETURN wormholes.
+            continue
         dx_w = px - wx
         dy_w = py - wy
         d = math.hypot(dx_w, dy_w)
