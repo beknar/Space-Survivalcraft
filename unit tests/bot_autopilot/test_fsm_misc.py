@@ -4332,3 +4332,102 @@ class TestMainWormholeAvoidance:
         rx, ry = wormhole_repulsion(s["player"], s,
                                     target=(1600.0, 1000.0))
         assert rx > 0.0
+
+
+class TestEscapeBurstHardTimeout:
+    """2026-06-10: the bot got wedged against the Nebula station cluster
+    (one building-stuck at t=30.7), the escape drive produced zero
+    movement, and `_drive_active_escape`'s clear-of-buildings release
+    condition never came true -- the latch held for 25.5 of a 26-minute
+    session with the FSM completely frozen (no choose, no ENGAGE, 60
+    aliens ignored).  A hard STUCK_ESCAPE_MAX_DURATION_S timeout now
+    releases the burst regardless of clearance."""
+
+    def _wedged_state(self):
+        # Ship in contact with a building -> never clear_of_buildings.
+        return _state(
+            player={"x": 3200.0, "y": 3210.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            buildings=[_hs_building(x=3200.0, y=3200.0)])
+
+    def test_wedged_burst_releases_after_max_duration(
+            self, _clock, monkeypatch):
+        monkeypatch.setattr(ap, "_do_escape_edge", lambda s, p: None)
+        monkeypatch.setattr(ap, "_telemetry_log", lambda *a, **k: None)
+        s = self._wedged_state()
+        now = _clock[0]
+        ap._stuck_state["escape_until"] = now + ap.STUCK_ESCAPE_MIN_DURATION_S
+        ap._stuck_state["escape_started_at"] = now
+        # Within the cap: still escaping (returns True every tick).
+        assert ap._run_stuck_escape(s, s["player"], now + 1.0) is True
+        assert ap._run_stuck_escape(
+            s, s["player"], now + ap.STUCK_ESCAPE_MAX_DURATION_S - 0.5) is True
+        # Past the cap: released despite NOT being clear of buildings.
+        assert ap._run_stuck_escape(
+            s, s["player"], now + ap.STUCK_ESCAPE_MAX_DURATION_S + 0.1) is False
+        assert ap._stuck_state["escape_until"] == 0.0
+        assert ap._stuck_state["escape_started_at"] == 0.0
+
+    def test_timeout_release_emits_telemetry(self, _clock, monkeypatch):
+        monkeypatch.setattr(ap, "_do_escape_edge", lambda s, p: None)
+        events = []
+        monkeypatch.setattr(
+            ap, "_telemetry_log",
+            lambda event, **f: events.append((event, f)))
+        s = self._wedged_state()
+        now = _clock[0]
+        ap._stuck_state["escape_until"] = now + ap.STUCK_ESCAPE_MIN_DURATION_S
+        ap._stuck_state["escape_started_at"] = now
+        ap._run_stuck_escape(
+            s, s["player"], now + ap.STUCK_ESCAPE_MAX_DURATION_S + 0.1)
+        names = [e for e, _ in events]
+        assert "escape_release_timeout" in names
+        f = dict(events)[ "escape_release_timeout"]
+        assert f["clear_of_buildings"] is False
+
+    def test_normal_clear_release_unchanged(self, _clock, monkeypatch):
+        # Ship in OPEN space, min duration elapsed -> the normal release
+        # path fires well before the hard cap, no timeout event.
+        monkeypatch.setattr(ap, "_do_escape_edge", lambda s, p: None)
+        events = []
+        monkeypatch.setattr(
+            ap, "_telemetry_log",
+            lambda event, **f: events.append(event))
+        s = _state(player={"x": 3200.0, "y": 3200.0, "heading": 0.0,
+                           "shields": 150, "max_shields": 150})
+        now = _clock[0]
+        ap._stuck_state["escape_until"] = now + ap.STUCK_ESCAPE_MIN_DURATION_S
+        ap._stuck_state["escape_started_at"] = now
+        out = ap._run_stuck_escape(
+            s, s["player"], now + ap.STUCK_ESCAPE_MIN_DURATION_S + 0.1)
+        assert out is False
+        assert ap._stuck_state["escape_until"] == 0.0
+        assert "escape_release_timeout" not in events
+
+    def test_unstamped_burst_lazily_stamps(self, _clock, monkeypatch):
+        # An arm path that didn't stamp escape_started_at (e.g. the
+        # wall-pin force-arm) gets stamped on the first drive tick, so
+        # the timeout counts from there instead of firing instantly.
+        monkeypatch.setattr(ap, "_do_escape_edge", lambda s, p: None)
+        monkeypatch.setattr(ap, "_telemetry_log", lambda *a, **k: None)
+        s = self._wedged_state()
+        now = _clock[0]
+        ap._stuck_state["escape_until"] = now + 999.0
+        ap._stuck_state["escape_started_at"] = 0.0
+        assert ap._run_stuck_escape(s, s["player"], now) is True
+        assert ap._stuck_state["escape_started_at"] == now
+
+    def test_fresh_arm_stamps_started_at(self, _clock, monkeypatch):
+        # The standard stuck-arm path stamps the burst start.
+        monkeypatch.setattr(ap, "_do_escape_edge", lambda s, p: None)
+        monkeypatch.setattr(ap, "_telemetry_log", lambda *a, **k: None)
+        ap._fsm["state"] = ap.S_MINE
+        s = _state(
+            player={"x": 100.0, "y": 100.0, "heading": 0.0,
+                    "shields": 150, "max_shields": 150},
+            asteroids=[{"x": 300.0, "y": 100.0, "hp": 50}])
+        for _ in range(25):
+            if ap._run_stuck_escape(s, s["player"], _clock[0]):
+                break
+            _clock[0] += 0.1
+        assert ap._stuck_state["escape_started_at"] > 0.0

@@ -425,6 +425,7 @@ class BotState:
     stuck: dict = field(default_factory=lambda: {
         "history": [],
         "escape_until": 0.0,
+        "escape_started_at": 0.0,
         "last_log": 0.0,
     })
     mining_weapon_pick: str = "Mining Beam"
@@ -799,6 +800,7 @@ def _stuck_reset() -> None:
     s = _state.stuck
     s["history"] = []
     s["escape_until"] = 0.0
+    s["escape_started_at"] = 0.0
     s["last_log"] = 0.0
 
 
@@ -1208,6 +1210,34 @@ def _drive_active_escape(state: dict, p: dict, zone: dict,
     # Continuously clear position history while in escape so
     # the next detect cycle starts fresh after we exit.
     _stuck_state["history"] = []
+    # Lazy-stamp the burst start for any arm path that didn't set it
+    # (e.g. the wall-pin force-arm in targeting), so the hard timeout
+    # below always has a baseline.
+    if _stuck_state.get("escape_started_at", 0.0) <= 0.0:
+        _stuck_state["escape_started_at"] = now
+    # HARD TIMEOUT (2026-06-10).  The clear-of-buildings release
+    # condition assumed the escape drive can always eventually reach
+    # clear space.  Captured: the bot got wedged against the Nebula
+    # station cluster, the drive produced zero movement, and this
+    # branch returned True every tick for 25.5 of a 26-minute session
+    # -- `_do_auto` early-returned before the FSM step, so the bot was
+    # completely frozen (no choose, no ENGAGE, no transitions) at one
+    # pixel.  Release the latch after STUCK_ESCAPE_MAX_DURATION_S
+    # regardless of clearance: the FSM resumes, the stuck detector
+    # re-fires with fresh geometry, and blacklists / pin-zone anchors
+    # rotate the target so the next attempt differs.
+    if (now - _stuck_state["escape_started_at"]
+            >= STUCK_ESCAPE_MAX_DURATION_S):
+        _stuck_state["escape_until"] = 0.0
+        _stuck_state["escape_started_at"] = 0.0
+        _telemetry_log(
+            "escape_release_timeout",
+            duration_s=round(STUCK_ESCAPE_MAX_DURATION_S, 1),
+            clear_of_edges=_ship_clear_of_edges(p, zone),
+            clear_of_buildings=_ship_clear_of_buildings(p, state),
+            fsm_state=_fsm["state"],
+            **_telemetry_snapshot_fields(state, p))
+        return False
     if (now < _stuck_state["escape_until"]
             or not _ship_clear_of_edges(p, zone)
             or not _ship_clear_of_buildings(p, state)):
@@ -1215,6 +1245,7 @@ def _drive_active_escape(state: dict, p: dict, zone: dict,
         return True
     # Exit condition met — clear the override and fall through.
     _stuck_state["escape_until"] = 0.0
+    _stuck_state["escape_started_at"] = 0.0
     # Re-anchor the SEARCH spiral at the bot's CURRENT
     # (clear-space) position.  Prior code re-anchored at
     # world centre during the on-stuck handler — but the
@@ -1267,6 +1298,7 @@ def _arm_stuck_escape(state: dict, p: dict, now: float) -> None:
     target (GATHER pickup / MINE asteroid) or run the HUNT give-up
     latches, record the pin-zone anchor, log, and drive the escape."""
     _stuck_state["escape_until"] = now + STUCK_ESCAPE_MIN_DURATION_S
+    _stuck_state["escape_started_at"] = now
     # Blacklist whichever target the bot was trying to reach —
     # if we got stuck WHILE in S_GATHER, the pickup is
     # unreachable (typically inside a station-building's

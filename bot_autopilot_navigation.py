@@ -86,6 +86,20 @@ STUCK_DETECT_LONG_CENTROID_PX = 15.0
 STUCK_DETECT_HARD_PIN_PX = 10.0
 # Minimum time the escape override lasts.
 STUCK_ESCAPE_MIN_DURATION_S = 1.5
+# HARD CAP on how long a single escape burst can stay latched
+# (2026-06-10).  The release condition ("clear of edges AND clear of
+# buildings") assumed the escape drive can always eventually reach
+# clear space.  Captured pathology: the bot got wedged against the
+# Nebula station cluster (cause=building), the escape drive produced
+# zero movement, and the latch held for 25.5 of a 26-minute session --
+# `_drive_active_escape` returned True every tick, `_do_auto` returned
+# before the FSM step, and the bot was completely frozen (no choose,
+# no ENGAGE, no transitions) at one pixel.  After this long without
+# clearing, release the latch anyway: the FSM resumes, the stuck
+# detector re-fires with fresh geometry, blacklists/pin-zones rotate
+# the target, and choose can route a different state.  Worst-case
+# freeze drops from "rest of session" to 10 s.
+STUCK_ESCAPE_MAX_DURATION_S = 10.0
 # Escape stays active until the ship is at least this far from any
 # world edge — keeps the override running through long rotations
 # (e.g. 180° turn from the top edge to face south).
