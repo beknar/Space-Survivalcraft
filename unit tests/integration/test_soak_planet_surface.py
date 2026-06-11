@@ -86,7 +86,8 @@ class TestSoakPlanetSurfaceCombat:
         gv._keys.add(arcade.key.SPACE)
 
         def _trim() -> None:
-            for lst in (gv.projectile_list, z._enemy_projectiles, z._axes):
+            for lst in (gv.projectile_list, z._enemy_projectiles, z._axes,
+                        gv.iron_pickup_list, gv.blueprint_pickup_list):
                 if len(lst) > 80:
                     for p in list(lst)[:-40]:
                         p.remove_from_sprite_lists()

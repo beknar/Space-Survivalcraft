@@ -268,6 +268,8 @@ class SurfaceEnemySpec:
     melee_range: float
     bullet_file: str
     axe_file: str
+    iron_drop: int        # iron dropped on death (+ Debra char bonus)
+    xp: int               # XP awarded on death
 
 
 ICE_CROWN = SurfaceEnemySpec(
@@ -275,56 +277,56 @@ ICE_CROWN = SurfaceEnemySpec(
     hp=25, armor=1, speed=110.0, locomotion="walk", has_attack_frames=False,
     attack_kind="throw_return", damage=10, attack_range=80.0,
     attack_cooldown=2.0, melee_damage=15, melee_range=44.0,
-    bullet_file="", axe_file="throwing_axe.png")
+    bullet_file="", axe_file="throwing_axe.png", iron_drop=5, xp=12)
 
 ORANGE_HELMET = SurfaceEnemySpec(
     key="orange_helmet", folder=130, label="Orange Helmet", tier="A",
     hp=40, armor=1, speed=95.0, locomotion="walk", has_attack_frames=False,
     attack_kind="projectile", damage=20, attack_range=100.0,
     attack_cooldown=1.8, melee_damage=0, melee_range=0.0,
-    bullet_file="enemy_sniper_bullet.png", axe_file="")
+    bullet_file="enemy_sniper_bullet.png", axe_file="", iron_drop=6, xp=14)
 
 ICE_CAT = SurfaceEnemySpec(
     key="ice_cat", folder=135, label="Ice Cat", tier="A",
     hp=25, armor=1, speed=185.0, locomotion="run", has_attack_frames=False,
     attack_kind="bump", damage=20, attack_range=42.0,
     attack_cooldown=1.0, melee_damage=0, melee_range=0.0,
-    bullet_file="", axe_file="")
+    bullet_file="", axe_file="", iron_drop=4, xp=10)
 
 TEAL_CAT = SurfaceEnemySpec(
     key="teal_cat", folder=136, label="Teal Cat", tier="A",
     hp=25, armor=2, speed=185.0, locomotion="run", has_attack_frames=False,
     attack_kind="bump", damage=20, attack_range=42.0,
     attack_cooldown=1.0, melee_damage=0, melee_range=0.0,
-    bullet_file="", axe_file="")
+    bullet_file="", axe_file="", iron_drop=4, xp=10)
 
 HORNED_HELMET = SurfaceEnemySpec(
     key="horned_helmet", folder=131, label="Horned Helmet", tier="B",
     hp=50, armor=1, speed=95.0, locomotion="walk", has_attack_frames=False,
     attack_kind="projectile", damage=15, attack_range=80.0,
     attack_cooldown=1.6, melee_damage=0, melee_range=0.0,
-    bullet_file="enemy_rifle_bullet.png", axe_file="")
+    bullet_file="enemy_rifle_bullet.png", axe_file="", iron_drop=8, xp=20)
 
 VOODOO = SurfaceEnemySpec(
     key="voodoo", folder=132, label="Voodoo", tier="B",
     hp=40, armor=2, speed=95.0, locomotion="walk", has_attack_frames=False,
     attack_kind="projectile", damage=15, attack_range=80.0,
     attack_cooldown=1.6, melee_damage=0, melee_range=0.0,
-    bullet_file="enemy_ice_axe_bullet.png", axe_file="")
+    bullet_file="enemy_ice_axe_bullet.png", axe_file="", iron_drop=8, xp=20)
 
 HORNED_BREATHER = SurfaceEnemySpec(
     key="horned_breather", folder=133, label="Horned Breather", tier="C",
     hp=50, armor=2, speed=90.0, locomotion="walk", has_attack_frames=True,
     attack_kind="projectile", damage=15, attack_range=80.0,
     attack_cooldown=1.8, melee_damage=0, melee_range=0.0,
-    bullet_file="bullet.png", axe_file="")
+    bullet_file="bullet.png", axe_file="", iron_drop=12, xp=35)
 
 HORNED_BITER = SurfaceEnemySpec(
     key="horned_biter", folder=134, label="Horned Biter", tier="C",
     hp=60, armor=2, speed=130.0, locomotion="walk", has_attack_frames=True,
     attack_kind="melee", damage=20, attack_range=44.0,
     attack_cooldown=1.2, melee_damage=0, melee_range=0.0,
-    bullet_file="", axe_file="")
+    bullet_file="", axe_file="", iron_drop=14, xp=40)
 
 # Spawn rosters per tier + the max-alive budget each tier maintains.
 SURFACE_TIER_ROSTER: dict[str, tuple[SurfaceEnemySpec, ...]] = {

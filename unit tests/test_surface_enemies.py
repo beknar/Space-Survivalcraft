@@ -47,6 +47,25 @@ class TestSpecs:
         assert ICE_CAT.attack_kind == "bump"
         assert HORNED_BITER.attack_kind == "melee"
 
+    def test_drop_fields_present_and_scale_with_tier(self):
+        for spec in SURFACE_ENEMIES.values():
+            assert spec.iron_drop > 0 and spec.xp > 0
+        assert HORNED_BITER.iron_drop > ICE_CAT.iron_drop      # C > A
+        assert HORNED_BREATHER.xp > ORANGE_HELMET.xp
+
+
+class TestOnFootMeleeWeapons:
+    def test_four_weapons_with_melee_flags(self):
+        from world_setup import load_on_foot_weapons
+        ws = load_on_foot_weapons()
+        assert [w.name for w in ws] == [
+            "Basic Laser Rifle", "Portable Mining Beam",
+            "Electron Sword", "Electron Pick Axe"]
+        # The two melee weapons are flagged so update_weapons skips firing.
+        assert getattr(ws[2], "_on_foot_melee", False) is True
+        assert getattr(ws[3], "_on_foot_melee", False) is True
+        assert getattr(ws[0], "_on_foot_melee", False) is False
+
 
 # ── Asset loader ────────────────────────────────────────────────────────────
 

@@ -226,8 +226,8 @@ class TestSurfaceModeSwap:
         assert gv.player.armor == C.ON_FOOT_BASE_ARMOR
         assert gv.player.hp == C.ON_FOOT_BASE_HP
         assert gv.player.max_shields == 0
-        assert gv.player.guns == 1            # so 2-weapon list cycles
-        assert len(gv._weapons) == 2
+        assert gv.player.guns == 1            # so the weapon list cycles 1-by-1
+        assert len(gv._weapons) == 4          # rifle, mining beam, sword, pick
         assert gv.player._on_foot_frames is not None   # walk frames loaded
         assert gv.player._facing == "down"
         assert len(zone._nodes) == (
