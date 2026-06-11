@@ -161,25 +161,43 @@ def load_weapons(gun_count: int, faction: str | None = None) -> list[Weapon]:
 
 
 def load_on_foot_weapons() -> list[Weapon]:
-    """On-foot (planet surface) arsenal for Phase 2 — the ranged Basic
-    Laser Rifle and the Portable Mining Beam.  Both reuse the projectile
-    weapon path (the rifle damages future surface enemies; the mining
-    beam carries ``mines_rock`` so the surface zone routes its hits to
-    resource nodes).  Melee weapons (electron sword / pick axe) are a
-    later phase.  docs/planets.md section 6.
+    """On-foot (planet surface) arsenal (docs/planets.md section 6.4):
+    Basic Laser Rifle, Portable Mining Beam, Electron Sword, and Electron
+    Pick Axe.  The two ranged tools reuse the projectile weapon path; the
+    two melee weapons carry ``_on_foot_melee = True`` so
+    ``update_logic.update_weapons`` skips firing and the surface zone
+    handles the swing (AOE enemy damage + deflect for the sword, node
+    mining for the pick axe).
     """
     from constants import (
         ON_FOOT_RIFLE_SHOT_PNG, ON_FOOT_RIFLE_DAMAGE, ON_FOOT_RIFLE_COOLDOWN,
         ON_FOOT_RIFLE_RANGE, ON_FOOT_RIFLE_SPEED,
         ON_FOOT_MINING_DAMAGE, ON_FOOT_MINING_COOLDOWN,
         ON_FOOT_MINING_RANGE, ON_FOOT_MINING_SPEED,
+        ON_FOOT_SWORD_PNG, ON_FOOT_SWORD_DAMAGE, ON_FOOT_SWORD_COOLDOWN,
+        ON_FOOT_PICK_PNG, ON_FOOT_PICK_DAMAGE, ON_FOOT_PICK_COOLDOWN,
+        SFX_MELEE_SWING,
     )
     rifle_tex = arcade.load_texture(ON_FOOT_RIFLE_SHOT_PNG)
     mining_tex = arcade.load_texture(os.path.join(LASER_DIR, "laserGreen13.png"))
+    sword_tex = arcade.load_texture(ON_FOOT_SWORD_PNG)
+    pick_tex = arcade.load_texture(ON_FOOT_PICK_PNG)
     laser_snd = arcade.load_sound(
         os.path.join(SFX_WEAPONS_DIR, "Small Laser Weapon Shot 1.wav"))
     mining_snd = arcade.load_sound(
         os.path.join(SFX_WEAPONS_DIR, "Sci-Fi Arc Emitter Weapon Shot 2.wav"))
+    melee_snd = arcade.load_sound(SFX_MELEE_SWING)
+
+    sword = Weapon(
+        "Electron Sword", sword_tex, melee_snd,
+        cooldown=ON_FOOT_SWORD_COOLDOWN, damage=float(ON_FOOT_SWORD_DAMAGE),
+        projectile_speed=0.0, max_range=0.0, proj_scale=1.0, mines_rock=False)
+    pick = Weapon(
+        "Electron Pick Axe", pick_tex, melee_snd,
+        cooldown=ON_FOOT_PICK_COOLDOWN, damage=float(ON_FOOT_PICK_DAMAGE),
+        projectile_speed=0.0, max_range=0.0, proj_scale=1.0, mines_rock=False)
+    sword._on_foot_melee = True
+    pick._on_foot_melee = True
     return [
         Weapon(
             "Basic Laser Rifle", rifle_tex, laser_snd,
@@ -193,6 +211,8 @@ def load_on_foot_weapons() -> list[Weapon]:
             projectile_speed=ON_FOOT_MINING_SPEED, max_range=ON_FOOT_MINING_RANGE,
             proj_scale=1.0, mines_rock=True,
         ),
+        sword,
+        pick,
     ]
 
 

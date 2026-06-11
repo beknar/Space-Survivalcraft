@@ -1412,6 +1412,30 @@ ON_FOOT_MINING_SPEED: float = 600.0
 ON_FOOT_MINING_PNG: str = os.path.join(
     _HERE, "assets", "scifi-space-station-items-assets",
     "individual", "tools", "scifi_tools_01_008.png")
+# Electron Sword — on-foot melee (docs/planets.md section 6.4).  AOE
+# swing vs enemies + a passive projectile-deflect chance while wielded.
+ON_FOOT_SWORD_DAMAGE: int = 20           # base; per-character map below
+ON_FOOT_SWORD_RADIUS: float = 72.0       # AOE reach of a swing
+ON_FOOT_SWORD_COOLDOWN: float = 0.45     # s between swings
+ON_FOOT_SWORD_SWING_TIME: float = 0.22   # s the visual swing lasts
+ON_FOOT_SWORD_DEFLECT: float = 0.50      # chance to deflect an incoming shot
+ON_FOOT_SWORD_PNG: str = os.path.join(
+    _HERE, "assets", "scifi-space-station-items-assets",
+    "individual", "weapons", "scifi_weapons_01_003.png")
+# Electron Pick Axe — on-foot melee mining (docs/planets.md section 6.4).
+ON_FOOT_PICK_DAMAGE: int = 10            # base vs nodes; per-character below
+ON_FOOT_PICK_RADIUS: float = 60.0
+ON_FOOT_PICK_COOLDOWN: float = 0.35
+ON_FOOT_PICK_SWING_TIME: float = 0.20
+ON_FOOT_PICK_PNG: str = os.path.join(
+    _HERE, "assets", "ai generated", "planetary", "weapons", "electron-axe.png")
+# Per-character melee damage (docs/planets.md section 6.3); any other
+# character falls back to the base value (only Debra has surface art).
+ON_FOOT_SWORD_DMG_BY_CHAR: dict[str, int] = {
+    "Debra": 20, "Ellie": 25, "Tara": 20}
+ON_FOOT_PICK_DMG_BY_CHAR: dict[str, int] = {
+    "Debra": 10, "Ellie": 6, "Tara": 10}
+ON_FOOT_MELEE_SWING_SCALE: float = 0.9   # render scale of the swing sprite
 
 # ── Resource nodes (docs/planets.md section 12) ────────────────────────────
 _MATERIALS_DIR: str = os.path.join(

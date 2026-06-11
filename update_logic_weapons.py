@@ -79,6 +79,11 @@ def update_weapons(gv: GameView, dt: float, fire: bool) -> None:
                 if blade is not None:
                     blade.start_swing()
                     fired_any = True
+        elif getattr(head_wpn, "_on_foot_melee", False):
+            # On-foot Electron Sword / Pick Axe — the surface zone reads
+            # the held-fire + active-weapon state and applies the swing
+            # (AOE damage / node mining / deflect).  No projectile here.
+            pass
         else:
             for gi in range(gun_count):
                 wpn = gv._weapons[base_idx + gi]

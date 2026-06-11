@@ -27,7 +27,7 @@ class TestPlanetarySurfaceRealGV:
         assert gv.player.armor == 1
         assert gv.player.max_shields == 0
         assert gv.player.guns == 1
-        assert len(gv._weapons) == 2
+        assert len(gv._weapons) == 4          # rifle, mining beam, sword, pick
         assert len(gv._zone._nodes) > 0
         # Directional walk frames loaded; sprite shows the down-facing frame.
         assert gv.player._on_foot_frames is not None
@@ -183,3 +183,56 @@ class TestPlanetarySurfaceRealGV:
         assert gv._on_foot is True
         assert gv._zone.zone_id == ZoneID.PLANETARY_SURFACE
         assert gv.player.hp == gv.player.max_hp
+
+    # ── On-foot melee + loot (Phase 4) ──────────────────────────────
+
+    def test_sword_kills_enemy_and_drops_iron(self, real_game_view):
+        from sprites.surface_enemy import SurfaceEnemy
+        from specs import ICE_CAT
+        gv = real_game_view
+        z = self._enter_surface(gv)
+        z._enemies.clear()
+        e = SurfaceEnemy(ICE_CAT, z._enemy_assets["ice_cat"],
+                         gv.player.center_x + 40, gv.player.center_y,
+                         z.world_width, z.world_height)
+        z._enemies.append(e)
+        gv._weapon_idx = 2                     # Electron Sword
+        gv._keys.add(arcade.key.SPACE)
+        iron0 = gv.inventory.count_item("iron")
+        for _ in range(80):                   # enough swings to kill (25 HP)
+            gv.on_update(1 / 60)
+        gv._keys.discard(arcade.key.SPACE)
+        assert e.state != "alive"             # killed by the sword
+        assert gv.inventory.count_item("iron") > iron0   # loot collected
+
+    def test_pickaxe_mines_node(self, real_game_view):
+        gv = real_game_view
+        z = self._enter_surface(gv)
+        z._enemies.clear()                    # isolate the pick axe
+        node = z._nodes[0]
+        node.center_x = gv.player.center_x + 30
+        node.center_y = gv.player.center_y
+        hp0 = node.hp
+        gv._weapon_idx = 3                     # Electron Pick Axe
+        gv._keys.add(arcade.key.SPACE)
+        gv.on_update(1 / 60)
+        gv._keys.discard(arcade.key.SPACE)
+        assert node.hp < hp0                  # the swing damaged the node
+
+    def test_sword_deflects_incoming_shot(self, real_game_view):
+        from unittest.mock import patch
+        from sprites.projectile import Projectile
+        gv = real_game_view
+        z = self._enter_surface(gv)
+        z._enemies.clear()
+        gv._weapon_idx = 2                     # Electron Sword wielded
+        img = arcade.Texture(PILImage.new("RGBA", (4, 4), (255, 0, 0, 255)))
+        proj = Projectile(img, gv.player.center_x, gv.player.center_y, 0.0,
+                          0.0, 500.0, scale=1.0, damage=30.0)
+        z._enemy_projectiles.append(proj)
+        hp0 = gv.player.hp
+        # Force a deflect (random < 0.5).
+        with patch("zones.zone_planetary_surface.random.random",
+                   return_value=0.0):
+            gv.on_update(1 / 60)
+        assert gv.player.hp == hp0            # parried, no damage taken

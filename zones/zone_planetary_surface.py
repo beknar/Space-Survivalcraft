@@ -30,6 +30,12 @@ from constants import (
     ROCK_NODE_COUNT, COPPER_VEIN_COUNT, SILICON_VEIN_COUNT,
     FOG_CELL_SIZE,
     SURFACE_ENEMY_RESPAWN_S, SURFACE_ENEMY_RADIUS,
+    ON_FOOT_SWORD_PNG, ON_FOOT_SWORD_RADIUS, ON_FOOT_SWORD_COOLDOWN,
+    ON_FOOT_SWORD_SWING_TIME, ON_FOOT_SWORD_DEFLECT, ON_FOOT_SWORD_DAMAGE,
+    ON_FOOT_SWORD_DMG_BY_CHAR,
+    ON_FOOT_PICK_PNG, ON_FOOT_PICK_RADIUS, ON_FOOT_PICK_COOLDOWN,
+    ON_FOOT_PICK_SWING_TIME, ON_FOOT_PICK_DAMAGE, ON_FOOT_PICK_DMG_BY_CHAR,
+    ON_FOOT_MELEE_SWING_SCALE,
 )
 from zones import ZoneID, ZoneState
 from sprites.resource_node import ResourceNode
@@ -57,6 +63,14 @@ class PlanetarySurfaceZone(ZoneState):
         self._axes: arcade.SpriteList = arcade.SpriteList()
         self._enemy_assets: dict | None = None
         self._respawn_timer: float = 0.0
+        # On-foot melee (Phase 4): electron sword + pick axe swing state.
+        self._sword_cd: float = 0.0
+        self._pick_cd: float = 0.0
+        self._swing_timer: float = 0.0
+        self._swing_kind: str = ""          # "sword" | "pick" | ""
+        self._sword_tex = None
+        self._pick_tex = None
+        self._swing_sprite = None
         # Ship state stashed on entry, restored on exit.
         self._ship_stash: dict | None = None
         # All-revealed fog grid sized for the surface (no fog this phase).
@@ -110,6 +124,14 @@ class PlanetarySurfaceZone(ZoneState):
 
         self._populate_nodes()
         self._populate_enemies(gv)
+
+        # Melee swing visuals (Phase 4).
+        self._sword_tex = arcade.load_texture(ON_FOOT_SWORD_PNG)
+        self._pick_tex = arcade.load_texture(ON_FOOT_PICK_PNG)
+        self._swing_sprite = arcade.Sprite(
+            path_or_texture=self._sword_tex, scale=ON_FOOT_MELEE_SWING_SCALE)
+        self._sword_cd = self._pick_cd = self._swing_timer = 0.0
+        self._swing_kind = ""
 
         # Swap the HUD character panel to the surface animation (Debra.mp4).
         from game_music import start_surface_character_video
@@ -208,6 +230,72 @@ class PlanetarySurfaceZone(ZoneState):
             if counts[tier] < cap:
                 self._spawn_enemy(tier, px, py)
 
+    # ── On-foot melee + kill rewards (Phase 4) ──────────────────────
+
+    def _damage_enemy(self, gv: GameView, e, amount: int) -> None:
+        """Apply damage; on the killing blow, drop iron + award XP."""
+        if e.state != "alive":
+            return
+        e.take_damage(amount)
+        if e.state == "dying":
+            self._award_kill(gv, e)
+
+    def _award_kill(self, gv: GameView, e) -> None:
+        # Reuse the shared reward path (explosion + iron pickup + XP).
+        # bp_chance=0: blueprint drops arrive with the §8 item trees.
+        from collisions_common import _apply_kill_rewards
+        from character_data import bonus_iron_enemy
+        _apply_kill_rewards(
+            gv, e.center_x, e.center_y, e.spec.iron_drop,
+            bonus_iron_enemy, 0.0, xp=e.spec.xp)
+
+    def _melee_char_damage(self, kind: str) -> int:
+        from settings import audio
+        name = getattr(audio, "character_name", "") or ""
+        if kind == "sword":
+            return ON_FOOT_SWORD_DMG_BY_CHAR.get(name, ON_FOOT_SWORD_DAMAGE)
+        return ON_FOOT_PICK_DMG_BY_CHAR.get(name, ON_FOOT_PICK_DAMAGE)
+
+    def _update_melee(self, gv: GameView, dt: float, fire: bool,
+                      active_name: str, px: float, py: float) -> None:
+        """Electron Sword (AOE vs enemies) + Electron Pick Axe (AOE node
+        mining) swings, cooldown-gated while fire is held."""
+        from sprites.explosion import HitSpark
+        self._sword_cd = max(0.0, self._sword_cd - dt)
+        self._pick_cd = max(0.0, self._pick_cd - dt)
+        self._swing_timer = max(0.0, self._swing_timer - dt)
+        if not fire:
+            return
+
+        if active_name == "Electron Sword" and self._sword_cd <= 0.0:
+            self._sword_cd = ON_FOOT_SWORD_COOLDOWN
+            self._swing_timer = ON_FOOT_SWORD_SWING_TIME
+            self._swing_kind = "sword"
+            arcade.play_sound(gv._active_weapon._sound, volume=0.5)
+            dmg = self._melee_char_damage("sword")
+            reach = ON_FOOT_SWORD_RADIUS + SURFACE_ENEMY_RADIUS
+            for e in list(self._enemies):
+                if e.state == "alive" and math.hypot(
+                        e.center_x - px, e.center_y - py) <= reach:
+                    self._damage_enemy(gv, e, dmg)
+        elif active_name == "Electron Pick Axe" and self._pick_cd <= 0.0:
+            self._pick_cd = ON_FOOT_PICK_COOLDOWN
+            self._swing_timer = ON_FOOT_PICK_SWING_TIME
+            self._swing_kind = "pick"
+            arcade.play_sound(gv._active_weapon._sound, volume=0.5)
+            dmg = self._melee_char_damage("pick")
+            for node in list(self._nodes):
+                if math.hypot(node.center_x - px,
+                              node.center_y - py) <= ON_FOOT_PICK_RADIUS + node.radius:
+                    node.take_damage(dmg)
+                    gv.hit_sparks.append(HitSpark(node.center_x, node.center_y))
+                    if node.hp <= 0:
+                        gv.inventory.add_item(node.yield_item, node.yield_amount)
+                        gv._spawn_explosion(node.center_x, node.center_y)
+                        gv._flash_game_msg(
+                            f"+{node.yield_amount} {node.yield_item}", 0.8)
+                        node.remove_from_sprite_lists()
+
     # ── Per-frame update ────────────────────────────────────────────
 
     def update(self, gv: GameView, dt: float) -> None:
@@ -248,10 +336,19 @@ class PlanetarySurfaceZone(ZoneState):
                               proj.center_y - e.center_y) < SURFACE_ENEMY_RADIUS + 6:
                     gv.hit_sparks.append(HitSpark(proj.center_x, proj.center_y))
                     proj.remove_from_sprite_lists()
-                    e.take_damage(int(proj.damage))
-                    if e.state == "dying":
-                        gv._spawn_explosion(e.center_x, e.center_y)
+                    self._damage_enemy(gv, e, int(proj.damage))
                     break
+
+        # On-foot melee swings (Phase 4) — electron sword + pick axe.
+        # Read defensively so windowless unit tests (no _active_weapon /
+        # _keys / _escape_menu on the stub) just no-op the melee path.
+        active_weapon = getattr(gv, "_active_weapon", None)
+        active_name = active_weapon.name if active_weapon is not None else ""
+        keys = getattr(gv, "_keys", ())
+        esc = getattr(gv, "_escape_menu", None)
+        fire = (arcade.key.SPACE in keys) and not (esc.open if esc else False)
+        sword_active = active_name == "Electron Sword"
+        self._update_melee(gv, dt, fire, active_name, px, py)
 
         # Enemy AI + attacks.
         for e in self._enemies:
@@ -264,7 +361,7 @@ class PlanetarySurfaceZone(ZoneState):
                 gv._apply_damage_to_player(int(contact))
                 gv._trigger_shake()
 
-        # Enemy bullets vs player.
+        # Enemy bullets vs player (the electron sword deflects a fraction).
         for proj in list(self._enemy_projectiles):
             proj.update_projectile(dt)
             if not proj.sprite_lists:
@@ -272,8 +369,11 @@ class PlanetarySurfaceZone(ZoneState):
             if math.hypot(proj.center_x - px,
                           proj.center_y - py) < ON_FOOT_RADIUS + 8:
                 proj.remove_from_sprite_lists()
-                gv._apply_damage_to_player(int(proj.damage))
-                gv._trigger_shake()
+                if sword_active and random.random() < ON_FOOT_SWORD_DEFLECT:
+                    gv.hit_sparks.append(HitSpark(px, py))   # parried
+                else:
+                    gv._apply_damage_to_player(int(proj.damage))
+                    gv._trigger_shake()
 
         # Thrown axes (boomerang) — damage once on the outbound pass.
         for axe in list(self._axes):
@@ -282,8 +382,11 @@ class PlanetarySurfaceZone(ZoneState):
                     and math.hypot(axe.center_x - px,
                                    axe.center_y - py) < ON_FOOT_RADIUS + 10):
                 axe._hit = True
-                gv._apply_damage_to_player(int(axe.damage))
-                gv._trigger_shake()
+                if sword_active and random.random() < ON_FOOT_SWORD_DEFLECT:
+                    gv.hit_sparks.append(HitSpark(px, py))   # parried
+                else:
+                    gv._apply_damage_to_player(int(axe.damage))
+                    gv._trigger_shake()
             if axe.dead:
                 axe.remove_from_sprite_lists()
 
@@ -336,6 +439,24 @@ class PlanetarySurfaceZone(ZoneState):
         self._enemies.draw()
         self._enemy_projectiles.draw()
         self._axes.draw()
+
+        # Melee swing flash — the weapon sprite arcs in front of the
+        # character for the swing window.
+        if self._swing_timer > 0.0 and self._swing_sprite is not None:
+            p = gv.player
+            rad = math.radians(p.heading)
+            fx, fy = math.sin(rad), math.cos(rad)
+            sp = self._swing_sprite
+            sp.texture = (self._sword_tex if self._swing_kind == "sword"
+                          else self._pick_tex)
+            sp.center_x = p.center_x + fx * 38.0
+            sp.center_y = p.center_y + fy * 38.0
+            swing_time = (ON_FOOT_SWORD_SWING_TIME
+                          if self._swing_kind == "sword"
+                          else ON_FOOT_PICK_SWING_TIME)
+            progress = 1.0 - (self._swing_timer / max(1e-6, swing_time))
+            sp.angle = (p.heading + (progress * 120.0 - 60.0)) % 360
+            arcade.draw_sprite(sp)
 
     def get_minimap_objects(self):
         return self._enemies, arcade.SpriteList()
