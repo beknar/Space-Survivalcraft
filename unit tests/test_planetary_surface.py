@@ -191,6 +191,17 @@ class TestResourceNode:
 
 # ── Surface zone enter / leave (mode swap) ──────────────────────────────────
 
+class _FakeCVP:
+    """Records calls the surface video swap makes on the HUD char video."""
+    def __init__(self):
+        self.calls: list = []
+    def stop(self):
+        self.calls.append("stop")
+    def play_segments(self, path, volume=0.0):
+        self.calls.append(("play", path))
+        return True
+
+
 def _surface_stub(stub_gv):
     """Attach the fields the surface setup/teardown touch onto a stub."""
     p = stub_gv.player
@@ -201,6 +212,7 @@ def _surface_stub(stub_gv):
     stub_gv._weapon_idx = 2
     stub_gv._planet_origin_zone = ZoneID.STAR_MAZE
     stub_gv._pending_planet_type = "earth"
+    stub_gv._char_video_player = _FakeCVP()
     return stub_gv
 
 
@@ -248,3 +260,30 @@ class TestLiftOff:
         targets = [c[0][0] if isinstance(c, tuple) else c
                    for c in stub_gv.calls["transition"]]
         assert ZoneID.STAR_MAZE in targets
+
+
+# ── Surface HUD character video swap ────────────────────────────────────────
+
+class TestSurfaceHudVideo:
+    def test_surface_video_file_exists(self):
+        import os
+        assert os.path.isfile(C.DEBRA_SURFACE_VIDEO)
+
+    def test_setup_swaps_hud_video_to_debra(self, stub_gv):
+        gv = _surface_stub(stub_gv)
+        zone = PlanetarySurfaceZone()
+        with patch("arcade.play_sound", lambda *a, **kw: None):
+            zone.setup(gv)
+        # Stopped the prior clip, then started Debra.mp4 via play_segments.
+        assert ("play", C.DEBRA_SURFACE_VIDEO) in gv._char_video_player.calls
+
+    def test_teardown_restores_space_video(self, stub_gv):
+        gv = _surface_stub(stub_gv)
+        zone = PlanetarySurfaceZone()
+        with patch("arcade.play_sound", lambda *a, **kw: None):
+            zone.setup(gv)
+            gv._char_video_player.calls.clear()
+            zone.teardown(gv)
+        # Restore stops the surface clip; it does NOT re-play Debra.mp4.
+        assert "stop" in gv._char_video_player.calls
+        assert ("play", C.DEBRA_SURFACE_VIDEO) not in gv._char_video_player.calls

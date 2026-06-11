@@ -9,7 +9,9 @@ from __future__ import annotations
 
 from PIL import Image as PILImage
 import arcade
+import pytest
 
+from constants import DEBRA_SURFACE_VIDEO
 from zones import ZoneID
 from sprites.projectile import Projectile
 
@@ -43,6 +45,21 @@ class TestPlanetarySurfaceRealGV:
         gv._keys.discard(arcade.key.RIGHT)
         assert gv.player._facing == "right"
         assert gv.player.texture is gv.player._on_foot_frames["right"][0]
+
+    def test_surface_swaps_hud_character_video(self, real_game_view):
+        gv = real_game_view
+        gv._planet_origin_zone = ZoneID.STAR_MAZE
+        gv._transition_zone(ZoneID.PLANETARY_SURFACE, entry_side="bottom")
+        cvp = gv._char_video_player
+        if not cvp.active:
+            pytest.skip("character video inactive (no FFmpeg / decode in env)")
+        # Same play_segments scheme, now pointed at the surface clip.
+        assert cvp._current_path == DEBRA_SURFACE_VIDEO
+        # Lifting off restores a non-surface video (or stops it).
+        gv.player.center_x = gv._zone.world_width / 2
+        gv.player.center_y = 10.0
+        gv.on_update(1 / 60)
+        assert cvp._current_path != DEBRA_SURFACE_VIDEO
 
     def test_update_draw_loop_does_not_crash(self, real_game_view):
         gv = real_game_view
