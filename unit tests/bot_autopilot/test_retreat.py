@@ -402,13 +402,18 @@ class TestUnhealedTetherNoSwarmGate:
     HS by 2-3 chasers -- never >= RETREAT_SWARM_ALIEN_COUNT within range,
     so the density-gated unhealed tether stayed silent until RETREAT
     fired with the HS unreachable (corner death, all 4 modules lost).
-    With no ready shield heal, the ZONE2 tether now fires on distance
-    alone; the swarm-density gate still applies when healed."""
 
-    def _sparse_state(self, *, hs_dist, healed, n_aliens=2):
+    2026-06-10 shield gate: the distance-only trigger applies only while
+    shields are below ZONE2_TETHER_UNHEALED_SHIELD_PCT.  The
+    unconditional version trapped a full-shield bot in a 91-minute
+    mine<->idle starvation commute at the leash boundary (every asteroid
+    beyond 1500 px, iron below the heal-batch cost -- the tether kept
+    the bot from mining the iron that would have lifted the tether)."""
+
+    def _sparse_state(self, *, hs_dist, healed, n_aliens=2, shields=120):
         s = _state(
             player={"x": 0.0, "y": 0.0, "heading": 0.0,
-                    "shields": 120, "max_shields": 120},
+                    "shields": shields, "max_shields": 120},
             aliens=[{"x": 900.0 + 80.0 * i, "y": 0.0, "hp": 50}
                     for i in range(n_aliens)],   # sparse: < swarm count
             buildings=[_hs_building(x=hs_dist, y=0.0)],
@@ -419,9 +424,35 @@ class TestUnhealedTetherNoSwarmGate:
                 {"item_type": "shield_recharge", "count": 5}]
         return s
 
-    def test_unhealed_tethers_without_swarm(self, _clock, _fresh_bot_state):
+    def test_unhealed_hurt_tethers_without_swarm(
+            self, _clock, _fresh_bot_state):
+        # Shields at 50% (< 0.7 gate) + no heal -> distance alone fires
+        # even with only 2 sparse chasers (the death-1 protection).
         import bot_autopilot_choose as choose
-        s = self._sparse_state(hs_dist=2000.0, healed=False)
+        s = self._sparse_state(hs_dist=2000.0, healed=False, shields=60)
+        hs = ap._find_home_station(s)
+        assert choose._zone2_far_swarm_tether(s, s["player"], hs) is True
+
+    def test_unhealed_full_shields_no_swarm_does_not_tether(
+            self, _clock, _fresh_bot_state):
+        # 2026-06-10 commute fix: a FULL-shield unhealed bot with no
+        # adjacent swarm keeps operating (it must be able to reach the
+        # iron that funds its own heals).
+        import bot_autopilot_choose as choose
+        s = self._sparse_state(hs_dist=2000.0, healed=False, shields=120)
+        hs = ap._find_home_station(s)
+        assert choose._zone2_far_swarm_tether(s, s["player"], hs) is False
+
+    def test_unhealed_full_shields_dense_swarm_tethers(
+            self, _clock, _fresh_bot_state):
+        # Full shields + unhealed + a DENSE adjacent swarm -> the swarm
+        # gate still sends the bot home (adjacency IS danger).
+        import bot_autopilot_choose as choose
+        s = self._sparse_state(hs_dist=2000.0, healed=False, shields=120)
+        # Pack the swarm well inside RETREAT_SWARM_RANGE_PX (the helper's
+        # 900+80i default puts the tail beyond 1200).
+        s["aliens"] = [{"x": 600.0 + 60.0 * i, "y": 0.0, "hp": 50}
+                       for i in range(ap.RETREAT_SWARM_ALIEN_COUNT)]
         hs = ap._find_home_station(s)
         assert choose._zone2_far_swarm_tether(s, s["player"], hs) is True
 
@@ -436,9 +467,27 @@ class TestUnhealedTetherNoSwarmGate:
     def test_unhealed_inside_radius_does_not_tether(
             self, _clock, _fresh_bot_state):
         import bot_autopilot_choose as choose
-        s = self._sparse_state(hs_dist=1200.0, healed=False)
+        s = self._sparse_state(hs_dist=1200.0, healed=False, shields=60)
         hs = ap._find_home_station(s)
         assert choose._zone2_far_swarm_tether(s, s["player"], hs) is False
+
+    def test_commute_regression_full_cascade(
+            self, _clock, _fresh_bot_state):
+        # The captured 91-min commute: full-shield unhealed bot at
+        # hs_dist 1600, an asteroid out past the leash, no aliens within
+        # swarm range.  Pre-fix: tether -> S_IDLE_AT_BASE every tick the
+        # bot crossed 1500, ping-ponging against MINE forever.  Post-fix
+        # the cascade must keep mining.
+        s = _state(
+            player={"x": 1600.0, "y": 0.0, "heading": 0.0,
+                    "shields": 120, "max_shields": 120},
+            asteroids=[{"x": 2100.0, "y": 0.0, "hp": 100}],
+            buildings=[_hs_building(x=0.0, y=0.0)],
+        )
+        s["zone"]["id"] = "ZoneID.ZONE2"
+        desired = ap._choose_next_state(s, s["player"], ap.S_MINE)
+        assert desired != ap.S_IDLE_AT_BASE
+        assert desired == ap.S_MINE
 
 
 class TestUnhealedHuntLeash:

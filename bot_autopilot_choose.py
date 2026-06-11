@@ -203,10 +203,24 @@ def _zone2_far_swarm_tether(state: dict, p: dict, hs) -> bool:
     # 2-3 chasers (never >= RETREAT_SWARM_ALIEN_COUNT within range), so
     # the density-gated tether stayed silent until RETREAT fired with the
     # HS unreachable; centroid-flee pinned it in a corner and it died,
-    # dropping all four modules.  At 0 heals the bot has no business
-    # roaming the Nebula far from its umbrella, swarm or not.
+    # dropping all four modules.
+    #
+    # Shield gate (2026-06-10 follow-up): distance-alone fires ONLY
+    # while shields are actually suffering (below
+    # ZONE2_TETHER_UNHEALED_SHIELD_PCT).  The unconditional version
+    # trapped a healthy bot in a 91-minute starvation commute -- every
+    # asteroid sat beyond the 1500 px leash, station iron was below the
+    # heal-batch cost, so the bot ping-ponged mine<->idle at the leash
+    # boundary 640 times and could never mine the iron that would have
+    # lifted its own tether.  A full-shield run past the leash is
+    # recoverable: the moment shields dip under fire this branch fires
+    # (well before RETREAT's 0.6 enter), and the dense-swarm gate below
+    # still sends even a full-shield bot home when a swarm closes in.
     if unhealed:
-        return True
+        sh = int(p.get("shields", 0))
+        sh_max = max(1, int(p.get("max_shields", 1)))
+        if (sh / sh_max) < _ap.ZONE2_TETHER_UNHEALED_SHIELD_PCT:
+            return True
     swarm = sum(
         1 for a in (state.get("aliens") or [])
         if math.hypot(float(a.get("x", 0.0)) - px,
