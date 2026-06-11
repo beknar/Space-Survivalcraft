@@ -184,6 +184,21 @@ ZONE2_TETHER_DIST_PX:       float = 2800.0
 # station shield do the surviving) instead of the generous 2800 px
 # operating radius.  Still only fires under a dense swarm.
 ZONE2_TETHER_UNHEALED_DIST_PX: float = 1500.0
+# Shield gate for the DISTANCE-ONLY unhealed tether (2026-06-10).  The
+# 2026-06-09 fix made the unhealed tether fire on distance alone -- but
+# that trapped a healthy bot in a 91-minute starvation commute: every
+# asteroid sat beyond the 1500 px leash, station iron (175) was below
+# the 200-iron heal-batch cost, so the bot ping-ponged mine<->idle at
+# the leash boundary 640 times without ever reaching ore, crafting a
+# heal, or lifting its own tether.  The distance-only trigger is a
+# SURVIVAL response: apply it only when shields are actually suffering
+# (below this fraction) -- a full-shield mining run is recoverable
+# (REGEN / RETREAT / this tether all still fire the moment shields
+# dip).  Above the fraction, the unhealed tether falls back to the
+# dense-swarm gate, so adjacency to a swarm still sends the bot home
+# even at full shields.  0.7 sits above RETREAT's 0.6 enter so the
+# tether turns the bot around BEFORE retreat conditions develop.
+ZONE2_TETHER_UNHEALED_SHIELD_PCT: float = 0.7
 # Tighter tether while the bot is REBUILDING its loadout after a death
 # (2026-06-06 evening).  Captured in the same 4-death spiral: each death
 # dropped the Nebula modules (misty_step / force_wall / death_blossom)
