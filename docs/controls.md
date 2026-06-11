@@ -27,6 +27,18 @@
 | Fleet Control menu (drone orders) | Y |
 | Escape menu | Escape |
 
+### On a planet surface (on-foot)
+
+While on the planet surface the movement keys steer the character
+directly instead of flying a ship:
+
+| Action | Keys |
+|---|---|
+| Walk up / down / left / right | W·A·S·D or arrow keys (omnidirectional) |
+| Fire active weapon | Space (Basic Laser Rifle, or mine with the Portable Mining Beam) |
+| Cycle weapon (Rifle ↔ Mining Beam) | Tab |
+| Lift off back to space | Walk off the bottom edge of the map |
+
 ### Mouse
 
 | Action | Input |

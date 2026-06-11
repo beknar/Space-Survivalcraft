@@ -87,13 +87,18 @@ Space Survivalcraft/
 │   ├── drone_combat.py      # CombatDrone
 │   ├── parked_ship.py       # multi-ship + AI pilot
 │   ├── melee.py             # MeleeBlade -- per-faction lightsabre
-│   └── npc_ship.py          # RefugeeNPCShip
+│   ├── npc_ship.py          # RefugeeNPCShip
+│   ├── planet.py            # landable Planet world object (planets P1)
+│   ├── landing_enemy.py     # Sky Worm / Cloud Drone / Thunder Worm (planets P1)
+│   └── resource_node.py     # surface rock/copper/silicon nodes (planets P2)
 │
 ├── zones/                   # MainZone, Zone2, StarMazeZone, warp variants
 │   ├── maze_geometry.py     # rooms + A* + WaypointPlanner
 │   ├── nebula_shared.py     # content shared by Zone 2 + Star Maze
 │   ├── star_maze_walls.py   # wall sprite build + 7 wall-collision helpers
-│   └── star_maze_spawning.py # maze gen + entourage / stalker / spawner helpers
+│   ├── star_maze_spawning.py # maze gen + entourage / stalker / spawner helpers
+│   ├── zone_planetary_landing.py # aerial descent scene (planets P1)
+│   └── zone_planetary_surface.py # on-foot surface scene (planets P2)
 │
 ├── bot_autopilot.py                  # FSM orchestrator + state
 ├── bot_autopilot_actions_combat.py   # combat _act_* handlers
@@ -183,6 +188,24 @@ performance threshold patterns, etc).
   the tooltip helpers, so existing
   `from sprites.drone import MiningDrone` imports keep
   working after the split.
+* **Planets: reach -> descend -> surface** -- two implemented
+  slices of `docs/planets.md`.  Phase 1 (reach + descend):
+  `Planet` colliders in the Star Maze, the `planetary_landing`
+  ship module gate (`StarMazeZone._update_planet_contact`),
+  and `PlanetaryLandingZone(WarpZoneBase)` -- a warp-zone-sized
+  aerial scene with 60 airborne `LandingEnemy`s.  Phase 2
+  (on-foot surface): `PlanetarySurfaceZone` reached from the
+  landing top edge.  The on-foot character **reuses
+  `gv.player`** via a mode switch -- `setup` stashes ship
+  state and flips `gv._on_foot` (surface texture, `armor`,
+  no shields, rifle + mining beam, `guns=1`); `teardown`
+  restores it.  `update_logic.update_movement` branches to
+  `PlayerShip.apply_input_on_foot` (direct WASD 250 px/s) and
+  `combat_helpers.apply_damage_to_player` subtracts the flat
+  `armor` first.  Resource nodes mined by `mines_rock`
+  projectiles yield iron/copper/silicon.  Deferred to later
+  phases: surface enemies, melee arsenal, base-building,
+  blueprints, L11-30 progression, Ellie/Tara surface art.
 
 ## Asset sources
 

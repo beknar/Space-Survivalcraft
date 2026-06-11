@@ -476,6 +476,24 @@ feature's merging commit.
       the tracking list keep FPS stable through 5 minutes of
       sustained boss combat (`fd2ac1d`)
 
+### 2026-06-09 to 2026-06-10 — Planets: reach, descend & on-foot surface
+- [x] **Planets Phase 1 — Reach + Descend** (PR #240): landable `Planet`
+      objects in the Star Maze, the `planetary_landing` Advanced-Crafter
+      ship module gate, and `PlanetaryLandingZone` — a warp-zone-sized
+      aerial descent with 60 airborne enemies (Sky Worm / Cloud Drone /
+      Thunder Worm). Reuses the warp-zone framework. 19 unit + 4
+      integration tests
+- [x] **Planets Phase 2 — on-foot surface slice** (PR #243): a top-down,
+      walk-around surface reached from the landing top edge. On-foot
+      mode-switch on `gv.player` (direct WASD 250 px/s), the **Armor**
+      stat, a rifle + mining-beam arsenal, and rock/copper/silicon
+      resource nodes (new `silicon` item). Debra-only avatar this phase.
+      12 unit + 4 integration + 1 perf + 1 soak test
+- [ ] **Planets Phase 3+** — surface combat enemies + melee arsenal,
+      planetary base-building + power grid, Planet Forge consumables, the
+      L11–30 progression and item/ability blueprint trees (see
+      `docs/planets.md` §7–§12)
+
 ## Future features (from README)
 
 - [x] **Ship level advancement** — upgrade ships through experience
