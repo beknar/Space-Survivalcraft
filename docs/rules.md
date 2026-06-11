@@ -98,11 +98,12 @@ The handlers below describe the per-pair `push_a` / `push_b` weights, restitutio
 
 ## Damage Flow
 
-1. All damage routes through shields first
-2. Shields absorb up to their remaining value; overflow carries into HP
-3. Shield visual flashes bright on absorption
-4. When hull takes direct damage, fire sparks emit from the ship
-5. Damage Absorber module reduces incoming shield damage by 3
+1. **Armor** (flat, non-depleting) is subtracted first, but never reduces a hit below 1. It is 0 for the ship (a no-op in space) and raised on planet surfaces
+2. Then damage routes through shields
+3. Shields absorb up to their remaining value; overflow carries into HP
+4. Shield visual flashes bright on absorption
+5. When hull takes direct damage, fire sparks emit from the ship
+6. Damage Absorber module reduces incoming shield damage by 3
 
 ### Player Death
 When HP reaches 0:
@@ -239,6 +240,34 @@ Triggered when player enters 500 px, or player weapon fires within 160 px (4x sh
 - Player position and inventory are preserved across zone transitions
 - Buildings placed in Zone 2 are preserved when travelling through warp zones and back
 - Gas hazards in the Gas Cloud warp zone are always visible on the minimap regardless of fog of war
+
+---
+
+## Planet Rules (Phases 1--2)
+
+Full design in `docs/planets.md`; the implemented slices behave as
+follows.
+
+**Reaching a planet**
+
+- Planets are indestructible colliders in the Star Maze
+- Ramming a planet **without** the Planetary Landing Adapter installed: 25 % shields + 25 % HP per hit (on a 1 s cooldown) and a bounce off the surface
+- Ramming a planet **with** the adapter (present in any `_module_slots` entry): transition into the Landing Scene
+- A planet's type (`earth` / `frost` / `barren`) is carried onto the scene it spawns
+
+**Landing Scene (aerial)**
+
+- Reuses the warp-zone framework: 3,200 × 6,400 px, spawn near the bottom
+- 60 airborne enemies (Sky Worm / Cloud Drone / Thunder Worm) patrol until the player enters detect range, then pursue + fire; the Thunder Worm fires two projectiles per shot
+- Enemy shields are rolled per-spawn from each type's shield chance; damage drains shields before HP
+- **Bottom edge** → return to the origin zone; **left/right walls** → 25 % shields + 25 % HP per 0.5 s + bounce; **top edge** → descend to the surface
+
+**Planet Surface (on-foot)**
+
+- The on-foot character **reuses the ship player sprite** in a mode switch: the surface zone's setup stashes the ship's combat state (texture, stats, weapons, guns) and flips on `gv._on_foot`; teardown restores it byte-for-byte
+- On foot: direct WASD movement at 250 px/s (no Newtonian thrust/rotation), Armor stat active, shields disabled (`max_shields` = 0), arsenal swapped to Basic Laser Rifle + Portable Mining Beam
+- **Mining** — only mining-beam projectiles (`mines_rock`) damage resource nodes; a destroyed node credits its yield (iron/copper/silicon) and plays the asteroid-explosion VFX. The character is soft-pushed out of node overlaps
+- **Lift-off** — walking off the bottom edge transitions back to the origin zone and restores the ship
 
 ---
 

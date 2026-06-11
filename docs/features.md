@@ -173,6 +173,34 @@ chooses the stats. All five types are available under every faction.
 - Misty Step **rejects teleports** whose path crosses a maze wall (samples every 16 px along the segment)
 - Star Maze has its own corner wormholes that chain on to deeper `MAZE_WARP_*` warp variants
 
+## Planets --- Landing & Surface
+
+A two-stage descent and an on-foot mode layered on the ship game (full
+design in `docs/planets.md`).  **Phases 1--2 are implemented**; surface
+combat, base-building, and the L11--30 progression / item trees are
+later phases.
+
+- **Planets** are indestructible world objects in the Star Maze (Earth
+  type placed today; Frost / Barren supported).  Ramming one **without**
+  the Planetary Landing Adapter costs 25 % shields + 25 % HP; **with**
+  the adapter installed it drops you into the Landing Scene.
+- **Planetary Landing Adapter** --- an Advanced-Crafter ship module
+  (500 iron + 500 copper) that gates the descent.  Flag-style module
+  (like AI Pilot): its presence in a module slot is what matters.
+- **Planetary Landing Scene** --- a warp-zone-sized (3200×6400) aerial
+  descent with **60 airborne enemies** in three types: **Sky Worm**,
+  **Cloud Drone**, and **Thunder Worm** (the last fires a double shot).
+  Bottom edge returns to the Star Maze; left/right walls scorch the hull;
+  the top edge lands you on the surface.
+- **Planet Surface (on-foot)** --- a top-down, walk-around scene.  The
+  character moves with direct **WASD** at a fixed walk speed (no
+  Newtonian thrust), carries an **Armor** stat (flat, non-depleting
+  damage prevention) instead of shields, and wields a **Basic Laser
+  Rifle** + **Portable Mining Beam**.  Mine **rock / copper / silicon**
+  nodes for iron / copper / silicon.  Walk off the bottom edge to lift
+  off back to space.  Only Debra has surface art today, so she is the
+  on-foot avatar for every character.
+
 ## Warp Zones
 
 - 4 warp zone types: **Meteor**, **Lightning**, **Gas**, and **Enemy Spawner**

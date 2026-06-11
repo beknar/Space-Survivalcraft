@@ -175,6 +175,7 @@ The Energy Blade is a persistent lightsabre sprite that lives in front of the sh
 |---|---|
 | Iron | 999 |
 | Copper | 999 |
+| Silicon | 999 |
 | Repair Pack | 99 |
 | Shield Recharge | 99 |
 | Missile | 500 |
@@ -342,6 +343,66 @@ The Energy Blade is a persistent lightsabre sprite that lives in front of the sh
 > asteroids only spawn in Zone 2 / Star Maze, and Zone 2 access is
 > gated behind defeating the Double Star boss — which the QWI itself
 > spawns.  See `building_manager.effective_copper_cost`.
+
+---
+
+# Planets (Phases 1--2)
+
+Tuned values for the implemented planet slices (full design in
+`docs/planets.md`; numbers live in `constants.py` sections 17--18).
+
+## Planetary Landing Adapter (ship module)
+
+| Property | Value |
+|---|---|
+| Source | Advanced Crafter |
+| Cost | 500 iron + 500 copper |
+| Effect | Ramming a planet enters the Landing Scene instead of taking damage |
+| Planet contact (no adapter) | 25 % shields + 25 % HP per hit |
+| Planet collider radius | 180 px |
+
+## Planetary Landing Scene
+
+| Property | Value |
+|---|---|
+| Scene size | 3,200 x 6,400 px (warp-zone footprint) |
+| Player spawn | Near the bottom edge |
+| Bottom edge | Return to the originating zone (Star Maze) |
+| Left / right walls | 25 % shields + 25 % HP per 0.5 s + bounce inward |
+| Top edge | Descend to the on-foot planet surface |
+
+### Landing-scene enemies (60 total)
+
+| Enemy | Count | HP | Shield | Shield Chance | Speed | Damage | Detect | XP | Shots |
+|---|---|---|---|---|---|---|---|---|---|
+| Sky Worm | 20 | 50 | 50 | 35 % | 120 px/s | 20 | 300 px | 35 | 1 |
+| Cloud Drone | 20 | 60 | 60 | 35 % | 120 px/s | 30 | 300 px | 45 | 1 |
+| Thunder Worm | 20 | 70 | 0 | — | 150 px/s | 40 | 200 px | 45 | 2 |
+
+## Planet Surface (on-foot)
+
+| Property | Value |
+|---|---|
+| Surface size | 4,000 x 4,000 px |
+| Walk speed | 250 px/s (direct WASD, no thrust) |
+| Base HP | 100 |
+| Base Armor | 1 (flat, non-depleting; shields disabled on foot) |
+| Lift-off | Walk off the bottom edge → back to the origin zone |
+
+### On-foot arsenal
+
+| Weapon | Damage | Cooldown | Range | Notes |
+|---|---|---|---|---|
+| Basic Laser Rifle | 10 | 0.30 s | 600 px | Ranged projectile |
+| Portable Mining Beam | 5 (vs nodes) | 0.10 s | 300 px | Mines resource nodes |
+
+### Resource nodes
+
+| Node | HP | Yields | Surface count |
+|---|---|---|---|
+| Rock | 50 | 10 iron | 14 |
+| Copper Vein | 50 | 10 copper | 8 |
+| Silicon Vein | 75 | 10 silicon | 6 |
 
 ---
 

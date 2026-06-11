@@ -1,6 +1,7 @@
 # Planets & Planetary Encounters — Design Document
 
-> **Status:** Design / pre-implementation spec.
+> **Status:** Partially implemented — this is both the design spec and a
+> living record of what has shipped.
 > **Scope:** Everything related to planets — reaching them, the aerial
 > landing scene, the on-foot surface scene, surface progression,
 > planetary items, ability modules, consumables, buildings, and
@@ -12,6 +13,35 @@
 > notes; spelling has been normalized for readability. Suspect/
 > inconsistent values are collected in **Appendix A — Design Review
 > Flags** rather than silently changed.
+
+## Implementation status
+
+| Area | Section | Status |
+|---|---|---|
+| Landing Adapter module | §3 | ✅ Shipped (PR #240) |
+| Planets (space objects) + contact | §4 | ✅ Shipped — Earth placed; Frost/Barren supported |
+| Landing Scene + 3 airborne enemies | §5 | ✅ Shipped (PR #240) |
+| On-foot surface: movement, **Armor** (§6.2), rifle + mining beam (§6.4) | §6 | ✅ Shipped (PR #243) |
+| Surface HUD video panel | §6.1 | ⚠️ Partial — armor readout only; Debra.mp4 swap deferred |
+| Resource nodes: rock / copper / silicon | §12 | ✅ Shipped (PR #243); bio-matter node deferred |
+| Melee arsenal (electron sword / pick axe) | §6.4 | ⬜ Deferred |
+| Surface combat enemies | (undefined) | ⬜ Not designed — see note below |
+| Surface progression L11–30 | §7 | ⬜ Deferred |
+| Planetary item blueprint trees | §8 | ⬜ Deferred |
+| Planetary ability modules | §9 | ⬜ Deferred |
+| Planetary building system + power grid | §10 | ⬜ Deferred |
+| Consumables (Planet Forge) | §11 | ⬜ Deferred |
+
+> **Open design gap:** the surface combat loop (§8 drops, §10 turrets /
+> Arc Tower / Shield Generator) assumes surface enemies, but no surface
+> enemy roster is specced anywhere in this document. Only the §5
+> Landing-Scene airborne enemies are designed. A surface roster must be
+> chosen before §6.4 melee / §10 defences become meaningful.
+>
+> Only **Debra** has planetary art, so she is the on-foot avatar for
+> every character in the shipped slices (Ellie/Tara surface art shelved).
+> Implemented values live in `constants.py` sections 17–18; see also
+> `docs/statistics.md` → *Planets*, `docs/rules.md` → *Planet Rules*.
 
 ---
 
