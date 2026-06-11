@@ -63,6 +63,27 @@ def select_character(gv: GameView, name: str) -> None:
             gv._char_video_player.play_segments(path, volume=0.0)
 
 
+def start_surface_character_video(gv: GameView) -> None:
+    """Swap the HUD character panel to the planet-surface animation
+    (Debra.mp4), using the same seamless-loop ``play_segments`` scheme as
+    the space character video.  No-op if the file is missing (the swap is
+    also a no-op when FFmpeg is unavailable — ``play`` returns False)."""
+    import os
+    from constants import DEBRA_SURFACE_VIDEO
+    if not os.path.isfile(DEBRA_SURFACE_VIDEO):
+        return  # keep whatever is currently playing
+    gv._char_video_player.stop()
+    gv._char_video_player.play_segments(DEBRA_SURFACE_VIDEO, volume=0.0)
+
+
+def restore_space_character_video(gv: GameView) -> None:
+    """Restore the normal space character video after leaving the surface.
+    Stops the surface clip first so it doesn't linger if the active
+    character has no space video of its own."""
+    gv._char_video_player.stop()
+    start_character_video(gv)
+
+
 def stop_video(gv: GameView) -> None:
     """Stop video playback without resuming music or equalizer."""
     gv._video_player.stop()

@@ -1386,6 +1386,13 @@ DEBRA_SURFACE_PNG: str = os.path.join(
     _HERE, "assets", "ai generated", "planetary", "debra-sprite3.png")
 ON_FOOT_FRAME_SIZE: int = 32          # px per walk frame in the sheet
 ON_FOOT_ANIM_FPS: float = 6.0         # walk-cycle frame rate while moving
+# Surface character HUD animation (docs/planets.md section 6.1) — played
+# in the HUD character panel as a seamless loop via the same
+# ``play_segments`` scheme as the space character video.  Only Debra has
+# surface art this phase, so this avatar is used for every character.
+DEBRA_SURFACE_VIDEO: str = os.path.join(
+    _HERE, "assets", "ai generated", "planetary",
+    "character-animation", "Debra.mp4")
 
 # ── On-foot arsenal (this slice: ranged + mining only) ─────────────────────
 # Basic Laser Rifle — reuses the projectile-weapon path.

@@ -103,12 +103,19 @@ class PlanetarySurfaceZone(ZoneState):
 
         self._populate_nodes()
 
+        # Swap the HUD character panel to the surface animation (Debra.mp4).
+        from game_music import start_surface_character_video
+        start_surface_character_video(gv)
+
         from zones import welcome_message_for
         msg = welcome_message_for(self.zone_id)
         if msg is not None:
             gv._flash_game_msg(msg, 1.8)
 
     def teardown(self, gv: GameView) -> None:
+        # Restore the space character video before anything else.
+        from game_music import restore_space_character_video
+        restore_space_character_video(gv)
         s = self._ship_stash
         if s is not None:
             p = gv.player
