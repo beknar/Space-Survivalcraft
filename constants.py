@@ -1433,3 +1433,30 @@ SILICON_ORE_PNG: str = os.path.join(_MATERIALS_DIR, "scifi_materials_01_003.png"
 SILICON_VEIN_HP: int = 75
 SILICON_VEIN_YIELD: int = 10          # silicon per node
 SILICON_VEIN_COUNT: int = 6
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 19. Planet Surface Enemies (Phase 3 — Tiny Rangers Frosty Forest)
+# ═══════════════════════════════════════════════════════════════════════════════
+# Front-facing (top-down) animated creatures that hunt the on-foot
+# character.  Each enemy folder holds individual frame PNGs (idle 1-4,
+# walk 1-6 or run 1-4, a single dead frame, attack 1-4 for some) plus
+# weapon / bullet sprites.  Stats + behaviour live in specs.py
+# (SurfaceEnemySpec); the sprite + asset loader live in
+# sprites/surface_enemy.py.
+SURFACE_ENEMY_DIR: str = os.path.join(
+    _HERE, "assets", "tiny rangers", "Tiny Rangers Frosty Forest", "Enemies")
+SURFACE_ENEMY_SCALE: float = ON_FOOT_SCALE   # match the player avatar size
+SURFACE_ENEMY_RADIUS: float = 18.0           # collision radius vs shots / player
+SURFACE_ENEMY_ANIM_FPS: float = 8.0          # body-animation frame rate
+SURFACE_ENEMY_DEAD_LINGER: float = 0.8       # s the corpse stays before removal
+SURFACE_ENEMY_RESPAWN_S: float = 3.0         # cadence for topping budgets back up
+SURFACE_ENEMY_SPAWN_MIN_DIST: float = 700.0  # min spawn distance from the player
+SURFACE_ENEMY_PROJ_SPEED: float = 360.0      # enemy bullet speed
+SURFACE_ENEMY_PROJ_SCALE: float = 0.5        # enemy bullet render scale
+SURFACE_AXE_SPEED: float = 320.0             # thrown-axe out/back speed
+SURFACE_AXE_SPIN: float = 720.0              # deg/s axe spin
+# Per-tier budgets — maximum alive at once; respawn tops each tier up.
+SURFACE_TIER_A_MAX: int = 10
+SURFACE_TIER_B_MAX: int = 7
+SURFACE_TIER_C_MAX: int = 4
