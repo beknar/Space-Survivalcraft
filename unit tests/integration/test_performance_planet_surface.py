@@ -47,3 +47,37 @@ class TestPlanetSurfacePerf:
         assert fps >= MIN_FPS, (
             f"Planet surface ({node_count} nodes): "
             f"{fps:.1f} FPS < {MIN_FPS} FPS threshold")
+
+
+class TestPlanetSurfaceEnemyPerf:
+    def test_full_enemy_roster_engaged_above_threshold(self, real_game_view):
+        """All 21 enemies pulled into a tight ring around the player so
+        every one is pursuing + firing/bumping, the player holding fire."""
+        import math
+        gv = real_game_view
+        gv._planet_origin_zone = ZoneID.STAR_MAZE
+        gv._transition_zone(ZoneID.PLANETARY_SURFACE, entry_side="bottom")
+        z = gv._zone
+        gv.player.center_x = z.world_width / 2
+        gv.player.center_y = z.world_height / 2
+        gv._weapon_idx = 0                     # rifle
+        gv._keys.add(arcade.key.SPACE)
+
+        dt = 1 / 60
+        for _ in range(40):
+            # Keep every enemy alive + ringed at ~140 px so they all engage.
+            for i, e in enumerate(z._enemies):
+                e.hp = e.max_hp
+                e.state = "alive"
+                ang = (i / max(1, len(z._enemies))) * math.tau
+                e.center_x = gv.player.center_x + math.cos(ang) * 140.0
+                e.center_y = gv.player.center_y + math.sin(ang) * 140.0
+            gv.player.hp = gv.player.max_hp
+            gv.on_update(dt)
+            gv.on_draw()
+
+        fps = _measure_fps(gv, n_warmup=10)
+        gv._keys.discard(arcade.key.SPACE)
+        assert fps >= MIN_FPS, (
+            f"Surface combat ({len(z._enemies)} enemies): "
+            f"{fps:.1f} FPS < {MIN_FPS} FPS threshold")

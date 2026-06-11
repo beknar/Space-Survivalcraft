@@ -51,7 +51,9 @@ def apply_damage_to_player(gv: GameView, amount: int) -> None:
         gv.fire_sparks.append(
             FireSpark(gv.player.center_x, gv.player.center_y)
         )
-        if gv.player.hp <= 0:
+        if gv.player.hp <= 0 and not getattr(gv, "_on_foot", False):
+            # On a planet surface the surface zone handles the downed
+            # state (respawn mid-field) — don't run the space death flow.
             trigger_player_death(gv)
     gv._shake_amp = SHAKE_AMPLITUDE
 

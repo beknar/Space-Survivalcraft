@@ -111,3 +111,75 @@ class TestPlanetarySurfaceRealGV:
         assert gv.player.guns == ship_guns
         assert gv._weapons is ship_weapons
         assert gv.player.armor == 0
+
+    # ── Surface enemies (Phase 3) ───────────────────────────────────
+
+    def _enter_surface(self, gv):
+        gv._planet_origin_zone = ZoneID.STAR_MAZE
+        gv._transition_zone(ZoneID.PLANETARY_SURFACE, entry_side="bottom")
+        gv.player.center_x = gv._zone.world_width / 2
+        gv.player.center_y = gv._zone.world_height / 2
+        return gv._zone
+
+    def test_enemies_spawn_per_tier(self, real_game_view):
+        gv = real_game_view
+        z = self._enter_surface(gv)
+        assert len(z._enemies) == 21         # 10 + 7 + 4
+        counts = {"A": 0, "B": 0, "C": 0}
+        for e in z._enemies:
+            counts[e.spec.tier] += 1
+        assert counts == {"A": 10, "B": 7, "C": 4}
+
+    def test_player_kills_enemy(self, real_game_view):
+        from sprites.surface_enemy import SurfaceEnemy
+        from specs import ICE_CAT
+        gv = real_game_view
+        z = self._enter_surface(gv)
+        z._enemies.clear()
+        e = SurfaceEnemy(ICE_CAT, z._enemy_assets["ice_cat"],
+                         gv.player.center_x + 100, gv.player.center_y,
+                         z.world_width, z.world_height)
+        z._enemies.append(e)
+        # A lethal player shot sitting on the enemy.
+        img = arcade.Texture(PILImage.new("RGBA", (4, 4), (0, 0, 255, 255)))
+        proj = Projectile(img, e.center_x, e.center_y, 0.0, 900.0, 600.0,
+                          scale=1.0, damage=999.0)
+        proj.mines_rock = False              # rifle shot
+        gv.projectile_list.append(proj)
+        gv.on_update(1 / 60)
+        assert e.state == "dying"
+
+    def test_enemy_damages_player(self, real_game_view):
+        from sprites.surface_enemy import SurfaceEnemy
+        from specs import ICE_CAT
+        gv = real_game_view
+        z = self._enter_surface(gv)
+        z._enemies.clear()
+        # Ice cat right on top of the player → bump damage within a tick.
+        e = SurfaceEnemy(ICE_CAT, z._enemy_assets["ice_cat"],
+                         gv.player.center_x + 20, gv.player.center_y,
+                         z.world_width, z.world_height)
+        e._atk_cd = 0.0
+        z._enemies.append(e)
+        hp0 = gv.player.hp
+        gv.on_update(1 / 60)
+        assert gv.player.hp < hp0
+
+    def test_downed_respawns_on_surface(self, real_game_view):
+        from sprites.surface_enemy import SurfaceEnemy
+        from specs import ICE_CAT
+        gv = real_game_view
+        z = self._enter_surface(gv)
+        z._enemies.clear()
+        e = SurfaceEnemy(ICE_CAT, z._enemy_assets["ice_cat"],
+                         gv.player.center_x + 20, gv.player.center_y,
+                         z.world_width, z.world_height)
+        e._atk_cd = 0.0
+        z._enemies.append(e)
+        gv.player.hp = 5                     # one bump downs the player
+        gv.on_update(1 / 60)
+        # Surface handles the downed state — NOT the space death flow.
+        assert gv._player_dead is False
+        assert gv._on_foot is True
+        assert gv._zone.zone_id == ZoneID.PLANETARY_SURFACE
+        assert gv.player.hp == gv.player.max_hp

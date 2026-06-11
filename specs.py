@@ -49,6 +49,7 @@ from constants import (
     LANDING_THUNDER_WORM_SHIELD, LANDING_THUNDER_WORM_SHIELD_CHANCE,
     LANDING_THUNDER_WORM_SPEED, LANDING_THUNDER_WORM_DAMAGE,
     LANDING_THUNDER_WORM_DETECT, LANDING_THUNDER_WORM_XP,
+    SURFACE_TIER_A_MAX, SURFACE_TIER_B_MAX, SURFACE_TIER_C_MAX,
 )
 
 
@@ -235,3 +236,107 @@ THUNDER_WORM = LandingEnemySpec(
 LANDING_ENEMIES: tuple[LandingEnemySpec, ...] = (
     SKY_WORM, CLOUD_DRONE, THUNDER_WORM,
 )
+
+
+@dataclass(frozen=True)
+class SurfaceEnemySpec:
+    """One on-foot planet-surface enemy (Tiny Rangers Frosty Forest).
+
+    ``folder`` is the ``Enemy <n>`` asset folder; ``tier`` (A/B/C) sets
+    the spawn budget.  ``attack_kind``:
+      * ``projectile``   — pursue to ``attack_range``, fire ``bullet_file``
+      * ``throw_return`` — boomerang ``axe_file`` + secondary melee spear
+      * ``bump``         — charge into the player for contact damage
+      * ``melee``        — close in, attack-frame swing for melee damage
+    ``locomotion`` is the moving-frame set (``walk`` or ``run``).
+    ``melee_damage``/``melee_range`` are the ice-crown spear (0 otherwise).
+    """
+    key: str
+    folder: int
+    label: str
+    tier: str
+    hp: int
+    armor: int
+    speed: float
+    locomotion: str
+    has_attack_frames: bool
+    attack_kind: str
+    damage: int
+    attack_range: float
+    attack_cooldown: float
+    melee_damage: int
+    melee_range: float
+    bullet_file: str
+    axe_file: str
+
+
+ICE_CROWN = SurfaceEnemySpec(
+    key="ice_crown", folder=129, label="Ice Crown", tier="A",
+    hp=25, armor=1, speed=110.0, locomotion="walk", has_attack_frames=False,
+    attack_kind="throw_return", damage=10, attack_range=80.0,
+    attack_cooldown=2.0, melee_damage=15, melee_range=44.0,
+    bullet_file="", axe_file="throwing_axe.png")
+
+ORANGE_HELMET = SurfaceEnemySpec(
+    key="orange_helmet", folder=130, label="Orange Helmet", tier="A",
+    hp=40, armor=1, speed=95.0, locomotion="walk", has_attack_frames=False,
+    attack_kind="projectile", damage=20, attack_range=100.0,
+    attack_cooldown=1.8, melee_damage=0, melee_range=0.0,
+    bullet_file="enemy_sniper_bullet.png", axe_file="")
+
+ICE_CAT = SurfaceEnemySpec(
+    key="ice_cat", folder=135, label="Ice Cat", tier="A",
+    hp=25, armor=1, speed=185.0, locomotion="run", has_attack_frames=False,
+    attack_kind="bump", damage=20, attack_range=42.0,
+    attack_cooldown=1.0, melee_damage=0, melee_range=0.0,
+    bullet_file="", axe_file="")
+
+TEAL_CAT = SurfaceEnemySpec(
+    key="teal_cat", folder=136, label="Teal Cat", tier="A",
+    hp=25, armor=2, speed=185.0, locomotion="run", has_attack_frames=False,
+    attack_kind="bump", damage=20, attack_range=42.0,
+    attack_cooldown=1.0, melee_damage=0, melee_range=0.0,
+    bullet_file="", axe_file="")
+
+HORNED_HELMET = SurfaceEnemySpec(
+    key="horned_helmet", folder=131, label="Horned Helmet", tier="B",
+    hp=50, armor=1, speed=95.0, locomotion="walk", has_attack_frames=False,
+    attack_kind="projectile", damage=15, attack_range=80.0,
+    attack_cooldown=1.6, melee_damage=0, melee_range=0.0,
+    bullet_file="enemy_rifle_bullet.png", axe_file="")
+
+VOODOO = SurfaceEnemySpec(
+    key="voodoo", folder=132, label="Voodoo", tier="B",
+    hp=40, armor=2, speed=95.0, locomotion="walk", has_attack_frames=False,
+    attack_kind="projectile", damage=15, attack_range=80.0,
+    attack_cooldown=1.6, melee_damage=0, melee_range=0.0,
+    bullet_file="enemy_ice_axe_bullet.png", axe_file="")
+
+HORNED_BREATHER = SurfaceEnemySpec(
+    key="horned_breather", folder=133, label="Horned Breather", tier="C",
+    hp=50, armor=2, speed=90.0, locomotion="walk", has_attack_frames=True,
+    attack_kind="projectile", damage=15, attack_range=80.0,
+    attack_cooldown=1.8, melee_damage=0, melee_range=0.0,
+    bullet_file="bullet.png", axe_file="")
+
+HORNED_BITER = SurfaceEnemySpec(
+    key="horned_biter", folder=134, label="Horned Biter", tier="C",
+    hp=60, armor=2, speed=130.0, locomotion="walk", has_attack_frames=True,
+    attack_kind="melee", damage=20, attack_range=44.0,
+    attack_cooldown=1.2, melee_damage=0, melee_range=0.0,
+    bullet_file="", axe_file="")
+
+# Spawn rosters per tier + the max-alive budget each tier maintains.
+SURFACE_TIER_ROSTER: dict[str, tuple[SurfaceEnemySpec, ...]] = {
+    "A": (ICE_CROWN, ORANGE_HELMET, ICE_CAT, TEAL_CAT),
+    "B": (HORNED_HELMET, VOODOO),
+    "C": (HORNED_BREATHER, HORNED_BITER),
+}
+SURFACE_TIER_MAX: dict[str, int] = {
+    "A": SURFACE_TIER_A_MAX, "B": SURFACE_TIER_B_MAX, "C": SURFACE_TIER_C_MAX,
+}
+SURFACE_ENEMIES: dict[str, SurfaceEnemySpec] = {
+    spec.key: spec
+    for specs in SURFACE_TIER_ROSTER.values()
+    for spec in specs
+}
