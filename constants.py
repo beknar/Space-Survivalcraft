@@ -1373,12 +1373,19 @@ ON_FOOT_SPEED: float = 250.0          # px/s, direct WASD movement
 ON_FOOT_DAMPING: float = 0.55         # velocity retained per frame (snappy stop)
 ON_FOOT_BASE_HP: int = 100
 ON_FOOT_BASE_ARMOR: int = 1           # flat, non-depleting damage prevention
-ON_FOOT_SCALE: float = 0.6
+ON_FOOT_SCALE: float = 1.6            # applied to a single 32 px walk frame
 ON_FOOT_RADIUS: float = 22.0
 # DESIGN-GAP: only Debra has a planetary sprite, so this avatar is used
 # for every character this phase (Ellie/Tara art shelved per the spec).
+# The sprite is a 3x3 grid of 32 px frames (an AI-generated, slightly
+# irregular character sheet).  Directional frames are sliced by
+# (col, row) in world_setup.load_on_foot_frames:
+#   down  = (0,0),(1,0)   up    = (0,1),(1,1)
+#   left  = (0,2)         right = (2,0)
 DEBRA_SURFACE_PNG: str = os.path.join(
     _HERE, "assets", "ai generated", "planetary", "debra-sprite3.png")
+ON_FOOT_FRAME_SIZE: int = 32          # px per walk frame in the sheet
+ON_FOOT_ANIM_FPS: float = 6.0         # walk-cycle frame rate while moving
 
 # ── On-foot arsenal (this slice: ranged + mining only) ─────────────────────
 # Basic Laser Rifle — reuses the projectile-weapon path.

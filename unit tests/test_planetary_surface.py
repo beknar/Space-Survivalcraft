@@ -20,8 +20,55 @@ import combat_helpers
 from sprites.player import PlayerShip
 from sprites.resource_node import ResourceNode
 from sprites.projectile import Projectile
+from world_setup import load_on_foot_frames
 from zones import ZoneID
 from zones.zone_planetary_surface import PlanetarySurfaceZone
+
+
+# ── On-foot walk animation ──────────────────────────────────────────────────
+
+class TestOnFootAnimation:
+    def test_frames_loaded_per_direction(self):
+        f = load_on_foot_frames()
+        assert sorted(f.keys()) == ["down", "left", "right", "up"]
+        assert len(f["down"]) == 2 and len(f["up"]) == 2     # 2-frame walk
+        assert len(f["left"]) == 1 and len(f["right"]) == 1  # single profile
+
+    def test_facing_follows_dominant_axis(self):
+        p = PlayerShip()
+        p._on_foot_frames = load_on_foot_frames()
+        cases = [
+            (dict(up=True, down=False, left=False, right=False), "up"),
+            (dict(up=False, down=True, left=False, right=False), "down"),
+            (dict(up=False, down=False, left=True, right=False), "left"),
+            (dict(up=False, down=False, left=False, right=True), "right"),
+        ]
+        for keys, expected in cases:
+            p.apply_input_on_foot(1 / 60, **keys)
+            assert p._facing == expected
+
+    def test_diagonal_resolves_to_vertical(self):
+        p = PlayerShip()
+        p._on_foot_frames = load_on_foot_frames()
+        p.apply_input_on_foot(1 / 60, up=True, down=False, left=False, right=True)
+        assert p._facing == "up"            # vertical wins the tie
+
+    def test_texture_matches_facing_frame(self):
+        p = PlayerShip()
+        f = load_on_foot_frames()
+        p._on_foot_frames = f
+        p.apply_input_on_foot(1 / 60, up=False, down=False, left=False, right=True)
+        assert p.texture is f["right"][0]
+
+    def test_walk_cycle_advances_then_resets_when_idle(self):
+        p = PlayerShip()
+        p._on_foot_frames = load_on_foot_frames()
+        # Hold "down" long enough to flip the 2-frame cycle (6 fps -> ~0.17 s).
+        p.apply_input_on_foot(0.2, up=False, down=True, left=False, right=False)
+        assert p._walk_idx == 1
+        # Releasing keys resets to the standing frame.
+        p.apply_input_on_foot(1 / 60, up=False, down=False, left=False, right=False)
+        assert p._walk_idx == 0
 
 
 # ── On-foot movement ────────────────────────────────────────────────────────
@@ -169,6 +216,8 @@ class TestSurfaceModeSwap:
         assert gv.player.max_shields == 0
         assert gv.player.guns == 1            # so 2-weapon list cycles
         assert len(gv._weapons) == 2
+        assert gv.player._on_foot_frames is not None   # walk frames loaded
+        assert gv.player._facing == "down"
         assert len(zone._nodes) == (
             C.ROCK_NODE_COUNT + C.COPPER_VEIN_COUNT + C.SILICON_VEIN_COUNT)
 
@@ -183,6 +232,7 @@ class TestSurfaceModeSwap:
         assert gv.player.guns == 2
         assert gv._weapons == ["ship_a", "ship_b", "ship_c", "ship_d"]
         assert gv._weapon_idx == 2
+        assert gv.player._on_foot_frames is None    # ship won't animate
 
 
 # ── Lift-off exit ───────────────────────────────────────────────────────────
