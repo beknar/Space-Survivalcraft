@@ -27,6 +27,22 @@ class TestPlanetarySurfaceRealGV:
         assert gv.player.guns == 1
         assert len(gv._weapons) == 2
         assert len(gv._zone._nodes) > 0
+        # Directional walk frames loaded; sprite shows the down-facing frame.
+        assert gv.player._on_foot_frames is not None
+        assert gv.player.texture is gv.player._on_foot_frames["down"][0]
+
+    def test_walking_animates_and_faces_direction(self, real_game_view):
+        gv = real_game_view
+        gv._transition_zone(ZoneID.PLANETARY_SURFACE, entry_side="bottom")
+        gv.player.center_x = gv._zone.world_width / 2
+        gv.player.center_y = gv._zone.world_height / 2
+        gv._keys.add(arcade.key.RIGHT)
+        for _ in range(20):
+            gv.on_update(1 / 60)
+            gv.on_draw()
+        gv._keys.discard(arcade.key.RIGHT)
+        assert gv.player._facing == "right"
+        assert gv.player.texture is gv.player._on_foot_frames["right"][0]
 
     def test_update_draw_loop_does_not_crash(self, real_game_view):
         gv = real_game_view

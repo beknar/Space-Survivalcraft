@@ -26,7 +26,7 @@ import arcade
 from constants import (
     PLANET_SURFACE_WIDTH, PLANET_SURFACE_HEIGHT,
     ON_FOOT_BASE_HP, ON_FOOT_BASE_ARMOR, ON_FOOT_SCALE, ON_FOOT_SPEED,
-    ON_FOOT_RADIUS, DEBRA_SURFACE_PNG,
+    ON_FOOT_RADIUS,
     ROCK_NODE_COUNT, COPPER_VEIN_COUNT, SILICON_VEIN_COUNT,
     FOG_CELL_SIZE,
 )
@@ -49,7 +49,7 @@ class PlanetarySurfaceZone(ZoneState):
         self._nodes: arcade.SpriteList = arcade.SpriteList()
         self._origin_zone: ZoneID = ZoneID.STAR_MAZE
         self.planet_type: str = "earth"
-        self._surface_tex: arcade.Texture | None = None
+        self._frames: dict | None = None
         # Ship state stashed on entry, restored on exit.
         self._ship_stash: dict | None = None
         # All-revealed fog grid sized for the surface (no fog this phase).
@@ -61,7 +61,7 @@ class PlanetarySurfaceZone(ZoneState):
     # ── Enter / leave: ship <-> on-foot mode swap ───────────────────
 
     def setup(self, gv: GameView) -> None:
-        from world_setup import load_on_foot_weapons
+        from world_setup import load_on_foot_weapons, load_on_foot_frames
 
         self._origin_zone = getattr(
             gv, "_planet_origin_zone", ZoneID.STAR_MAZE) or ZoneID.STAR_MAZE
@@ -80,8 +80,12 @@ class PlanetarySurfaceZone(ZoneState):
 
         # Flip into on-foot mode.
         gv._on_foot = True
-        self._surface_tex = arcade.load_texture(DEBRA_SURFACE_PNG)
-        p.texture = self._surface_tex
+        self._frames = load_on_foot_frames()
+        p._on_foot_frames = self._frames
+        p._facing = "down"
+        p._walk_idx = 0
+        p._walk_timer = 0.0
+        p.texture = self._frames["down"][0]
         p.scale = ON_FOOT_SCALE
         p.angle = 0.0
         p.vel_x = p.vel_y = 0.0
@@ -118,6 +122,7 @@ class PlanetarySurfaceZone(ZoneState):
             p.vel_x, p.vel_y = s["vel_x"], s["vel_y"]
             gv._weapons = s["weapons"]
             gv._weapon_idx = s["weapon_idx"]
+            p._on_foot_frames = None       # stop the ship from animating
             self._ship_stash = None
         gv._on_foot = False
         self._nodes.clear()

@@ -137,6 +137,13 @@ class PlayerShip(arcade.Sprite):
         # (on-foot mode).  Applied before shields/HP in
         # ``combat_helpers.apply_damage_to_player``.
         self.armor: int = 0
+        # On-foot walk-animation state (set up by PlanetarySurfaceZone).
+        # ``_on_foot_frames`` maps "down"/"up"/"left"/"right" to texture
+        # lists; None off the surface.  apply_input_on_foot drives them.
+        self._on_foot_frames: dict | None = None
+        self._facing: str = "down"
+        self._walk_idx: int = 0
+        self._walk_timer: float = 0.0
         self._shield_acc: float = 0.0
         self._collision_cd: float = 0.0
 
@@ -250,15 +257,18 @@ class PlayerShip(arcade.Sprite):
         last movement direction so the ranged weapon fires where the
         character is walking (docs/planets.md section 6).
 
-        The sprite itself is NOT rotated (``angle`` stays 0) — top-down
-        character art reads best upright; directional gun rendering is a
-        later-phase polish item.
+        While moving, the directional walk frames (down/up/left/right,
+        loaded onto ``_on_foot_frames`` by the surface zone) cycle at
+        ``ON_FOOT_ANIM_FPS``; standing still resets to the facing's first
+        frame.  The sprite is never rotated (``angle`` stays 0) — the
+        4-way frames carry the facing instead.
         """
         from constants import ON_FOOT_SPEED, ON_FOOT_DAMPING
 
         dx = (1.0 if right else 0.0) - (1.0 if left else 0.0)
         dy = (1.0 if up else 0.0) - (1.0 if down else 0.0)
-        if dx or dy:
+        moving = bool(dx or dy)
+        if moving:
             mag = math.hypot(dx, dy)
             nx, ny = dx / mag, dy / mag
             self.vel_x = nx * ON_FOOT_SPEED
@@ -270,6 +280,8 @@ class PlayerShip(arcade.Sprite):
             self.vel_x *= ON_FOOT_DAMPING
             self.vel_y *= ON_FOOT_DAMPING
 
+        self._animate_on_foot(dt, dx, dy, moving)
+
         hw, hh = self.width / 2, self.height / 2
         self.center_x = max(hw, min(self.world_width - hw,
                                     self.center_x + self.vel_x * dt))
@@ -278,6 +290,35 @@ class PlayerShip(arcade.Sprite):
 
         if self._collision_cd > 0.0:
             self._collision_cd = max(0.0, self._collision_cd - dt)
+
+    def _animate_on_foot(self, dt: float, dx: float, dy: float,
+                         moving: bool) -> None:
+        """Pick the 4-way facing from the dominant movement axis, advance
+        the walk cycle, and set ``self.texture``.  No-op if directional
+        frames aren't loaded."""
+        from constants import ON_FOOT_ANIM_FPS
+
+        frames = self._on_foot_frames
+        if not frames:
+            return
+        if moving:
+            # Vertical axis wins ties so a pure diagonal reads as up/down.
+            if abs(dy) >= abs(dx):
+                self._facing = "up" if dy > 0 else "down"
+            else:
+                self._facing = "right" if dx > 0 else "left"
+        dir_frames = frames.get(self._facing) or frames["down"]
+        if moving and len(dir_frames) > 1:
+            self._walk_timer += dt
+            step = 1.0 / ON_FOOT_ANIM_FPS
+            while self._walk_timer >= step:
+                self._walk_timer -= step
+                self._walk_idx = (self._walk_idx + 1) % len(dir_frames)
+        elif not moving:
+            self._walk_idx = 0
+            self._walk_timer = 0.0
+        idx = self._walk_idx if self._walk_idx < len(dir_frames) else 0
+        self.texture = dir_frames[idx]
 
     @property
     def thrust_intensity(self) -> float:

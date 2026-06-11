@@ -196,6 +196,37 @@ def load_on_foot_weapons() -> list[Weapon]:
     ]
 
 
+def load_on_foot_frames() -> dict[str, list[arcade.Texture]]:
+    """Slice the on-foot character sheet into directional walk frames.
+
+    ``debra-sprite3.png`` is a 3x3 grid of 32 px frames (an AI-generated,
+    slightly irregular character sheet).  Frames are mapped by
+    ``(col, row)``:
+
+        down  = (0,0),(1,0)    up    = (0,1),(1,1)
+        left  = (0,2)          right = (2,0)
+
+    Down/up get a 2-frame walk cycle; left/right have a single profile
+    each (no leg animation, just facing).  docs/planets.md section 6.
+    """
+    from constants import DEBRA_SURFACE_PNG, ON_FOOT_FRAME_SIZE
+    fs = ON_FOOT_FRAME_SIZE
+    sheet = PILImage.open(DEBRA_SURFACE_PNG).convert("RGBA")
+
+    def cell(col: int, row: int) -> arcade.Texture:
+        return arcade.Texture(
+            sheet.crop((col * fs, row * fs, col * fs + fs, row * fs + fs)))
+
+    frames = {
+        "down":  [cell(0, 0), cell(1, 0)],
+        "up":    [cell(0, 1), cell(1, 1)],
+        "left":  [cell(0, 2)],
+        "right": [cell(2, 0)],
+    }
+    sheet.close()
+    return frames
+
+
 def load_explosion_assets() -> tuple[list[arcade.Texture], arcade.Sound]:
     """Load explosion animation frames and sound."""
     exp_ss = arcade.load_spritesheet(EXPLOSION_PNG)
