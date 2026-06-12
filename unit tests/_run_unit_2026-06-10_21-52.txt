@@ -1,0 +1,894 @@
+........................................................................ [  2%]
+........................................................................ [  5%]
+........................................................................ [  7%]
+........................................................................ [ 10%]
+........................................................................ [ 13%]
+........................................................................ [ 15%]
+........................................................................ [ 18%]
+........................................................................ [ 21%]
+........................................................................ [ 23%]
+........................................................................ [ 26%]
+........................................................................ [ 29%]
+........................................................................ [ 31%]
+........................................................................ [ 34%]
+........................................................................ [ 37%]
+........................................................................ [ 39%]
+........................................................................ [ 42%]
+........................................................................ [ 45%]
+........................................................................ [ 47%]
+........................................................................ [ 50%]
+........................................................................ [ 53%]
+........................................................................ [ 55%]
+........................................................................ [ 58%]
+........................................................................ [ 61%]
+........................................................................ [ 63%]
+........................................................................ [ 66%]
+........................................................................ [ 69%]
+........................................................................ [ 71%]
+........................................................................ [ 74%]
+.....................................................................FFF [ 77%]
+FF.......FFFF.FFF....................................................... [ 79%]
+........................................................................ [ 82%]
+........................................................................ [ 85%]
+........................................................................ [ 87%]
+........................................................................ [ 90%]
+........................................................................ [ 93%]
+..................................................F..................... [ 95%]
+........................................................................ [ 98%]
+........................................                                 [100%]
+================================== FAILURES ===================================
+____________ TestOnFootAnimation.test_frames_loaded_per_direction _____________
+
+self = <test_planetary_surface.TestOnFootAnimation object at 0x000002545B1FA3C0>
+
+    def test_frames_loaded_per_direction(self):
+>       f = load_on_foot_frames()
+            ^^^^^^^^^^^^^^^^^^^^^
+
+unit tests\test_planetary_surface.py:32: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+world_setup.py:234: in load_on_foot_frames
+    sheet = PILImage.open(DEBRA_SURFACE_PNG).convert("RGBA")
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+fp = 'C:\\Users\\bekna\\Documents\\code\\Space-Survivalcraft\\assets\\ai generated\\planetary\\debra-sprite3.png'
+mode = 'r', formats = ['BMP', 'DIB', 'GIF', 'JPEG', 'PPM', 'PNG']
+
+    def open(
+        fp: StrOrBytesPath | IO[bytes],
+        mode: Literal["r"] = "r",
+        formats: list[str] | tuple[str, ...] | None = None,
+    ) -> ImageFile.ImageFile:
+        """
+        Opens and identifies the given image file.
+    
+        This is a lazy operation; this function identifies the file, but
+        the file remains open and the actual image data is not read from
+        the file until you try to process the data (or call the
+        :py:meth:`~PIL.Image.Image.load` method).  See
+        :py:func:`~PIL.Image.new`. See :ref:`file-handling`.
+    
+        :param fp: A filename (string), os.PathLike object or a file object.
+           The file object must implement ``file.read``,
+           ``file.seek``, and ``file.tell`` methods,
+           and be opened in binary mode. The file object will also seek to zero
+           before reading.
+        :param mode: The mode.  If given, this argument must be "r".
+        :param formats: A list or tuple of formats to attempt to load the file in.
+           This can be used to restrict the set of formats checked.
+           Pass ``None`` to try all supported formats. You can print the set of
+           available formats by running ``python3 -m PIL`` or using
+           the :py:func:`PIL.features.pilinfo` function.
+        :returns: An :py:class:`~PIL.Image.Image` object.
+        :exception FileNotFoundError: If the file cannot be found.
+        :exception PIL.UnidentifiedImageError: If the image cannot be opened and
+           identified.
+        :exception ValueError: If the ``mode`` is not "r", or if a ``StringIO``
+           instance is used for ``fp``.
+        :exception TypeError: If ``formats`` is not ``None``, a list or a tuple.
+        """
+    
+        if mode != "r":
+            msg = f"bad mode {repr(mode)}"  # type: ignore[unreachable]
+            raise ValueError(msg)
+        elif isinstance(fp, io.StringIO):
+            msg = (  # type: ignore[unreachable]
+                "StringIO cannot be used to open an image. "
+                "Binary data must be used instead."
+            )
+            raise ValueError(msg)
+    
+        if formats is None:
+            formats = ID
+        elif not isinstance(formats, (list, tuple)):
+            msg = "formats must be a list or tuple"  # type: ignore[unreachable]
+            raise TypeError(msg)
+    
+        exclusive_fp = False
+        filename: str | bytes = ""
+        if is_path(fp):
+            filename = os.fspath(fp)
+>           fp = builtins.open(filename, "rb")
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           FileNotFoundError: [Errno 2] No such file or directory: 'C:\\Users\\bekna\\Documents\\code\\Space-Survivalcraft\\assets\\ai generated\\planetary\\debra-sprite3.png'
+
+.venv\Lib\site-packages\PIL\Image.py:3513: FileNotFoundError
+____________ TestOnFootAnimation.test_facing_follows_dominant_axis ____________
+
+self = <test_planetary_surface.TestOnFootAnimation object at 0x000002545B206AB0>
+
+    def test_facing_follows_dominant_axis(self):
+        p = PlayerShip()
+>       p._on_foot_frames = load_on_foot_frames()
+                            ^^^^^^^^^^^^^^^^^^^^^
+
+unit tests\test_planetary_surface.py:39: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+world_setup.py:234: in load_on_foot_frames
+    sheet = PILImage.open(DEBRA_SURFACE_PNG).convert("RGBA")
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+fp = 'C:\\Users\\bekna\\Documents\\code\\Space-Survivalcraft\\assets\\ai generated\\planetary\\debra-sprite3.png'
+mode = 'r', formats = ['BMP', 'DIB', 'GIF', 'JPEG', 'PPM', 'PNG']
+
+    def open(
+        fp: StrOrBytesPath | IO[bytes],
+        mode: Literal["r"] = "r",
+        formats: list[str] | tuple[str, ...] | None = None,
+    ) -> ImageFile.ImageFile:
+        """
+        Opens and identifies the given image file.
+    
+        This is a lazy operation; this function identifies the file, but
+        the file remains open and the actual image data is not read from
+        the file until you try to process the data (or call the
+        :py:meth:`~PIL.Image.Image.load` method).  See
+        :py:func:`~PIL.Image.new`. See :ref:`file-handling`.
+    
+        :param fp: A filename (string), os.PathLike object or a file object.
+           The file object must implement ``file.read``,
+           ``file.seek``, and ``file.tell`` methods,
+           and be opened in binary mode. The file object will also seek to zero
+           before reading.
+        :param mode: The mode.  If given, this argument must be "r".
+        :param formats: A list or tuple of formats to attempt to load the file in.
+           This can be used to restrict the set of formats checked.
+           Pass ``None`` to try all supported formats. You can print the set of
+           available formats by running ``python3 -m PIL`` or using
+           the :py:func:`PIL.features.pilinfo` function.
+        :returns: An :py:class:`~PIL.Image.Image` object.
+        :exception FileNotFoundError: If the file cannot be found.
+        :exception PIL.UnidentifiedImageError: If the image cannot be opened and
+           identified.
+        :exception ValueError: If the ``mode`` is not "r", or if a ``StringIO``
+           instance is used for ``fp``.
+        :exception TypeError: If ``formats`` is not ``None``, a list or a tuple.
+        """
+    
+        if mode != "r":
+            msg = f"bad mode {repr(mode)}"  # type: ignore[unreachable]
+            raise ValueError(msg)
+        elif isinstance(fp, io.StringIO):
+            msg = (  # type: ignore[unreachable]
+                "StringIO cannot be used to open an image. "
+                "Binary data must be used instead."
+            )
+            raise ValueError(msg)
+    
+        if formats is None:
+            formats = ID
+        elif not isinstance(formats, (list, tuple)):
+            msg = "formats must be a list or tuple"  # type: ignore[unreachable]
+            raise TypeError(msg)
+    
+        exclusive_fp = False
+        filename: str | bytes = ""
+        if is_path(fp):
+            filename = os.fspath(fp)
+>           fp = builtins.open(filename, "rb")
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           FileNotFoundError: [Errno 2] No such file or directory: 'C:\\Users\\bekna\\Documents\\code\\Space-Survivalcraft\\assets\\ai generated\\planetary\\debra-sprite3.png'
+
+.venv\Lib\site-packages\PIL\Image.py:3513: FileNotFoundError
+___________ TestOnFootAnimation.test_diagonal_resolves_to_vertical ____________
+
+self = <test_planetary_surface.TestOnFootAnimation object at 0x000002545B206E70>
+
+    def test_diagonal_resolves_to_vertical(self):
+        p = PlayerShip()
+>       p._on_foot_frames = load_on_foot_frames()
+                            ^^^^^^^^^^^^^^^^^^^^^
+
+unit tests\test_planetary_surface.py:52: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+world_setup.py:234: in load_on_foot_frames
+    sheet = PILImage.open(DEBRA_SURFACE_PNG).convert("RGBA")
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+fp = 'C:\\Users\\bekna\\Documents\\code\\Space-Survivalcraft\\assets\\ai generated\\planetary\\debra-sprite3.png'
+mode = 'r', formats = ['BMP', 'DIB', 'GIF', 'JPEG', 'PPM', 'PNG']
+
+    def open(
+        fp: StrOrBytesPath | IO[bytes],
+        mode: Literal["r"] = "r",
+        formats: list[str] | tuple[str, ...] | None = None,
+    ) -> ImageFile.ImageFile:
+        """
+        Opens and identifies the given image file.
+    
+        This is a lazy operation; this function identifies the file, but
+        the file remains open and the actual image data is not read from
+        the file until you try to process the data (or call the
+        :py:meth:`~PIL.Image.Image.load` method).  See
+        :py:func:`~PIL.Image.new`. See :ref:`file-handling`.
+    
+        :param fp: A filename (string), os.PathLike object or a file object.
+           The file object must implement ``file.read``,
+           ``file.seek``, and ``file.tell`` methods,
+           and be opened in binary mode. The file object will also seek to zero
+           before reading.
+        :param mode: The mode.  If given, this argument must be "r".
+        :param formats: A list or tuple of formats to attempt to load the file in.
+           This can be used to restrict the set of formats checked.
+           Pass ``None`` to try all supported formats. You can print the set of
+           available formats by running ``python3 -m PIL`` or using
+           the :py:func:`PIL.features.pilinfo` function.
+        :returns: An :py:class:`~PIL.Image.Image` object.
+        :exception FileNotFoundError: If the file cannot be found.
+        :exception PIL.UnidentifiedImageError: If the image cannot be opened and
+           identified.
+        :exception ValueError: If the ``mode`` is not "r", or if a ``StringIO``
+           instance is used for ``fp``.
+        :exception TypeError: If ``formats`` is not ``None``, a list or a tuple.
+        """
+    
+        if mode != "r":
+            msg = f"bad mode {repr(mode)}"  # type: ignore[unreachable]
+            raise ValueError(msg)
+        elif isinstance(fp, io.StringIO):
+            msg = (  # type: ignore[unreachable]
+                "StringIO cannot be used to open an image. "
+                "Binary data must be used instead."
+            )
+            raise ValueError(msg)
+    
+        if formats is None:
+            formats = ID
+        elif not isinstance(formats, (list, tuple)):
+            msg = "formats must be a list or tuple"  # type: ignore[unreachable]
+            raise TypeError(msg)
+    
+        exclusive_fp = False
+        filename: str | bytes = ""
+        if is_path(fp):
+            filename = os.fspath(fp)
+>           fp = builtins.open(filename, "rb")
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           FileNotFoundError: [Errno 2] No such file or directory: 'C:\\Users\\bekna\\Documents\\code\\Space-Survivalcraft\\assets\\ai generated\\planetary\\debra-sprite3.png'
+
+.venv\Lib\site-packages\PIL\Image.py:3513: FileNotFoundError
+____________ TestOnFootAnimation.test_texture_matches_facing_frame ____________
+
+self = <test_planetary_surface.TestOnFootAnimation object at 0x000002545B206B10>
+
+    def test_texture_matches_facing_frame(self):
+        p = PlayerShip()
+>       f = load_on_foot_frames()
+            ^^^^^^^^^^^^^^^^^^^^^
+
+unit tests\test_planetary_surface.py:58: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+world_setup.py:234: in load_on_foot_frames
+    sheet = PILImage.open(DEBRA_SURFACE_PNG).convert("RGBA")
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+fp = 'C:\\Users\\bekna\\Documents\\code\\Space-Survivalcraft\\assets\\ai generated\\planetary\\debra-sprite3.png'
+mode = 'r', formats = ['BMP', 'DIB', 'GIF', 'JPEG', 'PPM', 'PNG']
+
+    def open(
+        fp: StrOrBytesPath | IO[bytes],
+        mode: Literal["r"] = "r",
+        formats: list[str] | tuple[str, ...] | None = None,
+    ) -> ImageFile.ImageFile:
+        """
+        Opens and identifies the given image file.
+    
+        This is a lazy operation; this function identifies the file, but
+        the file remains open and the actual image data is not read from
+        the file until you try to process the data (or call the
+        :py:meth:`~PIL.Image.Image.load` method).  See
+        :py:func:`~PIL.Image.new`. See :ref:`file-handling`.
+    
+        :param fp: A filename (string), os.PathLike object or a file object.
+           The file object must implement ``file.read``,
+           ``file.seek``, and ``file.tell`` methods,
+           and be opened in binary mode. The file object will also seek to zero
+           before reading.
+        :param mode: The mode.  If given, this argument must be "r".
+        :param formats: A list or tuple of formats to attempt to load the file in.
+           This can be used to restrict the set of formats checked.
+           Pass ``None`` to try all supported formats. You can print the set of
+           available formats by running ``python3 -m PIL`` or using
+           the :py:func:`PIL.features.pilinfo` function.
+        :returns: An :py:class:`~PIL.Image.Image` object.
+        :exception FileNotFoundError: If the file cannot be found.
+        :exception PIL.UnidentifiedImageError: If the image cannot be opened and
+           identified.
+        :exception ValueError: If the ``mode`` is not "r", or if a ``StringIO``
+           instance is used for ``fp``.
+        :exception TypeError: If ``formats`` is not ``None``, a list or a tuple.
+        """
+    
+        if mode != "r":
+            msg = f"bad mode {repr(mode)}"  # type: ignore[unreachable]
+            raise ValueError(msg)
+        elif isinstance(fp, io.StringIO):
+            msg = (  # type: ignore[unreachable]
+                "StringIO cannot be used to open an image. "
+                "Binary data must be used instead."
+            )
+            raise ValueError(msg)
+    
+        if formats is None:
+            formats = ID
+        elif not isinstance(formats, (list, tuple)):
+            msg = "formats must be a list or tuple"  # type: ignore[unreachable]
+            raise TypeError(msg)
+    
+        exclusive_fp = False
+        filename: str | bytes = ""
+        if is_path(fp):
+            filename = os.fspath(fp)
+>           fp = builtins.open(filename, "rb")
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           FileNotFoundError: [Errno 2] No such file or directory: 'C:\\Users\\bekna\\Documents\\code\\Space-Survivalcraft\\assets\\ai generated\\planetary\\debra-sprite3.png'
+
+.venv\Lib\site-packages\PIL\Image.py:3513: FileNotFoundError
+_____ TestOnFootAnimation.test_walk_cycle_advances_then_resets_when_idle ______
+
+self = <test_planetary_surface.TestOnFootAnimation object at 0x000002545B206810>
+
+    def test_walk_cycle_advances_then_resets_when_idle(self):
+        p = PlayerShip()
+>       p._on_foot_frames = load_on_foot_frames()
+                            ^^^^^^^^^^^^^^^^^^^^^
+
+unit tests\test_planetary_surface.py:65: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+world_setup.py:234: in load_on_foot_frames
+    sheet = PILImage.open(DEBRA_SURFACE_PNG).convert("RGBA")
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+fp = 'C:\\Users\\bekna\\Documents\\code\\Space-Survivalcraft\\assets\\ai generated\\planetary\\debra-sprite3.png'
+mode = 'r', formats = ['BMP', 'DIB', 'GIF', 'JPEG', 'PPM', 'PNG']
+
+    def open(
+        fp: StrOrBytesPath | IO[bytes],
+        mode: Literal["r"] = "r",
+        formats: list[str] | tuple[str, ...] | None = None,
+    ) -> ImageFile.ImageFile:
+        """
+        Opens and identifies the given image file.
+    
+        This is a lazy operation; this function identifies the file, but
+        the file remains open and the actual image data is not read from
+        the file until you try to process the data (or call the
+        :py:meth:`~PIL.Image.Image.load` method).  See
+        :py:func:`~PIL.Image.new`. See :ref:`file-handling`.
+    
+        :param fp: A filename (string), os.PathLike object or a file object.
+           The file object must implement ``file.read``,
+           ``file.seek``, and ``file.tell`` methods,
+           and be opened in binary mode. The file object will also seek to zero
+           before reading.
+        :param mode: The mode.  If given, this argument must be "r".
+        :param formats: A list or tuple of formats to attempt to load the file in.
+           This can be used to restrict the set of formats checked.
+           Pass ``None`` to try all supported formats. You can print the set of
+           available formats by running ``python3 -m PIL`` or using
+           the :py:func:`PIL.features.pilinfo` function.
+        :returns: An :py:class:`~PIL.Image.Image` object.
+        :exception FileNotFoundError: If the file cannot be found.
+        :exception PIL.UnidentifiedImageError: If the image cannot be opened and
+           identified.
+        :exception ValueError: If the ``mode`` is not "r", or if a ``StringIO``
+           instance is used for ``fp``.
+        :exception TypeError: If ``formats`` is not ``None``, a list or a tuple.
+        """
+    
+        if mode != "r":
+            msg = f"bad mode {repr(mode)}"  # type: ignore[unreachable]
+            raise ValueError(msg)
+        elif isinstance(fp, io.StringIO):
+            msg = (  # type: ignore[unreachable]
+                "StringIO cannot be used to open an image. "
+                "Binary data must be used instead."
+            )
+            raise ValueError(msg)
+    
+        if formats is None:
+            formats = ID
+        elif not isinstance(formats, (list, tuple)):
+            msg = "formats must be a list or tuple"  # type: ignore[unreachable]
+            raise TypeError(msg)
+    
+        exclusive_fp = False
+        filename: str | bytes = ""
+        if is_path(fp):
+            filename = os.fspath(fp)
+>           fp = builtins.open(filename, "rb")
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           FileNotFoundError: [Errno 2] No such file or directory: 'C:\\Users\\bekna\\Documents\\code\\Space-Survivalcraft\\assets\\ai generated\\planetary\\debra-sprite3.png'
+
+.venv\Lib\site-packages\PIL\Image.py:3513: FileNotFoundError
+________________ TestResourceNode.test_take_damage_then_yield _________________
+
+self = <test_planetary_surface.TestResourceNode object at 0x000002545B206BD0>
+stub_gv = StubGameView(calls={'damage': [], 'shake': 0, 'explosion': [], 'iron_pickup': [], 'blueprint_pickup': [], 'xp': [], 't...550BDBCAE0>, _flash_game_msg=<function StubGameView.__init__.<locals>._recorder.<locals>.record at 0x000002550BDBC900>)
+
+    def test_take_damage_then_yield(self, stub_gv):
+        zone = PlanetarySurfaceZone()
+>       node = ResourceNode("rock", 500.0, 500.0)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+unit tests\test_planetary_surface.py:154: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+sprites\resource_node.py:32: in __init__
+    super().__init__(path_or_texture=png, scale=RESOURCE_NODE_SCALE)
+.venv\Lib\site-packages\arcade\sprite\sprite.py:77: in __init__
+    _texture = arcade.texture.default_texture_cache.load_or_get_texture(path_or_texture)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\arcade\texture\manager.py:229: in load_or_get_texture
+    real_path = self._get_real_path(file_path)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\arcade\texture\manager.py:101: in _get_real_path
+    return arcade.resources.resolve(path)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\arcade\resources\__init__.py:107: in resolve
+    path = Path(path.resolve(strict=True))
+                ^^^^^^^^^^^^^^^^^^^^^^^^^
+..\..\..\AppData\Local\Programs\Python\Python312\Lib\pathlib.py:1240: in resolve
+    s = self._flavour.realpath(self, strict=strict)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+path = 'C:\\Users\\bekna\\Documents\\code\\Space-Survivalcraft\\assets\\scifi-space-station-items-assets\\individual\\materials\\scifi_materials_01_000.png'
+
+>   ???
+E   FileNotFoundError: [WinError 3] The system cannot find the path specified: 'C:\\Users\\bekna\\Documents\\code\\Space-Survivalcraft\\assets\\scifi-space-station-items-assets\\individual\\materials\\scifi_materials_01_000.png'
+
+<frozen ntpath>:727: FileNotFoundError
+_______________ TestResourceNode.test_rifle_shot_does_not_mine ________________
+
+self = <test_planetary_surface.TestResourceNode object at 0x000002545B204410>
+stub_gv = StubGameView(calls={'damage': [], 'shake': 0, 'explosion': [], 'iron_pickup': [], 'blueprint_pickup': [], 'xp': [], 't...550BDBE8E0>, _flash_game_msg=<function StubGameView.__init__.<locals>._recorder.<locals>.record at 0x000002550BDBEA20>)
+
+    def test_rifle_shot_does_not_mine(self, stub_gv):
+        zone = PlanetarySurfaceZone()
+>       node = ResourceNode("copper", 500.0, 500.0)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+unit tests\test_planetary_surface.py:176: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+sprites\resource_node.py:32: in __init__
+    super().__init__(path_or_texture=png, scale=RESOURCE_NODE_SCALE)
+.venv\Lib\site-packages\arcade\sprite\sprite.py:77: in __init__
+    _texture = arcade.texture.default_texture_cache.load_or_get_texture(path_or_texture)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\arcade\texture\manager.py:229: in load_or_get_texture
+    real_path = self._get_real_path(file_path)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\arcade\texture\manager.py:101: in _get_real_path
+    return arcade.resources.resolve(path)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\arcade\resources\__init__.py:107: in resolve
+    path = Path(path.resolve(strict=True))
+                ^^^^^^^^^^^^^^^^^^^^^^^^^
+..\..\..\AppData\Local\Programs\Python\Python312\Lib\pathlib.py:1240: in resolve
+    s = self._flavour.realpath(self, strict=strict)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+path = 'C:\\Users\\bekna\\Documents\\code\\Space-Survivalcraft\\assets\\scifi-space-station-items-assets\\individual\\materials\\scifi_materials_02_004.png'
+
+>   ???
+E   FileNotFoundError: [WinError 3] The system cannot find the path specified: 'C:\\Users\\bekna\\Documents\\code\\Space-Survivalcraft\\assets\\scifi-space-station-items-assets\\individual\\materials\\scifi_materials_02_004.png'
+
+<frozen ntpath>:727: FileNotFoundError
+________________ TestSurfaceModeSwap.test_setup_enters_on_foot ________________
+
+self = <test_planetary_surface.TestSurfaceModeSwap object at 0x000002545B2052E0>
+stub_gv = StubGameView(calls={'damage': [], 'shake': 0, 'explosion': [], 'iron_pickup': [], 'blueprint_pickup': [], 'xp': [], 't..._planet_type='earth', _char_video_player=<test_planetary_surface._FakeCVP object at 0x000002550A845100>, _on_foot=True)
+
+    def test_setup_enters_on_foot(self, stub_gv):
+        gv = _surface_stub(stub_gv)
+        zone = PlanetarySurfaceZone()
+        with patch("arcade.play_sound", lambda *a, **kw: None):
+>           zone.setup(gv)
+
+unit tests\test_planetary_surface.py:224: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+zones\zone_planetary_surface.py:104: in setup
+    self._frames = load_on_foot_frames()
+                   ^^^^^^^^^^^^^^^^^^^^^
+world_setup.py:234: in load_on_foot_frames
+    sheet = PILImage.open(DEBRA_SURFACE_PNG).convert("RGBA")
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+fp = 'C:\\Users\\bekna\\Documents\\code\\Space-Survivalcraft\\assets\\ai generated\\planetary\\debra-sprite3.png'
+mode = 'r', formats = ['BMP', 'DIB', 'GIF', 'JPEG', 'PPM', 'PNG']
+
+    def open(
+        fp: StrOrBytesPath | IO[bytes],
+        mode: Literal["r"] = "r",
+        formats: list[str] | tuple[str, ...] | None = None,
+    ) -> ImageFile.ImageFile:
+        """
+        Opens and identifies the given image file.
+    
+        This is a lazy operation; this function identifies the file, but
+        the file remains open and the actual image data is not read from
+        the file until you try to process the data (or call the
+        :py:meth:`~PIL.Image.Image.load` method).  See
+        :py:func:`~PIL.Image.new`. See :ref:`file-handling`.
+    
+        :param fp: A filename (string), os.PathLike object or a file object.
+           The file object must implement ``file.read``,
+           ``file.seek``, and ``file.tell`` methods,
+           and be opened in binary mode. The file object will also seek to zero
+           before reading.
+        :param mode: The mode.  If given, this argument must be "r".
+        :param formats: A list or tuple of formats to attempt to load the file in.
+           This can be used to restrict the set of formats checked.
+           Pass ``None`` to try all supported formats. You can print the set of
+           available formats by running ``python3 -m PIL`` or using
+           the :py:func:`PIL.features.pilinfo` function.
+        :returns: An :py:class:`~PIL.Image.Image` object.
+        :exception FileNotFoundError: If the file cannot be found.
+        :exception PIL.UnidentifiedImageError: If the image cannot be opened and
+           identified.
+        :exception ValueError: If the ``mode`` is not "r", or if a ``StringIO``
+           instance is used for ``fp``.
+        :exception TypeError: If ``formats`` is not ``None``, a list or a tuple.
+        """
+    
+        if mode != "r":
+            msg = f"bad mode {repr(mode)}"  # type: ignore[unreachable]
+            raise ValueError(msg)
+        elif isinstance(fp, io.StringIO):
+            msg = (  # type: ignore[unreachable]
+                "StringIO cannot be used to open an image. "
+                "Binary data must be used instead."
+            )
+            raise ValueError(msg)
+    
+        if formats is None:
+            formats = ID
+        elif not isinstance(formats, (list, tuple)):
+            msg = "formats must be a list or tuple"  # type: ignore[unreachable]
+            raise TypeError(msg)
+    
+        exclusive_fp = False
+        filename: str | bytes = ""
+        if is_path(fp):
+            filename = os.fspath(fp)
+>           fp = builtins.open(filename, "rb")
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           FileNotFoundError: [Errno 2] No such file or directory: 'C:\\Users\\bekna\\Documents\\code\\Space-Survivalcraft\\assets\\ai generated\\planetary\\debra-sprite3.png'
+
+.venv\Lib\site-packages\PIL\Image.py:3513: FileNotFoundError
+_______________ TestSurfaceModeSwap.test_teardown_restores_ship _______________
+
+self = <test_planetary_surface.TestSurfaceModeSwap object at 0x000002545B204BF0>
+stub_gv = StubGameView(calls={'damage': [], 'shake': 0, 'explosion': [], 'iron_pickup': [], 'blueprint_pickup': [], 'xp': [], 't..._planet_type='earth', _char_video_player=<test_planetary_surface._FakeCVP object at 0x000002550B9368D0>, _on_foot=True)
+
+    def test_teardown_restores_ship(self, stub_gv):
+        gv = _surface_stub(stub_gv)
+        zone = PlanetarySurfaceZone()
+        with patch("arcade.play_sound", lambda *a, **kw: None):
+>           zone.setup(gv)
+
+unit tests\test_planetary_surface.py:240: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+zones\zone_planetary_surface.py:104: in setup
+    self._frames = load_on_foot_frames()
+                   ^^^^^^^^^^^^^^^^^^^^^
+world_setup.py:234: in load_on_foot_frames
+    sheet = PILImage.open(DEBRA_SURFACE_PNG).convert("RGBA")
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+fp = 'C:\\Users\\bekna\\Documents\\code\\Space-Survivalcraft\\assets\\ai generated\\planetary\\debra-sprite3.png'
+mode = 'r', formats = ['BMP', 'DIB', 'GIF', 'JPEG', 'PPM', 'PNG']
+
+    def open(
+        fp: StrOrBytesPath | IO[bytes],
+        mode: Literal["r"] = "r",
+        formats: list[str] | tuple[str, ...] | None = None,
+    ) -> ImageFile.ImageFile:
+        """
+        Opens and identifies the given image file.
+    
+        This is a lazy operation; this function identifies the file, but
+        the file remains open and the actual image data is not read from
+        the file until you try to process the data (or call the
+        :py:meth:`~PIL.Image.Image.load` method).  See
+        :py:func:`~PIL.Image.new`. See :ref:`file-handling`.
+    
+        :param fp: A filename (string), os.PathLike object or a file object.
+           The file object must implement ``file.read``,
+           ``file.seek``, and ``file.tell`` methods,
+           and be opened in binary mode. The file object will also seek to zero
+           before reading.
+        :param mode: The mode.  If given, this argument must be "r".
+        :param formats: A list or tuple of formats to attempt to load the file in.
+           This can be used to restrict the set of formats checked.
+           Pass ``None`` to try all supported formats. You can print the set of
+           available formats by running ``python3 -m PIL`` or using
+           the :py:func:`PIL.features.pilinfo` function.
+        :returns: An :py:class:`~PIL.Image.Image` object.
+        :exception FileNotFoundError: If the file cannot be found.
+        :exception PIL.UnidentifiedImageError: If the image cannot be opened and
+           identified.
+        :exception ValueError: If the ``mode`` is not "r", or if a ``StringIO``
+           instance is used for ``fp``.
+        :exception TypeError: If ``formats`` is not ``None``, a list or a tuple.
+        """
+    
+        if mode != "r":
+            msg = f"bad mode {repr(mode)}"  # type: ignore[unreachable]
+            raise ValueError(msg)
+        elif isinstance(fp, io.StringIO):
+            msg = (  # type: ignore[unreachable]
+                "StringIO cannot be used to open an image. "
+                "Binary data must be used instead."
+            )
+            raise ValueError(msg)
+    
+        if formats is None:
+            formats = ID
+        elif not isinstance(formats, (list, tuple)):
+            msg = "formats must be a list or tuple"  # type: ignore[unreachable]
+            raise TypeError(msg)
+    
+        exclusive_fp = False
+        filename: str | bytes = ""
+        if is_path(fp):
+            filename = os.fspath(fp)
+>           fp = builtins.open(filename, "rb")
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           FileNotFoundError: [Errno 2] No such file or directory: 'C:\\Users\\bekna\\Documents\\code\\Space-Survivalcraft\\assets\\ai generated\\planetary\\debra-sprite3.png'
+
+.venv\Lib\site-packages\PIL\Image.py:3513: FileNotFoundError
+_____________ TestSurfaceHudVideo.test_surface_video_file_exists ______________
+
+self = <test_planetary_surface.TestSurfaceHudVideo object at 0x000002545B2161B0>
+
+    def test_surface_video_file_exists(self):
+        import os
+>       assert os.path.isfile(C.DEBRA_SURFACE_VIDEO)
+E       AssertionError: assert False
+E        +  where False = <built-in function _path_isfile>('C:\\Users\\bekna\\Documents\\code\\Space-Survivalcraft\\assets\\ai generated\\planetary\\character-animation\\Debra.mp4')
+E        +    where <built-in function _path_isfile> = <module 'ntpath' (frozen)>.isfile
+E        +      where <module 'ntpath' (frozen)> = <module 'os' (frozen)>.path
+E        +    and   'C:\\Users\\bekna\\Documents\\code\\Space-Survivalcraft\\assets\\ai generated\\planetary\\character-animation\\Debra.mp4' = C.DEBRA_SURFACE_VIDEO
+
+unit tests\test_planetary_surface.py:270: AssertionError
+___________ TestSurfaceHudVideo.test_setup_swaps_hud_video_to_debra ___________
+
+self = <test_planetary_surface.TestSurfaceHudVideo object at 0x000002545B2164B0>
+stub_gv = StubGameView(calls={'damage': [], 'shake': 0, 'explosion': [], 'iron_pickup': [], 'blueprint_pickup': [], 'xp': [], 't..._planet_type='earth', _char_video_player=<test_planetary_surface._FakeCVP object at 0x000002550B938AD0>, _on_foot=True)
+
+    def test_setup_swaps_hud_video_to_debra(self, stub_gv):
+        gv = _surface_stub(stub_gv)
+        zone = PlanetarySurfaceZone()
+        with patch("arcade.play_sound", lambda *a, **kw: None):
+>           zone.setup(gv)
+
+unit tests\test_planetary_surface.py:276: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+zones\zone_planetary_surface.py:104: in setup
+    self._frames = load_on_foot_frames()
+                   ^^^^^^^^^^^^^^^^^^^^^
+world_setup.py:234: in load_on_foot_frames
+    sheet = PILImage.open(DEBRA_SURFACE_PNG).convert("RGBA")
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+fp = 'C:\\Users\\bekna\\Documents\\code\\Space-Survivalcraft\\assets\\ai generated\\planetary\\debra-sprite3.png'
+mode = 'r', formats = ['BMP', 'DIB', 'GIF', 'JPEG', 'PPM', 'PNG']
+
+    def open(
+        fp: StrOrBytesPath | IO[bytes],
+        mode: Literal["r"] = "r",
+        formats: list[str] | tuple[str, ...] | None = None,
+    ) -> ImageFile.ImageFile:
+        """
+        Opens and identifies the given image file.
+    
+        This is a lazy operation; this function identifies the file, but
+        the file remains open and the actual image data is not read from
+        the file until you try to process the data (or call the
+        :py:meth:`~PIL.Image.Image.load` method).  See
+        :py:func:`~PIL.Image.new`. See :ref:`file-handling`.
+    
+        :param fp: A filename (string), os.PathLike object or a file object.
+           The file object must implement ``file.read``,
+           ``file.seek``, and ``file.tell`` methods,
+           and be opened in binary mode. The file object will also seek to zero
+           before reading.
+        :param mode: The mode.  If given, this argument must be "r".
+        :param formats: A list or tuple of formats to attempt to load the file in.
+           This can be used to restrict the set of formats checked.
+           Pass ``None`` to try all supported formats. You can print the set of
+           available formats by running ``python3 -m PIL`` or using
+           the :py:func:`PIL.features.pilinfo` function.
+        :returns: An :py:class:`~PIL.Image.Image` object.
+        :exception FileNotFoundError: If the file cannot be found.
+        :exception PIL.UnidentifiedImageError: If the image cannot be opened and
+           identified.
+        :exception ValueError: If the ``mode`` is not "r", or if a ``StringIO``
+           instance is used for ``fp``.
+        :exception TypeError: If ``formats`` is not ``None``, a list or a tuple.
+        """
+    
+        if mode != "r":
+            msg = f"bad mode {repr(mode)}"  # type: ignore[unreachable]
+            raise ValueError(msg)
+        elif isinstance(fp, io.StringIO):
+            msg = (  # type: ignore[unreachable]
+                "StringIO cannot be used to open an image. "
+                "Binary data must be used instead."
+            )
+            raise ValueError(msg)
+    
+        if formats is None:
+            formats = ID
+        elif not isinstance(formats, (list, tuple)):
+            msg = "formats must be a list or tuple"  # type: ignore[unreachable]
+            raise TypeError(msg)
+    
+        exclusive_fp = False
+        filename: str | bytes = ""
+        if is_path(fp):
+            filename = os.fspath(fp)
+>           fp = builtins.open(filename, "rb")
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           FileNotFoundError: [Errno 2] No such file or directory: 'C:\\Users\\bekna\\Documents\\code\\Space-Survivalcraft\\assets\\ai generated\\planetary\\debra-sprite3.png'
+
+.venv\Lib\site-packages\PIL\Image.py:3513: FileNotFoundError
+___________ TestSurfaceHudVideo.test_teardown_restores_space_video ____________
+
+self = <test_planetary_surface.TestSurfaceHudVideo object at 0x000002545B216870>
+stub_gv = StubGameView(calls={'damage': [], 'shake': 0, 'explosion': [], 'iron_pickup': [], 'blueprint_pickup': [], 'xp': [], 't..._planet_type='earth', _char_video_player=<test_planetary_surface._FakeCVP object at 0x000002550B938470>, _on_foot=True)
+
+    def test_teardown_restores_space_video(self, stub_gv):
+        gv = _surface_stub(stub_gv)
+        zone = PlanetarySurfaceZone()
+        with patch("arcade.play_sound", lambda *a, **kw: None):
+>           zone.setup(gv)
+
+unit tests\test_planetary_surface.py:284: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+zones\zone_planetary_surface.py:104: in setup
+    self._frames = load_on_foot_frames()
+                   ^^^^^^^^^^^^^^^^^^^^^
+world_setup.py:234: in load_on_foot_frames
+    sheet = PILImage.open(DEBRA_SURFACE_PNG).convert("RGBA")
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+fp = 'C:\\Users\\bekna\\Documents\\code\\Space-Survivalcraft\\assets\\ai generated\\planetary\\debra-sprite3.png'
+mode = 'r', formats = ['BMP', 'DIB', 'GIF', 'JPEG', 'PPM', 'PNG']
+
+    def open(
+        fp: StrOrBytesPath | IO[bytes],
+        mode: Literal["r"] = "r",
+        formats: list[str] | tuple[str, ...] | None = None,
+    ) -> ImageFile.ImageFile:
+        """
+        Opens and identifies the given image file.
+    
+        This is a lazy operation; this function identifies the file, but
+        the file remains open and the actual image data is not read from
+        the file until you try to process the data (or call the
+        :py:meth:`~PIL.Image.Image.load` method).  See
+        :py:func:`~PIL.Image.new`. See :ref:`file-handling`.
+    
+        :param fp: A filename (string), os.PathLike object or a file object.
+           The file object must implement ``file.read``,
+           ``file.seek``, and ``file.tell`` methods,
+           and be opened in binary mode. The file object will also seek to zero
+           before reading.
+        :param mode: The mode.  If given, this argument must be "r".
+        :param formats: A list or tuple of formats to attempt to load the file in.
+           This can be used to restrict the set of formats checked.
+           Pass ``None`` to try all supported formats. You can print the set of
+           available formats by running ``python3 -m PIL`` or using
+           the :py:func:`PIL.features.pilinfo` function.
+        :returns: An :py:class:`~PIL.Image.Image` object.
+        :exception FileNotFoundError: If the file cannot be found.
+        :exception PIL.UnidentifiedImageError: If the image cannot be opened and
+           identified.
+        :exception ValueError: If the ``mode`` is not "r", or if a ``StringIO``
+           instance is used for ``fp``.
+        :exception TypeError: If ``formats`` is not ``None``, a list or a tuple.
+        """
+    
+        if mode != "r":
+            msg = f"bad mode {repr(mode)}"  # type: ignore[unreachable]
+            raise ValueError(msg)
+        elif isinstance(fp, io.StringIO):
+            msg = (  # type: ignore[unreachable]
+                "StringIO cannot be used to open an image. "
+                "Binary data must be used instead."
+            )
+            raise ValueError(msg)
+    
+        if formats is None:
+            formats = ID
+        elif not isinstance(formats, (list, tuple)):
+            msg = "formats must be a list or tuple"  # type: ignore[unreachable]
+            raise TypeError(msg)
+    
+        exclusive_fp = False
+        filename: str | bytes = ""
+        if is_path(fp):
+            filename = os.fspath(fp)
+>           fp = builtins.open(filename, "rb")
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           FileNotFoundError: [Errno 2] No such file or directory: 'C:\\Users\\bekna\\Documents\\code\\Space-Survivalcraft\\assets\\ai generated\\planetary\\debra-sprite3.png'
+
+.venv\Lib\site-packages\PIL\Image.py:3513: FileNotFoundError
+__________ TestOnFootMeleeWeapons.test_four_weapons_with_melee_flags __________
+
+self = <test_surface_enemies.TestOnFootMeleeWeapons object at 0x000002545B581100>
+
+    def test_four_weapons_with_melee_flags(self):
+        from world_setup import load_on_foot_weapons
+>       ws = load_on_foot_weapons()
+             ^^^^^^^^^^^^^^^^^^^^^^
+
+unit tests\test_surface_enemies.py:60: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+world_setup.py:183: in load_on_foot_weapons
+    sword_tex = arcade.load_texture(ON_FOOT_SWORD_PNG)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\arcade\texture\loading.py:51: in load_texture
+    file_path = resolve(file_path)
+                ^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\arcade\resources\__init__.py:107: in resolve
+    path = Path(path.resolve(strict=True))
+                ^^^^^^^^^^^^^^^^^^^^^^^^^
+..\..\..\AppData\Local\Programs\Python\Python312\Lib\pathlib.py:1240: in resolve
+    s = self._flavour.realpath(self, strict=strict)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+path = 'C:\\Users\\bekna\\Documents\\code\\Space-Survivalcraft\\assets\\scifi-space-station-items-assets\\individual\\weapons\\scifi_weapons_01_003.png'
+
+>   ???
+E   FileNotFoundError: [WinError 3] The system cannot find the path specified: 'C:\\Users\\bekna\\Documents\\code\\Space-Survivalcraft\\assets\\scifi-space-station-items-assets\\individual\\weapons\\scifi_weapons_01_003.png'
+
+<frozen ntpath>:727: FileNotFoundError
+=========================== short test summary info ===========================
+FAILED unit tests/test_planetary_surface.py::TestOnFootAnimation::test_frames_loaded_per_direction
+FAILED unit tests/test_planetary_surface.py::TestOnFootAnimation::test_facing_follows_dominant_axis
+FAILED unit tests/test_planetary_surface.py::TestOnFootAnimation::test_diagonal_resolves_to_vertical
+FAILED unit tests/test_planetary_surface.py::TestOnFootAnimation::test_texture_matches_facing_frame
+FAILED unit tests/test_planetary_surface.py::TestOnFootAnimation::test_walk_cycle_advances_then_resets_when_idle
+FAILED unit tests/test_planetary_surface.py::TestResourceNode::test_take_damage_then_yield
+FAILED unit tests/test_planetary_surface.py::TestResourceNode::test_rifle_shot_does_not_mine
+FAILED unit tests/test_planetary_surface.py::TestSurfaceModeSwap::test_setup_enters_on_foot
+FAILED unit tests/test_planetary_surface.py::TestSurfaceModeSwap::test_teardown_restores_ship
+FAILED unit tests/test_planetary_surface.py::TestSurfaceHudVideo::test_surface_video_file_exists
+FAILED unit tests/test_planetary_surface.py::TestSurfaceHudVideo::test_setup_swaps_hud_video_to_debra
+FAILED unit tests/test_planetary_surface.py::TestSurfaceHudVideo::test_teardown_restores_space_video
+FAILED unit tests/test_surface_enemies.py::TestOnFootMeleeWeapons::test_four_weapons_with_melee_flags
+13 failed, 2691 passed in 160.30s (0:02:40)
