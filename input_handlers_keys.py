@@ -90,6 +90,13 @@ def handle_key_press(gv: GameView, key: int, modifiers: int) -> None:
         audio.show_fps = gv._hud.show_fps
     elif key == arcade.key.B:
         if not gv._escape_menu.open and not gv._player_dead:
+            # On foot: the planetary build menu (zone-owned) instead of the
+            # ship build menu.
+            if getattr(gv, "_on_foot", False):
+                zone = getattr(gv, "_zone", None)
+                if zone is not None and hasattr(zone, "toggle_build_menu"):
+                    zone.toggle_build_menu(gv)
+                return
             if gv._destroy_mode:
                 gv._exit_destroy_mode()
                 return

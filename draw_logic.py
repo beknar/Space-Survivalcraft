@@ -973,6 +973,24 @@ def _draw_boss_announcement(gv: GameView) -> None:
         gv._t_boss_subtitle.draw()
 
 
+def _surface_build_menu_open(gv: GameView) -> bool:
+    """True when the on-foot planetary build menu is open."""
+    if not getattr(gv, "_on_foot", False):
+        return False
+    zone = getattr(gv, "_zone", None)
+    menu = getattr(zone, "_build_menu", None)
+    return bool(menu is not None and menu.open)
+
+
+def _draw_surface_overlay(gv: GameView) -> None:
+    """Draw the planetary build menu + placement hint (on foot only)."""
+    if not getattr(gv, "_on_foot", False):
+        return
+    zone = getattr(gv, "_zone", None)
+    if zone is not None and hasattr(zone, "draw_surface_overlay"):
+        zone.draw_surface_overlay(gv)
+
+
 def draw_ui(gv: GameView) -> None:
     """Draw all UI-space elements (called inside ui_cam.activate)."""
     # Treat every modal overlay as "menu open" so the expensive video
@@ -992,9 +1010,11 @@ def draw_ui(gv: GameView) -> None:
         or gv._ship_stats.open
         or gv._dialogue.open
         or gv._map_overlay.open
+        or _surface_build_menu_open(gv)
     )
     _draw_hud(gv, menu_open)
     _draw_overlays(gv)
+    _draw_surface_overlay(gv)
     _draw_map_drone_hover(gv)
     _draw_building_hover(gv, menu_open)
     _draw_boss_hp_bar(gv)

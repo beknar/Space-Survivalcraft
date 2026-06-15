@@ -1484,3 +1484,57 @@ SURFACE_AXE_SPIN: float = 720.0              # deg/s axe spin
 SURFACE_TIER_A_MAX: int = 10
 SURFACE_TIER_B_MAX: int = 7
 SURFACE_TIER_C_MAX: int = 4
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 20. Planetary Building System (Phase 5 — base building + power grid + defenses)
+# ═══════════════════════════════════════════════════════════════════════════════
+# Implements docs/planets.md section 10: on-foot base construction on the
+# planet surface.  A Home Base roots the base; power providers (Wind / Solar
+# / Fission) raise a build-slot budget; defenses (Ground Turrets / Arc Tower
+# / Shield Generator) require power delivered from a provider (directly or
+# chained through Power Lines).  Stats + behaviour live in specs.py
+# (PlanetaryBuildingSpec); the sprite + asset loader live in
+# sprites/planet_building.py; placement / power-grid maths in planet_base.py.
+#
+# DESIGN-GAP (docs/planets.md Appendix A #3): the design table lists Home
+# Base HP = 10, which is lower than every defensive building and would let
+# the root structure be one-shot.  Appendix A flags this as a likely missing
+# zero; we use 1000 so the base can actually be defended.  Landing Beacon,
+# Planet Forge, Advanced Forge and Bio Lab are deferred (Beacon = a separate
+# landing-routing feature; the Forges/Lab are §11 crafting and partly
+# unspecced — Appendix A #6).
+
+# ── Asset directories ─────────────────────────────────────────────────────────
+_RTS_STRUCT_DIR: str = os.path.join(
+    _HERE, "assets", "Kenney Game Assets All-in-1 3.4.0", "2D assets",
+    "RTS Sci-fi", "PNG", "Retina", "Structure")
+_AIGEN_BUILDINGS_DIR: str = os.path.join(
+    _HERE, "assets", "ai generated", "planetary", "buildings")
+_SPACE_BUILDING_DIR: str = os.path.join(
+    _HERE, "assets", "kenney space combat assets",
+    "Space Shooter Extension", "PNG", "Sprites X2", "Building")
+
+# ── Building asset paths ──────────────────────────────────────────────────────
+PB_HOME_BASE_PNG: str = os.path.join(_RTS_STRUCT_DIR, "scifiStructure_10.png")
+PB_WIND_FARM_PNG: str = os.path.join(_AIGEN_BUILDINGS_DIR, "wind_generator.png")
+PB_SOLAR_FARM_PNG: str = os.path.join(_AIGEN_BUILDINGS_DIR, "solar_farm.png")
+PB_FISSION_PNG: str = os.path.join(_RTS_STRUCT_DIR, "scifiStructure_07.png")
+PB_TURRET1_PNG: str = os.path.join(_SPACE_BUILDING_DIR, "spaceBuilding_011.png")
+PB_TURRET2_PNG: str = os.path.join(_SPACE_BUILDING_DIR, "spaceBuilding_012.png")
+PB_ARC_TOWER_PNG: str = os.path.join(_RTS_STRUCT_DIR, "scifiStructure_13.png")
+PB_SHIELD_GEN_PNG: str = os.path.join(_RTS_STRUCT_DIR, "scifiStructure_03.png")
+PB_TURRET_LASER_PNG: str = os.path.join(
+    _HERE, "assets", "kenney space combat assets", "Space Shooter Redux",
+    "PNG", "Lasers", "laserRed02.png")
+
+# ── Global placement / power-grid rules ───────────────────────────────────────
+PB_BUILD_SCALE: float = 0.5          # building sprite render scale
+PB_BUILDING_RADIUS: float = 36.0     # footprint radius (collision + spacing)
+PB_HOME_RADIUS: float = 500.0        # max distance from Home Base to place
+PB_POWER_LINK_DIST: float = 220.0    # power propagates between nodes <= this
+PB_BASE_BUDGET: int = 0              # build budget before any building exists
+PB_POWER_RECOMPUTE_S: float = 0.5    # cadence for recomputing the power grid
+PB_TURRET_PROJ_SCALE: float = 0.6    # turret laser render scale
+PB_BUILDING_CONTACT_CD: float = 0.6  # s between enemy contact hits on a building
+PB_POWER_LINE_PNG_LEN: float = 64.0  # rendered length of one power-line segment
