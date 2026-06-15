@@ -324,7 +324,7 @@ Maze and are planetary-focused. XP values are cumulative thresholds.
 |---|---|---|
 | 11 | 10,300 | Null field keeps working an extra 5 s after firing, then stops |
 | 12 | 11,900 | Null field keeps working an extra 10 s after firing, then stops |
-| 13 | 11,200 ⚠️ | Electron-sword deflection now 55 % |
+| 13 | 12,700 | Electron-sword deflection now 55 % |
 | 14 | 13,500 | Electron-sword deflection now 60 % |
 | 15 | 14,500 | Electron-sword deflection now 65 % |
 | 16 | 16,900 | Electron-sword deflection now 70 % |
@@ -343,8 +343,11 @@ Maze and are planetary-focused. XP values are cumulative thresholds.
 | 29 | 63,100 | +25 laser-rifle damage (planet) |
 | 30 | 68,700 | 75 % electron-sword deflect (planet); +1 wearable module slot |
 
-> ⚠️ Lvl 13 XP (11,200) is **lower** than Lvl 12 (11,900) — see
-> Appendix A.
+> Lvl 13 XP was **12,700** (resolved 2026-06-15): the original notes
+> carried Debra/Tara's L13 value (11,200) here, which sat below Ellie's
+> L12 (11,900) and broke the monotonic curve.  12,700 is the even
+> interpolation between her L12 (11,900) and L14 (13,500).  See
+> Appendix A #1.
 
 ### 7.3 Tara — the Builder
 
@@ -805,9 +808,11 @@ Values carried over verbatim from the design notes that look like
 typos or open questions. Listed here so they can be resolved before
 implementation rather than silently "fixed."
 
-1. **Ellie Lvl 13 XP (11,200)** is lower than Lvl 12 (11,900),
-   breaking the otherwise-monotonic XP curve. Likely intended to be
-   ~13,000+.
+1. ~~**Ellie Lvl 13 XP (11,200)** is lower than Lvl 12 (11,900),
+   breaking the otherwise-monotonic XP curve.~~ **RESOLVED 2026-06-15:**
+   set to **12,700** (even interpolation between L12 11,900 and L14
+   13,500).  The 11,200 was Debra/Tara's L13 value copy-pasted into
+   Ellie's column.
 2. **First Aid Pack heal amount** is contradictory in the source —
    "heals half of the player's HP" vs. "heals 25 HP." Section 11 uses
    25 HP; confirm which is canonical.
