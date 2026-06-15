@@ -699,9 +699,12 @@ A blue circle appears for 1 s and pushes all enemies away.
 | 41 | push +250 px, +120 % duration, −60 % cooldown, −60 % cost | 1 |
 
 > The source notes wrote several Repulsor tiers as "+X % duration,
-> +X % duration" (duration listed twice). These have been
-> interpreted as a **doubled** duration bonus (e.g. two +10 % →
-> +20 %). See Appendix A if a single bonus was intended.
+> +X % duration" (duration listed twice).  Resolved 2026-06-15: the
+> **doubled** reading is canonical (two +10 % → +20 %).  The table above
+> already reflects it and is internally consistent — each push band
+> offers a single-duration tier and a doubled-duration tier (e.g. push
+> +50 px: +10 % at tier 6, +20 % at tier 7), forming a clean escalating
+> ladder.  See Appendix A #4.
 
 ---
 
@@ -764,13 +767,15 @@ space build menu.
 
 | Consumable | Function | Icon asset | Thrown / projectile asset | Explosion asset | Sound asset |
 |---|---|---|---|---|---|
-| **First Aid Pack** | Heals **25 HP** ⚠️ | `assets/scifi-space-station-items-assets/individual/consumables/scifi_consumables_01_000.png` | — | — | `assets/Sci Fi Sound Effects Bundle/Stormwave Audio Sci-Fi Sound Effects Bundle/Devices/Sci-Fi Device 2.wav` |
+| **First Aid Pack** | Heals **25 HP** (flat) | `assets/scifi-space-station-items-assets/individual/consumables/scifi_consumables_01_000.png` | — | — | `assets/Sci Fi Sound Effects Bundle/Stormwave Audio Sci-Fi Sound Effects Bundle/Devices/Sci-Fi Device 2.wav` |
 | **Grenade** | Thrown in an arc; AoE damage in 200 px radius, 400 px throw range | `assets/scifi-space-station-items-assets/individual/weapons/scifi_weapons_01_005.png` | same as icon | `assets/gamedevmarket assets/asteroids crusher/Explosions/PNG/explosion_big.png` | `assets/Sci Fi Sound Effects Bundle/Stormwave Audio Sci-Fi Sound Effects Bundle/Weapons/Explosions/Sci-Fi Energy Grenade Blast 1.wav` |
 | **Homing Rocket** | Targets the closest enemy; 50 damage at up to 800 px | `assets/FINAL-Neon Void Vanguard/128/Projectiles/Ammo_Missile_Homing.png` | same as icon | same as icon | `assets/Sci Fi Sound Effects Bundle/Stormwave Audio Sci-Fi Sound Effects Bundle/Weapons/Explosions/Sci-Fi Explosion 2.wav` |
 
-> ⚠️ The design notes describe First Aid Pack as both "heals half of
-> the player's HP" and "heals 25 HP". The detailed entry (25 HP) is
-> used above — see Appendix A.
+> First Aid Pack heals a **flat 25 HP** (resolved 2026-06-15): the
+> source had a contradictory "half of the player's HP" prose note; the
+> flat 25 HP value is canonical — it matches the detailed §11 entry and
+> the game's existing flat-heal repair-pack convention.  See Appendix
+> A #2.
 
 ---
 
@@ -813,15 +818,18 @@ implementation rather than silently "fixed."
    set to **12,700** (even interpolation between L12 11,900 and L14
    13,500).  The 11,200 was Debra/Tara's L13 value copy-pasted into
    Ellie's column.
-2. **First Aid Pack heal amount** is contradictory in the source —
-   "heals half of the player's HP" vs. "heals 25 HP." Section 11 uses
-   25 HP; confirm which is canonical.
+2. ~~**First Aid Pack heal amount** is contradictory in the source —
+   "heals half of the player's HP" vs. "heals 25 HP."~~ **RESOLVED
+   2026-06-15:** canonical is a **flat 25 HP** — matches the detailed
+   §11 entry and the game's flat-heal repair-pack convention.
 3. **Home Base HP = 10** is lower than every defensive building
    (turrets 50–75, Shield Gen 60). For a root/respawn structure this
    may be a missing zero (1,000?) — confirm.
-4. **Repulsor Burst tiers** list "+X % duration, +X % duration"
-   (duration twice) on several rows. Interpreted as a doubled
-   duration bonus; confirm whether a single bonus was intended.
+4. ~~**Repulsor Burst tiers** list "+X % duration, +X % duration"
+   (duration twice) on several rows.~~ **RESOLVED 2026-06-15:** the
+   **doubled** reading is canonical (two +10 % → +20 %).  The §9.4 table
+   already reflects it as a single/double ladder per push band and needs
+   no value changes.
 5. **Bio-matter node** is named as a resource but has no HP / yield /
    asset definition yet.
 6. **Advanced Forge** and **Bio Lab** buildings have function
