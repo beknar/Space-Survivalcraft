@@ -22,26 +22,38 @@
 | Planets (space objects) + contact | §4 | ✅ Shipped — Earth placed; Frost/Barren supported |
 | Landing Scene + 3 airborne enemies | §5 | ✅ Shipped (PR #240) |
 | On-foot surface: movement, **Armor** (§6.2), rifle + mining beam (§6.4) | §6 | ✅ Shipped (PR #243) |
-| Surface HUD video panel | §6.1 | ⚠️ Partial — armor readout only; Debra.mp4 swap deferred |
+| Surface HUD video panel | §6.1 | ✅ Shipped (PR #248) — Debra.mp4 swap on scene enter/leave |
 | Resource nodes: rock / copper / silicon | §12 | ✅ Shipped (PR #243); bio-matter node deferred |
-| Melee arsenal (electron sword / pick axe) | §6.4 | ⬜ Deferred |
-| Surface combat enemies | (undefined) | ⬜ Not designed — see note below |
+| Melee arsenal (electron sword / pick axe) + kill loot | §6.4 | ✅ Shipped (PR #251) |
+| Surface combat enemies (8-enemy roster) | §5.5 | ✅ Shipped (Phase 3) — `specs.SURFACE_ENEMIES`, `sprites/surface_enemy.py` |
 | Surface progression L11–30 | §7 | ⬜ Deferred |
 | Planetary item blueprint trees | §8 | ⬜ Deferred |
 | Planetary ability modules | §9 | ⬜ Deferred |
-| Planetary building system + power grid | §10 | ⬜ Deferred |
+| Planetary building system + power grid + surface defenses | §10 | ✅ Shipped — Home Base, Power Lines, Wind/Solar/Fission, Ground Turrets 1&2, Arc Tower, Shield Generator. Landing Beacon / Forges / Bio Lab deferred |
 | Consumables (Planet Forge) | §11 | ⬜ Deferred |
 
-> **Open design gap:** the surface combat loop (§8 drops, §10 turrets /
-> Arc Tower / Shield Generator) assumes surface enemies, but no surface
-> enemy roster is specced anywhere in this document. Only the §5
-> Landing-Scene airborne enemies are designed. A surface roster must be
-> chosen before §6.4 melee / §10 defences become meaningful.
+> **Surface enemy roster (shipped):** the §5 table covers only the
+> aerial Landing-Scene enemies. The on-foot surface combat roster (8
+> enemies across Type A/B/C spawn tiers) was added in Phase 3 and lives
+> in `specs.SURFACE_ENEMIES` / `sprites/surface_enemy.py`; it is the
+> roster the §10 turrets / Arc Tower / Shield Generator defend against.
 >
 > Only **Debra** has planetary art, so she is the on-foot avatar for
 > every character in the shipped slices (Ellie/Tara surface art shelved).
-> Implemented values live in `constants.py` sections 17–18; see also
-> `docs/statistics.md` → *Planets*, `docs/rules.md` → *Planet Rules*.
+> Implemented values live in `constants.py` sections 17–20; building
+> stats are frozen dataclasses in `specs.py` (`PlanetaryBuildingSpec` /
+> `PLANETARY_BUILDINGS`), the placement / power-grid maths in
+> `planet_base.py`, the sprite + asset loader in
+> `sprites/planet_building.py`, and the build menu in
+> `planet_build_menu.py`; the surface zone wires it all together. See
+> also `docs/statistics.md` → *Planets*, `docs/rules.md` → *Planet Rules*.
+>
+> **DESIGN-GAP (Appendix A #3):** the §10.2 table lists Home Base HP = 10,
+> below every defensive building. The shipped value is **1000** (the
+> Appendix-A "missing zero" reading) so the root structure can be
+> defended. **Deferred from §10:** Landing Beacon (a separate
+> landing-routing feature), Planet Forge / Advanced Forge / Bio Lab
+> (§11 crafting; the latter two are unspecced — Appendix A #6).
 
 ---
 

@@ -36,9 +36,12 @@ from constants import (
     ON_FOOT_PICK_PNG, ON_FOOT_PICK_RADIUS, ON_FOOT_PICK_COOLDOWN,
     ON_FOOT_PICK_SWING_TIME, ON_FOOT_PICK_DAMAGE, ON_FOOT_PICK_DMG_BY_CHAR,
     ON_FOOT_MELEE_SWING_SCALE,
+    PB_POWER_RECOMPUTE_S, PB_POWER_LINK_DIST, PB_BUILDING_CONTACT_CD,
+    PB_BUILD_SCALE,
 )
 from zones import ZoneID, ZoneState
 from sprites.resource_node import ResourceNode
+from planet_build_menu import PlanetaryBuildMenu
 
 if TYPE_CHECKING:
     from game_view import GameView
@@ -71,6 +74,15 @@ class PlanetarySurfaceZone(ZoneState):
         self._sword_tex = None
         self._pick_tex = None
         self._swing_sprite = None
+        # Planetary base building (Phase 5): placed buildings + their
+        # turret projectiles + the build menu + placement state.
+        self._buildings: list = []
+        self._building_projectiles: arcade.SpriteList = arcade.SpriteList()
+        self._building_assets: dict | None = None
+        self._build_menu: PlanetaryBuildMenu = PlanetaryBuildMenu()
+        self._placing: str | None = None       # building key being placed
+        self._ghost = None                      # placement preview sprite
+        self._power_timer: float = 0.0
         # Ship state stashed on entry, restored on exit.
         self._ship_stash: dict | None = None
         # All-revealed fog grid sized for the surface (no fog this phase).
@@ -125,6 +137,16 @@ class PlanetarySurfaceZone(ZoneState):
         self._populate_nodes()
         self._populate_enemies(gv)
 
+        # Fresh, empty base on each surface visit.
+        from sprites.planet_building import load_planet_building_assets
+        self._building_assets = load_planet_building_assets()
+        self._buildings = []
+        self._building_projectiles = arcade.SpriteList()
+        self._build_menu.open = False
+        self._placing = None
+        self._ghost = None
+        self._power_timer = 0.0
+
         # Melee swing visuals (Phase 4).
         self._sword_tex = arcade.load_texture(ON_FOOT_SWORD_PNG)
         self._pick_tex = arcade.load_texture(ON_FOOT_PICK_PNG)
@@ -166,6 +188,11 @@ class PlanetarySurfaceZone(ZoneState):
         self._enemies.clear()
         self._enemy_projectiles.clear()
         self._axes.clear()
+        self._buildings = []
+        self._building_projectiles.clear()
+        self._build_menu.open = False
+        self._placing = None
+        self._ghost = None
 
     def get_player_spawn(self, entry_side: str) -> tuple[float, float]:
         # Spawn mid-field so the player doesn't immediately cross the
@@ -204,14 +231,24 @@ class PlanetarySurfaceZone(ZoneState):
         from sprites.surface_enemy import SurfaceEnemy
         from specs import SURFACE_TIER_ROSTER
         from constants import SURFACE_ENEMY_SPAWN_MIN_DIST
+        from planet_base import arc_blocks
         spec = random.choice(SURFACE_TIER_ROSTER[tier])
-        # Pick a point a safe distance from the player so enemies appear
-        # at range and walk in.
+        # Pick a point a safe distance from the player (so enemies appear
+        # at range and walk in) that is NOT inside a powered Arc Tower's
+        # suppression radius (docs/planets.md §10: Arc Tower blocks enemy
+        # spawns within 300 px).
+        x = y = None
         for _ in range(20):
-            x = random.uniform(120.0, self.world_width - 120.0)
-            y = random.uniform(120.0, self.world_height - 120.0)
-            if math.hypot(x - px, y - py) >= SURFACE_ENEMY_SPAWN_MIN_DIST:
-                break
+            cx = random.uniform(120.0, self.world_width - 120.0)
+            cy = random.uniform(120.0, self.world_height - 120.0)
+            if math.hypot(cx - px, cy - py) < SURFACE_ENEMY_SPAWN_MIN_DIST:
+                continue
+            if arc_blocks(cx, cy, self._buildings):
+                continue
+            x, y = cx, cy
+            break
+        if x is None:
+            return                       # Arc Towers suppressed this spawn.
         self._enemies.append(SurfaceEnemy(
             spec, self._enemy_assets[spec.key], x, y,
             self.world_width, self.world_height))
@@ -296,6 +333,193 @@ class PlanetarySurfaceZone(ZoneState):
                             f"+{node.yield_amount} {node.yield_item}", 0.8)
                         node.remove_from_sprite_lists()
 
+    # ── Planetary base building (Phase 5) ───────────────────────────
+
+    @staticmethod
+    def _inv_counts(gv: GameView) -> tuple[int, int, int]:
+        inv = gv.inventory
+        return (inv.count_item("iron"), inv.count_item("copper"),
+                inv.count_item("silicon"))
+
+    def toggle_build_menu(self, gv: GameView) -> None:
+        if self._placing is not None:
+            self._cancel_placing()
+            return
+        self._build_menu.toggle()
+
+    def _enter_placing(self, gv: GameView, key: str) -> None:
+        from specs import PLANETARY_BUILDINGS
+        spec = PLANETARY_BUILDINGS[key]
+        self._placing = key
+        self._build_menu.open = False
+        if self._building_assets is not None:
+            tex = (self._building_assets["_power_line"]
+                   if spec.kind == "conduit"
+                   else self._building_assets[spec.key])
+            self._ghost = arcade.Sprite(path_or_texture=tex, scale=PB_BUILD_SCALE)
+            self._ghost.alpha = 150
+            self._ghost.center_x = gv.player.center_x
+            self._ghost.center_y = gv.player.center_y
+
+    def _cancel_placing(self) -> None:
+        self._placing = None
+        self._ghost = None
+
+    @staticmethod
+    def _screen_to_world(gv: GameView, x: float, y: float) -> tuple[float, float]:
+        cam = getattr(gv, "world_cam", None)
+        if cam is None:
+            return float(x), float(y)
+        return (cam.position[0] - gv.window.width / 2 + x,
+                cam.position[1] - gv.window.height / 2 + y)
+
+    def handle_surface_mouse_motion(self, gv: GameView,
+                                    x: float, y: float) -> None:
+        self._build_menu.on_mouse_motion(x, y)
+        if self._placing is not None and self._ghost is not None:
+            wx, wy = self._screen_to_world(gv, x, y)
+            self._ghost.center_x, self._ghost.center_y = wx, wy
+
+    def handle_surface_mouse_press(self, gv: GameView,
+                                   x: float, y: float) -> bool:
+        """Return True if the surface build system consumed the click."""
+        if self._placing is not None:
+            wx, wy = self._screen_to_world(gv, x, y)
+            self._place_building(gv, wx, wy)
+            return True
+        if self._build_menu.open:
+            iron, copper, silicon = self._inv_counts(gv)
+            key = self._build_menu.on_mouse_press(
+                x, y, self._buildings, iron, copper, silicon)
+            if key is not None:
+                self._enter_placing(gv, key)
+            return True
+        return False
+
+    def _place_building(self, gv: GameView, wx: float, wy: float) -> None:
+        from specs import PLANETARY_BUILDINGS
+        from planet_base import can_place_at, compute_power
+        from sprites.planet_building import create_planet_building
+        if self._placing is None:
+            return
+        spec = PLANETARY_BUILDINGS[self._placing]
+        iron, copper, silicon = self._inv_counts(gv)
+        ok, reason = can_place_at(
+            spec, wx, wy, self._buildings,
+            self.world_width, self.world_height, iron, copper, silicon)
+        if not ok:
+            gv._flash_game_msg(reason, 1.2)
+            return
+        gv.inventory.remove_item("iron", spec.cost_iron)
+        gv.inventory.remove_item("copper", spec.cost_copper)
+        gv.inventory.remove_item("silicon", spec.cost_silicon)
+        b = create_planet_building(spec, self._building_assets, wx, wy)
+        self._buildings.append(b)
+        compute_power(self._buildings)
+        gv._flash_game_msg(f"Built {spec.label}", 0.9)
+        # If that was the last allowed copy, drop out of placement.
+        from planet_base import menu_availability
+        still_ok, _ = menu_availability(
+            spec, self._buildings, *self._inv_counts(gv))
+        if not still_ok:
+            self._cancel_placing()
+
+    def _update_buildings(self, gv: GameView, dt: float,
+                          px: float, py: float) -> None:
+        from sprites.explosion import HitSpark
+        if not self._buildings:
+            if len(self._building_projectiles) == 0:
+                return
+        # Power grid recompute on a cadence.
+        self._power_timer += dt
+        if self._power_timer >= PB_POWER_RECOMPUTE_S:
+            self._power_timer = 0.0
+            from planet_base import compute_power
+            compute_power(self._buildings)
+
+        laser_tex = (self._building_assets["_turret_laser"]
+                     if self._building_assets else None)
+        for b in self._buildings:
+            b.update_building(dt)
+            if b.spec.kind == "turret" and laser_tex is not None:
+                b.update_turret(dt, self._enemies,
+                                self._building_projectiles, laser_tex)
+
+        # Turret projectiles vs enemies.
+        for proj in list(self._building_projectiles):
+            proj.update_projectile(dt)
+            if not proj.sprite_lists:
+                continue
+            for e in self._enemies:
+                if e.state != "alive":
+                    continue
+                if math.hypot(proj.center_x - e.center_x,
+                              proj.center_y - e.center_y) < SURFACE_ENEMY_RADIUS + 6:
+                    gv.hit_sparks.append(HitSpark(proj.center_x, proj.center_y))
+                    proj.remove_from_sprite_lists()
+                    self._damage_enemy(gv, e, int(proj.damage))
+                    break
+
+        # Enemies in contact with a building chip it down (on a cooldown).
+        for b in self._buildings:
+            if b.spec.kind == "conduit" or b._dmg_cd > 0.0:
+                continue
+            reach = b.radius + SURFACE_ENEMY_RADIUS
+            for e in self._enemies:
+                if e.state != "alive":
+                    continue
+                if math.hypot(e.center_x - b.center_x,
+                              e.center_y - b.center_y) <= reach:
+                    b.take_damage(e.spec.damage)
+                    b._dmg_cd = PB_BUILDING_CONTACT_CD
+                    break
+
+        # Shield Generator bubbles: powered bubbles push enemies out and
+        # absorb enemy fire (docs/planets.md §10) until the absorb pool
+        # is spent, which destroys the generator.
+        bubbles = [b for b in self._buildings
+                   if b.spec.kind == "shield" and b.powered
+                   and b.spec.bubble_radius > 0.0]
+        for sg in bubbles:
+            r = sg.spec.bubble_radius
+            for e in self._enemies:
+                d = math.hypot(e.center_x - sg.center_x,
+                               e.center_y - sg.center_y)
+                if 0.0 < d < r:
+                    nx = (e.center_x - sg.center_x) / d
+                    ny = (e.center_y - sg.center_y) / d
+                    e.center_x = sg.center_x + nx * r
+                    e.center_y = sg.center_y + ny * r
+            for proj in list(self._enemy_projectiles):
+                if math.hypot(proj.center_x - sg.center_x,
+                              proj.center_y - sg.center_y) < r:
+                    proj.remove_from_sprite_lists()
+                    sg.shield_hp -= int(proj.damage)
+            for axe in list(self._axes):
+                if (not getattr(axe, "_hit", False)
+                        and math.hypot(axe.center_x - sg.center_x,
+                                       axe.center_y - sg.center_y) < r):
+                    axe._hit = True
+                    sg.shield_hp -= int(getattr(axe, "damage", 0))
+            if sg.shield_hp <= 0:
+                sg.hp = 0
+
+        # Reap destroyed buildings.
+        survivors = []
+        for b in self._buildings:
+            if b.hp <= 0:
+                gv._spawn_explosion(b.center_x, b.center_y)
+            else:
+                survivors.append(b)
+        if len(survivors) != len(self._buildings):
+            self._buildings = survivors
+            from planet_base import compute_power
+            compute_power(self._buildings)
+
+    def _home_base(self):
+        from planet_base import find_home_base
+        return find_home_base(self._buildings)
+
     # ── Per-frame update ────────────────────────────────────────────
 
     def update(self, gv: GameView, dt: float) -> None:
@@ -361,6 +585,10 @@ class PlanetarySurfaceZone(ZoneState):
                 gv._apply_damage_to_player(int(contact))
                 gv._trigger_shake()
 
+        # Planetary base: power grid + turret fire + shield bubble +
+        # building damage (Phase 5).
+        self._update_buildings(gv, dt, px, py)
+
         # Enemy bullets vs player (the electron sword deflects a fraction).
         for proj in list(self._enemy_projectiles):
             proj.update_projectile(dt)
@@ -420,13 +648,20 @@ class PlanetarySurfaceZone(ZoneState):
             gv._transition_zone(self._origin_zone, entry_side="wormhole_return")
 
     def _respawn_player(self, gv: GameView) -> None:
-        """On-foot death has no Home Base yet (later phase): refill HP and
-        drop the player back at mid-field, away from the lift-off edge."""
+        """Soft respawn (docs/planets.md §6): at the Home Base if one is
+        built, otherwise mid-field."""
         gv.player.hp = gv.player.max_hp = ON_FOOT_BASE_HP
-        gv.player.center_x = self.world_width / 2
-        gv.player.center_y = self.world_height / 2
+        home = self._home_base()
+        if home is not None:
+            gv.player.center_x = home.center_x
+            gv.player.center_y = home.center_y + home.radius + ON_FOOT_RADIUS + 6
+            msg = "You were downed — respawning at Home Base…"
+        else:
+            gv.player.center_x = self.world_width / 2
+            gv.player.center_y = self.world_height / 2
+            msg = "You were downed — respawning…"
         gv.player.vel_x = gv.player.vel_y = 0.0
-        gv._flash_game_msg("You were downed — respawning…", 2.0)
+        gv._flash_game_msg(msg, 2.0)
 
     # ── Drawing ─────────────────────────────────────────────────────
 
@@ -435,10 +670,12 @@ class PlanetarySurfaceZone(ZoneState):
         arcade.draw_rect_filled(
             arcade.LBWH(0, 0, self.world_width, self.world_height),
             _GROUND_COLOR)
+        self._draw_buildings(gv)
         self._nodes.draw()
         self._enemies.draw()
         self._enemy_projectiles.draw()
         self._axes.draw()
+        self._building_projectiles.draw()
 
         # Melee swing flash — the weapon sprite arcs in front of the
         # character for the swing window.
@@ -457,6 +694,80 @@ class PlanetarySurfaceZone(ZoneState):
             progress = 1.0 - (self._swing_timer / max(1e-6, swing_time))
             sp.angle = (p.heading + (progress * 120.0 - 60.0)) % 360
             arcade.draw_sprite(sp)
+
+    def _draw_buildings(self, gv: GameView) -> None:
+        """World-space base rendering: shield bubbles + arc rings, power
+        links, building sprites, HP bars, and the placement ghost."""
+        if not self._buildings and self._ghost is None:
+            return
+        # Shield bubbles (faint fill + ring) and Arc Tower suppression
+        # rings, drawn under the buildings.
+        for b in self._buildings:
+            if b.spec.kind == "shield" and b.powered and b.spec.bubble_radius > 0:
+                arcade.draw_circle_filled(
+                    b.center_x, b.center_y, b.spec.bubble_radius,
+                    (60, 180, 255, 26))
+                arcade.draw_circle_outline(
+                    b.center_x, b.center_y, b.spec.bubble_radius,
+                    (90, 200, 255, 150), 2)
+            elif b.spec.kind == "arc" and b.powered and b.spec.block_radius > 0:
+                arcade.draw_circle_outline(
+                    b.center_x, b.center_y, b.spec.block_radius,
+                    (200, 160, 80, 90), 2)
+        # Power links — red lines between any two powered nodes within the
+        # link distance (visualizes the grid).
+        link2 = PB_POWER_LINK_DIST * PB_POWER_LINK_DIST
+        n = len(self._buildings)
+        for i in range(n):
+            bi = self._buildings[i]
+            if not bi.powered:
+                continue
+            for j in range(i + 1, n):
+                bj = self._buildings[j]
+                if not bj.powered:
+                    continue
+                dx = bi.center_x - bj.center_x
+                dy = bi.center_y - bj.center_y
+                if dx * dx + dy * dy <= link2:
+                    arcade.draw_line(bi.center_x, bi.center_y,
+                                     bj.center_x, bj.center_y,
+                                     (210, 70, 70, 150), 2)
+        # Building sprites + HP bars.
+        for b in self._buildings:
+            arcade.draw_sprite(b)
+            if b.spec.power_role == "needs" and not b.powered:
+                # Unpowered defenses read as inert — small red "no power" dot.
+                arcade.draw_circle_filled(
+                    b.center_x, b.center_y + b.radius + 6, 4, (220, 60, 60, 220))
+            if b.hp < b.max_hp:
+                bw, bh = 40, 4
+                bx = b.center_x - bw / 2
+                by = b.center_y + b.radius + 10
+                arcade.draw_rect_filled(
+                    arcade.LBWH(bx, by, bw, bh), (40, 40, 40, 200))
+                fill = max(1, int(bw * b.hp / b.max_hp))
+                arcade.draw_rect_filled(
+                    arcade.LBWH(bx, by, fill, bh), (0, 200, 0, 220))
+        # Placement ghost.
+        if self._ghost is not None:
+            arcade.draw_sprite(self._ghost)
+
+    def draw_surface_overlay(self, gv: GameView) -> None:
+        """Screen-space UI: the build menu + a placement hint."""
+        iron, copper, silicon = self._inv_counts(gv)
+        self._build_menu.draw(self._buildings, iron, copper, silicon)
+        if self._placing is not None:
+            from specs import PLANETARY_BUILDINGS
+            label = PLANETARY_BUILDINGS[self._placing].label
+            if not hasattr(self, "_t_place_hint"):
+                self._t_place_hint = arcade.Text(
+                    "", 0, 0, arcade.color.CYAN, 12, bold=True,
+                    anchor_x="center")
+            self._t_place_hint.text = (
+                f"Placing {label} — click to place, B to cancel")
+            self._t_place_hint.x = gv.window.width // 2
+            self._t_place_hint.y = 40
+            self._t_place_hint.draw()
 
     def get_minimap_objects(self):
         return self._enemies, arcade.SpriteList()

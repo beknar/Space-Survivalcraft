@@ -50,6 +50,8 @@ from constants import (
     LANDING_THUNDER_WORM_SPEED, LANDING_THUNDER_WORM_DAMAGE,
     LANDING_THUNDER_WORM_DETECT, LANDING_THUNDER_WORM_XP,
     SURFACE_TIER_A_MAX, SURFACE_TIER_B_MAX, SURFACE_TIER_C_MAX,
+    PB_HOME_BASE_PNG, PB_WIND_FARM_PNG, PB_SOLAR_FARM_PNG, PB_FISSION_PNG,
+    PB_TURRET1_PNG, PB_TURRET2_PNG, PB_ARC_TOWER_PNG, PB_SHIELD_GEN_PNG,
 )
 
 
@@ -341,4 +343,119 @@ SURFACE_ENEMIES: dict[str, SurfaceEnemySpec] = {
     spec.key: spec
     for specs in SURFACE_TIER_ROSTER.values()
     for spec in specs
+}
+
+
+# ── Planetary buildings (docs/planets.md section 10) ─────────────────────────
+
+@dataclass(frozen=True)
+class PlanetaryBuildingSpec:
+    """One placeable planet-surface building.
+
+    ``power_role``:
+      * ``provides`` — a power source (also the Home Base); always "on"
+      * ``needs``    — defense; inert unless powered (reachable from a
+                       provider directly or through ``conduit`` segments)
+      * ``conduit``  — a Power Line; relays power, has no collision footprint
+      * ``none``     — passive structure
+    ``budget_bonus`` raises the build-slot budget; ``slots_used`` spends it.
+    ``kind`` drives behaviour: ``home`` / ``power`` / ``conduit`` /
+    ``turret`` / ``arc`` / ``shield``.  Turret fields are 0 for non-turrets.
+    """
+    key: str
+    label: str
+    kind: str
+    power_role: str
+    hp: int
+    armor: int
+    cost_iron: int
+    cost_copper: int
+    cost_silicon: int
+    max_count: int | None
+    slots_used: int
+    budget_bonus: int
+    png: str
+    radius: float
+    # Turret-only (0 elsewhere).
+    barrels: int = 0
+    damage: int = 0
+    detect: float = 0.0
+    fire_range: float = 0.0
+    fire_cooldown: float = 0.0
+    proj_speed: float = 0.0
+    # Arc Tower / Shield Generator (0 elsewhere).
+    block_radius: float = 0.0
+    bubble_radius: float = 0.0
+    shield_absorb: int = 0
+
+
+HOME_BASE = PlanetaryBuildingSpec(
+    key="home_base", label="Home Base", kind="home", power_role="provides",
+    hp=1000, armor=1, cost_iron=100, cost_copper=100, cost_silicon=100,
+    max_count=1, slots_used=0, budget_bonus=5,
+    png=PB_HOME_BASE_PNG, radius=44.0)
+
+POWER_LINE = PlanetaryBuildingSpec(
+    key="power_line", label="Power Line", kind="conduit", power_role="conduit",
+    hp=10, armor=0, cost_iron=10, cost_copper=10, cost_silicon=10,
+    max_count=200, slots_used=0, budget_bonus=0,
+    png="", radius=0.0)
+
+WIND_FARM = PlanetaryBuildingSpec(
+    key="wind_farm", label="Wind Farm", kind="power", power_role="provides",
+    hp=20, armor=1, cost_iron=300, cost_copper=300, cost_silicon=200,
+    max_count=2, slots_used=1, budget_bonus=5,
+    png=PB_WIND_FARM_PNG, radius=36.0)
+
+SOLAR_FARM = PlanetaryBuildingSpec(
+    key="solar_farm", label="Solar Farm", kind="power", power_role="provides",
+    hp=20, armor=1, cost_iron=300, cost_copper=300, cost_silicon=200,
+    max_count=2, slots_used=1, budget_bonus=10,
+    png=PB_SOLAR_FARM_PNG, radius=36.0)
+
+FISSION_REACTOR = PlanetaryBuildingSpec(
+    key="fission_reactor", label="Fission Reactor", kind="power",
+    power_role="provides",
+    hp=50, armor=2, cost_iron=500, cost_copper=500, cost_silicon=300,
+    max_count=2, slots_used=2, budget_bonus=15,
+    png=PB_FISSION_PNG, radius=40.0)
+
+GROUND_TURRET_1 = PlanetaryBuildingSpec(
+    key="ground_turret_1", label="Ground Turret 1", kind="turret",
+    power_role="needs",
+    hp=50, armor=1, cost_iron=100, cost_copper=100, cost_silicon=50,
+    max_count=None, slots_used=1, budget_bonus=0,
+    png=PB_TURRET1_PNG, radius=34.0,
+    barrels=1, damage=10, detect=200.0, fire_range=250.0,
+    fire_cooldown=1.5, proj_speed=700.0)
+
+GROUND_TURRET_2 = PlanetaryBuildingSpec(
+    key="ground_turret_2", label="Ground Turret 2", kind="turret",
+    power_role="needs",
+    hp=75, armor=2, cost_iron=150, cost_copper=150, cost_silicon=100,
+    max_count=None, slots_used=2, budget_bonus=0,
+    png=PB_TURRET2_PNG, radius=36.0,
+    barrels=2, damage=15, detect=200.0, fire_range=250.0,
+    fire_cooldown=1.5, proj_speed=700.0)
+
+ARC_TOWER = PlanetaryBuildingSpec(
+    key="arc_tower", label="Arc Tower", kind="arc", power_role="needs",
+    hp=60, armor=1, cost_iron=60, cost_copper=60, cost_silicon=20,
+    max_count=2, slots_used=1, budget_bonus=0,
+    png=PB_ARC_TOWER_PNG, radius=36.0, block_radius=300.0)
+
+SHIELD_GENERATOR = PlanetaryBuildingSpec(
+    key="shield_generator", label="Shield Generator", kind="shield",
+    power_role="needs",
+    hp=60, armor=1, cost_iron=100, cost_copper=100, cost_silicon=50,
+    max_count=1, slots_used=2, budget_bonus=0,
+    png=PB_SHIELD_GEN_PNG, radius=38.0, bubble_radius=500.0, shield_absorb=100)
+
+# Ordered list drives the build-menu rows; dict is the lookup registry.
+PLANETARY_BUILD_ORDER: tuple[PlanetaryBuildingSpec, ...] = (
+    HOME_BASE, POWER_LINE, WIND_FARM, SOLAR_FARM, FISSION_REACTOR,
+    GROUND_TURRET_1, GROUND_TURRET_2, ARC_TOWER, SHIELD_GENERATOR,
+)
+PLANETARY_BUILDINGS: dict[str, PlanetaryBuildingSpec] = {
+    spec.key: spec for spec in PLANETARY_BUILD_ORDER
 }

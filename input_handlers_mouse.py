@@ -48,6 +48,13 @@ def handle_mouse_press(gv: GameView, x: int, y: int, button: int, modifiers: int
     if gv._escape_menu.open:
         gv._escape_menu.on_mouse_press(x, y)
         return
+    # On foot: the planetary build menu / placement consumes clicks first.
+    if getattr(gv, "_on_foot", False):
+        zone = getattr(gv, "_zone", None)
+        if (zone is not None
+                and hasattr(zone, "handle_surface_mouse_press")
+                and zone.handle_surface_mouse_press(gv, x, y)):
+            return
     if gv._destroy_mode:
         wx = gv.world_cam.position[0] - gv.window.width / 2 + x
         wy = gv.world_cam.position[1] - gv.window.height / 2 + y
@@ -332,6 +339,12 @@ def handle_mouse_motion(gv: GameView, x: int, y: int, dx: int, dy: int) -> None:
     if gv._escape_menu.open:
         gv._escape_menu.on_mouse_motion(x, y)
         return
+    # On foot: keep the planetary build-menu hover + placement ghost synced.
+    if getattr(gv, "_on_foot", False):
+        zone = getattr(gv, "_zone", None)
+        if zone is not None and hasattr(zone, "handle_surface_mouse_motion"):
+            zone.handle_surface_mouse_motion(gv, x, y)
+            return
     if gv._destroy_mode:
         gv._destroy_cursor_x = gv.world_cam.position[0] - gv.window.width / 2 + x
         gv._destroy_cursor_y = gv.world_cam.position[1] - gv.window.height / 2 + y
