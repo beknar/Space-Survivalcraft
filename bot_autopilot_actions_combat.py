@@ -1100,9 +1100,30 @@ def _maybe_use_consumables(state: dict, p: dict) -> None:
     hp_frac = hp / max_hp
     sh_frac = sh / max_sh
 
+    # Consumable availability (2026-06-16): a heal latch must only arm
+    # when the matching consumable is actually sitting in a quick-use
+    # slot ready to fire.  ``_find_quick_use_slot`` returns a slot only
+    # when count > 0, i.e. exactly the condition the fire path below
+    # uses -- so gating the arm on it makes ``armed <=> can-fire``.
+    # Without this, the latch arms on the threshold cross even with no
+    # supply anywhere and just rides until the disarm band, emitting a
+    # useless heal_*_arm / heal_*_disarm telemetry pair.  Captured from
+    # a 2.4 h ZONE2 session: the shield latch armed 46 times with zero
+    # shield_recharge in ship/station/slot, each riding 37-79 s to the
+    # natural-regen disarm band without a single fire (54 % of all
+    # shield arms).  HP is worse in principle -- no passive regen, so a
+    # supply-less HP arm never reaches its disarm band at all.
+    slots = state.get("quick_use_slots") or []
+    repair_slot = (_ap._find_quick_use_slot(slots, "repair_pack")
+                   if slots else None)
+    shield_slot = (_ap._find_quick_use_slot(slots, "shield_recharge")
+                   if slots else None)
+
     # Edge transitions on the latches — log on arm + disarm so
     # telemetry shows the heal window boundaries.
-    if not _ap._state.heal_hp_active and hp_frac <= _ap.CONSUMABLE_USE_HP_PCT:
+    if (not _ap._state.heal_hp_active
+            and hp_frac <= _ap.CONSUMABLE_USE_HP_PCT
+            and repair_slot is not None):
         _ap._state.heal_hp_active = True
         _ap._telemetry_log("heal_hp_arm",
                        hp=hp, max_hp=max_hp, hp_frac=round(hp_frac, 3))
@@ -1126,7 +1147,8 @@ def _maybe_use_consumables(state: dict, p: dict) -> None:
         _ap.CONSUMABLE_USE_SHIELD_SWARM_PCT
         if nearby_aliens >= _ap.CONSUMABLE_SWARM_ALIEN_COUNT
         else _ap.CONSUMABLE_USE_SHIELD_PCT)
-    if not _ap._state.heal_shield_active and sh_frac <= shield_arm_pct:
+    if (not _ap._state.heal_shield_active and sh_frac <= shield_arm_pct
+            and shield_slot is not None):
         _ap._state.heal_shield_active = True
         _ap._telemetry_log("heal_shield_arm",
                        shields=sh, max_shields=max_sh,
@@ -1142,28 +1164,22 @@ def _maybe_use_consumables(state: dict, p: dict) -> None:
     if (now - _ap._state.last_consumable_use_at) < _ap.CONSUMABLE_USE_COOLDOWN_S:
         return
 
-    slots = state.get("quick_use_slots") or []
-    if not slots:
+    # HP first — HP loss is harder to recover (no passive regen).
+    # ``repair_slot`` / ``shield_slot`` were resolved up front (same
+    # /state, unchanged within the tick) and gate both arm + fire.
+    if _ap._state.heal_hp_active and repair_slot is not None:
+        _ap._post_use_quick_use(repair_slot)
+        _ap._state.last_consumable_use_at = now
+        _ap._telemetry_log("heal_hp_fire",
+                       slot=repair_slot, hp=hp, max_hp=max_hp)
         return
 
-    # HP first — HP loss is harder to recover (no passive regen).
-    if _ap._state.heal_hp_active:
-        slot = _ap._find_quick_use_slot(slots, "repair_pack")
-        if slot is not None:
-            _ap._post_use_quick_use(slot)
-            _ap._state.last_consumable_use_at = now
-            _ap._telemetry_log("heal_hp_fire",
-                           slot=slot, hp=hp, max_hp=max_hp)
-            return
-
-    if _ap._state.heal_shield_active:
-        slot = _ap._find_quick_use_slot(slots, "shield_recharge")
-        if slot is not None:
-            _ap._post_use_quick_use(slot)
-            _ap._state.last_consumable_use_at = now
-            _ap._telemetry_log("heal_shield_fire",
-                           slot=slot, shields=sh, max_shields=max_sh)
-            return
+    if _ap._state.heal_shield_active and shield_slot is not None:
+        _ap._post_use_quick_use(shield_slot)
+        _ap._state.last_consumable_use_at = now
+        _ap._telemetry_log("heal_shield_fire",
+                       slot=shield_slot, shields=sh, max_shields=max_sh)
+        return
 
 
 def _act_gather(state: dict, p: dict) -> None:
