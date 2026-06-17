@@ -324,6 +324,21 @@ PICKUP_STOP_RADIUS: float = 60.0
 # unchanged.
 MIN_DWELL_S:     float = 1.0      # how long a non-ENGAGE state must hold
 
+# Throttle for the ``transition_suppressed_by_dwell`` telemetry
+# (2026-06-15).  The suppressed-transition log fired once per poll
+# tick (~10 Hz) for the whole MIN_DWELL_S window, so a single ~1 s
+# suppression episode wrote ~8-10 near-identical ~40-field snapshot
+# lines.  A captured 2 h session logged 1342 of them -- about a
+# third of the entire telemetry stream and far above the writer's
+# documented ~50-150 lines/min budget, all redundant disk I/O on the
+# control loop.  The throttle logs the FIRST tick of each distinct
+# ``(from_state, desired)`` suppression episode (the informative
+# "FSM wants to change but dwell holds" signal) and then suppresses
+# repeats until the signature changes or this interval elapses.  The
+# episode signature is reset whenever the FSM is not suppressing, so
+# a later episode with the same signature still logs its first tick.
+SUPPRESS_DWELL_LOG_THROTTLE_S: float = 5.0
+
 # Stop radius when the in-game combat assist has committed to a
 # melee engagement (via its 50 % per-engagement dice roll).  The
 # autopilot reads ``state.assist.melee_engaged`` and closes to

@@ -416,6 +416,13 @@ class BotState:
     fsm: dict = field(default_factory=lambda: {
         "state": S_MINE,
         "entered_at": None,
+        # Dwell-suppression log throttle (2026-06-15): the
+        # (from_state, desired) signature of the last logged
+        # suppressed transition + when it was logged.  Reset to None
+        # whenever the FSM is not suppressing so each fresh episode
+        # logs its first tick.  See SUPPRESS_DWELL_LOG_THROTTLE_S.
+        "suppress_sig": None,
+        "suppress_log_at": 0.0,
     })
     spiral: dict = field(default_factory=lambda: {
         "anchor": None,
@@ -1607,6 +1614,7 @@ def _step_fsm(state: dict, p: dict, now: float) -> str:
             _astar_invalidate_path()
         _on_enter(cur)
         _maybe_log_boss_engage_edges(state, p, now, prev, cur)
+        _fsm["suppress_sig"] = None
         _telemetry_log("state_transition", reason="first_tick",
                        from_state=prev, to_state=cur, desired=desired,
                        **_telemetry_snapshot_fields(state, p))
@@ -1650,6 +1658,7 @@ def _step_fsm(state: dict, p: dict, now: float) -> str:
             cur = desired
             _on_enter(cur)
             _maybe_log_boss_engage_edges(state, p, now, prev, cur)
+            _fsm["suppress_sig"] = None
             _telemetry_log("state_transition", reason="dwell_or_preempt",
                            from_state=prev, to_state=cur, desired=desired,
                            dwell_s=round(dwell, 3),
@@ -1658,11 +1667,32 @@ def _step_fsm(state: dict, p: dict, now: float) -> str:
             # Desired state changed but MIN_DWELL gating held the
             # current one — log the suppressed transition so we
             # can see when the FSM "wants" to change but can't.
-            _telemetry_log("transition_suppressed_by_dwell",
-                           from_state=cur, desired=desired,
-                           dwell_s=round(dwell, 3),
-                           min_dwell_s=MIN_DWELL_S,
-                           **_telemetry_snapshot_fields(state, p))
+            #
+            # Throttle (2026-06-15): this branch runs every poll tick
+            # (~10 Hz) for the whole dwell window, so without a gate a
+            # single ~1 s suppression episode wrote ~10 near-identical
+            # snapshot lines.  Log only the first tick of each distinct
+            # (from_state, desired) episode, then suppress repeats until
+            # the signature changes or SUPPRESS_DWELL_LOG_THROTTLE_S
+            # elapses.  ``suppress_sig`` is reset to None on every
+            # non-suppressing path so a fresh episode with the same
+            # signature still logs its first tick.
+            sig = (cur, desired)
+            if (sig != _fsm.get("suppress_sig")
+                    or (now - _fsm.get("suppress_log_at", 0.0))
+                    >= SUPPRESS_DWELL_LOG_THROTTLE_S):
+                _fsm["suppress_log_at"] = now
+                _telemetry_log("transition_suppressed_by_dwell",
+                               from_state=cur, desired=desired,
+                               dwell_s=round(dwell, 3),
+                               min_dwell_s=MIN_DWELL_S,
+                               **_telemetry_snapshot_fields(state, p))
+            _fsm["suppress_sig"] = sig
+    else:
+        # desired == cur (and not the first tick): the FSM is settled,
+        # not suppressing — clear the episode signature so the next
+        # genuine suppression logs its first tick.
+        _fsm["suppress_sig"] = None
     return cur
 
 
