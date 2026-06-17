@@ -1057,6 +1057,17 @@ def _tier_craft_install_bossprep(state, p, hs) -> str | None:
 
 def _tier_mine_or_search(state, p, cur, now) -> str | None:
     px, py = p.get("x", 0.0), p.get("y", 0.0)
+    # Mine building-pin giveup (2026-06-16): while the latch from
+    # repeated building-cause stucks holds, suppress S_MINE entirely
+    # so the FSM falls through to a later tier (IDLE_AT_BASE / SEARCH).
+    # The new state's goto flips the heading and pulls the bot out of
+    # the cluster pin instead of re-ramming it.  Mirrors the HUNT
+    # giveup gate.  Chase commitment is cleared so the next post-latch
+    # MINE attempt starts fresh rather than instantly re-committing to
+    # the far asteroid that routed through the cluster.
+    if now < _ap._state.mine_giveup_until:
+        _ap._state.chase_committed = False
+        return None
     # 6. MINE vs SEARCH — discrete event, no hysteresis needed.
     #    Filter out blacklisted asteroids so a single unreachable
     #    one doesn't force MINE to fire on a target the bot

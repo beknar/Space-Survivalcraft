@@ -482,6 +482,15 @@ class BotState:
     # over minutes at the same cluster anchor) that the acute
     # 10 s window above won't see.
     hunt_anchor_hits: dict = field(default_factory=dict)
+    # Per-anchor hit counts for the MINE building-pin tracker, the
+    # mirror of ``hunt_anchor_hits`` for S_MINE.  Maps
+    # (rounded_x, rounded_y) -> [hit_count, expiry_ts].  When a
+    # building-cause stuck fires in S_MINE the anchor accrues a hit;
+    # once it reaches MINE_STUCK_ANCHOR_MAX_HITS, ``mine_giveup_until``
+    # latches S_MINE off for MINE_GIVEUP_S so the FSM re-routes instead
+    # of re-ramming the same cluster (2026-06-16 building-pin loop).
+    mine_anchor_hits: dict = field(default_factory=dict)
+    mine_giveup_until: float = 0.0
     # Active pin-zone anchors recorded from stuck_detected events
     # across ALL fsm states (not just HUNT).  Each entry is
     # ``(cx, cy, expiry_ts)`` -- the targeting helpers filter
@@ -673,6 +682,8 @@ class BotState:
         self.hunt_stuck_times.clear()
         self.hunt_giveup_until = 0.0
         self.hunt_anchor_hits.clear()
+        self.mine_anchor_hits.clear()
+        self.mine_giveup_until = 0.0
         self.pin_zones.clear()
         self.last_regen_shields = 0
         self.last_regen_progress_at = 0.0
@@ -1342,6 +1353,41 @@ def _arm_stuck_escape(state: dict, p: dict, now: float) -> None:
             print(f"[autopilot] ASTEROID-BLACKLIST: {blacklisted_ast} "
                   f"(stuck while mining, ttl "
                   f"{int(ASTEROID_BLACKLIST_TTL_S)}s)")
+        # Mine building-pin giveup (2026-06-16): the asteroid
+        # blacklist above only helps when the asteroid is what the
+        # bot is ramming.  When the pin is a BUILDING (typically the
+        # home-station cluster), blacklisting asteroids does nothing
+        # -- the bot just re-routes to a far asteroid through the same
+        # cluster and re-pins.  Track building-cause stucks on a grid
+        # anchor (mirror of the HUNT long-anchor tracker); once an
+        # anchor reaches MINE_STUCK_ANCHOR_MAX_HITS, latch S_MINE off
+        # for MINE_GIVEUP_S so the FSM re-routes (IDLE_AT_BASE /
+        # SEARCH) and the new goto pulls the bot back out of the pin.
+        if not _ship_clear_of_buildings(p, state):
+            anchor = (
+                round(sx / MINE_STUCK_ANCHOR_GRID_PX)
+                * MINE_STUCK_ANCHOR_GRID_PX,
+                round(sy / MINE_STUCK_ANCHOR_GRID_PX)
+                * MINE_STUCK_ANCHOR_GRID_PX)
+            # Evict expired anchors inline so the dict stays bounded.
+            expired = [k for k, (_n, exp)
+                       in _state.mine_anchor_hits.items() if now >= exp]
+            for k in expired:
+                del _state.mine_anchor_hits[k]
+            entry = _state.mine_anchor_hits.get(anchor)
+            if entry is None:
+                _state.mine_anchor_hits[anchor] = [
+                    1, now + MINE_STUCK_ANCHOR_TTL_S]
+            else:
+                entry[0] += 1
+                entry[1] = now + MINE_STUCK_ANCHOR_TTL_S
+                if entry[0] >= MINE_STUCK_ANCHOR_MAX_HITS:
+                    _state.mine_giveup_until = max(
+                        _state.mine_giveup_until, now + MINE_GIVEUP_S)
+                    del _state.mine_anchor_hits[anchor]
+                    print(f"[autopilot] MINE-GIVEUP: building-pin anchor "
+                          f"{anchor} hit {MINE_STUCK_ANCHOR_MAX_HITS}× — "
+                          f"suppressing S_MINE for {MINE_GIVEUP_S:.0f}s")
     elif _fsm["state"] == S_HUNT:
         # Hunt-stuck giveup (acute): track recent stuck events,
         # and if the threshold trips inside the window, latch
