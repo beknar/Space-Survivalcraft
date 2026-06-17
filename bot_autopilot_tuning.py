@@ -1014,6 +1014,27 @@ HUNT_ANCHOR_GRID_PX:    float = 200.0
 HUNT_ANCHOR_MAX_HITS:   int   = 3
 HUNT_LONG_GIVEUP_S:     float = 120.0
 
+# Per-anchor MINE building-pin giveup (2026-06-16).  The mirror of the
+# HUNT long-anchor giveup above, for S_MINE.  When the bot gets pinned
+# against a BUILDING while mining, the reactive asteroid blacklist is
+# useless -- the pin is the cluster, not the asteroid -- so the bot
+# re-routes to a far asteroid whose path crosses the same cluster and
+# re-pins.  Captured from 2026-06-16 telemetry: the bot wedged in
+# S_MINE against its home-station cluster (hs_dist ~94) at *exactly*
+# (6810.5, 6071.3), firing 31 stuck_detected (cause=building) + 30
+# escape_release_timeout (clear_of_buildings=False) over 342 s of a
+# 588 s session -- the escape produced zero net movement and the hard
+# 10 s cap just reset the same pin.  Once an anchor accumulates
+# MINE_STUCK_ANCHOR_MAX_HITS building-pin stucks, suppress S_MINE for
+# MINE_GIVEUP_S so the FSM falls through to IDLE_AT_BASE / SEARCH; the
+# new state's goto flips the heading and pulls the bot back out of the
+# pin the way it came in.  Same grid / TTL as HUNT so a cluster
+# collapses into one anchor; threshold matches HUNT_ANCHOR_MAX_HITS.
+MINE_STUCK_ANCHOR_TTL_S:  float = 300.0
+MINE_STUCK_ANCHOR_GRID_PX: float = 200.0
+MINE_STUCK_ANCHOR_MAX_HITS: int  = 3
+MINE_GIVEUP_S:            float = 30.0
+
 # Pin-zone tracking (2026-05-17): when stuck_detected fires the
 # bot's current position is added as a pin-zone anchor.  Target
 # selectors then filter pickups / asteroids within
