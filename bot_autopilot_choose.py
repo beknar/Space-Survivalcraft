@@ -72,6 +72,51 @@ def _bot_has_ready_shield_consumable(state: dict) -> bool:
     return False
 
 
+def _engage_suppressed_critical_unhealed(state: dict, zone_id: str) -> bool:
+    """Section-2 ENGAGE suppression for the unhealed-zero-shields ZONE2
+    death spiral.
+
+    True when, in the Nebula (ZONE2): shields are below the critical
+    floor (``RETREAT_CRITICAL_SHIELD_PCT``), the bot has NO ready
+    shield_recharge to fire (so the armed heal latch can never land --
+    fighting is a pure loss, per ``_bot_has_ready_shield_consumable``),
+    AND it faces more than one alien inside the engage band.  In that
+    state ENGAGE just kites one alien while the strung-out swarm grinds
+    the bot at zero shields; it must break contact and let the
+    section-2.6 flee tether (or RETREAT) drive it back under the
+    Home-Station umbrella.
+
+    Captured 2026-06-18 bot_io: at sh=0/100 with no shield_recharge
+    (ship + slot both 0) in a 59-alien ZONE2 swarm ~1500 px from the
+    HS, the bot oscillated ENGAGE <-> IDLE_AT_BASE nine times in ~18 s
+    -- each ENGAGE preempting the flee tether, the bot gaining no
+    ground on the flee and never recovering shields -- before finally
+    reaching REGEN.  RETREAT (section 0.5) stayed silent because its
+    ``>= RETREAT_SWARM_ALIEN_COUNT``-within-range density gate misses a
+    strung-out swarm whose members sit at the engage-band edge.
+
+    Scoped tightly (ZONE2 only, sub-critical shields, no heal, real
+    multi-alien swarm) so a healed or healthy bot still ENGAGEs
+    normally -- this fires only for the exact pure-loss state.
+    """
+    if "ZONE2" not in zone_id:
+        return False
+    p = state.get("player") or {}
+    sh = int(p.get("shields", 0))
+    mx = max(1, int(p.get("max_shields", 1)))
+    if sh / mx >= _ap.RETREAT_CRITICAL_SHIELD_PCT:
+        return False
+    if _bot_has_ready_shield_consumable(state):
+        return False
+    px = float(p.get("x", 0.0))
+    py = float(p.get("y", 0.0))
+    near = sum(
+        1 for a in (state.get("aliens") or [])
+        if math.hypot(float(a.get("x", 0.0)) - px,
+                      float(a.get("y", 0.0)) - py) <= _ap.ENGAGE_EXIT_PX)
+    return near >= 2
+
+
 def _retreat_active(state: dict, p: dict, cur: str) -> bool:
     """Section-0.5 predicate: should the bot drop into S_RETREAT?
 
@@ -738,7 +783,14 @@ def _engage_decision(state: dict, cur: str, threat, td: float,
     # see ``_outside_main_swarm_suppresses`` for the predicate.
     suppress_engage_warp_swarm = _outside_main_swarm_suppresses(
         state, zone_id, _ap.WARP_SWARM_ENGAGE_SUPPRESS_ALIENS)
-    if not suppress_engage_no_hs and not suppress_engage_warp_swarm:
+    # Unhealed-zero-shields ZONE2 swarm: turning to fight is a pure loss
+    # (no heal can land), so suppress ENGAGE and let the flee tether /
+    # RETREAT carry the bot back to the HS umbrella instead of kiting
+    # one alien while the swarm grinds it (2026-06-18 deadlock).
+    suppress_engage_critical_unhealed = (
+        _engage_suppressed_critical_unhealed(state, zone_id))
+    if (not suppress_engage_no_hs and not suppress_engage_warp_swarm
+            and not suppress_engage_critical_unhealed):
         if cur == _ap.S_ENGAGE:
             if threat is not None and td < _ap.ENGAGE_EXIT_PX:
                 return _ap.S_ENGAGE
