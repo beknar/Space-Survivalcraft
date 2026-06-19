@@ -99,3 +99,58 @@ class TestUnhealedWideSwarmGate:
                          n=ap.RETREAT_SWARM_ALIEN_COUNT, alien_dist=2000.0)
         hs = ap._find_home_station(s)
         assert choose._zone2_far_swarm_tether(s, s["player"], hs) is False
+
+
+class TestStickyCommitNoPingPong:
+    """2026-06-19: the wider swarm gate is a hard threshold with no
+    hysteresis, so a full-shield unhealed bot far out (hs_dist ~4400,
+    60 aliens) flipped idle_at_base<->mine 76 times in 209 s as the local
+    swarm count jittered across RETREAT_SWARM_ALIEN_COUNT.  Once the bot
+    has turned for home (cur == S_IDLE_AT_BASE) it must STAY committed
+    until back inside the leash, not bounce back out to mine."""
+
+    def test_sticky_holds_when_swarm_count_dips(
+            self, _clock, _fresh_bot_state):
+        """Already heading home, unhealed, far -- a momentary sub-threshold
+        swarm count must NOT release the tether (the ping-pong tick)."""
+        # Only 3 aliens in range -- below RETREAT_SWARM_ALIEN_COUNT, so the
+        # raw swarm gate would read False.
+        s = _swarm_state(shields=100, healed=False, n=3,
+                         alien_dist=1500.0, hs_dist=4400.0)
+        hs = ap._find_home_station(s)
+        assert choose._zone2_far_swarm_tether(
+            s, s["player"], hs, ap.S_IDLE_AT_BASE) is True
+
+    def test_not_sticky_from_mine_with_weak_swarm(
+            self, _clock, _fresh_bot_state):
+        """Control: the stickiness is entry-direction aware -- from MINE
+        (not yet committed) a sub-threshold swarm does NOT tether, so the
+        bot still mines when it isn't genuinely swarmed (no over-tether)."""
+        s = _swarm_state(shields=100, healed=False, n=3,
+                         alien_dist=1500.0, hs_dist=4400.0)
+        hs = ap._find_home_station(s)
+        assert choose._zone2_far_swarm_tether(
+            s, s["player"], hs, ap.S_MINE) is False
+
+    def test_sticky_releases_once_back_inside_leash(
+            self, _clock, _fresh_bot_state):
+        """No trap: once the bot is back within the unhealed leash the
+        sticky branch is past the hs_dist early-return, so the tether
+        releases and the bot can mine near home."""
+        s = _swarm_state(shields=100, healed=False, n=8,
+                         alien_dist=1000.0, hs_dist=1000.0)  # inside 1500
+        hs = ap._find_home_station(s)
+        assert choose._zone2_far_swarm_tether(
+            s, s["player"], hs, ap.S_IDLE_AT_BASE) is False
+
+    def test_full_cascade_stays_home_not_mine(
+            self, _clock, _fresh_bot_state):
+        """End-to-end: an unhealed bot already at IDLE_AT_BASE, far out
+        with a borderline swarm, keeps returning IDLE_AT_BASE across ticks
+        instead of flipping to MINE."""
+        s = _swarm_state(shields=100, healed=False, n=3,
+                         alien_dist=1500.0, hs_dist=4400.0)
+        s["asteroids"] = [{"x": 200.0, "y": 0.0, "hp": 100}]
+        for _ in range(4):
+            out = ap._choose_next_state(s, s["player"], ap.S_IDLE_AT_BASE)
+            assert out == ap.S_IDLE_AT_BASE
