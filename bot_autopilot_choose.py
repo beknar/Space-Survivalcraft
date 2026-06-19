@@ -184,7 +184,8 @@ def _retreat_active(state: dict, p: dict, cur: str) -> bool:
     return True
 
 
-def _zone2_far_swarm_tether(state: dict, p: dict, hs) -> bool:
+def _zone2_far_swarm_tether(state: dict, p: dict, hs,
+                            cur: str | None = None) -> bool:
     """Section-2.6 predicate: should the bot stop seeking resources /
     aliens deeper into a ZONE2 swarm and head home instead?
 
@@ -266,6 +267,19 @@ def _zone2_far_swarm_tether(state: dict, p: dict, hs) -> bool:
         sh_max = max(1, int(p.get("max_shields", 1)))
         if (sh / sh_max) < _ap.ZONE2_TETHER_UNHEALED_SHIELD_PCT:
             return True
+    # Sticky commitment (2026-06-19): once an unhealed bot has turned for
+    # home (cur == S_IDLE_AT_BASE) and is still beyond the leash, stay
+    # committed regardless of the momentary swarm count below.  The
+    # count gate is a hard threshold with no hysteresis, so as the bot
+    # and aliens jitter around RETREAT_SWARM_ALIEN_COUNT the tether
+    # toggles tick-to-tick and the cascade ping-pongs idle_at_base<->mine
+    # without ever carrying the bot home -- captured 76 such flips over
+    # 209 s at hs_dist ~4400, full shields, 60 aliens (a regression the
+    # 2026-06-18 wider-range gate introduced).  Committing until the bot
+    # is actually back inside the leash makes the prevention work instead
+    # of stranding it oscillating in the swarm.
+    if unhealed and cur == _ap.S_IDLE_AT_BASE:
+        return True
     # Dense-swarm gate.  Wider range when unhealed (2026-06-18): the
     # 1200 px gate let a full-shield UNHEALED bot roam deep into a
     # STRUNG-OUT swarm -- members sit at the engage-band edge, so fewer
@@ -1739,7 +1753,7 @@ def choose_next_state(state: dict, p: dict, cur: str) -> str:
     #     fires far from base (> ZONE2_TETHER_DIST_PX) under a dense
     #     swarm, so close-to-base ZONE2 combat is unaffected.
     #     S_IDLE_AT_BASE's handler drives the bot back to the HS ring.
-    if _zone2_far_swarm_tether(state, p, hs_pri145):
+    if _zone2_far_swarm_tether(state, p, hs_pri145, cur):
         return _ap.S_IDLE_AT_BASE
 
     # 1.95 EMERGENCY RESTOCK CRAFT (2026-06-09).  When the bot's heal
