@@ -266,11 +266,29 @@ def _zone2_far_swarm_tether(state: dict, p: dict, hs) -> bool:
         sh_max = max(1, int(p.get("max_shields", 1)))
         if (sh / sh_max) < _ap.ZONE2_TETHER_UNHEALED_SHIELD_PCT:
             return True
+    # Dense-swarm gate.  Wider range when unhealed (2026-06-18): the
+    # 1200 px gate let a full-shield UNHEALED bot roam deep into a
+    # STRUNG-OUT swarm -- members sit at the engage-band edge, so fewer
+    # than RETREAT_SWARM_ALIEN_COUNT land inside 1200 px even in a
+    # 60-alien Nebula (~4-5 within 1200 px, ~10 within 1800 px).  The
+    # bot then drifted to ~4500 px from the HS at full shields; the
+    # moment shields dipped under the 0.7 leash above it turned for home
+    # but was already too far, dying on the trip -- a captured session
+    # logged 9 such deaths, all idle_at_base->regen at hs_dist
+    # 3400-5200 in ZONE2.  Use the wider RETREAT_SWARM_RANGE_EXIT_PX
+    # (1800, the same radius #267 gave REGEN's far-HS break-contact) so
+    # the unhealed bot is leashed home EARLY -- before it strands itself
+    # -- whenever a real swarm is around.  Healed bots keep the tight
+    # gate (no change), and a low-alien zone still falls below the count
+    # threshold at 1800 px, so the 2026-06-10 mining-starvation case is
+    # unaffected.
+    swarm_range = (_ap.RETREAT_SWARM_RANGE_EXIT_PX if unhealed
+                   else _ap.RETREAT_SWARM_RANGE_PX)
     swarm = sum(
         1 for a in (state.get("aliens") or [])
         if math.hypot(float(a.get("x", 0.0)) - px,
                       float(a.get("y", 0.0)) - py)
-        <= _ap.RETREAT_SWARM_RANGE_PX)
+        <= swarm_range)
     return swarm >= _ap.RETREAT_SWARM_ALIEN_COUNT
 
 
