@@ -499,13 +499,27 @@ def _act_regen(state: dict, p: dict) -> None:
         # 16 s REGEN drive toward a 3500 px HS at 0/120 shields with 49
         # aliens that ended in death -- the bot bled out en route to an
         # umbrella it could not reach.  When the HS is beyond
-        # RETREAT_HS_MAX_DIST_PX AND a dense swarm is adjacent, peel away
+        # RETREAT_HS_MAX_DIST_PX AND a swarm is adjacent, peel away
         # from the swarm instead (mirrors S_RETREAT's far-HS handling);
         # within range, the umbrella is worth the drive as before.
+        #
+        # Wider swarm range (2026-06-18): the break-contact used the
+        # tight RETREAT_SWARM_RANGE_PX (1200) "surrounded" gate, which a
+        # STRUNG-OUT swarm slips through -- members sit at the engage-band
+        # edge, so fewer than RETREAT_SWARM_ALIEN_COUNT land inside 1200 px
+        # even though the bot is being shredded.  Captured 3 deaths in one
+        # ZONE2 session: REGEN drove toward a 3700-4900 px HS through a
+        # 60-alien swarm at ~88 px/s and bled out, the gate never firing
+        # (~4-5 aliens within 1200 px, ~10 within 1800 px).  Use the wider
+        # RETREAT_SWARM_RANGE_EXIT_PX (1800) here -- once the HS umbrella
+        # is out of reach, break contact for any real swarm, not only a
+        # tightly-packed one.
         hs_dist = math.hypot(float(hs.get("x", 0.0)) - px,
                              float(hs.get("y", 0.0)) - py)
         if (hs_dist > _ap.RETREAT_HS_MAX_DIST_PX
-                and _dense_swarm_adjacent(state, px, py)):
+                and _dense_swarm_adjacent(
+                    state, px, py,
+                    swarm_range=_ap.RETREAT_SWARM_RANGE_EXIT_PX)):
             _flee_swarm_centroid(state, p, px, py)
             return
         _regen_drive_to_hs(state, p, px, py, hs)
@@ -519,15 +533,20 @@ def _act_regen(state: dict, p: dict) -> None:
     _ap._do_idle()
 
 
-def _dense_swarm_adjacent(state: dict, px: float, py: float) -> bool:
+def _dense_swarm_adjacent(state: dict, px: float, py: float,
+                         swarm_range: float | None = None) -> bool:
     """True iff at least ``RETREAT_SWARM_ALIEN_COUNT`` aliens sit within
-    ``RETREAT_SWARM_RANGE_PX`` of the bot -- the same "surrounded"
-    predicate the RETREAT gate uses, reused here so REGEN's far-HS
-    break-contact only fires under a genuine swarm."""
+    ``swarm_range`` of the bot -- the same "surrounded" predicate the
+    RETREAT gate uses, reused here so REGEN's far-HS break-contact only
+    fires under a genuine swarm.  ``swarm_range`` defaults to the tight
+    RETREAT_SWARM_RANGE_PX; the far-HS REGEN caller passes the wider
+    RETREAT_SWARM_RANGE_EXIT_PX so a strung-out swarm still counts."""
+    if swarm_range is None:
+        swarm_range = _ap.RETREAT_SWARM_RANGE_PX
     n = 0
     for a in (state.get("aliens") or []):
         if math.hypot(float(a.get("x", 0.0)) - px,
-                      float(a.get("y", 0.0)) - py) <= _ap.RETREAT_SWARM_RANGE_PX:
+                      float(a.get("y", 0.0)) - py) <= swarm_range:
             n += 1
             if n >= _ap.RETREAT_SWARM_ALIEN_COUNT:
                 return True
