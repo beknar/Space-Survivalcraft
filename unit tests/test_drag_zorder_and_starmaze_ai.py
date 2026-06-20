@@ -59,7 +59,7 @@ class TestHUDDragPreviewMethod:
 # ── Star Maze AI Pilot patrol regression ─────────────────────────────────
 
 class TestStarMazeAIPilotPatrol:
-    def _setup(self):
+    def _setup(self, monkeypatch):
         """Build a GameView, jump to Star Maze, drop a Home Station +
         a parked ship with AI Pilot installed.  Returns (gv, ps)."""
         from game_view import GameView
@@ -69,8 +69,13 @@ class TestStarMazeAIPilotPatrol:
         from sprites.building import create_building
         from PIL import Image
         tex = arcade.Texture(Image.new("RGBA", (32, 32), (0, 200, 0, 255)))
-        PlayerShip._extract_ship_texture = staticmethod(
-            lambda *a, **k: tex)
+        # Use monkeypatch (not a bare attribute assignment) so the
+        # override is restored after the test — a permanent assignment
+        # here leaks the stub into later tests that exercise the real
+        # texture-extraction cache.
+        monkeypatch.setattr(
+            PlayerShip, "_extract_ship_texture",
+            staticmethod(lambda *a, **k: tex))
         gv = GameView(faction="Earth", ship_type="Cruiser",
                       ship_level=1)
         gv._transition_zone(ZoneID.STAR_MAZE, "bottom")
@@ -103,8 +108,8 @@ class TestStarMazeAIPilotPatrol:
         gv._parked_ships.append(ps)
         return gv, ps
 
-    def test_ai_pilot_actually_moves_in_star_maze(self):
-        gv, ps = self._setup()
+    def test_ai_pilot_actually_moves_in_star_maze(self, monkeypatch):
+        gv, ps = self._setup(monkeypatch)
         start = (ps.center_x, ps.center_y)
         # 60 ticks at 1/60 s = 1 s of update.  In that window the
         # AI pilot should snap onto the patrol ring AND start
