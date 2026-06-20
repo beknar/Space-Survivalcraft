@@ -859,6 +859,37 @@ def _next_craft_target(state: dict) -> str | None:
     items = _station_items(state)
     iron = int(items.get("iron", 0))
 
+    # ── Emergency shield-recharge priority (2026-06-20) ───────────
+    # Shield recharges sit LAST in the craft order (modules -> repair
+    # packs -> shields), so a perpetually-refilling module queue starves
+    # them forever.  Captured: an 81-min session fired ZERO shield heals
+    # (ship + station shield_recharge = 0 in every one of 970 snapshots)
+    # while repair packs crafted fine, and the bot died 4x at 36-44 %
+    # shields in the ZONE2 swarm.  The driver is a death loop -- the bot
+    # re-crafts the combat loadout it drops on each Nebula death
+    # (modules_to_install = 4), which keeps the module phase ahead of the
+    # consumable phase; within consumables, shields are behind repair
+    # packs.  But a bot with no shields can't KEEP its modules (it dies
+    # and re-drops them), so survival has to come first: when shield
+    # supply is at/below the restock floor and a batch is queued, craft a
+    # shield recharge BEFORE modules or repair packs, breaking the
+    # die -> re-craft-modules -> die loop.  Per-craft iron cost still
+    # applies; once supply clears the floor the normal order resumes.
+    #
+    # Gated on boss-killed (same signal as the restock observer) so it
+    # fires only in the post-boss Nebula phase, NOT during the initial
+    # pre-boss module build in MAIN -- there the bot is safe behind its
+    # fortified HS and SHOULD finish its loadout in the intended
+    # module-first order.
+    boss_killed = (_ap._state.boss_was_killed
+                   or bool(state.get("boss_defeated", False)))
+    if (boss_killed
+            and q.shield_recharges_remaining > 0
+            and iron >= CRAFT_IRON_COST
+            and _consumable_supply_total(state, "shield_recharge")
+            <= _ap.CONSUMABLE_RESTOCK_FLOOR):
+        return "shield_recharge"
+
     # ── Module craft phase ────────────────────────────────────────
     # Skip-and-pop heads that are already crafted (sitting in
     # station inventory as ``mod_<key>``) or already installed on
