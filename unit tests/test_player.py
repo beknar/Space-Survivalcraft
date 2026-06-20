@@ -219,3 +219,51 @@ class TestThrustIntensity:
         ship.apply_input(10.0, rotate_left=False, rotate_right=False,
                          thrust_fwd=True, thrust_bwd=False)
         assert ship.thrust_intensity <= 1.0
+
+
+class TestShipTextureCache:
+    """``_extract_ship_texture`` must return the *same* Texture object
+    for a repeated (faction, ship_type, ship_level) so the GPU atlas
+    doesn't accumulate one strong-referenced Texture per call.  This is
+    the regression guard for the Basic-Ship-rebuild soak memory leak:
+    each ParkedShip rebuild used to mint a fresh Texture that the atlas
+    retained forever (atlas keys ``_textures`` by object identity).
+    """
+
+    @pytest.fixture(autouse=True)
+    def _clear_cache(self):
+        from sprites.player import PlayerShip
+        PlayerShip._ship_tex_cache.clear()
+        yield
+        PlayerShip._ship_tex_cache.clear()
+
+    def test_same_key_returns_same_object(self):
+        a = PlayerShip._extract_ship_texture("Earth", "Cruiser", 1)
+        b = PlayerShip._extract_ship_texture("Earth", "Cruiser", 1)
+        assert a is b
+
+    def test_repeated_calls_do_not_grow_cache(self):
+        from sprites.player import PlayerShip
+        for _ in range(50):
+            PlayerShip._extract_ship_texture("Earth", "Cruiser", 1)
+        # 50 identical rebuilds → exactly one cached texture, not 50.
+        assert len(PlayerShip._ship_tex_cache) == 1
+
+    def test_distinct_keys_return_distinct_objects(self):
+        c1 = PlayerShip._extract_ship_texture("Earth", "Cruiser", 1)
+        c2 = PlayerShip._extract_ship_texture("Earth", "Cruiser", 2)
+        e1 = PlayerShip._extract_ship_texture("Colonial", "Cruiser", 1)
+        assert c1 is not c2
+        assert c1 is not e1
+
+    def test_levels_above_max_collapse_to_one_texture(self):
+        from constants import SHIP_MAX_LEVEL
+        from sprites.player import PlayerShip
+        # Levels at and beyond SHIP_MAX_LEVEL clamp to the same column,
+        # so they must share one cached texture object.
+        top = PlayerShip._extract_ship_texture(
+            "Earth", "Cruiser", SHIP_MAX_LEVEL)
+        beyond = PlayerShip._extract_ship_texture(
+            "Earth", "Cruiser", SHIP_MAX_LEVEL + 5)
+        assert top is beyond
+        assert len(PlayerShip._ship_tex_cache) == 1

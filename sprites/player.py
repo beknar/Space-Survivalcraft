@@ -34,27 +34,45 @@ class PlayerShip(arcade.Sprite):
     _LEGACY_ROWS = 3
     _ANIM_FPS = 8
 
-    @staticmethod
+    # Cache of extracted ship textures keyed by (faction, ship_type,
+    # ship_level).  The frame for a given combo is pixel-identical every
+    # time, so we hand back the *same* arcade.Texture object on repeat
+    # calls.  This matters for the texture atlas: it tracks textures in a
+    # strong-referenced set keyed by object identity, so a fresh Texture
+    # per call (e.g. each ParkedShip rebuild) is retained forever and
+    # leaks its backing image.  Reusing the object keeps the atlas bounded.
+    _ship_tex_cache: dict[tuple[str, str, int], arcade.Texture] = {}
+
+    @classmethod
     def _extract_ship_texture(
-        faction: str, ship_type: str, ship_level: int
+        cls, faction: str, ship_type: str, ship_level: int
     ) -> arcade.Texture:
         """Crop and rotate the ship frame for the given faction/type/level.
 
         Column index in the faction sheet = ship_level - 1 (clamped to
         SHIP_MAX_LEVEL - 1).  Ships face RIGHT in the sheet; rotated 90° CCW
         so nose points UP at angle=0.
+
+        Cached by (faction, ship_type, ship_level) — see ``_ship_tex_cache``.
         """
+        col = max(0, min(ship_level - 1, SHIP_MAX_LEVEL - 1))
+        key = (faction, ship_type, col)
+        cached = cls._ship_tex_cache.get(key)
+        if cached is not None:
+            return cached
+
         stats = SHIP_TYPES[ship_type]
         filename = FACTIONS[faction]
         path = os.path.join(FACTION_SHIPS_DIR, filename)
         pil_img = PILImage.open(path).convert("RGBA")
-        col = max(0, min(ship_level - 1, SHIP_MAX_LEVEL - 1))
         x0 = col * SHIP_FRAME_SIZE
         y0 = stats["row"] * SHIP_FRAME_SIZE
         frame = pil_img.crop((x0, y0, x0 + SHIP_FRAME_SIZE, y0 + SHIP_FRAME_SIZE))
         frame = frame.rotate(90, expand=True)
         pil_img.close()
-        return arcade.Texture(frame)
+        tex = arcade.Texture(frame)
+        cls._ship_tex_cache[key] = tex
+        return tex
 
     def __init__(
         self,
