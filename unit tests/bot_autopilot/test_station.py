@@ -875,6 +875,64 @@ class TestCraftQueueOrder:
         assert ap._next_craft_target(s) is None
 
 
+class TestEmergencyShieldRechargePriority:
+    """2026-06-20: shield recharges sit LAST in the craft order
+    (modules -> repair packs -> shields), so the combat loadout the bot
+    re-crafts after every Nebula death kept the module phase ahead of
+    consumables forever -- a captured 81-min session fired ZERO shield
+    heals (shield_recharge = 0 in all 970 snapshots) and died 4x at low
+    shields.  POST-BOSS, when shield supply is dry and a batch is queued,
+    a shield recharge now jumps ahead of modules + repair packs."""
+
+    def _loop_state(self, *, iron=1645, shield_stock=0):
+        # The death-loop shape: a craftable combat module queued (broadside
+        # is in MODULE_CRAFT_QUEUE so its blueprint is present), repair
+        # batch pending, shield batch pending, shields bone dry.
+        ap._state.boss_was_killed = True
+        ap._state.queue.modules_to_craft = ["broadside"]
+        ap._state.queue.modules_to_install = ["broadside"]
+        ap._state.queue.repair_packs_remaining = 5
+        ap._state.queue.shield_recharges_remaining = 5
+        ap._state.queue.module_phase_started = True
+        ap._state.queue.consumable_phase_started = True
+        return _state(
+            buildings=[_hs_building(), _crafter_building()],
+            station_inventory_items=_all_blueprints_in_station(
+                {"iron": iron, "shield_recharge": shield_stock}),
+        )
+
+    def test_dry_shield_jumps_ahead_of_modules(self, _clock):
+        s = self._loop_state(shield_stock=0)
+        assert ap._next_craft_target(s) == "shield_recharge"
+
+    def test_pre_boss_keeps_module_first(self, _clock):
+        # Same dry-shield queue but boss NOT yet killed -> the initial
+        # build runs module-first (the bot is safe at its fortified HS).
+        s = self._loop_state(shield_stock=0)
+        ap._state.boss_was_killed = False
+        assert ap._next_craft_target(s) == "broadside"
+
+    def test_healthy_shield_stock_keeps_module_first(self, _clock):
+        # Post-boss but shield supply already above the restock floor ->
+        # normal module-first order (no emergency).
+        s = self._loop_state(shield_stock=ap.CONSUMABLE_RESTOCK_FLOOR + 5)
+        assert ap._next_craft_target(s) == "broadside"
+
+    def test_insufficient_iron_does_not_force_shield(self, _clock):
+        # Per-craft iron cost still applies; below it the emergency does
+        # not fire (and the module head also can't pay, so None).
+        s = self._loop_state(iron=150, shield_stock=0)
+        assert ap._next_craft_target(s) != "shield_recharge"
+
+    def test_no_queued_batch_keeps_module_first(self, _clock):
+        # Dry shields but no shield batch armed -> nothing to craft yet,
+        # so the normal module order resumes (a separate restock path
+        # arms the batch).
+        s = self._loop_state(shield_stock=0)
+        ap._state.queue.shield_recharges_remaining = 0
+        assert ap._next_craft_target(s) == "broadside"
+
+
 class TestEmergencyCraftPriority:
     """2026-06-09 (tier 1.95): with ~60 aliens around the Nebula HS
     there is always a threat in the engage band, so the normal CRAFT
