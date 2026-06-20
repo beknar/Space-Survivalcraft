@@ -23,16 +23,18 @@ from _helpers import _state, _hs_building
 
 
 def _zone2_swarm_state(*, shields, max_shields=100, heal_slot=False,
-                       n_band_aliens=3, px=6400.0, py=6400.0):
-    """ZONE2 state: player at (px,py) with a Home Station far away, a
-    multi-alien swarm inside the engage band, optional shield_recharge."""
+                       n_band_aliens=3, px=6400.0, py=6400.0,
+                       hs_xy=(5000.0, 5000.0)):
+    """ZONE2 state: player at (px,py) with a Home Station at ``hs_xy``
+    (default ~1980 px away, inside the 2800 outer cap), a multi-alien
+    swarm inside the engage band, optional shield_recharge."""
     s = _state(
         player={"x": px, "y": py, "heading": 0.0,
                 "hp": 100, "max_hp": 100,
                 "shields": shields, "max_shields": max_shields},
         aliens=[{"x": px + 850 + 10 * i, "y": py, "hp": 50}
                 for i in range(n_band_aliens)],
-        buildings=[_hs_building(x=5000.0, y=5000.0)],
+        buildings=[_hs_building(x=hs_xy[0], y=hs_xy[1])],
         world_w=8000, world_h=8000,
     )
     s["zone"]["id"] = "ZoneID.ZONE2"
@@ -78,6 +80,47 @@ class TestSuppressionPredicate:
         s = _zone2_swarm_state(shields=0)
         for a in s["aliens"]:
             a["x"] = 6400.0 + 1500.0   # > ENGAGE_EXIT_PX (1000)
+        assert bac._engage_suppressed_critical_unhealed(
+            s, "ZoneID.ZONE2") is False
+
+
+class TestFarFromHomeSuppression:
+    """2026-06-19: ENGAGE outranks the section-2.6 flee tether, so a close
+    alien met mid-roam pulled the unhealed bot deeper instead of letting
+    the tether's outer cap carry it home -- 2 of 5 captured ZONE2 deaths
+    were engage-driven at hs_dist 2932 / 4441.  Suppress ENGAGE for an
+    unhealed bot beyond the healed radius (2800 px) even at healthy
+    shields, so the tether wins."""
+
+    # Player at (6400,6400); HS at (3000,3000) -> hs_dist ~4808 (> 2800).
+    _FAR_HS = (3000.0, 3000.0)
+
+    def test_far_unhealed_moderate_shields_suppresses(self):
+        s = _zone2_swarm_state(shields=50, hs_xy=self._FAR_HS)  # not critical
+        assert bac._engage_suppressed_critical_unhealed(
+            s, "ZoneID.ZONE2") is True
+
+    def test_far_unhealed_full_shields_suppresses(self):
+        s = _zone2_swarm_state(shields=100, hs_xy=self._FAR_HS)
+        assert bac._engage_suppressed_critical_unhealed(
+            s, "ZoneID.ZONE2") is True
+
+    def test_near_unhealed_moderate_shields_still_engages(self):
+        # Within the 2800 cap and above the critical floor -> defend
+        # normally (the bot should fight close threats near its base).
+        s = _zone2_swarm_state(shields=50)  # default HS ~1980 px away
+        assert bac._engage_suppressed_critical_unhealed(
+            s, "ZoneID.ZONE2") is False
+
+    def test_far_but_healed_still_engages(self):
+        s = _zone2_swarm_state(shields=50, heal_slot=True,
+                               hs_xy=self._FAR_HS)
+        assert bac._engage_suppressed_critical_unhealed(
+            s, "ZoneID.ZONE2") is False
+
+    def test_far_unhealed_but_lone_alien_still_engages(self):
+        s = _zone2_swarm_state(shields=50, n_band_aliens=1,
+                               hs_xy=self._FAR_HS)
         assert bac._engage_suppressed_critical_unhealed(
             s, "ZoneID.ZONE2") is False
 

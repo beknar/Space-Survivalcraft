@@ -109,6 +109,9 @@ class TestStickyCommitNoPingPong:
     has turned for home (cur == S_IDLE_AT_BASE) it must STAY committed
     until back inside the leash, not bounce back out to mine."""
 
+    # hs_dist 2000 sits between the 1500 unhealed leash and the 2800
+    # absolute outer cap, so these isolate the sticky logic without the
+    # cap (TestUnhealedAbsoluteOuterCap) firing first.
     def test_sticky_holds_when_swarm_count_dips(
             self, _clock, _fresh_bot_state):
         """Already heading home, unhealed, far -- a momentary sub-threshold
@@ -116,7 +119,7 @@ class TestStickyCommitNoPingPong:
         # Only 3 aliens in range -- below RETREAT_SWARM_ALIEN_COUNT, so the
         # raw swarm gate would read False.
         s = _swarm_state(shields=100, healed=False, n=3,
-                         alien_dist=1500.0, hs_dist=4400.0)
+                         alien_dist=1500.0, hs_dist=2000.0)
         hs = ap._find_home_station(s)
         assert choose._zone2_far_swarm_tether(
             s, s["player"], hs, ap.S_IDLE_AT_BASE) is True
@@ -124,10 +127,11 @@ class TestStickyCommitNoPingPong:
     def test_not_sticky_from_mine_with_weak_swarm(
             self, _clock, _fresh_bot_state):
         """Control: the stickiness is entry-direction aware -- from MINE
-        (not yet committed) a sub-threshold swarm does NOT tether, so the
-        bot still mines when it isn't genuinely swarmed (no over-tether)."""
+        (not yet committed) a sub-threshold swarm inside the outer cap does
+        NOT tether, so the bot still mines when it isn't genuinely swarmed
+        (no over-tether)."""
         s = _swarm_state(shields=100, healed=False, n=3,
-                         alien_dist=1500.0, hs_dist=4400.0)
+                         alien_dist=1500.0, hs_dist=2000.0)
         hs = ap._find_home_station(s)
         assert choose._zone2_far_swarm_tether(
             s, s["player"], hs, ap.S_MINE) is False
@@ -149,8 +153,48 @@ class TestStickyCommitNoPingPong:
         with a borderline swarm, keeps returning IDLE_AT_BASE across ticks
         instead of flipping to MINE."""
         s = _swarm_state(shields=100, healed=False, n=3,
-                         alien_dist=1500.0, hs_dist=4400.0)
+                         alien_dist=1500.0, hs_dist=2000.0)
         s["asteroids"] = [{"x": 200.0, "y": 0.0, "hp": 100}]
         for _ in range(4):
             out = ap._choose_next_state(s, s["player"], ap.S_IDLE_AT_BASE)
             assert out == ap.S_IDLE_AT_BASE
+
+
+class TestUnhealedAbsoluteOuterCap:
+    """2026-06-19: all 5 deaths in the captured ZONE2 session were beyond
+    2800 px (the healed operating radius) while unhealed -- the bot
+    outran the swarm (so the count gate went silent) at full shields (so
+    the 0.7 leash stayed silent) and MINE/ENGAGE dragged it to ~4500 px,
+    where momentum stranded it once shields crashed.  An unhealed bot must
+    never operate farther than a healed one: beyond ZONE2_TETHER_DIST_PX
+    it tethers on distance alone, regardless of swarm or shield level."""
+
+    def test_far_full_shield_no_swarm_tethers(
+            self, _clock, _fresh_bot_state):
+        # Unhealed, FULL shields, NO adjacent swarm (aliens beyond the wide
+        # gate), but hs_dist 3400 > 2800 -> the outer cap fires.
+        s = _swarm_state(shields=100, healed=False, n=3,
+                         alien_dist=2500.0, hs_dist=3400.0)
+        hs = ap._find_home_station(s)
+        assert choose._zone2_far_swarm_tether(
+            s, s["player"], hs, ap.S_MINE) is True
+
+    def test_just_inside_cap_does_not_tether(
+            self, _clock, _fresh_bot_state):
+        # hs_dist 2600 < 2800, full shields, no adjacent swarm -> still
+        # free to mine (the cap only tightens, doesn't trap near-home).
+        s = _swarm_state(shields=100, healed=False, n=3,
+                         alien_dist=2500.0, hs_dist=2600.0)
+        hs = ap._find_home_station(s)
+        assert choose._zone2_far_swarm_tether(
+            s, s["player"], hs, ap.S_MINE) is False
+
+    def test_healed_far_no_swarm_still_roams(
+            self, _clock, _fresh_bot_state):
+        # Control: the cap is UNHEALED-only.  A healed bot beyond 2800 with
+        # no adjacent swarm keeps the normal generous behaviour (no cap).
+        s = _swarm_state(shields=100, healed=True, n=3,
+                         alien_dist=2500.0, hs_dist=3400.0)
+        hs = ap._find_home_station(s)
+        assert choose._zone2_far_swarm_tether(
+            s, s["player"], hs, ap.S_MINE) is False

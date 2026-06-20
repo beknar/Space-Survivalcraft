@@ -73,43 +73,51 @@ def _bot_has_ready_shield_consumable(state: dict) -> bool:
 
 
 def _engage_suppressed_critical_unhealed(state: dict, zone_id: str) -> bool:
-    """Section-2 ENGAGE suppression for the unhealed-zero-shields ZONE2
-    death spiral.
+    """Section-2 ENGAGE suppression for the unhealed ZONE2 death spiral.
 
-    True when, in the Nebula (ZONE2): shields are below the critical
-    floor (``RETREAT_CRITICAL_SHIELD_PCT``), the bot has NO ready
-    shield_recharge to fire (so the armed heal latch can never land --
-    fighting is a pure loss, per ``_bot_has_ready_shield_consumable``),
-    AND it faces more than one alien inside the engage band.  In that
-    state ENGAGE just kites one alien while the strung-out swarm grinds
-    the bot at zero shields; it must break contact and let the
-    section-2.6 flee tether (or RETREAT) drive it back under the
-    Home-Station umbrella.
+    Fires (in the Nebula, with NO ready shield_recharge so the armed
+    heal latch can never land -- fighting is a pure loss per
+    ``_bot_has_ready_shield_consumable`` -- AND more than one alien
+    inside the engage band) in either of two states:
 
-    Captured 2026-06-18 bot_io: at sh=0/100 with no shield_recharge
-    (ship + slot both 0) in a 59-alien ZONE2 swarm ~1500 px from the
-    HS, the bot oscillated ENGAGE <-> IDLE_AT_BASE nine times in ~18 s
-    -- each ENGAGE preempting the flee tether, the bot gaining no
-    ground on the flee and never recovering shields -- before finally
-    reaching REGEN.  RETREAT (section 0.5) stayed silent because its
-    ``>= RETREAT_SWARM_ALIEN_COUNT``-within-range density gate misses a
-    strung-out swarm whose members sit at the engage-band edge.
+      * **Critical shields** -- shields below ``RETREAT_CRITICAL_SHIELD_PCT``.
+        ENGAGE just kites one alien while the strung-out swarm grinds the
+        bot at near-zero shields.  Captured 2026-06-18: at sh=0/100 in a
+        59-alien swarm ~1500 px out the bot oscillated ENGAGE <->
+        IDLE_AT_BASE nine times in ~18 s before dying.
 
-    Scoped tightly (ZONE2 only, sub-critical shields, no heal, real
-    multi-alien swarm) so a healed or healthy bot still ENGAGEs
-    normally -- this fires only for the exact pure-loss state.
+      * **Far from home** (2026-06-19) -- ``hs_dist`` beyond the healed
+        operating radius (``ZONE2_TETHER_DIST_PX``), at ANY shield level.
+        ENGAGE outranks the section-2.6 flee tether, so a close alien
+        encountered mid-roam pulls the bot deeper instead of letting the
+        tether's outer cap carry it home; in this Newtonian world the
+        chase + momentum stranded it.  Captured: 2 of 5 ZONE2 deaths were
+        engage-driven at hs_dist 2932 / 4441.  Suppressing ENGAGE here
+        lets the tether (which now hard-caps an unhealed bot at the
+        healed radius) drive it back under the umbrella.
+
+    Either way the bot must break contact and let the flee tether /
+    RETREAT drive it home.  Scoped tightly (ZONE2 + unhealed + real
+    multi-alien swarm) so a healed or near-home bot still ENGAGEs.
     """
     if "ZONE2" not in zone_id:
+        return False
+    if _bot_has_ready_shield_consumable(state):
         return False
     p = state.get("player") or {}
     sh = int(p.get("shields", 0))
     mx = max(1, int(p.get("max_shields", 1)))
-    if sh / mx >= _ap.RETREAT_CRITICAL_SHIELD_PCT:
-        return False
-    if _bot_has_ready_shield_consumable(state):
-        return False
+    critical = (sh / mx) < _ap.RETREAT_CRITICAL_SHIELD_PCT
     px = float(p.get("x", 0.0))
     py = float(p.get("y", 0.0))
+    far = False
+    hs = _ap._find_home_station(state)
+    if hs is not None:
+        hs_dist = math.hypot(float(hs.get("x", 0.0)) - px,
+                             float(hs.get("y", 0.0)) - py)
+        far = hs_dist > _ap.ZONE2_TETHER_DIST_PX
+    if not (critical or far):
+        return False
     near = sum(
         1 for a in (state.get("aliens") or [])
         if math.hypot(float(a.get("x", 0.0)) - px,
@@ -266,6 +274,24 @@ def _zone2_far_swarm_tether(state: dict, p: dict, hs,
         sh = int(p.get("shields", 0))
         sh_max = max(1, int(p.get("max_shields", 1)))
         if (sh / sh_max) < _ap.ZONE2_TETHER_UNHEALED_SHIELD_PCT:
+            return True
+        # Absolute outer cap (2026-06-19): an unhealed bot must never
+        # operate FARTHER from home than a healed one.  Beyond the healed
+        # radius (ZONE2_TETHER_DIST_PX) tether on distance ALONE -- even
+        # at full shields, even with no swarm currently adjacent.  The
+        # swarm-count gate below goes silent when the bot OUTRUNS the
+        # pack (few aliens within range while it rockets ahead), which
+        # let unhealed MINE / ENGAGE chases drag the bot out to
+        # 3400-4500 px in this Newtonian world; momentum then stranded it
+        # when shields finally crashed.  All 5 deaths in the captured
+        # ZONE2 session were beyond this cap (hs_dist 3377-4485, full or
+        # near-full shields on the way out).  Firing here turns the bot
+        # home while shields are still healthy and the trip is short; the
+        # sticky commit below carries it the rest of the way.  The cap
+        # equals the healed radius, so it only tightens the unhealed
+        # bot's leash and never traps a near-home miner (the 2026-06-10
+        # starvation case sits at the 1500 px leash, well inside this).
+        if hs_dist > _ap.ZONE2_TETHER_DIST_PX:
             return True
     # Sticky commitment (2026-06-19): once an unhealed bot has turned for
     # home (cur == S_IDLE_AT_BASE) and is still beyond the leash, stay
