@@ -86,6 +86,7 @@ from update_audio import (  # noqa: E402
     _MAX_DELETES_PER_TICK,
     _tracked_play_sound,
     _cleanup_finished_sounds,
+    advance_sim_clock,
 )
 import time as _time  # used by other helpers below
 
@@ -123,6 +124,7 @@ def update_preamble(gv: GameView, dt: float) -> None:
     # a cheap gen-0 collection to reclaim the short-lived cycles the
     # cleanup itself creates (list churn, exception objects from the
     # occasional ``p.delete()`` throw).  gen-0 is ~0.1–0.2 ms.
+    advance_sim_clock(dt)
     _sound_cleanup_timer += dt
     if _sound_cleanup_timer >= 5.0:
         _sound_cleanup_timer = 0.0
