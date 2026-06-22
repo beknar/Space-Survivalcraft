@@ -212,7 +212,7 @@ class TestTrackedPlaySoundExceptionShield:
             result = update_audio._tracked_play_sound(object())
             assert result is sentinel_player
             assert len(update_audio._sound_players) == 1
-            assert update_audio._sound_players[0][1] is sentinel_player
+            assert update_audio._sound_players[0][-1] is sentinel_player
         finally:
             self._restore_state(update_audio, saved_real, saved_list)
 
@@ -237,9 +237,9 @@ class TestTrackedPlaySoundExceptionShield:
 
             oldest = FakePlayer("oldest")
             update_audio._sound_players[:] = [
-                (0.0, oldest)
+                (0.0, 0.0, oldest)
             ] + [
-                (float(i), FakePlayer(f"p{i}"))
+                (float(i), float(i), FakePlayer(f"p{i}"))
                 for i in range(1, update_audio._SOUND_HARD_CAP)
             ]
 
@@ -256,3 +256,89 @@ class TestTrackedPlaySoundExceptionShield:
                 "shorter, not full.")
         finally:
             self._restore_state(update_audio, saved_real, saved_list)
+
+
+class TestSoundCleanupDualClock:
+    """``_cleanup_finished_sounds`` ages players by BOTH wall-clock and
+    sim-time, reaping on whichever crosses ``_SOUND_MAX_AGE`` first.
+
+    The sim-time clock (advanced per frame via ``advance_sim_clock``)
+    is what lets soak / perf loops — which run hundreds of frames per
+    wall-clock second — reap finished SFX players instead of letting
+    them pile up to the 200 hard cap.  Regression guard for the
+    residual Basic-Ship-rebuild soak memory growth (2026-06-20).
+    """
+
+    class _FakePlayer:
+        def __init__(self):
+            self.deleted = False
+
+        def delete(self):
+            self.deleted = True
+
+    def _save(self, update_audio):
+        return (list(update_audio._sound_players), update_audio._sim_clock)
+
+    def _restore(self, update_audio, saved):
+        update_audio._sound_players[:] = saved[0]
+        update_audio._sim_clock = saved[1]
+
+    def test_advance_sim_clock_accumulates(self):
+        import update_audio
+        saved = self._save(update_audio)
+        try:
+            update_audio._sim_clock = 0.0
+            update_audio.advance_sim_clock(1.5)
+            update_audio.advance_sim_clock(2.0)
+            assert update_audio._sim_clock == pytest.approx(3.5)
+        finally:
+            self._restore(update_audio, saved)
+
+    def test_sim_time_reaps_when_wall_clock_is_fresh(self):
+        """The core fix: a player that is old by SIM time but young by
+        wall-clock (the accelerated-loop case) must still be reaped."""
+        import time
+        import update_audio
+        saved = self._save(update_audio)
+        try:
+            p = self._FakePlayer()
+            now_wall = time.perf_counter()
+            # Fresh by wall-clock (just created), but 10 s old by sim.
+            update_audio._sound_players[:] = [(now_wall, 0.0, p)]
+            update_audio._sim_clock = 10.0
+            update_audio._cleanup_finished_sounds()
+            assert p.deleted is True
+            assert update_audio._sound_players == []
+        finally:
+            self._restore(update_audio, saved)
+
+    def test_wall_clock_reaping_still_works(self):
+        """Production path unchanged: a player old by wall-clock is
+        reaped even if sim time hasn't advanced."""
+        import time
+        import update_audio
+        saved = self._save(update_audio)
+        try:
+            p = self._FakePlayer()
+            old_wall = time.perf_counter() - (update_audio._SOUND_MAX_AGE + 1)
+            update_audio._sound_players[:] = [(old_wall, 0.0, p)]
+            update_audio._sim_clock = 0.0
+            update_audio._cleanup_finished_sounds()
+            assert p.deleted is True
+        finally:
+            self._restore(update_audio, saved)
+
+    def test_fresh_by_both_clocks_is_kept(self):
+        import time
+        import update_audio
+        saved = self._save(update_audio)
+        try:
+            p = self._FakePlayer()
+            now_wall = time.perf_counter()
+            update_audio._sound_players[:] = [(now_wall, 5.0, p)]
+            update_audio._sim_clock = 5.5  # only 0.5 s of sim age
+            update_audio._cleanup_finished_sounds()
+            assert p.deleted is False
+            assert len(update_audio._sound_players) == 1
+        finally:
+            self._restore(update_audio, saved)

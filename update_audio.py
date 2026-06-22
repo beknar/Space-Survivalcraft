@@ -36,9 +36,32 @@ import arcade
 # so 3 s is a safe upper bound.
 
 _SOUND_MAX_AGE = 3.0  # seconds — all game SFX finish within this
-_sound_players: list[tuple[float, object]] = []  # (creation_time, Player)
+# Each entry is (wall_created, sim_created, Player).  We stamp BOTH a
+# wall-clock and a sim-time creation timestamp and reap on whichever
+# crosses _SOUND_MAX_AGE first — see _cleanup_finished_sounds + the
+# _sim_clock note below.
+_sound_players: list[tuple[float, float, object]] = []
+
+# Accumulated sim-time (sum of per-frame dt), advanced once per frame by
+# ``advance_sim_clock`` from update_preamble.  The wall-clock age check
+# alone can't reap players when the update loop runs faster than real
+# time: soak / perf tests run hundreds of frames per wall-clock second,
+# so every player looks <3 s old forever and the backlog climbs to the
+# 200 hard cap (tens of MB of decoded-PCM Players pinned the whole run —
+# the residual growth chased in the 2026-06-20 Basic-Ship-rebuild soak).
+# Ageing by accumulated dt as well lets cleanup keep up in accelerated
+# time.  In real gameplay sim time tracks wall time, so this never
+# changes behaviour there; it only ever makes cleanup more aggressive.
+_sim_clock: float = 0.0
 
 _real_play_sound = arcade.play_sound
+
+
+def advance_sim_clock(dt: float) -> None:
+    """Advance the sim-time clock used as a fallback age signal for
+    sound-player cleanup.  Called once per frame from update_preamble."""
+    global _sim_clock
+    _sim_clock += dt
 
 
 # ═══ GC + sound cleanup ═══════════════════════════════════════════════════
@@ -73,7 +96,7 @@ def _tracked_play_sound(*args, **kwargs):
     already does for a missing/None sound — return None.  Existing
     callers already handle None returns."""
     if len(_sound_players) >= _SOUND_HARD_CAP:
-        _, oldest = _sound_players.pop(0)
+        *_, oldest = _sound_players.pop(0)
         try:
             oldest.delete()
         except Exception:
@@ -83,7 +106,7 @@ def _tracked_play_sound(*args, **kwargs):
     except Exception:
         return None
     if player is not None:
-        _sound_players.append((_time.perf_counter(), player))
+        _sound_players.append((_time.perf_counter(), _sim_clock, player))
     return player
 
 
@@ -120,6 +143,7 @@ def _cleanup_finished_sounds() -> None:
     per 5-s tick).
     """
     now = _time.perf_counter()
+    sim_now = _sim_clock
     backlog = len(_sound_players)
     if backlog > 100:
         deletes_remaining = 32
@@ -127,10 +151,15 @@ def _cleanup_finished_sounds() -> None:
         deletes_remaining = 12
     else:
         deletes_remaining = _MAX_DELETES_PER_TICK
-    alive: list[tuple[float, object]] = []
-    for created_at, p in _sound_players:
-        if now - created_at < _SOUND_MAX_AGE or deletes_remaining <= 0:
-            alive.append((created_at, p))
+    alive: list[tuple[float, float, object]] = []
+    for wall_created, sim_created, p in _sound_players:
+        # A player is "finished" once it's older than _SOUND_MAX_AGE by
+        # EITHER clock — wall-clock for real gameplay, sim-time so the
+        # accelerated soak / perf loops can reap too (see _sim_clock).
+        finished = (now - wall_created >= _SOUND_MAX_AGE
+                    or sim_now - sim_created >= _SOUND_MAX_AGE)
+        if not finished or deletes_remaining <= 0:
+            alive.append((wall_created, sim_created, p))
         else:
             deletes_remaining -= 1
             try:
